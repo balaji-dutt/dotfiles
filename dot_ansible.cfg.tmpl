@@ -1,0 +1,23 @@
+[defaults]
+
+# Default user to use for playbooks if user is not specified
+# Uses the connection plugin's default, normally the user currently executing Ansible,
+# unless a different user is specified here.
+#
+remote_user = root
+
+# If set, always use this private key file for authentication, same as
+# if passing --private-key to ansible or ansible-playbook
+#
+{{- if eq .chezmoi.os "darwin" -}}
+private_key_file = "{{ .ansible_key }}"
+{{ else if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+private_key_file = $HOME/.ssh/root_terraform_ansible
+{{- end }}
+
+#control displaying ‘ok’ task/host results in a task
+display_ok_hosts = no
+{{ if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+[ssh_connection]
+ssh_extra_args = "-o IdentitiesOnly=yes"
+{{- end }}
