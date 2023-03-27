@@ -1,0 +1,18 @@
+[
+    {
+        "caption": "Cleanup Repo",
+        "command": "git",
+        "args": {"argv": ["gc"]}
+    },
+    {
+        "caption": "Check Next Tag Version",
+        "command": "git",
+        "args": {"argv": ["mkver", "next"]}
+    },
+    {
+        "caption": "Tag Next Version",
+        "command": "git",
+        "args": {"argv": ["mkver", "tag"]}
+    }
+
+]
