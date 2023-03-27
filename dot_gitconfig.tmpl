@@ -1,0 +1,114 @@
+[init]
+    defaultBranch = main
+[transfer]
+    fsckobjects = true
+[fetch]
+    fsckobjects = true
+    prune = true
+[receive]
+    fsckobjects = true
+[core]
+    autocrlf = true
+{{- if eq .chezmoi.os "linux" }}
+{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    excludesfile = /mnt/c/Users/Balaji/gitignore_global.txt
+    # This only works when using WSL2 in VSCode as that will set the correct $PATH variables
+    editor = code --wait
+    # Don't consider trailing space change as a cause for merge conflicts
+    whitespace = -trailing-space
+    preloadindex = true
+    # Disabled till we can upgrade git in Ubuntu WSL2 to 2.37 or higher
+    # fsmonitor = true
+{{ else }}
+    excludesfile = $HOME/.gitignore
+    # Don't consider trailing space change as a cause for merge conflicts
+    whitespace = -trailing-space
+    preloadindex = true
+    fsmonitor = true
+{{   end -}}
+{{ end -}}
+[user]
+    name = {{ .name }}
+{{- if eq .chezmoi.os "linux" }}
+{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    email = {{ onepasswordRead "op://private/gitlab.com/email" }}
+{{ else if eq .chezmoi.os "darwin" -}}
+    email = {{ onepasswordRead "op://private/gitlab.com/email" }}
+{{ else }}
+    email = {{ .email }}
+{{   end -}}
+{{ end -}}
+[merge]
+    defaultToUpstream = true
+[rebase]
+    autosquash = true
+[branch]
+    autosetupmerge = always
+[push]
+    default = matching
+[http]
+    postBuffer = 52428800
+[log]
+    # Use abbrev SHAs whenever possible/relevant instead of full 40 chars
+    abbrevCommit = true
+[color "diff"]
+    new = green bold
+[color "status"]
+    updated = green bold
+[color "branch"]
+    current = green bold
+{{- if eq .chezmoi.os "linux" }}
+{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+[diff]
+    # Use better, descriptive initials (c, i, w) instead of a/b.
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    # Use VSCode as default diff tool when running `git diff-tool`
+    tool = vscode
+    [difftool "vscode"]
+      cmd = code --wait --diff $LOCAL $REMOTE
+[difftool]
+    prompt = false
+[merge]
+    keepBackup = false
+    tool = smerge
+    [mergetool "smerge"]
+        cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
+        keepTemporaries = false
+        trustExitCode = true
+{{- else if eq .chezmoi.os "darwin"}}
+[diff]
+    # Use better, descriptive initials (c, i, w) instead of a/b.
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    # Use VSCode as default diff tool when running `git diff-tool`
+    tool = vscode
+    [difftool "vscode"]
+      cmd = code --wait --diff $LOCAL $REMOTE
+[difftool]
+    prompt = false
+[merge]
+    keepBackup = false
+    tool = smerge
+    [mergetool "smerge"]
+        cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
+        keepTemporaries = false
+        trustExitCode = true
+{{ else }}
+[diff]
+    # Use better, descriptive initials (c, i, w) instead of a/b.
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    tool = vimdiff
+[merge]
+    keepBackup = false
+    tool = vimdiff
+{{   end -}}
+{{ end }}
+[alias]
+    plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
+
+
