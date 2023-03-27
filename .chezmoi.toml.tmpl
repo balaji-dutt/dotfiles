@@ -1,0 +1,12 @@
+{{- $name := promptStringOnce . "name" "Name" -}}
+{{- $email := promptStringOnce . "email" "Email address" -}}
+{{- $CERTPATH := promptStringOnce . "~/certpath" "Path to Internal SSL Cert Directory" -}}
+{{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
+
+sourceDir = "/home/balaji/development/dotfiles"
+
+[data]
+email = {{ $email | toToml }}
+name = {{ $name | toToml }}
+CERTPATH = {{ $CERTPATH | quote }}
+ansible_key = {{ $ansible_key | quote }}
