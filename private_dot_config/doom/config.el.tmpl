@@ -183,3 +183,105 @@
             ))
 
 
+;; Configure org-mode
+(after! org
+  (add-hook! 'org-mode-hook #'emojify-mode)
+
+  ;; Setup org-todos
+  (setq org-todo-keywords
+        (quote ((sequence "TODO(t)" "NEXT(n)" "WIP(i)" "MAYBE(e)" "|" "DONE(d)")
+                (sequence "WAITING(w@/!)" "HOLD(h@/!)" "|" "CANCELLED(c@/!)"))))
+  (setq org-todo-keyword-faces
+        '(("PROJ" :background "blue" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("TODO" :background "red1" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("NEXT" :background "red2" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("WIP" :background "orange" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("WAITING" :background "yellow" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("HOLD" :background "gold" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("DELEGATED" :background "gold" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("MAYBE" :background "gray" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("APPT" :background "red1" :foreground "black" :weight bold :box (:line-width 2 :style released-button))
+          ("DONE" :background "forest green" :weight bold :box (:line-width 2 :style released-button))
+          ("CANCELLED" :background "#b1cfff" :foreground "black" :weight bold :box (:line-width 2 :style released-button))))
+
+  ;; Setup org capture templates
+  ;; :kill-buffer t
+  (setq org-default-notes-file (concat org-directory "inbox.org"))
+  ;; Ugly hack to allow all .org files in the org-directory to be used as refile targets
+  ;; without expecting org-agenda to also be available.
+  (setq org-targets (file-expand-wildcards (concat org-directory "*.org")))
+  (setq org-refile-targets '((org-targets :maxlevel . 2)
+                             (nil :maxlevel . 5)))
+  (setq org-outline-path-complete-in-steps nil)         ; Refile in a single go
+  (setq org-refile-use-outline-path t)                  ; Show full paths for refiling
+  (setq org-capture-templates `(
+                                 ("n" "Do Now" entry (file+headline org-default-notes-file "TASKS")
+                                 "** NEXT %u:  %?" :prepend t)
+                                ("t" "ToDo" entry (file+headline org-default-notes-file "TASKS")
+                                 "** TODO %u:  %?" :prepend t)
+                                ("l" "Research ToDo" entry (file+headline org-default-notes-file "RESEARCH")
+                                 "** TODO  %?\n   +Notes\n    - %u: %(org-cliplink-capture)" :prepend t)
+                                ("m" "Maybe" entry (file+headline org-default-notes-file "TASKS")
+                                 "** MAYBE %u:  %?" :prepend t)
+                                ("e" "Research Maybe" entry (file+headline org-default-notes-file "RESEARCH")
+                                 "** MAYBE  %?\n   +Notes\n    - %u: %(org-cliplink-capture)" :prepend t)
+                                ))
+
+)
+
+;; Configure org-agenda
+(after! org-agenda
+  (add-hook! 'org-agenda-mode-hook #'emojify-mode)
+  (setq org-agenda-custom-commands
+  '(("d" "Grouped Agenda View"
+     (
+      ;; (agenda "" ((org-agenda-span 10)
+      ;;             (org-agenda-start-on-weekday nil)
+      ;;             (org-agenda-start-day "-7d")
+      ;;             (org-agenda-entry-types '(:timestamp :sexp))))
+      (org-ql-block '(todo "NEXT")
+                     ((org-ql-block-header "Quick/Immediate Todo's"))
+                     :sort '(date priority reverse))
+      (org-ql-block '(todo "WIP")
+                     ((org-ql-block-header "WIP"))
+                     :sort '(date priority reverse))
+      (org-ql-block '(or (todo "WAITING")
+                         (todo "HOLD"))
+                     ((org-ql-block-header "On-Hold"))
+                     :sort '(priority reverse date todo))
+      (org-ql-block '(todo "TODO")
+                     ((org-ql-block-header "Todo"))
+                     :sort '(priority reverse date))
+      (org-ql-block '(todo "MAYBE")
+                     ((org-ql-block-header "Someday")))
+      )
+     ;; (org-agenda-tag-filter-preset '("-ARCHIVE"))
+     ;; ((org-agenda-compact-blocks t))
+     ((org-agenda-block-separator 9472))
+     )
+
+    ("i" "IRL ToDo's"
+     (
+      ;; (agenda "" ((org-agenda-span 10)
+      ;;             (org-agenda-start-on-weekday nil)
+      ;;             (org-agenda-start-day "-7d")
+      ;;             (org-agenda-entry-types '(:timestamp :sexp))))
+      (org-ql-block '(todo "WIP")
+                     ((org-ql-block-header "WIP"))
+                     :sort '(date priority))
+      (org-ql-block '(or (todo "WAITING")
+                         (todo "HOLD"))
+                     ((org-ql-block-header "On-Hold"))
+                     :sort '(todo priority date))
+      (org-ql-block '(todo "TODO")
+                     ((org-ql-block-header "Todo"))
+                     :sort '(priority date))
+      (org-ql-block '(todo "MAYBE")
+                     ((org-ql-block-header "Someday")))
+      )
+     ((org-agenda-files '("/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/irlthings.org")))
+     ((org-agenda-block-separator 9472))
+     )
+    )
+  )
+)
