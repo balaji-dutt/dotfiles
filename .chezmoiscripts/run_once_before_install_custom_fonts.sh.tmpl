@@ -1,9 +1,9 @@
 #!/bin/bash
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 mkdir -p ~/.fonts && cd ~/.fonts
-# pip3 install --user -U lastversion
-# curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
-# && rm $(basename $(lastversion --assets JetBrains/JetBrainsMono))
-# curl -sLO https://github.com/indestructible-type/Drafting/archive/refs/heads/main.zip && unzip -j main.zip 'Drafting-main/fonts/ttf/*' -d drafting-mono && rm main.zip
-# curl -L -o noto-sans-symbols.zip "https://fonts.google.com/download?family=Noto%20Sans%20Symbols%202" && unzip -j noto-sans-symbols.zip "*.ttf" -d noto-sans-symbols && rm noto-sans-symbols.zip
+pip3 install --user -U lastversion
+curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
+&& rm $(basename $(lastversion --assets JetBrains/JetBrainsMono))
+curl -sLO https://github.com/indestructible-type/Drafting/archive/refs/heads/main.zip && unzip -j main.zip 'Drafting-main/fonts/ttf/*' -d drafting-mono && rm main.zip
+curl -L -o noto-sans-symbols.zip "https://fonts.google.com/download?family=Noto%20Sans%20Symbols%202" && unzip -j noto-sans-symbols.zip "*.ttf" -d noto-sans-symbols && rm noto-sans-symbols.zip
 {{ end -}}
