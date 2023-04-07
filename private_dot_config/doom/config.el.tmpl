@@ -142,3 +142,44 @@
 )
 
 
+;; Setup spellcheck
+(after! spell-fu
+  (setq ispell-program-name "hunspell")
+  (setq ispell-dictionary-alist
+      '((nil "[A-Za-z]" "[^A-Za-z]" "[']" t
+            ("-d" "en_GB" "-i" "utf-8") nil utf-8)
+        ("american"
+        "[A-Za-z]" "[^A-Za-z]" "[']" nil
+        ("-d" "en_US") nil utf-8)
+        ("english"
+        "[A-Za-z]" "[^A-Za-z]" "[']" nil
+        ("-d" "en_GB") nil utf-8)
+        ("british"
+        "[A-Za-z]" "[^A-Za-z]" "[']" nil
+        ("-d" "en_GB") nil utf-8)))
+  (progn
+    (
+    setq ispell-dictionary "british"
+    ;; ispell-change-dictionary "english"
+    ;; ispell-local-dictionary "en_US,en_GB"
+    ispell-extra-args '("-a" "-i" "utf-8")
+    ispell-silently-savep t
+    ))
+  (add-to-list 'ispell-skip-region-alist '("^#+BEGIN_SRC" . "^#+END_SRC"))
+  (setq ispell-personal-dictionary "~/.emacs.d/.local/etc/ispell/.pws")
+)
+
+;; If you use `org' and don't want your org files in the default location below,
+;; change `org-directory'. It must be set before org loads!
+(setq org-directory {{ printf "%sProjects/" .org_dir | quote }} )
+(setq org-agenda-files
+      (list {{ printf "%sProjects/homelab.org" .org_dir | quote }}
+            {{ printf "%sProjects/inbox.org" .org_dir | quote }}
+            {{ printf "%sProjects/home-network.org" .org_dir | quote }}
+            {{ printf "%sProjects/lifehacks.org" .org_dir | quote }}
+            {{ printf "%sProjects/learning-emacs.org" .org_dir | quote }}
+            {{ printf "%sProjects/memorybanks.org" .org_dir | quote }}
+            ;; add more files here
+            ))
+
+
