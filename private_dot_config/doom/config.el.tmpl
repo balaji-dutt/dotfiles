@@ -56,3 +56,89 @@
 {{ end -}}
 
 
+;; Whenever you reconfigure a package, make sure to wrap your config in an
+;; `after!' block, otherwise Doom's defaults may override your settings. E.g.
+;;
+;;   (after! PACKAGE
+;;     (setq x y))
+;;
+;; The exceptions to this rule:
+;;
+;;   - Setting file/directory variables (like `org-directory')
+;;   - Setting variables which explicitly tell you to set them before their
+;;     package is loaded (see 'C-h v VARIABLE' to look up their documentation).
+;;   - Setting doom variables (which start with 'doom-' or '+').
+;;
+;; Here are some additional functions/macros that will help you configure Doom.
+;;
+;; - `load!' for loading external *.el files relative to this one
+;; - `use-package!' for configuring packages
+;; - `after!' for running code after a package has loaded
+;; - `add-load-path!' for adding directories to the `load-path', relative to
+;;   this file. Emacs searches the `load-path' when you load packages with
+;;   `require' or `use-package'.
+;; - `map!' for binding new keys
+;;
+;; To get information about any of these functions/macros, move the cursor over
+;; the highlighted symbol at press 'K' (non-evil users must press 'C-c c k').
+;; This will open documentation for it, including demos of how they are used.
+;; Alternatively, use `C-h o' to look up a symbol (functions, variables, faces,
+;; etc).
+;;
+;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
+;; they are implemented.
+
+;; Adding back a spacemacs-style "homepage" dashboard shortcut
+;; since I often use that to "center" myself
+
+(map! :leader
+      :desc "Go to Doom dashboard"
+      "b h" #'+doom-dashboard/open
+      )
+
+;; Disable auto-save files
+(setq create-lockfiles nil)
+
+;; Customizing centaur-tabs to bring everything into a single frame and
+;; hide windows that tend to be noisy
+(after! centaur-tabs
+  (setq! centaur-tabs-show-navigation-buttons t)
+  (setq! centaur-tabs-down-tab-text " ▼ ")
+
+  ;; Ctrl + click on these icons allows for tabs to reordered.
+  ;; (setq! centaur-tabs-forward-tab-text " ▶")
+  ;; (setq! centaur-tabs-backward-tab-text " ◀")
+  (defun centaur-tabs-hide-tab (x)
+    "Disable tabs for certain buffer types"
+    (let ((name (format "%s" x)))
+      (or
+      (window-dedicated-p (selected-window))
+      ;; (string-prefix-p "*epc" name)
+      ;; (string-prefix-p "*helm" name)
+      ;; (string-prefix-p "*Helm" name)
+      ;; (string-prefix-p "*which-key*" name)
+      (string-prefix-p " *Org todo*" name)
+      (string-prefix-p "*Async-native-compile-log*" name)
+      (string-prefix-p "*Native-compile-Log*" name)
+      (string-prefix-p "*compilation*" name)
+      (string-prefix-p "*lsp" name)
+      (string-prefix-p "*markdown-output" name)
+      (string-prefix-p "*httpd" name)
+      (string-prefix-p " *" name)
+      (string-prefix-p "*eshell" name)
+      (string-prefix-p "*flyspell-region*" name)
+      (string-prefix-p "*Default-eshell" name)
+      (string-prefix-p "*Calendar*" name)
+      (string-prefix-p "init.org" name) ;;Although org-agenda will load this file, this should prevent it showing up in the list of tabs.
+      (string-prefix-p "memorybanks.org" name) ;;Since this file is only used to archive tasks, it can be hidden.
+      ;; (string-prefix-p "zotero.bib" name)
+      (and (string-prefix-p "magit" name)
+      ))))
+
+  (defun centaur-tabs-buffer-groups ()
+    "`centaur-tabs-buffer-groups' control buffers' group rules."
+    (list
+    "DEFAULT"))
+)
+
+
