@@ -129,7 +129,7 @@ alias more="less -R -X"
 {{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 
 # Update path for local binaries
-export PATH=~/.local/bin:$PATH
+export PATH=~/.local/bin:~/.emacs.d/bin/:$PATH
 
 # Set $EDITOR to nano if available else fallback to vi
 # else in a WSLg environment set $EDITOR & $VISUAL to VSCode
