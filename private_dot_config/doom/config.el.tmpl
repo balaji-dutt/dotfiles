@@ -285,3 +285,40 @@
     )
   )
 )
+
+;; I used the spacemacs function to kill buffers matching a regexp without prompting
+;; quite frequently. Unfortunately the equivalent doom function doom/kill-matching-buffers
+;; seems to not work well with org files loaded via Agenda mode. Hence, I'm importing the
+;; spacemacs functions from https://github.com/syl20bnr/spacemacs/blob/develop/layers/%2Bspacemacs/spacemacs-defaults/funcs.el
+
+(defun custom/rudekill-matching-buffers (regexp &optional internal-too)
+  "Kill - WITHOUT ASKING - buffers whose name matches the specified REGEXP. See
+the `kill-matching-buffers` for grateful killing. The optional 2nd argument
+indicates whether to kill internal buffers too.
+Returns the count of killed buffers."
+  (let* ((buffers (cl-remove-if-not
+                   (lambda (buffer)
+                     (let ((name (buffer-name buffer)))
+                       (and name (not (string-equal name ""))
+                            (or internal-too (/= (aref name 0) ?\s))
+                            (string-match regexp name))))
+                   (buffer-list))))
+    (mapc 'kill-buffer buffers)
+    (length buffers)))
+
+(defun custom/kill-matching-buffers-rudely (regexp &optional internal-too)
+  "Kill - WITHOUT ASKING - buffers whose name matches the specified REGEXP. See
+the `kill-matching-buffers` for grateful killing. The optional 2nd argument
+indicates whether to kill internal buffers too.
+Returns a message with the count of killed buffers."
+  (interactive "sKill buffers matching this regular expression: \nP")
+  (message
+   (format "%d buffer(s) killed."
+           (custom/rudekill-matching-buffers regexp internal-too))))
+
+;; Add a shortcut for kill-matching-buffers-rudely (i.e without asking)
+
+(map! :leader
+      :desc "Kill buffers matching this regular expression"
+      "b C-S-d" #'custom/kill-matching-buffers-rudely)
+
