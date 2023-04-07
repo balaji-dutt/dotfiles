@@ -89,8 +89,8 @@ fi
 #export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
-alias ll='ls -alF'
-alias la='ls -A'
+# alias ll='ls -alF'
+# alias la='ls -A'
 alias l='ls -CF'
 
 # Add an "alert" alias for long running commands.  Use like so:
@@ -116,6 +116,14 @@ if ! shopt -oq posix; then
     . /etc/bash_completion
   fi
 fi
+
+# Universal custom aliases
+alias cd=" cd"
+alias ls="ls --color=always"
+alias ll=" LC_COLLATE=C ls -lah --color=always"
+alias lt=" LC_COLLATE=C ls -lahtr --color=always"
+alias less="less -R"
+alias more="less -R -X"
 
 {{- if eq .chezmoi.os "linux" }}
 {{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
