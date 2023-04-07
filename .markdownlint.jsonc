@@ -1,0 +1,14 @@
+{
+    "default": true,
+    "MD001": false, /* Doc must start with heading */
+    "MD007": false, /* Unordered list indentation */
+    "MD013": false, /* Line length 80 chars */
+    "MD023": false, /* Headings must be at beginning of line*/
+    "MD034": false, /* No bare URLs */
+    "MD040": false, /*Code blocks must have language */
+    "MD041": false, /* First line in file must be top level heading */
+    "MD031": false, /* Fenced code blocks must be surrounded by blank lines */
+    "MD051": false, /* Link fragments should be valid */
+    "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)", /* Ignore frontmatter */
+    "no-hard-tabs": true
+}
