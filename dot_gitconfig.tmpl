@@ -9,8 +9,7 @@
     fsckobjects = true
 [core]
     autocrlf = true
-{{- if eq .chezmoi.os "linux" }}
-{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
     excludesfile = /mnt/c/Users/Balaji/gitignore_global.txt
     # This only works when using WSL2 in VSCode as that will set the correct $PATH variables
     editor = code --wait
@@ -19,7 +18,7 @@
     preloadindex = true
     # Disabled till we can upgrade git in Ubuntu WSL2 to 2.37 or higher
     # fsmonitor = true
-{{- else if eq .chezmoi.os "darwin" -}}
+{{- else if eq .chezmoi.os "darwin" }}
     excludesfile = ~/.gitignore_global
     editor = code --wait
     # Don't consider trailing space change as a cause for merge conflicts
@@ -32,18 +31,16 @@
     whitespace = -trailing-space
     preloadindex = true
     fsmonitor = true
-{{   end -}}
 {{ end -}}
+
 [user]
     name = {{ .name }}
-{{- if eq .chezmoi.os "linux" }}
-{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
     email = {{ onepasswordRead "op://private/gitlab.com/email" }}
-{{ else if eq .chezmoi.os "darwin" -}}
+{{- else if eq .chezmoi.os "darwin" }}
     email = {{ onepasswordRead "op://private/gitlab.com/email" }}
 {{ else }}
     email = {{ .email }}
-{{   end -}}
 {{ end -}}
 [merge]
     defaultToUpstream = true
@@ -91,6 +88,7 @@
         keepTemporaries = false
         trustExitCode = true
 {{- else if eq .chezmoi.os "darwin"}}
+
 [diff]
     # Use better, descriptive initials (c, i, w) instead of a/b.
     mnemonicPrefix = true
@@ -124,7 +122,6 @@
 [alias]
     plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
 {{- if eq .chezmoi.os "darwin"}}
-
 [interactive]
     diffFilter = diff-so-fancy --patch
 [color "diff-highlight"]
