@@ -3,7 +3,14 @@
 # Default user to use for playbooks if user is not specified
 # Uses the connection plugin's default, normally the user currently executing Ansible,
 # unless a different user is specified here.
-#
+# Generally speaking, having ansible directly execute commands as root is frowned upon
+# and the recommendation is to create a separate user with privilege escalation. For
+# automation purposes, it is likely that the ansible user will have promptless privilege escalation
+# and if connecting via SSH, then the ansible user should be set to only login with SSH key and not
+# password. In the case of the servers/VM's managed through this repo, *all* linux machines are built
+# using a bootstrap configuration that disables the root user's password entirely and the root user
+# only supports SSH key based login. Given this configuration can still be deemed as reasonably secure,
+# we will directly use...
 remote_user = root
 
 # If set, always use this private key file for authentication, same as
