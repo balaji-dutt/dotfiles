@@ -155,6 +155,23 @@ else
 fi
 
 # Pageant/WSL2 inter-op
+
+export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
+
+EXISTING_SSH_PID=$(ps -xww | grep -q "[n]piperelay.exe -ei -s //./pipe/ssh-pageant" | awk '{ print $1 }')
+
+if [[ -z "${EXISTING_SSH_PID}" ]]; then
+ socat \
+   EXEC:"/mnt/c/Users/Balaji/Applications/npiperelay.exe -ei -s /\/\./\pipe/\ssh-pageant" \
+   UNIX-LISTEN:/tmp/wsl2-ssh-agent.sock,unlink-close,unlink-early,fork >/dev/null 2>&1 &
+else
+        echo "removing previous socket..."
+        rm $SSH_AUTH_SOCK
+fi
+
+# Wrap the previous commands in a function so that we can reconnect to Pageant
+# in case of socat crash.
+
 sset () {
   export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
 
