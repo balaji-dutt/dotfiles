@@ -4,7 +4,14 @@
 {{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
 {{- $org_dir := promptStringOnce . "Org-mode Directory" "Path to Emacs org-mode directory" -}}
 
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 sourceDir = "/home/balaji/development/dotfiles"
+{{- else if eq .chezmoi.os "darwin" -}}
+sourceDir = "/Users/balaji/Documents/development/dotfiles"
+{{ else }}
+# other operating system
+{{ end }}
+
 
 [data]
 email = {{ $email | toToml }}
