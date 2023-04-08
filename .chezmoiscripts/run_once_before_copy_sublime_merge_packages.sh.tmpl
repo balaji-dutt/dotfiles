@@ -1,0 +1,7 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+#!/bin/bash
+mkdir -p $HOME/.config/sublime-merge/Packages/User && cd $HOME/.config/sublime-merge/Packages/User
+curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 Packages-4148/Git\ Formats/ \
+&& rm $(basename $(lastversion --assets sublimehq/Packages))
+# curl https://github.com/sublimehq/Packages/archive/refs/heads/master.zip -o packages.zip && unzip -j packages.zip 'Git Formats/*' -d "Git Formats" && rm packages.zip
+{{ end -}}

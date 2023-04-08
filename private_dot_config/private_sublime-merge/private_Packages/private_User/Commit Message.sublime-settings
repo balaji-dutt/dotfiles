@@ -1,0 +1,6 @@
+// Settings in here override those in "Default/Commit Message.sublime-settings"
+{
+  "syntax": "Packages/User/Git Formats/Git Commit.sublime-syntax",
+  "rulers": [ 50, 72 ],
+  "word_wrap": true
+}

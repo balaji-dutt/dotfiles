@@ -1,0 +1,5 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{
+    "editor_path": "code --wait"
+}
+{{ end -}}
