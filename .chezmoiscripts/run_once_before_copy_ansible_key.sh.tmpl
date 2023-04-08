@@ -1,5 +1,5 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/sh
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 mkdir -p ~/.ssh && cd ~/.ssh
 cp "{{ .ansible_key }}" root_terraform_ansible
 chmod 0600 ~/.ssh/root_terraform_ansible

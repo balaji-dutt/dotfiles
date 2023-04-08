@@ -1,5 +1,5 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 mkdir -p ~/.fonts && cd ~/.fonts
 pip3 install --user -U lastversion
 curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
