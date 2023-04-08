@@ -1,0 +1,4 @@
+#!/bin/sh
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+cp ~/.local/config/gitignore_global.txt /mnt/c/Users/Balaji/gitignore_global.txt
+{{ end -}}
