@@ -19,6 +19,13 @@
     preloadindex = true
     # Disabled till we can upgrade git in Ubuntu WSL2 to 2.37 or higher
     # fsmonitor = true
+{{- else if eq .chezmoi.os "darwin" -}}
+    excludesfile = ~/.gitignore_global
+    editor = code --wait
+    # Don't consider trailing space change as a cause for merge conflicts
+    whitespace = -trailing-space
+    preloadindex = true
+    pager = diff-so-fancy | less --tabs=4 -RFX
 {{ else }}
     excludesfile = $HOME/.gitignore
     # Don't consider trailing space change as a cause for merge conflicts
@@ -53,6 +60,12 @@
     abbrevCommit = true
 [color "diff"]
     new = green bold
+    meta = 11
+    frag = magenta bold
+    func = 146 bold
+    commit = yellow bold
+    old = red bold
+    whitespace = red reverse
 [color "status"]
     updated = green bold
 [color "branch"]
@@ -93,7 +106,7 @@
     keepBackup = false
     tool = smerge
     [mergetool "smerge"]
-        cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
+        cmd = '/Applications/Sublime Merge.app/Contents/SharedSupport/bin/smerge' mergetool $BASE $LOCAL $REMOTE -o $MERGED
         keepTemporaries = false
         trustExitCode = true
 {{ else }}
@@ -110,5 +123,17 @@
 {{ end }}
 [alias]
     plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
+{{- if eq .chezmoi.os "darwin"}}
 
+[interactive]
+    diffFilter = diff-so-fancy --patch
+[color "diff-highlight"]
+    oldNormal = red bold
+    oldHighlight = red bold 52
+    newNormal = green bold
+    newHighlight = green bold 22
+[color]
+    ui = true
+
+{{- end -}}
 
