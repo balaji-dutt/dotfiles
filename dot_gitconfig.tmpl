@@ -31,8 +31,7 @@
     whitespace = -trailing-space
     preloadindex = true
     fsmonitor = true
-{{ end -}}
-
+{{ end }}
 [user]
     name = {{ .name }}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
@@ -41,7 +40,7 @@
     email = {{ onepasswordRead "op://private/gitlab.com/email" }}
 {{ else }}
     email = {{ .email }}
-{{ end -}}
+{{ end }}
 [merge]
     defaultToUpstream = true
 [rebase]
