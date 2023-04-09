@@ -9,6 +9,5 @@
 .config/lazygit/**
 .config/sublime-merge/
 .config/sublime-merge/**
-.ansible.cfg
 {{ end }}
 README.md
