@@ -1,2 +1,14 @@
+{{ if ne .chezmoi.os "never" }}
+.local/config/gitignore_global.txt
+{{ end }}
+{{ if ne .chezmoi.os "darwin" }}
+.gitignore_global
+{{ end }}
+{{ if ne .chezmoi.os "linux" }}
+.config/lazygit/
+.config/lazygit/**
+.config/sublime-merge/
+.config/sublime-merge/**
+.ansible.cfg
+{{ end }}
 README.md
-.markdownlint.jsonc
