@@ -1,4 +1,7 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
 mkdir -p ~/.emacs.d/.local/etc/ispell && touch ~/.emacs.d/.local/etc/ispell/.pws
+{{- else if eq .chezmoi.os "darwin" -}}
+#!/bin/bash
+mkdir -p ~/.emacs.d/.local/etc/ispell && touch ~/.emacs.d/.local/etc/ispell/.pws
 {{ end -}}

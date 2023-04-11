@@ -53,6 +53,10 @@
                             (width . (text-pixels . 2160)) (height . (text-pixels . 1250))
                              ))
 
+{{- else if eq .chezmoi.os "darwin"}}
+
+;; Set Emacs Frame Size. 
+(add-to-list 'initial-frame-alist '(fullscreen . maximized))
 {{ end -}}
 
 
@@ -279,7 +283,7 @@
       (org-ql-block '(todo "MAYBE")
                      ((org-ql-block-header "Someday")))
       )
-     ((org-agenda-files '("/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/irlthings.org")))
+     ((org-agenda-files '({{ printf "%sProjects/irlthings.org" .org_dir | quote }})))
      ((org-agenda-block-separator 9472))
      )
     )
