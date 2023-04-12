@@ -10,8 +10,11 @@ The list of configurations that I'm currenly managing through this repo are:
 * Sublime Merge
 * lazygit
 * Emacs (more specifically the Doom Emacs framework) configuration and dependent shell scripts covering:
-  * Custom Fonts
-  * Emacs Tabs (centaur-tabs)
+  * Custom fonts
+  * Emacs tabs (centaur-tabs)
   * Emacs spellcheck (hunspell)
   * org-mode
   * Custom elisp functions.
+* ZSH Shell with the following frameworks:
+  * zprezto
+  * powerlevel10k.
