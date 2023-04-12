@@ -1,0 +1,85 @@
+{{- if eq (env "SHELL") "/bin/zsh" -}}
+# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+# Initialization code that may require console input (password prompts, [y/n]
+# confirmations, etc.) must go above this block; everything else may go below.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
+# Source Prezto.
+if [[ -s "${ZDOTDIR:-$HOME}/.zprezto/init.zsh" ]]; then
+  source "${ZDOTDIR:-$HOME}/.zprezto/init.zsh"
+fi
+
+# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# Enable fasd
+eval "$(fasd --init auto)"
+
+# Enable brew autocompletion
+if type brew &>/dev/null; then
+  FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
+  autoload -Uz compinit
+  compinit
+fi
+
+# Set parameters for zsh-autosuggestions
+export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
+# Set keywords to be excluded from ZSH History
+export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
+
+#Fix for Window Title
+ precmd () {
+ print -Pn "\e]2;%n@%m: %2c\a"
+ print -Pn "\e]1;%l\a"
+ }
+
+# Set language variables
+export LANG=en_GB.UTF-8
+export LC_MESSAGES=en_GB.UTF-8
+export LC_TIME=en_SG.UTF-8
+export LC_NUMERIC=en_SG.UTF-8
+export LC_MONETARY=en_SG.UTF-8
+export LANGUAGE=en_GB:en_US
+
+# Universal custom aliases
+alias cd=" cd"
+alias ls="ls --color=always"
+alias ll=" LC_COLLATE=C ls -lah --color=always"
+alias lt=" LC_COLLATE=C ls -lahtr --color=always"
+alias less="less -R"
+alias more="less -R -X"
+alias cz="chezmoi"
+alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
+
+# Set $EDITOR to nano if available else fallback to vi
+# else set $EDITOR & $VISUAL to VSCode
+EDITOR="$(command -v nano 2>/dev/null || command -v vi)"
+
+if command -v code >/dev/null 2>&1 \
+&& [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
+  export VISUAL="$(command -v code) --wait"
+  EDITOR="$VISUAL"
+fi
+
+# Prompt for 1Password sign-in
+alias ops=' eval $(op signin)'
+
+#Add variables used by homelab-IaC repo
+export CERTPATH="{{ .CERTPATH }}"
+export LOCALCERTPATH=$HOME/development/keys
+alias cdcert=' cd "$CERTPATH"'
+
+#Update $PATH
+export PATH=$HOME/Applications:~/.emacs.d/bin/:$PATH
+
+#Disable Fork Safety as it tends to break Ansible
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+{{- end -}}

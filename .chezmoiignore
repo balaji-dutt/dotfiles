@@ -4,6 +4,8 @@
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
 Library/Application Support/lazygit/config.yml
+.zpreztorc
+.zshrc
 {{ end }}
 {{ if ne .chezmoi.os "linux" }}
 .config/lazygit/
