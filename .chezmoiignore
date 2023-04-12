@@ -1,6 +1,4 @@
-{{ if ne .chezmoi.os "never" }}
-.local/config/gitignore_global.txt
-.p10k.zsh
+{{ if ne .chezmoi.os "windows" }}
 {{ end }}
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
@@ -15,3 +13,5 @@ Library/Application Support/lazygit/config.yml
 .config/sublime-merge/**
 {{ end }}
 README.md
+.local/config/gitignore_global.txt
+.local/config/.p10k.zsh
