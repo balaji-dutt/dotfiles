@@ -5,6 +5,7 @@
 Library/Application Support/lazygit/config.yml
 .zpreztorc
 .zshrc
+Library/LaunchAgents/Environment.plist
 {{ end }}
 {{ if ne .chezmoi.os "linux" }}
 .config/lazygit/
