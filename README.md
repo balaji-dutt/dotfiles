@@ -18,3 +18,4 @@ The list of configurations that I'm currenly managing through this repo are:
 * ZSH Shell with the following frameworks:
   * zprezto
   * powerlevel10k.
+* Brew package manager.
