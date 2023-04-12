@@ -149,6 +149,7 @@
 ;; Setup spellcheck
 (after! spell-fu
   (setq ispell-program-name "hunspell")
+  (ispell-check-version)
   (setq ispell-dictionary-alist
       '((nil "[A-Za-z]" "[^A-Za-z]" "[']" t
             ("-d" "en_GB" "-i" "utf-8") nil utf-8)
