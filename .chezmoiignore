@@ -1,5 +1,6 @@
 {{ if ne .chezmoi.os "never" }}
 .local/config/gitignore_global.txt
+.p10k.zsh
 {{ end }}
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global

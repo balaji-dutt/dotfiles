@@ -1,0 +1,4 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/bin/sh
+ln -s {{ printf "%s/dot_p10k.zsh" .chezmoi.workingTree }} ~/.p10k.zsh
+{{ end -}}
