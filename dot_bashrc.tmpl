@@ -124,7 +124,8 @@ alias ll=" LC_COLLATE=C ls -lah --color=always"
 alias lt=" LC_COLLATE=C ls -lahtr --color=always"
 alias less="less -R"
 alias more="less -R -X"
-alias chzp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/development/private-dotfiles"
+alias cz="chezmoi"
+alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/development/private-dotfiles"
 
 {{- if eq .chezmoi.os "linux" }}
 {{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
