@@ -15,5 +15,8 @@ curl -L https://sourceforge.net/projects/wordlist/files/speller/2020.12.07/hunsp
 && mv $HOME/Documents/dict/en_GB-large.aff $HOME/Documents/dict/en_GB.aff \
 && mv $HOME/Documents/dict/en_GB-large.dic $HOME/Documents/dict/en_GB.dic \
 && rm hunspell-en_GB.zip
+curl -L http://downloads.sourceforge.net/wordlist/hunspell-en_US-2020.12.07.zip -o hunspell-en_US.zip \
+&& unzip -j hunspell-en_US.zip 'en_US.aff' 'en_US.dic' -d $HOME/Documents/dict \
+&& rm hunspell-en_US.zip
 mkdir -p ~/.emacs.d/.local/etc/ispell && touch ~/.emacs.d/.local/etc/ispell/.pws
 {{ end -}}
