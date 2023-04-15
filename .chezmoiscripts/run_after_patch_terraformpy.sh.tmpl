@@ -2,11 +2,18 @@
 #!/bin/bash
 target_file="$HOME/.local/bin/terraform.py"
 patchfile={{ printf "%s/assets/terraform.patch" .chezmoi.workingTree | quote }}
-# Apply patch
+# Apply patch after removing the first line of the patch file
 patch -i <(sed '1d' "$patchfile") -r - -s -d "$(dirname "$target_file")" "$(basename "$target_file")"
 {{- else if eq .chezmoi.os "darwin" -}}
-target_file="$HOME/Applications/terraform.py"
+#!/bin/bash
+target_file="/Users/balaji/Applications/terraform.py"
 patchfile={{ printf "%s/assets/terraform.patch" .chezmoi.workingTree | quote }}
-# Apply patch
-patch -i <(sed '1d' "$patchfile") -r - -s -d "$(dirname "$target_file")" "$(basename "$target_file")"
+# Create a temporary file for the patch
+tmpfile=$(mktemp)
+# Remove the first line of the patch file and write it to the temporary file
+sed '1d' "$patchfile" > "$tmpfile"
+# Apply the patch using the temporary file
+patch -i "$tmpfile" -r - -s -d "$(dirname "$target_file")" "$(basename "$target_file")"
+# Remove the temporary file
+rm "$tmpfile"
 {{ end -}}
