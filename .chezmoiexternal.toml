@@ -5,4 +5,34 @@
     refreshPeriod = "168h"
     [".zprezto".clone]
         args = ["--recursive"]
+{{- $lazygitver := output "lastversion" "--assets" "jesseduffield/lazygit" | trim -}}
+["Applications/change"]
+    type = "file"
+    exeecutable = true
+    url = "https://raw.githubusercontent.com/adamtabrams/change/master/change"
+    refreshPeriod = "168h"
+["Applications/terraform.py"]
+    type = "file"
+    exeecutable = true
+    url = "https://raw.githubusercontent.com/nbering/terraform-inventory/master/terraform.py"
+    refreshPeriod = "168h"
+{{ end -}}
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $lazygitver := output "lastversion" "--assets" "jesseduffield/lazygit" | trim -}}
+[".local/bin/change"]
+    type = "file"
+    exeecutable = true
+    url = "https://raw.githubusercontent.com/adamtabrams/change/master/change"
+    refreshPeriod = "168h"
+[".local/bin/lazygit"]
+    type = "archive"
+    exeecutable = true
+    url = {{ printf "%s" $lazygitver | quote }}
+    refreshPeriod = "168h"
+    include = ["lazygit"]
+[".local/bin/terraform.py"]
+    type = "file"
+    exeecutable = true
+    url = "https://raw.githubusercontent.com/nbering/terraform-inventory/master/terraform.py"
+    refreshPeriod = "168h"
 {{ end -}}
