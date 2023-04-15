@@ -9,7 +9,6 @@
     fsckobjects = true
 [core]
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-    autocrlf = true
     excludesfile = /mnt/c/Users/Balaji/gitignore_global.txt
     # This only works when using WSL2 in VSCode as that will set the correct $PATH variables
     editor = code --wait
