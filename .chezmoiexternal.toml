@@ -7,7 +7,7 @@
         args = ["--recursive"]
 ["Applications/change"]
     type = "file"
-    exeecutable = true
+    executable = true
     url = "https://raw.githubusercontent.com/adamtabrams/change/master/change"
     refreshPeriod = "168h"
 ["Applications/terraform.py"]
