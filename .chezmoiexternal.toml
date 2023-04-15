@@ -24,11 +24,13 @@
     url = "https://raw.githubusercontent.com/adamtabrams/change/master/change"
     refreshPeriod = "168h"
 [".local/bin/lazygit"]
-    type = "archive"
-    executable = true
+    type = "file"
     url = {{ printf "%s" $lazygitver | quote }}
+    executable = true
     refreshPeriod = "168h"
-    include = ["lazygit"]
+    [".local/bin/lazygit".filter]
+        command = "tar"
+        args = ["--extract", "--file", "/dev/stdin", "--gzip", "--to-stdout", "lazygit"]
 [".local/bin/terraform.py"]
     type = "file"
     executable = true
