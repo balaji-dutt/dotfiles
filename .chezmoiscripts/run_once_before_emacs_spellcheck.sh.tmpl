@@ -3,8 +3,8 @@
 mkdir -p $HOME/src && cd $HOME/src
 curl -L https://sourceforge.net/projects/wordlist/files/speller/2020.12.07/hunspell-en_GB-large-2020.12.07.zip/download -o hunspell-en_GB.zip \
 && sudo unzip -j hunspell-en_GB.zip 'en_GB-large.aff' 'en_GB-large.dic' -d /usr/share/hunspell/ \
-&& sudo mv /usr/share/hunspell/en_GB-large.aff /usr/share/hunspell/en_GB.aff
-&& sudo mv /usr/share/hunspell/en_GB-large.dic /usr/share/hunspell/en_GB.dic
+&& sudo mv /usr/share/hunspell/en_GB-large.aff /usr/share/hunspell/en_GB.aff \
+&& sudo mv /usr/share/hunspell/en_GB-large.dic /usr/share/hunspell/en_GB.dic \
 && rm hunspell-en_GB.zip
 mkdir -p ~/.emacs.d/.local/etc/ispell && touch ~/.emacs.d/.local/etc/ispell/.pws
 {{- else if eq .chezmoi.os "darwin" -}}
