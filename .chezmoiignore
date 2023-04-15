@@ -17,4 +17,4 @@ README.md
 .local/config/gitignore_global.txt
 .local/config/.p10k.zsh
 brewfile.txt
-
+assets/

@@ -1,0 +1,12 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+#!/bin/bash
+target_file="$HOME/.local/bin/terraform.py"
+patchfile={{ printf "%s/assets/terraform.patch" .chezmoi.workingTree | quote }}
+# Apply patch
+patch -i <(sed '1d' "$patchfile") -r - -s -d "$(dirname "$target_file")" "$(basename "$target_file")"
+{{- else if eq .chezmoi.os "darwin" -}}
+target_file="$HOME/Applications/terraform.py"
+patchfile={{ printf "%s/assets/terraform.patch" .chezmoi.workingTree | quote }}
+# Apply patch
+patch -i <(sed '1d' "$patchfile") -r - -s -d "$(dirname "$target_file")" "$(basename "$target_file")"
+{{ end -}}
