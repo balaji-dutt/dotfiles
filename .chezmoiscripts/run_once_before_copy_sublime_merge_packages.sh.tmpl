@@ -1,7 +1,15 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
 mkdir -p $HOME/.config/sublime-merge/Packages/User && cd $HOME/.config/sublime-merge/Packages/User
-curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 Packages-4148/Git\ Formats/ \
+filename=$(basename $(lastversion --assets sublimehq/Packages))
+output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
+curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 $output/Git\ Formats/ \
 && rm $(basename $(lastversion --assets sublimehq/Packages))
-# curl https://github.com/sublimehq/Packages/archive/refs/heads/master.zip -o packages.zip && unzip -j packages.zip 'Git Formats/*' -d "Git Formats" && rm packages.zip
+{{- else if eq .chezmoi.os "darwin" -}}
+#!/bin/bash
+mkdir -p "$HOME/Library/Application Support/Sublime Merge/Packages/User/" && cd "$HOME/Library/Application Support/Sublime Merge/Packages/User/"
+filename=$(basename $(lastversion --assets sublimehq/Packages))
+output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
+curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 $output/Git\ Formats/ \
+&& rm $(basename $(lastversion --assets sublimehq/Packages))
 {{ end -}}
