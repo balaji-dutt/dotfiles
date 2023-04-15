@@ -15,6 +15,12 @@
     executable = true
     url = "https://raw.githubusercontent.com/nbering/terraform-inventory/master/terraform.py"
     refreshPeriod = "168h"
+[".emacs.d"]
+    type = "git-repo"
+    url = "https://github.com/hlissner/doom-emacs"
+    refreshPeriod = "168h"
+    [".emacs.d".pull]
+        args = ["--rebase", "--autostash"]
 {{ end -}}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $lazygitver := output "lastversion" "--assets" "jesseduffield/lazygit" | trim -}}
@@ -36,4 +42,10 @@
     executable = true
     url = "https://raw.githubusercontent.com/nbering/terraform-inventory/master/terraform.py"
     refreshPeriod = "168h"
+[".emacs.d"]
+    type = "git-repo"
+    url = "https://github.com/hlissner/doom-emacs"
+    refreshPeriod = "168h"
+    [".emacs.d".pull]
+        args = ["--rebase", "--autostash"]
 {{ end -}}
