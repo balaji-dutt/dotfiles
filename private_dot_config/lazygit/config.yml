@@ -4,8 +4,9 @@ gui:
 git:
   parseEmoji: true
 os:
-  editCommand: 'code -rg {{filename}}'
-  editCommandTemplate: '{{editor}} --goto -- {{filename}}:{{line}}'
+  editPreset: 'vscode'
+  #editCommand: 'code -rg {{filename}}'
+  #editCommandTemplate: '{{editor}} --goto -- {{filename}}:{{line}}'
 customCommands:
   - key: '<c-n>'
     description: 'Show next Git tag version'
