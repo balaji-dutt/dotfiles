@@ -47,9 +47,9 @@
 
 ;; Set Emacs Frame Size. Org-agenda seems to break Emacs is fully maximised
 ;; and using a QHD screen.
-(setq initial-frame-alist '((display . ":0.0")        ;; Set Emacs to use Primary display
+(setq initial-frame-alist '((display . ":0.0")         ;; Set Emacs to use Primary display
                             (top . 178) (left . 2760)  ;; Emacs via WSL will default to 0,0 coordinates starting from secondary monitor in a Monitor1(Secondary-L)|-|Monitor2(Primary-R) setup
-                                                      ;; Hence we have to provide X,Y coordinates that force Emacs into the primary monitor in the previously mentioned setup.
+                                                       ;; Hence we have to provide X,Y coordinates that force Emacs into the primary monitor in the previously mentioned setup.
                             (width . (text-pixels . 2160)) (height . (text-pixels . 1250))
                              ))
 
@@ -91,6 +91,17 @@
 ;;
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
+
+;; Configuring the Browser for Emacs
+{{- if eq .chezmoi.hostname "BIG-RIG" }}
+
+(setq browse-url-generic-program
+    (executable-find (getenv "BROWSER"))
+     browse-url-browser-function 'browse-url-generic
+     search-web-default-browser 'browse-url-generic)
+
+{{ end -}}
+
 
 ;; Adding back a spacemacs-style "homepage" dashboard shortcut
 ;; since I often use that to "center" myself
