@@ -8,7 +8,7 @@
 # and the recommendation is to create a separate user with privilege escalation. For
 # automation purposes, it is likely that the ansible user will have promptless privilege escalation
 # and if connecting via SSH, then the ansible user should be set to only login with SSH key and not
-# password. In the case of the servers/VM's managed through this repo, *all* linux machines are built
+# password. In the case of the servers/VM's managed through the Homelab IaC repo, *all* linux machines are built
 # using a bootstrap configuration that disables the root user's password entirely and the root user
 # only supports SSH key based login. Given this configuration can still be deemed as reasonably secure,
 # we will directly use...
