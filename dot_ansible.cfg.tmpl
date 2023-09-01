@@ -23,7 +23,7 @@ private_key_file = "{{ .ansible_key }}"
 private_key_file = $HOME/.ssh/root_terraform_ansible
 {{- end }}
 
-#control displaying ‘ok’ task/host results in a task
+# control displaying ‘ok’ task/host results in a task
 display_ok_hosts = no
 {{ if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 [ssh_connection]
