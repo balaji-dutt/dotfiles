@@ -207,4 +207,8 @@ alias cdcert=' cd "$CERTPATH"'
 
 {{   end -}}
 {{ end -}}
+
+# This is added at the end of the file to avoid potential conflicts
+eval "$(direnv hook bash)"
+
 {{- end -}}
