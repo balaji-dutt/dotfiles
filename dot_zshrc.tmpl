@@ -83,4 +83,7 @@ export PATH=$HOME/Applications:~/.emacs.d/bin/:$HOME/Library/Python/3.11/bin:$PA
 
 #Disable Fork Safety as it tends to break Ansible
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
+# This is added at the end of the file to avoid potential conflicts
+eval "$(direnv hook zsh)"
 {{- end -}}
