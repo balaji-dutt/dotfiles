@@ -85,6 +85,9 @@
         cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
         keepTemporaries = false
         trustExitCode = true
+[safe]
+    directory = /mnt/devdrive/homelab-IaC
+    directory = /mnt/devdrive/hosted-servers-iac
 {{- else if eq .chezmoi.os "darwin"}}
 
 [diff]
