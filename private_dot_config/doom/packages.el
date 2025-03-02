@@ -52,3 +52,4 @@
 ;; Custom packages
 (package! org-ql)
 (package! simple-httpd)
+(package! vscode-dark-plus-theme)
