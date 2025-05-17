@@ -156,5 +156,16 @@ fi
 {{- end}}
 
 # This is added at the end of the file to avoid potential conflicts
-eval "$(direnv hook zsh)"
+{{- $hasDirenv := false -}}
+{{- if lookPath "direnv" -}}
+{{-   $hasDirenv = true -}}
+{{- end -}}
+{{- if $hasDirenv}}
+if command -v smartcache >/dev/null 2>&1; then
+    smartcache eval direnv hook zsh
+else
+    eval "$(direnv hook zsh)"
+fi
+{{- end -}}
+{{- end -}}
 {{- end -}}
