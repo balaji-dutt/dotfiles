@@ -49,11 +49,6 @@ source <(fzf --zsh)
 # print -Pn "\e]1;%l\a"
 # }
 
-# Set parameters for zsh-autosuggestions
-export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
-
-# Set keywords to be excluded from ZSH History
-export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 # source antidote
 {{- if lookPath "brew"}}
 source $(brew --prefix)/opt/antidote/share/antidote/antidote.zsh
@@ -73,6 +68,8 @@ export LANGUAGE=en_GB:en_US
 
 # Universal custom aliases
 alias cd=" cd"
+# Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
+export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 alias ls="ls --color=always"
 alias ll=" LC_COLLATE=C ls -lah --color=always"
 alias lt=" LC_COLLATE=C ls -lahtr --color=always"
