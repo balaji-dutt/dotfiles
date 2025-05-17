@@ -41,8 +41,7 @@ fi
 
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
-# Enable fasd
-eval "$(fasd --init auto)"
+source <(fzf --zsh)
 
 # Enable brew autocompletion
 if type brew &>/dev/null; then
@@ -106,6 +105,19 @@ export PATH=$HOME/Applications:~/.emacs.d/bin/:$HOME/Library/Python/3.11/bin:$PA
 
 #Disable Fork Safety as it tends to break Ansible
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
+# Initialize fasd with smartcache if available, or directly if only fasd is available
+{{- $hasFasder := false -}}
+{{- if lookPath "fasder" -}}
+{{-   $hasFasder = true -}}
+{{- end -}}
+{{- if $hasFasder}}
+if command -v smartcache >/dev/null 2>&1; then
+    smartcache eval fasder --init auto aliases
+else
+    eval "$(fasder --init auto aliases)"
+fi
+{{- end}}
 
 # This is added at the end of the file to avoid potential conflicts
 eval "$(direnv hook zsh)"
