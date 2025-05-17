@@ -178,15 +178,38 @@ update_brewfiles() {
 # Create a custom brew function
 brew() {
     local command=$1
-    local packages="${@:2}"
+    shift
 
     case $command in
-        "install"|"tap"|"uninstall"|"purge"|"untap")
-            # Execute the original brew command
-            "${ORIGINAL_BREW}" $command $packages
+        "install")
+            if [[ "$1" == "--cask" ]]; then
+                # If --cask is the first argument, shift it off and run with remaining args
+                shift
+                "${ORIGINAL_BREW}" install --cask "$@"
+            elif [[ "${@: -1}" == "--cask" ]]; then
+                # If --cask is the last argument, remove it and run with remaining args
+                local args=("$@")
+                unset "args[${#args[@]}-1]"
+                "${ORIGINAL_BREW}" install --cask "${args[@]}"
+            else
+                # No --cask flag, run normal install
+                "${ORIGINAL_BREW}" install "$@"
+            fi
+
             # If brew command succeeded
             if [ $? -eq 0 ]; then
-                update_brewfiles "$command" "$packages"
+                update_brewfiles "install" "$*"
+            else
+                echo "Brew install failed, Brewfile not updated"
+            fi
+            ;;
+        "tap"|"uninstall"|"purge"|"untap")
+            # Execute the original brew command
+            "${ORIGINAL_BREW}" $command "$@"
+
+            # If brew command succeeded
+            if [ $? -eq 0 ]; then
+                update_brewfiles "$command" "$*"
             else
                 echo "Brew $command failed, Brewfile not updated"
             fi
@@ -197,6 +220,7 @@ brew() {
             ;;
     esac
 }
+
 
 # Custom aliases
 alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
