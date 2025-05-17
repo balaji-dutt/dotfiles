@@ -43,12 +43,11 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 
 source <(fzf --zsh)
 
-# Enable brew autocompletion
-if type brew &>/dev/null; then
-  FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
-  autoload -Uz compinit
-  compinit
-fi
+#Fix for Window Title
+# precmd () {
+# print -Pn "\e]2;%n@%m: %2c\a"
+# print -Pn "\e]1;%l\a"
+# }
 
 # Set parameters for zsh-autosuggestions
 export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
