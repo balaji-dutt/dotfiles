@@ -104,14 +104,23 @@ alias lt="LC_COLLATE=C ls -lahtr --color=always"
 {{- end}}
 
 # Set $EDITOR to nano if available else fallback to vi
-# else set $EDITOR & $VISUAL to VSCode
-EDITOR="$(command -v nano 2>/dev/null || command -v vi)"
+{{- $hasNano := false -}}
+{{- if lookPath "nano" -}}
+{{-   $hasNano = true -}}
+{{- end -}}
+EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
 
-if command -v code >/dev/null 2>&1 \
-&& [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
+# Set $EDITOR & $VISUAL to VSCode
+{{- $hasCode := false -}}
+{{- if lookPath "code" -}}
+{{-   $hasCode = true -}}
+{{- end -}}
+{{if $hasCode}}
+if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
   export VISUAL="$(command -v code) --wait"
   EDITOR="$VISUAL"
 fi
+{{- end}}
 
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
