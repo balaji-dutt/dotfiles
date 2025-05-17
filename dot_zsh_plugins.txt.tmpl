@@ -1,0 +1,64 @@
+{{- if eq (env "SHELL") "/bin/zsh" -}}
+
+{{- if eq .chezmoi.hostname "balajis-m4-mbp" }}
+
+# Load plugins for other frameworks
+getantidote/use-omz
+getantidote/use-prezto
+
+# Prezto plugins
+
+# sorin-ionescu/prezto path:modules/environment
+# sorin-ionescu/prezto path:modules/terminal
+sorin-ionescu/prezto path:modules/editor
+# sorin-ionescu/prezto path:modules/history
+# sorin-ionescu/prezto path:modules/directory
+sorin-ionescu/prezto path:modules/spectrum
+sorin-ionescu/prezto path:modules/helper
+sorin-ionescu/prezto path:modules/utility autoload:functions
+# sorin-ionescu/prezto path:modules/completion
+# sorin-ionescu/prezto path:modules/history-substring-search
+sorin-ionescu/prezto path:modules/prompt autoload:functions
+
+
+# OMZ plugins
+ohmyzsh/ohmyzsh path:lib
+
+# Zephyr plugins
+mattmc3/zephyr path:plugins/color
+mattmc3/zephyr path:plugins/completion
+# mattmc3/zephyr path:plugins/confd
+mattmc3/zephyr path:plugins/directory
+mattmc3/zephyr path:plugins/editor
+mattmc3/zephyr path:plugins/environment
+mattmc3/zephyr path:plugins/history
+mattmc3/zephyr path:plugins/homebrew
+mattmc3/zephyr path:plugins/macos
+mattmc3/zephyr path:plugins/prompt
+mattmc3/zephyr path:plugins/utility
+mattmc3/zephyr path:plugins/zfunctions
+
+# External Plugins
+
+zsh-users/zsh-autosuggestions           # Fish-like autosuggestions
+zsh-users/zsh-history-substring-search  # History search based on substring
+wfxr/forgit                             # Interactive git commands using fzf
+so-fancy/diff-so-fancy                  # Makes diffs human-readable
+MichaelAquilina/zsh-history-filter      # Filters history (e.g., no duplicates, no specific commands)
+QuarticCat/zsh-smartcache               # Cache command output to boost shell startup
+laggardkernel/git-ignore                # Generates .gitignore files (via gitignore.io)
+joshskidmore/zsh-fzf-history-search     # Replace Ctrl-r with an fzf-driven, searchable list of history.
+
+MichaelAquilina/zsh-you-should-use                          # Reminds you of aliases for commands you type
+zdharma-continuum/fast-syntax-highlighting kind:defer       # Command syntax highlighting
+
+
+# prompt:
+#   with prompt plugins, remember to add this to your .zshrc:
+#   `autoload -Uz promptinit && promptinit && prompt pure`
+romkatv/powerlevel10k kind:fpath
+
+
+{{- end }}
+
+{{- end -}}
