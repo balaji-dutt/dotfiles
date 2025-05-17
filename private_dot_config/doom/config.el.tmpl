@@ -302,11 +302,11 @@
      ;; (org-agenda-tag-filter-preset '("-ARCHIVE"))
      ;; ((org-agenda-compact-blocks t))
      ((org-agenda-files
-     (list "/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/homelab.org"
-           "/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/inbox.org"
-           "/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/home-network.org"
-           "/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/lifehacks.org"
-           "/mnt/f/Balaji/ownCloud/Notes & Projects/Projects/learning-emacs.org")))
+     (list {{ printf "%sProjects/homelab.org" .org_dir | quote }}
+           {{ printf "%sProjects/inbox.org" .org_dir | quote }}
+           {{ printf "%sProjects/home-network.org" .org_dir | quote }}
+           {{ printf "%sProjects/lifehacks.org" .org_dir | quote }}
+           {{ printf "%sProjects/learning-emacs.org" .org_dir | quote }})))
      ((org-agenda-block-separator 9472))
      )
 
