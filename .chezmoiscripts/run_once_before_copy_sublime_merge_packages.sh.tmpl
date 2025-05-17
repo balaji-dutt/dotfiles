@@ -1,5 +1,8 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
+# Set PATH including Python user bin directory for WSL
+PYTHON_USER_BIN="$HOME/.local/bin"
+export PATH="$PYTHON_USER_BIN:$PATH"
 mkdir -p $HOME/.config/sublime-merge/Packages/User && cd $HOME/.config/sublime-merge/Packages/User
 filename=$(basename $(lastversion --assets sublimehq/Packages))
 output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
@@ -7,6 +10,9 @@ curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(la
 && rm $(basename $(lastversion --assets sublimehq/Packages))
 {{- else if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
+# Find Python user bin directory for macOS
+PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
+export PATH="$PYTHON_USER_BIN:$PATH"
 mkdir -p "$HOME/Library/Application Support/Sublime Merge/Packages/User/" && cd "$HOME/Library/Application Support/Sublime Merge/Packages/User/"
 filename=$(basename $(lastversion --assets sublimehq/Packages))
 output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')

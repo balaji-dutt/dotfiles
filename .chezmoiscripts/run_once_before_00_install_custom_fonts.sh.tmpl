@@ -1,6 +1,9 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
 mkdir -p ~/.fonts && cd ~/.fonts
+# Set PATH including Python user bin directory for WSL
+PYTHON_USER_BIN="$HOME/.local/bin"
+export PATH="$PYTHON_USER_BIN:$PATH"
 pip3 install --user -U lastversion
 curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
 && rm $(basename $(lastversion --assets JetBrains/JetBrainsMono))
@@ -9,6 +12,9 @@ curl -L -o noto-sans-symbols.zip "https://fonts.google.com/download?family=Noto%
 {{- else if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
 cd $HOME/Library/Fonts
+# Find Python user bin directory for macOS
+PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
+export PATH="$PYTHON_USER_BIN:$PATH"
 pip3 install --user -U lastversion
 curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
 && rm $(basename $(lastversion --assets JetBrains/JetBrainsMono))
