@@ -159,7 +159,7 @@ update_brewfiles() {
     # Check if dotfiles directory is a git repo and brewfile location exists
     if [ -d "/Users/balaji/Documents/development/dotfiles/.git" ]; then
         if [ "$clean_install_exists" = true ]; then
-            cp "$clean_install_brewfile" "$dotfiles_brewfile"
+            cp -f "$clean_install_brewfile" "$dotfiles_brewfile"
             cd /Users/balaji/Documents/development/dotfiles
             # Stage and commit the brewfile
             git add brewfile.txt
