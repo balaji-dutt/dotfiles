@@ -140,27 +140,29 @@ update_brewfiles() {
         "uninstall"|"purge"|"untap") commit_action="uninstalled";;
     esac
 
-    # Define file paths
-    local clean_install_brewfile='/Users/balaji/Downloads/Clean Install/Clean Install Config/brewfile.txt'
-    local dotfiles_brewfile='/Users/balaji/Documents/development/dotfiles/brewfile.txt'
+    # Define file paths with proper quoting
+    local clean_install_brewfile="${HOME}/Downloads/Clean Install/Clean Install Config/brewfile.txt"
+    local dotfiles_brewfile="${HOME}/Documents/development/dotfiles/brewfile.txt"
     local clean_install_exists=false
 
-    # Check if Clean Install brewfile exists
-    if [ -f "$clean_install_brewfile" ]; then
-        # Remove existing Clean Install brewfile and create new one
-        rm -f "$clean_install_brewfile"
-        $ORIGINAL_BREW bundle dump --brews --casks --taps --mas --file="$clean_install_brewfile"
-        echo "Brewfile has been updated at '$clean_install_brewfile'"
+    if [ -f "${clean_install_brewfile}" ]; then
+        rm -f "${clean_install_brewfile}"
+        "${ORIGINAL_BREW}" bundle dump --brews --casks --taps --mas --file="${clean_install_brewfile}"
+        echo "Brewfile has been updated at '${clean_install_brewfile}'"
         clean_install_exists=true
     else
-        echo "Brewfile in Clean Install Config folder not found"
+        echo "Brewfile in Clean Install Config folder not found. Recreating the file now."
+        mkdir -p "$(dirname "${clean_install_brewfile}")"
+        "${ORIGINAL_BREW}" bundle dump --brews --casks --taps --mas --file="${clean_install_brewfile}"
+        clean_install_exists=true
     fi
 
     # Check if dotfiles directory is a git repo and brewfile location exists
-    if [ -d "/Users/balaji/Documents/development/dotfiles/.git" ]; then
+    if [ -d "${HOME}/Documents/development/dotfiles/.git" ]; then
         if [ "$clean_install_exists" = true ]; then
-            cp -f "$clean_install_brewfile" "$dotfiles_brewfile"
-            cd /Users/balaji/Documents/development/dotfiles
+            # Copy the brewfile to dotfiles
+            /bin/cp -f "${clean_install_brewfile}" "${dotfiles_brewfile}"
+            cd "${HOME}/Documents/development/dotfiles"
             # Stage and commit the brewfile
             git add brewfile.txt
             git commit -m "Automated commit of brewfile - Packages $packages $commit_action"
@@ -181,7 +183,8 @@ brew() {
     case $command in
         "install"|"tap"|"uninstall"|"purge"|"untap")
             # Execute the original brew command
-            $ORIGINAL_BREW $command $packages
+            "${ORIGINAL_BREW}" $command $packages
+            # If brew command succeeded
             if [ $? -eq 0 ]; then
                 update_brewfiles "$command" "$packages"
             else
@@ -190,11 +193,10 @@ brew() {
             ;;
         *)
             # For all other brew commands, just pass through to the original
-            $ORIGINAL_BREW "$@"
+            "${ORIGINAL_BREW}" "$@"
             ;;
     esac
 }
-
 
 # Custom aliases
 alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
