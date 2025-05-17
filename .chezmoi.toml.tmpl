@@ -12,6 +12,15 @@ sourceDir = "/Users/balaji/Documents/development/dotfiles"
 # other operating system
 {{ end }}
 
+{{- $hasCode := false -}}
+{{- if lookPath "code" -}}
+{{-   $hasCode = true -}}
+{{- end -}}
+{{if $hasCode}}
+[diff]
+command = "code"
+args = ["--wait", "--diff"]
+{{- end}}
 
 [data]
 email = {{ $email | toToml }}
