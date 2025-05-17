@@ -57,6 +57,9 @@ source $(brew --prefix)/opt/antidote/share/antidote/antidote.zsh
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
 
+# Set HISTFILE to be machine-specific
+HISTFILE=${ZDOTDIR:-$HOME}/.m4mbp_zsh_history
+
 # Set language variables
 export LC_ALL=en_GB.UTF-8
 export LANG=en_GB.UTF-8
