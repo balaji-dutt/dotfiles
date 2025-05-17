@@ -8,6 +8,10 @@ filename=$(basename $(lastversion --assets sublimehq/Packages))
 output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
 curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 $output/Git\ Formats/ \
 && rm $(basename $(lastversion --assets sublimehq/Packages))
+target_file="$HOME/.config/sublime-merge/Packages/User/Git Formats/Git Commit.sublime-syntax"
+patchfile={{ printf "%s/assets/smerge_gitcommit_syntax.patch" .chezmoi.workingTree | quote }}
+# Apply the patch
+patch --verbose -p1 --input="$patchfile" "$target_file"
 {{- else if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
 # Find Python user bin directory for macOS
@@ -18,4 +22,8 @@ filename=$(basename $(lastversion --assets sublimehq/Packages))
 output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
 curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 $output/Git\ Formats/ \
 && rm $(basename $(lastversion --assets sublimehq/Packages))
+target_file="$HOME/Library/Application Support/Sublime Merge/Packages/User/Git Formats/Git Commit.sublime-syntax"
+patchfile={{ printf "%s/assets/smerge_gitcommit_syntax.patch" .chezmoi.workingTree | quote }}
+# Apply the patch
+patch --verbose -p1 --input="$patchfile" "$target_file"
 {{ end -}}
