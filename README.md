@@ -1,3 +1,14 @@
+<!-- markdownlint-disable MD007 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-configure-file
+{
+  options": {
+    "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)"
+  },
+  "no-trailing-spaces": false,
+  "no-hard-tabs": true
+}
+-->
+
 ## Dotfiles README
 
 This repo contains configuration files that I use across Linux & macOS, managed using [chezmoi](https://www.chezmoi.io/).
@@ -16,6 +27,6 @@ The list of configurations that I'm currenly managing through this repo are:
   * org-mode
   * Custom elisp functions.
 * ZSH Shell with the following frameworks:
-  * zprezto
-  * powerlevel10k.
-* Brew package manager.
+  * antidote (with zprezto and oh-my-zsh framework functions)
+  * powerlevel10k
+* Brew package manager
