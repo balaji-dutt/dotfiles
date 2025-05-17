@@ -85,13 +85,23 @@ export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
 # Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
 export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 {{- end -}}
+
+{{- $hasEza := false -}}
+{{- if lookPath "eza" -}}
+{{-   $hasEza = true -}}
+{{- end -}}
+{{- if and (eq .chezmoi.os "darwin") $hasEza -}}
+# eza is installed on macOS, use eza aliases
+alias ls=" eza -l --group-directories-first"
+alias ll=" eza -la --group-directories-first"
+alias lt=" eza -la --sort=modified --reverse --color=always"
+alias tree=" eza --tree"
+{{- else}}
+# Fallback to standard ls aliases
 alias ls="ls --color=always"
-alias ll=" LC_COLLATE=C ls -lah --color=always"
-alias lt=" LC_COLLATE=C ls -lahtr --color=always"
-alias less="less -R"
-alias more="less -R -X"
-alias cz="chezmoi"
-alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
+alias ll="LC_COLLATE=C ls -lah --color=always"
+alias lt="LC_COLLATE=C ls -lahtr --color=always"
+{{- end}}
 
 # Set $EDITOR to nano if available else fallback to vi
 # else set $EDITOR & $VISUAL to VSCode
