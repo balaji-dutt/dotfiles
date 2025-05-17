@@ -69,10 +69,22 @@ export LC_NUMERIC=en_SG.UTF-8
 export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
-# Universal custom aliases
-alias cd=" cd"
+# Set parameters for zsh-autosuggestions
+export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
+# Set autoload for ZSH prompt
+autoload -Uz promptinit && promptinit
+# Set prompt to powerlevel10k
+prompt powerlevel10k
+
+# Plugin customizations
+# Customize MichaelAquilina/zsh-you-should-use message position
+export YSU_MESSAGE_POSITION="after"
+# Remove ISO8601 timestamps in search when using joshskidmore/zsh-fzf-history-search
+export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
 # Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
 export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
+{{- end -}}
 alias ls="ls --color=always"
 alias ll=" LC_COLLATE=C ls -lah --color=always"
 alias lt=" LC_COLLATE=C ls -lahtr --color=always"
