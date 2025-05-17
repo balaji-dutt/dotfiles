@@ -1,4 +1,34 @@
 {{- if eq (env "SHELL") "/bin/zsh" -}}
+{{-   if eq .chezmoi.os "linux" -}}
+HISTFILE=~/.histfile
+HISTSIZE=3000 #due to hist_expire_dups_first
+SAVEHIST=2000
+setopt inc_append_history autocd extendedglob notify hist_ignore_space hist_ignoredups extended_history share_history hist_verify hist_expire_dups_first
+
+unsetopt beep
+bindkey -e
+
+zstyle :compinstall filename '${ZDOTDIR:-~}/.zshrc'
+
+autoload -Uz compinit
+compinit
+autoload colors zsh/terminfo
+
+export PATH="$HOME/bin/:$PATH"
+PS1="("'%10<...<%~%<<'"|"'%t'")"$'\n'%{$fg_bold[yellow]%}%B[-%m-]%b%{$reset_color%}%#" "
+{{ "\n" -}}
+{{-   end -}}
+# Universal custom aliases
+alias cd=" cd"
+{{- if ne .chezmoi.os "darwin" -}}
+alias less="less -R"
+alias more="less -R -X"
+{{- end -}}
+alias cz="chezmoi"
+# Prompt for 1Password sign-in
+alias ops=' eval $(op signin)'
+
+{{- if eq .chezmoi.os "darwin" -}}
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
