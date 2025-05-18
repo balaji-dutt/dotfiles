@@ -124,39 +124,38 @@
   ;; Ctrl + click on these icons allows for tabs to reordered.
   ;; (setq! centaur-tabs-forward-tab-text " ▶")
   ;; (setq! centaur-tabs-backward-tab-text " ◀")
-  (defun centaur-tabs-hide-tab (x)
-    "Disable tabs for certain buffer types"
-    (let ((name (format "%s" x)))
-      (or
-      (window-dedicated-p (selected-window))
-      ;; (string-prefix-p "*epc" name)
-      ;; (string-prefix-p "*helm" name)
-      ;; (string-prefix-p "*Helm" name)
-      ;; (string-prefix-p "*which-key*" name)
-      (string-prefix-p " *Org todo*" name)
-      (string-prefix-p "*Async-native-compile-log*" name)
-      (string-prefix-p "*Native-compile-Log*" name)
-      (string-prefix-p "*compilation*" name)
-      (string-prefix-p "*lsp" name)
-      (string-prefix-p "*markdown-output" name)
-      (string-prefix-p "*httpd" name)
-      (string-prefix-p " *" name)
-      (string-prefix-p "*eshell" name)
-      (string-prefix-p "*flyspell-region*" name)
-      (string-prefix-p "*Default-eshell" name)
-      (string-prefix-p "*Calendar*" name)
-      (string-prefix-p "init.org" name) ;;Although org-agenda will load this file, this should prevent it showing up in the list of tabs.
-      ;; (string-prefix-p "memorybanks.org" name) ;;Since this file is only used to archive tasks, it can be hidden.
-      ;; (string-prefix-p "zotero.bib" name)
-      (and (string-prefix-p "magit" name)
-      ))))
+  ;; (defun centaur-tabs-hide-tab (x)
+  ;;   "Disable tabs for certain buffer types"
+  ;;   (let ((name (format "%s" x)))
+  ;;     (or
+  ;;     ;; (window-dedicated-p (selected-window))
+  ;;     ;; (string-prefix-p "*epc" name)
+  ;;     ;; (string-prefix-p "*helm" name)
+  ;;     ;; (string-prefix-p "*Helm" name)
+  ;;     ;; (string-prefix-p "*which-key*" name)
+  ;;     (string-prefix-p " *Org todo*" name)
+  ;;     (string-prefix-p "*Async-native-compile-log*" name)
+  ;;     (string-prefix-p "*Native-compile-Log*" name)
+  ;;     (string-prefix-p "*compilation*" name)
+  ;;     (string-prefix-p "*lsp" name)
+  ;;     (string-prefix-p "*markdown-output" name)
+  ;;     (string-prefix-p "*httpd" name)
+  ;;     (string-prefix-p " *" name)
+  ;;     (string-prefix-p "*eshell" name)
+  ;;     (string-prefix-p "*flyspell-region*" name)
+  ;;     (string-prefix-p "*Default-eshell" name)
+  ;;     (string-prefix-p "*Calendar*" name)
+  ;;     (string-prefix-p "init.org" name) ;;Although org-agenda will load this file, this should prevent it showing up in the list of tabs.
+  ;;     ;; (string-prefix-p "memorybanks.org" name) ;;Since this file is only used to archive tasks, it can be hidden.
+  ;;     ;; (string-prefix-p "zotero.bib" name)
+  ;;     (and (string-prefix-p "magit" name)
+  ;;     ))))
 
   (defun centaur-tabs-buffer-groups ()
     "`centaur-tabs-buffer-groups' control buffers' group rules."
     (list
     "DEFAULT"))
 )
-
 
 ;; Setup spellcheck
 (after! spell-fu
