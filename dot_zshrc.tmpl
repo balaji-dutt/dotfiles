@@ -216,7 +216,7 @@ brew() {
             ;;
         *)
             # For all other brew commands, just pass through to the original
-            "${ORIGINAL_BREW}" "$@"
+            "${ORIGINAL_BREW}" $command "$@"
             ;;
     esac
 }
