@@ -12,11 +12,9 @@ customCommands:
     description: 'Show next Git tag version'
     context: 'global'
     command: 'git mkver next'
-    subprocess: true
-    showOutput: true
+    output: terminal
   - key: '<c-t>'
     description: 'Tag next version'
     context: 'global'
     command: 'git mkver tag'
-    subprocess: true
-    showOutput: true
+    output: terminal
