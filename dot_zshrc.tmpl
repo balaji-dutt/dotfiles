@@ -28,7 +28,13 @@ alias cz="chezmoi"
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
 
-{{- if eq .chezmoi.os "darwin" -}}
+{{- if eq .chezmoi.os "darwin" }}
+# Direnv initialization (export part) - MUST be before P10k instant prompt
+{{- if lookPath "direnv" }}
+# This line is for direnv export, run if direnv command exists
+(( ${+commands[direnv]} )) && emulate zsh -c "$(direnv export zsh)"
+{{- end }}
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
@@ -259,9 +265,9 @@ fi
 {{- end -}}
 {{- if $hasDirenv}}
 if command -v smartcache >/dev/null 2>&1; then
-    smartcache eval direnv hook zsh
+    (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
 else
-    eval "$(direnv hook zsh)"
+    (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 fi
 {{- end -}}
 {{- end -}}
