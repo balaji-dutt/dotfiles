@@ -1,0 +1,92 @@
+[init]
+    defaultBranch = main
+
+[transfer]
+    fsckobjects = true
+
+[fetch]
+    fsckobjects = true
+    prune = true
+
+[receive]
+    fsckobjects = true
+
+# Relax fsck checks for legacy/oh-my-zsh repos
+[fetch "fsck"]
+    zeroPaddedFilemode = ignore
+[receive "fsck"]
+    zeroPaddedFilemode = ignore
+
+[core]
+    excludesfile = ~/.gitignore
+    whitespace = -trailing-space
+    preloadindex = true
+    fsmonitor = true
+    editor = code --wait
+
+[user]
+    name = {{ .name }}
+    email = {{ onepasswordRead "op://private/gitlab.com/email" }}
+
+[merge]
+    defaultToUpstream = true
+    keepBackup = false
+    tool = vscode
+
+[mergetool "vscode"]
+    cmd = code --wait --merge $LOCAL $REMOTE $BASE $MERGED
+    trustExitCode = true
+    keepTemporaries = false
+
+[mergetool]
+    prompt = false
+    keepBackup = false
+
+[rebase]
+    autosquash = true
+
+[branch]
+    autosetupmerge = always
+
+[push]
+    default = matching
+
+[http]
+    postBuffer = 52428800
+
+[log]
+    abbrevCommit = true
+
+[color "diff"]
+    new = green bold
+    meta = 11
+    frag = magenta bold
+    func = 146 bold
+    commit = yellow bold
+    old = red bold
+    whitespace = red reverse
+
+[color "status"]
+    updated = green bold
+
+[color "branch"]
+    current = green bold
+
+[alias]
+    plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
+
+[diff]
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    tool = vscode
+
+[difftool "vscode"]
+    cmd = code --wait --diff $LOCAL $REMOTE
+
+[difftool]
+    prompt = false
+
+# If you ever see “dubious ownership” in containers, you can opt-in:
+# [safe]
+#     directory = *

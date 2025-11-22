@@ -1,0 +1,104 @@
+# Universal custom aliases
+alias cd=" cd"
+
+# Direnv initialization
+(( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
+
+# Enable Powerlevel10k instant prompt.
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+# Source Powerlevel10k config
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+# Source FZF
+source <(fzf --zsh)
+
+# Source Antidote from the install location in the container
+source /opt/antidote/antidote.zsh
+
+# Initialize plugins statically
+antidote load
+
+# Define the path to persistent data directory
+PERSISTENT_DATA_DIR="$HOME/persistent-data"
+# Ensure the directory exists
+mkdir -p "$PERSISTENT_DATA_DIR"
+
+# Set HISTFILE
+HHISTFILE="$PERSISTENT_DATA_DIR/.zsh_history"
+
+# Set language variables
+export LC_ALL=en_GB.UTF-8
+export LANG=en_GB.UTF-8
+
+# Set parameters for zsh-autosuggestions
+export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
+# Set autoload for ZSH prompt
+autoload -Uz promptinit && promptinit
+# Set prompt to powerlevel10k
+prompt powerlevel10k
+
+# Plugin customizations for you-should-use and fzf-history-search
+export YSU_MESSAGE_POSITION="after"
+export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
+
+# Use eza aliases (eza is installed in the Dockerfile)
+alias ls="eza -l --group-directories-first"
+alias ll="eza -la --group-directories-first"
+alias lt="eza -laT --sort=modified --reverse --color=always"
+alias tree="eza --tree"
+
+# Alias OpenTofu to tf command by default unless specified otherwise
+export TF_CMD=tofu
+tf() {
+  # Accept values: tofu, opentofu, terraform
+  local cmd="${TF_CMD:-tofu}"
+  case "$cmd" in
+    terraform) cmd="terraform" ;;
+    tofu|opentofu) cmd="tofu" ;;  # package usually installs 'tofu' binary
+    *) cmd="tofu" ;;
+  esac
+  command "$cmd" "$@"
+}
+
+
+# Set $EDITOR & $VISUAL to VSCode (this works great in devcontainers)
+export VISUAL="$(command -v code) --wait"
+EDITOR="$VISUAL"
+
+# Update $PATH with Python user bin directory if it exists
+PYTHON_USER_BIN_DIR="$HOME/.local/bin"
+if [ -d "$PYTHON_USER_BIN_DIR" ]; then
+    export PATH="$PYTHON_USER_BIN_DIR:$PATH"
+fi
+
+# This is added at the end of the file to avoid potential conflicts
+if command -v smartcache >/dev/null 2>&1; then
+    (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
+else
+    (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
+fi
+
+# 1. Bind the Up Arrow to the fzf_history_search widget
+#    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
+#    current command line buffer and uses it as the FZF query.
+bind_fzf_history() {
+    if zle -l fzf_history_search; then
+        # 1. Bind Up Arrow to FZF (Search Mode)
+        bindkey '^[[A' fzf_history_search
+        bindkey '^[OA' fzf_history_search
+        if [[ -n "${terminfo[kcuu1]}" ]]; then
+            bindkey "${terminfo[kcuu1]}" fzf_history_search
+        fi
+# 2. Bind Ctrl+P/N to Standard History (Navigation Mode)
+#    This allows you to just grab the last command without opening the FZF window.
+        bindkey '^P' up-line-or-history
+        bindkey '^N' down-line-or-history
+    fi
+}
+
+# 3. Ensure this runs AFTER antidote loads plugins.
+bind_fzf_history
