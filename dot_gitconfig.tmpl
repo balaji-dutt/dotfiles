@@ -1,3 +1,7 @@
+{{- /* Convenience flags */ -}}
+{{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $isDarwin := eq .chezmoi.os "darwin" -}}
+
 [init]
     defaultBranch = main
 [transfer]
@@ -7,41 +11,42 @@
     prune = true
 [receive]
     fsckobjects = true
+
 [core]
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
     excludesfile = /mnt/c/Users/Balaji/gitignore_global.txt
-    # This only works when using WSL2 in VSCode as that will set the correct $PATH variables
+    # Works when VS Code sets PATH inside WSL shells
     editor = code --wait
     # Don't consider trailing space change as a cause for merge conflicts
     whitespace = -trailing-space
     preloadindex = true
-    # Disabled till we can upgrade git in Ubuntu WSL2 to 2.37 or higher
+    # fsmonitor disabled on typical WSL Git; enable if >= 2.37
     # fsmonitor = true
-{{- else if eq .chezmoi.os "darwin" }}
+{{- else if $isDarwin }}
     excludesfile = ~/.gitignore_global
     editor = code --wait
-    # Don't consider trailing space change as a cause for merge conflicts
     whitespace = -trailing-space
     preloadindex = true
     pager = diff-so-fancy | less --tabs=4 -RFX
-{{ else }}
+{{- else }}
+    # Generic Linux / Other Unix
     excludesfile = $HOME/.gitignore
-    # Don't consider trailing space change as a cause for merge conflicts
     whitespace = -trailing-space
     preloadindex = true
     fsmonitor = true
-{{ end }}
+{{- end }}
+
 [user]
     name = {{ .name }}
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if or $isWSL $isDarwin }}
     email = {{ onepasswordRead "op://private/gitlab.com/email" }}
-{{- else if eq .chezmoi.os "darwin" }}
-    email = {{ onepasswordRead "op://private/gitlab.com/email" }}
-{{ else }}
+{{- else }}
     email = {{ .email }}
-{{ end }}
+{{- end }}
+
 [merge]
     defaultToUpstream = true
+    keepBackup = false
 [rebase]
     autosquash = true
 [branch]
@@ -51,7 +56,7 @@
 [http]
     postBuffer = 52428800
 [log]
-    # Use abbrev SHAs whenever possible/relevant instead of full 40 chars
+    # Use abbrev SHAs when possible
     abbrevCommit = true
 [color "diff"]
     new = green bold
@@ -65,66 +70,53 @@
     updated = green bold
 [color "branch"]
     current = green bold
-{{- if eq .chezmoi.os "linux" }}
-{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+[alias]
+    plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
+
+# ========= Platform-specific tools and safe dirs =========
+{{- if $isWSL }}
 [diff]
-    # Use better, descriptive initials (c, i, w) instead of a/b.
     mnemonicPrefix = true
     colorMoved = zebra
     renames = true
-    # Use VSCode as default diff tool when running `git diff-tool`
     tool = vscode
-    [difftool "vscode"]
-      cmd = code --wait --diff $LOCAL $REMOTE
+[difftool "vscode"]
+    cmd = code --wait --diff $LOCAL $REMOTE
 [difftool]
     prompt = false
 [merge]
-    keepBackup = false
     tool = smerge
-    [mergetool "smerge"]
-        cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
-        keepTemporaries = false
-        trustExitCode = true
+[mergetool "smerge"]
+    cmd = smerge mergetool $BASE $LOCAL $REMOTE -o $MERGED
+    keepTemporaries = false
+    trustExitCode = true
+[mergetool]
+    prompt = false
+    keepBackup = false
 [safe]
     directory = /mnt/devdrive/homelab-IaC
     directory = /mnt/devdrive/homelab-IaC/.git
     directory = /mnt/devdrive/hosted-servers-iac
     directory = /mnt/devdrive/hosted-servers-iac/.git
-{{- else if eq .chezmoi.os "darwin"}}
-
+{{- else if $isDarwin }}
 [diff]
-    # Use better, descriptive initials (c, i, w) instead of a/b.
     mnemonicPrefix = true
     colorMoved = zebra
     renames = true
-    # Use VSCode as default diff tool when running `git diff-tool`
     tool = vscode
-    [difftool "vscode"]
-      cmd = code --wait --diff $LOCAL $REMOTE
+[difftool "vscode"]
+    cmd = code --wait --diff $LOCAL $REMOTE
 [difftool]
     prompt = false
 [merge]
-    keepBackup = false
     tool = smerge
-    [mergetool "smerge"]
-        cmd = '/Applications/Sublime Merge.app/Contents/SharedSupport/bin/smerge' mergetool $BASE $LOCAL $REMOTE -o $MERGED
-        keepTemporaries = false
-        trustExitCode = true
-{{ else }}
-[diff]
-    # Use better, descriptive initials (c, i, w) instead of a/b.
-    mnemonicPrefix = true
-    colorMoved = zebra
-    renames = true
-    tool = vimdiff
-[merge]
+[mergetool "smerge"]
+    cmd = '/Applications/Sublime Merge.app/Contents/SharedSupport/bin/smerge' mergetool $BASE $LOCAL $REMOTE -o $MERGED
+    keepTemporaries = false
+    trustExitCode = true
+[mergetool]
+    prompt = false
     keepBackup = false
-    tool = vimdiff
-{{   end -}}
-{{ end }}
-[alias]
-    plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
-{{- if eq .chezmoi.os "darwin"}}
 [interactive]
     diffFilter = diff-so-fancy --patch
 [color "diff-highlight"]
@@ -137,5 +129,13 @@
 [safe]
     directory = /Volumes/devdrive/homelab-IaC
     directory = /Volumes/devdrive/hosted-servers-iac
-{{- end -}}
-
+{{- else }}
+# Generic Linux / Other Unix
+[diff]
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    tool = vimdiff
+[merge]
+    tool = vimdiff
+{{- end }}
