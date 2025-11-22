@@ -1,0 +1,69 @@
+{
+  "name": "Homelab IaC - Container (Personalized)",
+  "image": "homelab-iac:base",
+
+  "containerEnv": {
+    "DEVCONTAINER": "1", // Additional environment variable for use with chezmoi
+    "FZF_VERSION": "0.66.0",
+    "ZOXIDE_VERSION": "0.9.8"
+  },
+
+  "mounts": [
+    // String syntax used here as the object syntax does not support readonly mounting.
+    "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/container-dotfiles/dotfiles,target=/home/vscode/.host-dotfiles,type=bind,readonly",
+    {
+      "source": "${localEnv:HOME}/Documents/development/vscode-workspace/container-homelab-IaC.code-workspace",
+      "target": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
+      "type": "bind"
+    },
+    // --- Mount for persistent Zsh history (using a named volume) ---
+    {
+      "source": "homelab-iac-zshhistory-volume",
+      "target": "/home/vscode/persistent-data",
+      "type": "volume"
+    }
+  ],
+
+"postCreateCommand": [
+  "bash",
+  "-lc",
+  "set -e && sudo apt-get update && sudo apt-get install -y locales && sudo sed -i '/en_GB.UTF-8/s/^# //g' /etc/locale.gen && sudo locale-gen && SRC=/home/vscode/.host-dotfiles; if [ -d \"$SRC\" ]; then if [ -f \"$SRC/install.sh\" ]; then bash \"$SRC/install.sh\"; else cp -R \"$SRC\"/. \"$HOME\"/; fi; fi; if [ -f /opt/antidote/antidote.zsh ]; then zsh -lc 'source /opt/antidote/antidote.zsh && antidote load' || true; fi"
+],
+
+  "customizations": {
+    "vscode": {
+      "workspaceFile": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
+      "settings": {
+        "terminal.integrated.profiles.linux": {
+          "Container zsh": {
+            "path": "/bin/zsh",
+            "icon": "symbol-method",
+            "color": "terminal.ansiBlue",
+            "overrideName": true
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "Container zsh"
+      },
+      "extensions": [
+        // --- High-Quality General Purpose ---
+        "mikestead.dotenv",
+        "gruntfuggly.todo-tree",
+        "ionutvmi.path-autocomplete",
+        "shardulm94.trailing-spaces",
+        "davidanson.vscode-markdownlint",
+
+        // --- Useful General Purpose ---
+        "deerawan.vscode-dash",
+        "spmeesseman.vscode-taskexplorer",
+
+        // --- Minor extensions for formatting ---
+        "annsk.alignment",
+        "lmcarreiro.vscode-smart-column-indenter",
+        "redlin.remove-tabs-on-save",
+        "rubymaniac.vscode-paste-and-indent"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}
