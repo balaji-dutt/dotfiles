@@ -1,5 +1,5 @@
-{{- if eq (env "SHELL") "/bin/zsh" -}}
-{{-   if eq .chezmoi.os "linux" -}}
+{{- /* Linux Specific Settings (Basic Setup) */ -}}
+{{- if eq .chezmoi.os "linux" }}
 HISTFILE=~/.histfile
 HISTSIZE=3000 #due to hist_expire_dups_first
 SAVEHIST=2000
@@ -19,19 +19,21 @@ zmodload zsh/terminfo
 
 export PATH="$HOME/bin/:$PATH"
 PS1="("'%10<...<%~%<<'"|"'%t'")"$'\n'%{$fg_bold[yellow]%}%B[-%m-]%b%{$reset_color%}%#" "
-{{ "\n" -}}
-{{-   end -}}
+{{ end }}
+
 # Universal custom aliases
 alias cd=" cd"
-{{- if ne .chezmoi.os "darwin" -}}
+{{- if ne .chezmoi.os "darwin" }}
 alias less="less -R"
 alias more="less -R -X"
-{{- end}}
+{{- end }}
 alias cz="chezmoi"
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
 
+{{- /* macOS Specific Settings (Advanced Setup) */ -}}
 {{- if eq .chezmoi.os "darwin" }}
+
 # Direnv initialization (export part) - MUST be before P10k instant prompt
 {{- if lookPath "direnv" }}
 # This line is for direnv export, run if direnv command exists
@@ -59,9 +61,9 @@ source <(fzf --zsh)
 # }
 
 # source antidote
-{{- if lookPath "brew"}}
+{{- if lookPath "brew" }}
 source $(brew --prefix)/opt/antidote/share/antidote/antidote.zsh
-{{- end}}
+{{- end }}
 
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
@@ -93,25 +95,29 @@ export YSU_MESSAGE_POSITION="after"
 export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
 # Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
 export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
-{{- end -}}
+{{- end }}
 
+
+{{- /* Visuals: Eza/Ls Configuration */ -}}
 {{- $hasEza := false -}}
 {{- if lookPath "eza" -}}
 {{-   $hasEza = true -}}
 {{- end -}}
-{{- if and (eq .chezmoi.os "darwin") $hasEza -}}
+{{- if and (eq .chezmoi.os "darwin") $hasEza }}
 # eza is installed on macOS, use eza aliases
 alias ls=" eza -l --group-directories-first"
 alias ll=" eza -la --group-directories-first"
 alias lt=" eza -la --sort=modified --reverse --color=always"
 alias tree=" eza --tree"
-{{- else}}
+{{ else }}
 # Fallback to standard ls aliases
 alias ls="ls --color=always"
 alias ll="LC_COLLATE=C ls -lah --color=always"
 alias lt="LC_COLLATE=C ls -lahtr --color=always"
-{{- end}}
+{{ end }}
 
+
+{{- /* Editor Configuration */ -}}
 # Set $EDITOR to nano if available else fallback to vi
 {{- $hasNano := false -}}
 {{- if lookPath "nano" -}}
@@ -124,14 +130,16 @@ EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
 {{- if lookPath "code" -}}
 {{-   $hasCode = true -}}
 {{- end -}}
-{{if $hasCode}}
+{{ if $hasCode }}
 if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
   export VISUAL="$(command -v code) --wait"
   EDITOR="$VISUAL"
 fi
-{{- end}}
+{{ end }}
 
-{{if eq .chezmoi.os "darwin" -}}
+
+{{- /* macOS Helper Functions (Brew, Git, Etc) */ -}}
+{{- if eq .chezmoi.os "darwin" }}
 # Save the original brew command
 if [ -z "$ORIGINAL_BREW" ]; then
   export ORIGINAL_BREW=$(which brew)
@@ -253,26 +261,27 @@ export PATH=$HOME/Applications:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
 {{- if lookPath "fasder" -}}
 {{-   $hasFasder = true -}}
 {{- end -}}
-{{- if $hasFasder}}
+{{- if $hasFasder }}
 if command -v smartcache >/dev/null 2>&1; then
     smartcache eval fasder --init auto aliases
 else
     eval "$(fasder --init auto aliases)"
 fi
-{{- end}}
+{{- end }}
 
 # This is added at the end of the file to avoid potential conflicts
 {{- $hasDirenv := false -}}
 {{- if lookPath "direnv" -}}
 {{-   $hasDirenv = true -}}
 {{- end -}}
-{{- if $hasDirenv}}
+{{- if $hasDirenv }}
 if command -v smartcache >/dev/null 2>&1; then
     (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
 else
     (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 fi
-{{ end -}}
+{{ end }}
+
 # 1. Bind the Up Arrow to the fzf_history_search widget
 #    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
 #    current command line buffer and uses it as the FZF query.
@@ -295,4 +304,3 @@ bind_fzf_history() {
 bind_fzf_history
 
 {{ end -}}
-{{- end -}}
