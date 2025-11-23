@@ -1,7 +1,4 @@
-{{- if eq (env "SHELL") "/bin/zsh" -}}
-
-{{- if eq .chezmoi.hostname "balajis-m4-mbp" }}
-
+{{ if eq .chezmoi.os "darwin" -}}
 # Load plugins for other frameworks
 getantidote/use-omz
 getantidote/use-prezto
@@ -60,5 +57,3 @@ romkatv/powerlevel10k kind:fpath
 
 
 {{- end }}
-
-{{- end -}}
