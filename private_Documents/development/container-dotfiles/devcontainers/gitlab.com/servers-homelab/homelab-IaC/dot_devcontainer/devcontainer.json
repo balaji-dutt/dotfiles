@@ -25,11 +25,11 @@
     }
   ],
 
-"postCreateCommand": [
-  "bash",
-  "-lc",
-  "set -e && sudo apt-get update && sudo apt-get install -y locales && sudo sed -i '/en_GB.UTF-8/s/^# //g' /etc/locale.gen && sudo locale-gen && SRC=/home/vscode/.host-dotfiles; if [ -d \"$SRC\" ]; then if [ -f \"$SRC/install.sh\" ]; then bash \"$SRC/install.sh\"; else cp -R \"$SRC\"/. \"$HOME\"/; fi; fi; if [ -f /opt/antidote/antidote.zsh ]; then zsh -lc 'source /opt/antidote/antidote.zsh && antidote load' || true; fi"
-],
+  "postCreateCommand": [
+    "bash",
+    "-lc",
+    "set -e && sudo chown -R vscode:vscode /home/vscode/persistent-data && sudo apt-get update && sudo apt-get install -y locales && sudo sed -i '/en_GB.UTF-8/s/^# //g' /etc/locale.gen && sudo locale-gen && SRC=/home/vscode/.host-dotfiles; if [ -d \"$SRC\" ]; then if [ -f \"$SRC/install.sh\" ]; then bash \"$SRC/install.sh\"; else cp -R \"$SRC\"/. \"$HOME\"/; fi; fi; if [ -f /opt/antidote/antidote.zsh ]; then zsh -lc 'source /opt/antidote/antidote.zsh && antidote load' || true; fi"
+  ],
 
   "customizations": {
     "vscode": {
