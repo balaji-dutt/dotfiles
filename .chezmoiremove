@@ -1,0 +1,28 @@
+{{- /* SECTION 1: Remove MacOS files if found on Linux/Windows */ -}}
+{{ if ne .chezmoi.os "darwin" }}
+.gitignore_global
+.zpreztorc
+.zshrc
+.p10k.zsh
+.zsh_plugins.txt
+.local/config/.p10k.zsh
+Library
+{{ end }}
+
+{{- /* SECTION 2: Remove Linux files if found on MacOS/Windows */ -}}
+{{ if ne .chezmoi.os "linux" }}
+.config/lazygit
+.config/sublime-merge
+{{ end }}
+
+{{- /* SECTION 3: Remove files on Ubuntu 22.04 WSL */ -}}
+{{ if eq .chezmoi.os "linux" }}
+{{   if and (eq .chezmoi.osRelease.id "ubuntu") (eq .chezmoi.osRelease.versionID "22.04") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+Documents/development/container-dotfiles
+{{   end }}
+{{ end }}
+
+{{- /* SECTION 4: Remove Global Repo Metadata */ -}}
+README.md
+.local/config/gitignore_global.txt
+brewfile.txt
