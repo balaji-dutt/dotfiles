@@ -1,21 +1,31 @@
-{{ if ne .chezmoi.os "windows" }}
-{{ end }}
+{{- /* SECTION 1: Ignore MacOS specific files if NOT on MacOS (Linux/Windows) */ -}}
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
-Library/Application Support/lazygit/config.yml
 .zpreztorc
 .zshrc
-Library/LaunchAgents/Environment.plist
+.p10k.zsh
+.zsh_plugins.txt
+.local/config/.p10k.zsh
+Library
 {{ end }}
+
+{{- /* SECTION 2: Ignore Linux specific files if NOT on Linux (MacOS/Windows) */ -}}
 {{ if ne .chezmoi.os "linux" }}
-.config/lazygit/
-.config/lazygit/**
-.config/sublime-merge/
-.config/sublime-merge/**
+.config/lazygit
+.config/sublime-merge
 {{ end }}
+
+{{- /* SECTION 3: Specific Ignore for Ubuntu 22.04 on WSL */ -}}
+{{- /* Logic: Must be Linux AND Ubuntu AND 22.04 AND Kernel must contain 'microsoft' */ -}}
+{{ if eq .chezmoi.os "linux" }}
+{{   if and (eq .chezmoi.osRelease.id "ubuntu") (eq .chezmoi.osRelease.versionID "22.04") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+Documents/development/container-dotfiles
+{{   end }}
+{{ end }}
+
+{{- /* SECTION 4: Global Ignores */ -}}
 README.md
 .local/config/gitignore_global.txt
-assets/
-archive/
-archive/**
+assets
+archive
 brewfile.txt
