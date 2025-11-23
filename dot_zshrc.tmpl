@@ -19,7 +19,34 @@ zmodload zsh/terminfo
 
 export PATH="$HOME/bin/:$PATH"
 PS1="("'%10<...<%~%<<'"|"'%t'")"$'\n'%{$fg_bold[yellow]%}%B[-%m-]%b%{$reset_color%}%#" "
-{{ end }}
+{{- end -}}
+# Hook to filter command history before it is written
+zshaddhistory() {
+    emulate -L zsh
+    local line="${1%%$'\n'}"
+    local cmd="${line%% *}"
+
+    # 1. Resolve the command if it is an alias
+    local real_cmd="$cmd"
+    if [[ -n "${aliases[$cmd]}" ]]; then
+        # If it's an alias, grab the definition (e.g., "ls -la")
+        # and extract just the first word ("ls")
+        local alias_def="${aliases[$cmd]}"
+        real_cmd="${alias_def%% *}"
+    fi
+
+    # 2. Check the RESOLVED command against cd/ls
+    if [[ "$real_cmd" == "cd" || "$real_cmd" == "ls" ]]; then
+        return 1
+    fi
+
+    # 3. Exclude commands that don't exist (using the original typed command)
+    if ! whence "$cmd" > /dev/null; then
+        return 1
+    fi
+
+    return 0
+}
 
 # Universal custom aliases
 alias cd=" cd"
@@ -97,7 +124,6 @@ export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
 export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 {{- end }}
 
-
 {{- /* Visuals: Eza/Ls Configuration */ -}}
 {{- $hasEza := false -}}
 {{- if lookPath "eza" -}}
@@ -122,7 +148,7 @@ alias lt="LC_COLLATE=C ls -lahtr --color=always"
 {{- $hasNano := false -}}
 {{- if lookPath "nano" -}}
 {{-   $hasNano = true -}}
-{{- end -}}
+{{- end }}
 EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
 
 # Set $EDITOR & $VISUAL to VSCode
@@ -136,7 +162,6 @@ if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
   EDITOR="$VISUAL"
 fi
 {{ end }}
-
 
 {{- /* macOS Helper Functions (Brew, Git, Etc) */ -}}
 {{- if eq .chezmoi.os "darwin" }}
@@ -238,7 +263,6 @@ brew() {
     esac
 }
 
-
 # Custom aliases
 alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
 alias dotupdate="cz apply && czp apply && antidote update && doom upgrade"
@@ -280,7 +304,7 @@ if command -v smartcache >/dev/null 2>&1; then
 else
     (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 fi
-{{ end }}
+{{- end }}
 
 # 1. Bind the Up Arrow to the fzf_history_search widget
 #    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
@@ -299,7 +323,6 @@ bind_fzf_history() {
         bindkey '^N' down-line-or-history
     fi
 }
-
 # 3. Ensure this runs AFTER antidote loads plugins.
 bind_fzf_history
 
