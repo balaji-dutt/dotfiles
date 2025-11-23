@@ -27,7 +27,9 @@ PERSISTENT_DATA_DIR="$HOME/persistent-data"
 mkdir -p "$PERSISTENT_DATA_DIR"
 
 # Set HISTFILE
-HHISTFILE="$PERSISTENT_DATA_DIR/.zsh_history"
+export HISTFILE="$PERSISTENT_DATA_DIR/.zsh_history"
+export HISTSIZE=10000
+export SAVEHIST=10000
 
 # Set language variables
 export LC_ALL=en_GB.UTF-8
