@@ -1,0 +1,33 @@
+{{- if eq .chezmoi.os "darwin" -}}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{ if eq .chezmoi.arch "arm64" }}/opt/homebrew/bin{{ else }}/usr/local/bin{{ end }}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/X11/bin:/usr/local/sbin</string>
+
+    <!-- Example of another env var you want globally in GUI apps -->
+    <key>DICPATH</key>
+    <string>{{ .chezmoi.homeDir }}/Documents/dict</string>
+  </dict>
+
+  <key>Label</key>
+  <string>Environment</string>
+
+  <!-- setenv is fine but not required if you only export via EnvironmentVariables -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/launchctl</string>
+    <string>setenv</string>
+    <string>DICPATH</string>
+    <string>{{ .chezmoi.homeDir }}/Documents/dict</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+{{- end -}}
