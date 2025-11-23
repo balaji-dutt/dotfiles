@@ -1,3 +1,31 @@
+# Hook to filter command history before it is written
+zshaddhistory() {
+    emulate -L zsh
+    local line="${1%%$'\n'}"
+    local cmd="${line%% *}"
+
+    # 1. Resolve the command if it is an alias
+    local real_cmd="$cmd"
+    if [[ -n "${aliases[$cmd]}" ]]; then
+        # If it's an alias, grab the definition (e.g., "ls -la")
+        # and extract just the first word ("ls")
+        local alias_def="${aliases[$cmd]}"
+        real_cmd="${alias_def%% *}"
+    fi
+
+    # 2. Check the RESOLVED command against cd/ls
+    if [[ "$real_cmd" == "cd" || "$real_cmd" == "ls" ]]; then
+        return 1
+    fi
+
+    # 3. Exclude commands that don't exist (using the original typed command)
+    if ! whence "$cmd" > /dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
 # Universal custom aliases
 alias cd=" cd"
 
@@ -30,6 +58,10 @@ mkdir -p "$PERSISTENT_DATA_DIR"
 export HISTFILE="$PERSISTENT_DATA_DIR/.zsh_history"
 export HISTSIZE=10000
 export SAVEHIST=10000
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_SPACE
+setopt HIST_EXPIRE_DUPS_FIRST
 
 # Set language variables
 export LC_ALL=en_GB.UTF-8
@@ -46,6 +78,8 @@ prompt powerlevel10k
 # Plugin customizations for you-should-use and fzf-history-search
 export YSU_MESSAGE_POSITION="after"
 export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
+# Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
+export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 
 # Use eza aliases (eza is installed in the Dockerfile)
 alias ls="eza -l --group-directories-first"
@@ -65,7 +99,6 @@ tf() {
   esac
   command "$cmd" "$@"
 }
-
 
 # Set $EDITOR & $VISUAL to VSCode (this works great in devcontainers)
 export VISUAL="$(command -v code) --wait"
@@ -101,6 +134,5 @@ bind_fzf_history() {
         bindkey '^N' down-line-or-history
     fi
 }
-
 # 3. Ensure this runs AFTER antidote loads plugins.
 bind_fzf_history
