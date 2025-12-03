@@ -280,6 +280,15 @@ export PATH=$HOME/Applications:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
 # Disable Fork Safety as it tends to break Ansible
 # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
+# Initialize claude-code-router if available.
+{{- $hasccr := false -}}
+{{- if lookPath "ccr" -}}
+{{-   $hasccr = true -}}
+{{- end -}}
+{{- if $hasccr }}
+    eval "$(ccr activate)"
+{{- end }}
+
 # Initialize fasd with smartcache if available, or directly if only fasd is available
 {{- $hasFasder := false -}}
 {{- if lookPath "fasder" -}}
