@@ -24,8 +24,9 @@ Documents/development/container-dotfiles
 {{ end }}
 
 {{- /* SECTION 4: Global Ignores */ -}}
-README.md
-.local/config/gitignore_global.txt
 assets
 archive
+configs
 brewfile.txt
+.local/config/gitignore_global.txt
+README.md
