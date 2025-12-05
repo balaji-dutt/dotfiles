@@ -165,10 +165,37 @@ fi
 
 {{- /* macOS Helper Functions (Brew, Git, Etc) */ -}}
 {{- if eq .chezmoi.os "darwin" }}
+DOTFILES_REPO="${HOME}/Documents/development/dotfiles"
+
+# --- Helper Function: Git Commit ---
+# Usage: sync_to_dotfiles "tool_name" "manifest_file" "action_description"
+sync_to_dotfiles() {
+    local tool_name=$1
+    local manifest_file=$2
+    local message=$3
+
+    # Check if dotfiles repo exists
+    if [ -d "${DOTFILES_REPO}/.git" ]; then
+        # Use subshell to avoid changing directory in current shell
+        (
+            cd "${DOTFILES_REPO}" || exit
+
+            # CHECK FIRST: Is the file Modified (M) or Untracked (??)?
+            if [ -n "$(git status --porcelain "$manifest_file")" ]; then
+                git add "$manifest_file"
+                git commit -m "Automated ${tool_name} update: ${message}"
+                echo "${tool_name} manifest updated and committed to dotfiles."
+            else
+                echo "${tool_name} update checked - no changes detected in manifest."
+            fi
+        )
+    else
+        echo "⚠️  Dotfiles repo not found at ${DOTFILES_REPO}."
+    fi
+}
+
 # Save the original brew command
-if [ -z "$ORIGINAL_BREW" ]; then
-  export ORIGINAL_BREW=$(which brew)
-fi
+if [ -z "$ORIGINAL_BREW" ]; then export ORIGINAL_BREW=$(which brew); fi
 
 # Function to update brewfiles and create git commit
 update_brewfiles() {
@@ -176,45 +203,34 @@ update_brewfiles() {
     local packages=$2
     local commit_action=""
 
-    # Determine commit message action based on command
+    # 1. Determine action verb for commit message
     case $action in
         "install"|"tap") commit_action="installed";;
         "uninstall"|"purge"|"untap") commit_action="uninstalled";;
+        *) commit_action="updated";;
     esac
 
-    # Define file paths with proper quoting
-    local clean_install_brewfile="${HOME}/Downloads/Clean Install/Clean Install Config/brewfile.txt"
-    local dotfiles_brewfile="${HOME}/Documents/development/dotfiles/brewfile.txt"
-    local clean_install_exists=false
+    # 2. Define Paths
+    # Note: DOTFILES_REPO is defined at the top of your .zshrc
+    local clean_install_path="${HOME}/Downloads/Clean Install/Clean Install Config/brewfile.txt"
+    local dotfiles_file_name="brewfile.txt"
+    local dotfiles_full_path="${DOTFILES_REPO}/${dotfiles_file_name}"
 
-    if [ -f "${clean_install_brewfile}" ]; then
-        rm -f "${clean_install_brewfile}"
-        "${ORIGINAL_BREW}" bundle dump --brews --casks --taps --mas --file="${clean_install_brewfile}"
-        echo "Brewfile has been updated at '${clean_install_brewfile}'"
-        clean_install_exists=true
-    else
-        echo "Brewfile in Clean Install Config folder not found. Recreating the file now."
-        mkdir -p "$(dirname "${clean_install_brewfile}")"
-        "${ORIGINAL_BREW}" bundle dump --brews --casks --taps --mas --file="${clean_install_brewfile}"
-        clean_install_exists=true
-    fi
+    # 3. Generate the Brewfile (Dump to 'Clean Install' location)
+    # mkdir -p ensures the folder exists
+    # --force overwrites the file if it exists (replaces manual rm logic)
+    mkdir -p "$(dirname "$clean_install_path")"
 
-    # Check if dotfiles directory is a git repo and brewfile location exists
-    if [ -d "${HOME}/Documents/development/dotfiles/.git" ]; then
-        if [ "$clean_install_exists" = true ]; then
-            # Copy the brewfile to dotfiles
-            /bin/cp -f "${clean_install_brewfile}" "${dotfiles_brewfile}"
-            cd "${HOME}/Documents/development/dotfiles"
-            # Stage and commit the brewfile
-            git add brewfile.txt
-            git commit -m "Automated commit of brewfile - Packages $packages $commit_action"
-            echo "Brewfile copied to dotfiles and committed"
-            # Return to original directory
-            cd - > /dev/null
-        fi
-    else
-        echo "Brewfile in dotfiles git repo not found or not a git repository"
-    fi
+    echo "🍺 Dumping Brewfile to '${clean_install_path}'..."
+    "$ORIGINAL_BREW" bundle dump --brews --casks --taps --mas --file="$clean_install_path" --force
+
+    # 4. Copy to Dotfiles Repo
+    # We copy it over so the repo has the latest version to check against
+    cp -f "$clean_install_path" "$dotfiles_full_path"
+
+    # 5. Commit using the shared helper
+    # We pass the relative filename "brewfile.txt" because sync_to_dotfiles cds into the repo
+    sync_to_dotfiles "brew" "$dotfiles_file_name" "Packages $packages $commit_action"
 }
 
 # Create a custom brew function
@@ -263,9 +279,194 @@ brew() {
     esac
 }
 
+# Initialize mise with smartcache if available, or directly if only mise is available
+{{- $hasmise := false -}}
+{{- if lookPath "mise" -}}
+{{-   $hasmise = true -}}
+{{- end -}}
+{{- if $hasmise }}
+if command -v smartcache >/dev/null 2>&1; then
+    smartcache eval mise activate zsh
+else
+    eval "$(mise activate zsh)"
+fi
+{{- end }}
+
+# Override mise, pipx and npm with custom functions to ensure package installs are 
+# automatically committed to the dotfiles repo.
+
+mise() {
+    local cmd_name=$1
+    local exit_code
+    local MISE_MANIFEST="configs/mise.toml"
+
+    # 1. RUN COMMAND NORMALLY
+    command mise "$@"
+    exit_code=$?
+
+    # Stop if mise failed
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # 2. AUTO-COMMIT LOGIC
+    # Check for state-changing commands
+    if [[ "$cmd_name" =~ ^(use|install|i|uninstall|rm|remove|plugin|trust|untrust|latest|config|set|unset)$ ]]; then
+        local is_global=false
+        if [[ " $* " =~ " -g " ]] || [[ " $* " =~ " --global " ]]; then
+            is_global=true
+        fi
+
+        # --- CASE A: GLOBAL UPDATE ---
+        if [ "$is_global" = true ]; then
+            # We use the sync_to_dotfiles helper we defined earlier
+            # It handles the cd/subshell internally
+            sync_to_dotfiles "mise" "$MISE_MANIFEST" "$*"
+
+        # --- CASE B: LOCAL PROJECT UPDATE ---
+        else
+            # Check if a local config exists AND we are in a git repo
+            if [ -f "mise.toml" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                # Check status (M = Modified, ?? = New/Untracked)
+                if [ -n "$(git status --porcelain "mise.toml")" ]; then
+                    git add "mise.toml"
+                    git commit -m "chore: update mise tools ($*)"
+                    echo "Local mise.toml committed to project repo."
+                fi
+            fi
+        fi
+    fi
+
+    return $exit_code
+}
+
+
+# --- PIPX WRAPPER ---
+if [ -z "$ORIGINAL_PIPX" ]; then export ORIGINAL_PIPX=$(which pipx); fi
+
+pipx() {
+    local command=$1
+    # 1. Run the original command
+    "$ORIGINAL_PIPX" "$@"
+    local exit_code=$?
+    local PIPX_MANIFEST="configs/pipx_packages.txt"
+
+    # 2. If command succeeded and was a state-changing command
+    if [ $exit_code -eq 0 ] && [[ "$command" =~ ^(install|uninstall|inject|uninject|reinstall)$ ]]; then
+        # Generate clean list of packages
+        # Output format: "package_name 1.0.0" -> just "package_name"
+        rm -f "${DOTFILES_REPO}/${PIPX_MANIFEST}"
+        "$ORIGINAL_PIPX" list --short | awk '{print $1}' > "${DOTFILES_REPO}/${PIPX_MANIFEST}"
+
+        # Commit
+        sync_to_dotfiles "pipx" "$PIPX_MANIFEST" "$*"
+    fi
+
+    return $exit_code
+}
+
+# --- NPM WRAPPER ---
+if [ -z "$ORIGINAL_NPM" ]; then export ORIGINAL_NPM=$(which npm); fi
+
+npm() {
+    local args=("$@")
+    local command=$1
+    local is_global=false
+    local is_modifying=false
+    local NPM_MANIFEST="configs/npm_globals.txt"
+
+    # Check for global flag
+    if [[ " ${args[*]} " =~ " -g " ]] || [[ " ${args[*]} " =~ " --global " ]]; then
+        is_global=true
+    fi
+
+    # Check for modifying commands
+    if [[ "$command" =~ ^(i|install|add|uninstall|remove|rm|update)$ ]]; then
+        is_modifying=true
+    fi
+
+    # 1. Run original command
+    "$ORIGINAL_NPM" "$@"
+    local exit_code=$?
+
+    # 2. If global modification succeeded
+    if [ $exit_code -eq 0 ] && [ "$is_global" = true ] && [ "$is_modifying" = true ]; then
+        # List global packages (depth 0, parseable)
+        # We use 'ls' instead of 'list' to be concise, -g for global, --depth=0
+        # We parse with awk to get just the package names
+        # "$ORIGINAL_NPM" list -g --depth=0 --json | grep '"key":' | awk -F'"' '{print $4}' > "${DOTFILES_REPO}/${NPM_MANIFEST}"
+
+        # Note: If you don't have grep/awk piping working perfectly for JSON, 
+        # a simpler list format is: 
+        "$ORIGINAL_NPM" list -g --depth=0 --parseable | sed '1d' | awk -F/ '{print $NF}' > "${DOTFILES_REPO}/${NPM_MANIFEST}"
+
+        # Commit
+        sync_to_dotfiles "npm" "$NPM_MANIFEST" "$*"
+    fi
+
+    return $exit_code
+}
+
+# ==========================================
+# BUNX WRAPPER (Audit Log + Auto-Commit)
+# ==========================================
+
+bunx() {
+    local args="$*"
+    local exit_code
+    local target_dir
+    local log_filename="bunx_commands.txt"
+
+    # 1. Run the actual command
+    command bunx "$@"
+    exit_code=$?
+
+    # Stop if the command failed
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # 2. Determine Log Location
+    # Priority: .claude/ -> .bunx/
+    if [ -d ".claude" ]; then
+        target_dir=".claude"
+    else
+        target_dir=".bunx"
+        # Create .bunx if it doesn't exist
+        mkdir -p "$target_dir"
+    fi
+
+    # 3. Capture the Command
+    # We append to the file so you have a full history
+    # Format: [Timestamp] bunx <arguments>
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] bunx $args" >> "${target_dir}/${log_filename}"
+
+    # 4. Git Auto-Commit Logic
+    # Check if we are inside a git work tree
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        # Check if the target directory has changes 
+        # (This catches the new log entry AND any artifacts bunx created)
+        if [ -n "$(git status --porcelain "$target_dir")" ]; then
+
+            echo "🤖 Detected new bunx activity in $target_dir..."
+
+            # Stage the target folder
+            git add "$target_dir"
+
+            # Commit using the command as the message
+            git commit -m "chore(bunx): executed '$args'"
+
+            echo "Auto-committed command log and artifacts."
+        fi
+    fi
+
+    return $exit_code
+}
+
 # Custom aliases
 alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/Documents/development/private-dotfiles"
-alias dotupdate="cz apply && czp apply && antidote update && doom upgrade"
+alias dotupdate="cz apply && czp apply && antidote update && doom upgrade && mise upgrade"
 alias brew-update-all='brew update && brew upgrade && brew cu --include-mas -a'
 
 # Add variables used by homelab-IaC repo
