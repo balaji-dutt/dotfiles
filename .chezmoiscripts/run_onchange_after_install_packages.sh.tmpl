@@ -15,6 +15,8 @@
 # bun_globals.txt hash: {{ if stat $bun }}{{ include $bun | sha256sum }}{{ else }}empty{{ end }}
 
 # config/mise.toml hash: {{ include "configs/mise.toml" | sha256sum }}
+{{- $uv := joinPath .chezmoi.sourceDir "configs/uv_tools.txt" }}
+# uv_tools.txt hash: {{ if stat $uv }}{{ include $uv | sha256sum }}{{ else }}empty{{ end }}
 
 set -e
 
@@ -69,6 +71,25 @@ if [ -s "$BUN_FILE" ]; then
     echo "Syncing Bun global packages..."
     if command -v bun >/dev/null 2>&1; then
         xargs bun add -g < "$BUN_FILE"
+    fi
+fi
+
+# 6. HYDRATE UV TOOLS
+UV_FILE="$CONFIG_DIR/uv_tools.txt"
+if [ -s "$UV_FILE" ]; then
+    echo "Syncing UV Tools..."
+
+    if command -v uv >/dev/null 2>&1; then
+        while IFS= read -r tool; do
+            [[ -z "$tool" || "$tool" =~ ^# ]] && continue
+            # Check if already installed to save time
+            if ! uv tool list | grep -q "^$tool "; then
+                echo "   + Installing $tool..."
+                uv tool install "$tool" --force
+            fi
+        done < "$UV_FILE"
+    else
+        echo "uv binary not found. Check mise install."
     fi
 fi
 

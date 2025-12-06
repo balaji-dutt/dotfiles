@@ -365,6 +365,29 @@ pipx() {
     return $exit_code
 }
 
+# --- UV WRAPPER ---
+if [ -z "$ORIGINAL_UV" ]; then export ORIGINAL_UV=$(which uv); fi
+
+uv() {
+    local exit_code
+    local command=$1
+    local subcommand=$2
+    local UV_MANIFEST="configs/uv_tools.txt" 
+
+    # 1. Run the original command
+    "$ORIGINAL_UV" "$@"
+    exit_code=$?
+
+    # 2. Check if command succeeded
+    if [[ $exit_code -eq 0 ]]; then
+        if [[ "$command" == "tool" ]] && [[ "$subcommand" =~ ^(install|uninstall|upgrade)$ ]]; then
+            "$ORIGINAL_UV" tool list | grep -v "^-" | awk '{print $1}' > "${DOTFILES_REPO}/${UV_MANIFEST}"
+            sync_to_dotfiles "uv" "$UV_MANIFEST" "$*"
+        fi
+    fi
+    return $exit_code
+}
+
 # --- NPM WRAPPER ---
 if [ -z "$ORIGINAL_NPM" ]; then export ORIGINAL_NPM=$(which npm); fi
 
