@@ -5,6 +5,9 @@
 # ============================================================================
 # We use a variable for the path, check if it exists (stat), and only THEN include it.
 
+{{- $mise := joinPath .chezmoi.sourceDir "configs/mise.toml" }}
+# config/mise.toml hash: {{ if stat $mise }}{{ include $mise | sha256sum }}{{ else }}empty{{ end }}
+
 {{- $pipx := joinPath .chezmoi.sourceDir "configs/pipx_packages.txt" }}
 # pipx_packages.txt hash: {{ if stat $pipx }}{{ include $pipx | sha256sum }}{{ else }}empty{{ end }}
 
@@ -14,7 +17,6 @@
 {{- $bun := joinPath .chezmoi.sourceDir "configs/bun_globals.txt" }}
 # bun_globals.txt hash: {{ if stat $bun }}{{ include $bun | sha256sum }}{{ else }}empty{{ end }}
 
-# config/mise.toml hash: {{ include "configs/mise.toml" | sha256sum }}
 {{- $uv := joinPath .chezmoi.sourceDir "configs/uv_tools.txt" }}
 # uv_tools.txt hash: {{ if stat $uv }}{{ include $uv | sha256sum }}{{ else }}empty{{ end }}
 
@@ -57,7 +59,7 @@ if [ -s "$PIPX_FILE" ]; then
     done < "$PIPX_FILE"
 fi
 
-# 5. HYDRATE NPM GLOBAL PACKAGES
+# 4. HYDRATE NPM GLOBAL PACKAGES
 NPM_FILE="$CONFIG_DIR/npm_globals.txt"
 if [ -s "$NPM_FILE" ]; then
     echo "Syncing NPM global packages..."
@@ -65,7 +67,7 @@ if [ -s "$NPM_FILE" ]; then
     xargs npm install -g < "$NPM_FILE"
 fi
 
-# 6. HYDRATE BUN GLOBAL PACKAGES
+# 5. HYDRATE BUN GLOBAL PACKAGES
 BUN_FILE="$CONFIG_DIR/bun_globals.txt"
 if [ -s "$BUN_FILE" ]; then
     echo "Syncing Bun global packages..."
