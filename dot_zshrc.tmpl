@@ -221,12 +221,12 @@ update_brewfiles() {
     # --force overwrites the file if it exists (replaces manual rm logic)
     mkdir -p "$(dirname "$clean_install_path")"
 
-    echo "🍺 Dumping Brewfile to '${clean_install_path}'..."
+    echo "Dumping Brewfile to '${clean_install_path}'..."
     "$ORIGINAL_BREW" bundle dump --brews --casks --taps --mas --file="$clean_install_path" --force
 
     # 4. Copy to Dotfiles Repo
     # We copy it over so the repo has the latest version to check against
-    cp -f "$clean_install_path" "$dotfiles_full_path"
+    /bin/cp -f "$clean_install_path" "$dotfiles_full_path"
 
     # 5. Commit using the shared helper
     # We pass the relative filename "brewfile.txt" because sync_to_dotfiles cds into the repo
@@ -472,7 +472,7 @@ bunx() {
         # (This catches the new log entry AND any artifacts bunx created)
         if [ -n "$(git status --porcelain "$target_dir")" ]; then
 
-            echo "🤖 Detected new bunx activity in $target_dir..."
+            echo "Detected new bunx activity in $target_dir..."
 
             # Stage the target folder
             git add "$target_dir"
