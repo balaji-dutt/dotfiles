@@ -20,7 +20,25 @@
         "Bash(chezmoi state reset)",
         "Bash(chezmoi state set *)",
         "Bash(chezmoi unmanage *)",
-        "Bash(chezmoi upgrade)"
-    ]
+        "Bash(chezmoi upgrade)",
+        "Bash(cz destroy *)",
+        "Bash(cz edit-config *)",
+        "Bash(cz encrypt *)",
+        "Bash(cz forget *)",
+        "Bash(cz git push --force origin master*)",
+        "Bash(cz git push --force origin main*)",
+        "Bash(cz git push -f origin master*)",
+        "Bash(cz git push -f origin main*)",
+        "Bash(cz git reset --hard origin/master*)",
+        "Bash(cz git reset --hard origin/main*)",
+        "Bash(cz purge *)",
+        "Bash(cz ssh *)",
+        "Bash(cz state delete *)",
+        "Bash(cz state delete-bucket *)",
+        "Bash(cz state reset)",
+        "Bash(cz state set *)",
+        "Bash(cz unmanage *)",
+        "Bash(cz upgrade)"
+      ]
   }
 }
