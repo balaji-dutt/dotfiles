@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# ============================================================================
+# WATCH TRIGGERS (Conditional)
+# ============================================================================
+# We use a variable for the path, check if it exists (stat), and only THEN include it.
+
+{{- $pipx := joinPath .chezmoi.sourceDir "configs/pipx_packages.txt" }}
+# pipx_packages.txt hash: {{ if stat $pipx }}{{ include $pipx | sha256sum }}{{ else }}empty{{ end }}
+
+{{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
+# npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
+
+{{- $bun := joinPath .chezmoi.sourceDir "configs/bun_globals.txt" }}
+# bun_globals.txt hash: {{ if stat $bun }}{{ include $bun | sha256sum }}{{ else }}empty{{ end }}
+
+# config/mise.toml hash: {{ include "configs/mise.toml" | sha256sum }}
+
+set -e
+
+echo "Starting Hydration of non-brew packages..."
+
+# Define the absolute path to your configs
+CONFIG_DIR="{{ .chezmoi.sourceDir }}/configs"
+
+# 1. ENSURE BREW & MISE ARE AVAILABLE
+if [[ -d "/opt/homebrew/bin" ]]; then
+  export PATH="/opt/homebrew/bin:$PATH"
+elif [[ -d "/usr/local/bin" ]]; then
+  export PATH="/usr/local/bin:$PATH"
+fi
+
+if ! command -v mise >/dev/null 2>&1; then
+    echo "❌Error: mise not found. Please run 'brew install mise' first."
+    exit 1
+fi
+
+# 2. ACTIVATE MISE ENVIRONMENT
+eval "$(mise activate bash)"
+
+echo "Installing Runtimes from mise.toml..."
+mise install -y
+mise reshim
+
+# 3. HYDRATE PIPX PACKAGES
+PIPX_FILE="$CONFIG_DIR/pipx_packages.txt"
+if [ -s "$PIPX_FILE" ]; then
+    echo "Syncing Pipx packages..."
+    while IFS= read -r package; do
+        [[ -z "$package" || "$package" =~ ^# ]] && continue
+        if ! pipx list --short | grep -q "^$package "; then
+            echo "   + Installing $package..."
+            pipx install "$package" --force
+        fi
+    done < "$PIPX_FILE"
+fi
+
+# 5. HYDRATE NPM GLOBAL PACKAGES
+NPM_FILE="$CONFIG_DIR/npm_globals.txt"
+if [ -s "$NPM_FILE" ]; then
+    echo "Syncing NPM global packages..."
+    # xargs -r is not always available on macOS, so we use the [ -s ] check above
+    xargs npm install -g < "$NPM_FILE"
+fi
+
+# 6. HYDRATE BUN GLOBAL PACKAGES
+BUN_FILE="$CONFIG_DIR/bun_globals.txt"
+if [ -s "$BUN_FILE" ]; then
+    echo "Syncing Bun global packages..."
+    if command -v bun >/dev/null 2>&1; then
+        xargs bun add -g < "$BUN_FILE"
+    fi
+fi
+
+echo "Hydration Complete."
