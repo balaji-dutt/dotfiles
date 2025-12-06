@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+    ],
+    "deny": [
+        "Bash(chezmoi destroy *)",
+        "Bash(chezmoi edit-config *)",
+        "Bash(chezmoi encrypt *)",
+        "Bash(chezmoi forget *)",
+        "Bash(chezmoi git push --force origin master*)",
+        "Bash(chezmoi git push --force origin main*)",
+        "Bash(chezmoi git push -f origin master*)",
+        "Bash(chezmoi git push -f origin main*)",
+        "Bash(chezmoi git reset --hard origin/master*)",
+        "Bash(chezmoi git reset --hard origin/main*)",
+        "Bash(chezmoi purge *)",
+        "Bash(chezmoi ssh *)",
+        "Bash(chezmoi state delete *)",
+        "Bash(chezmoi state delete-bucket *)",
+        "Bash(chezmoi state reset)",
+        "Bash(chezmoi state set *)",
+        "Bash(chezmoi unmanage *)",
+        "Bash(chezmoi upgrade)"
+    ]
+  }
+}
