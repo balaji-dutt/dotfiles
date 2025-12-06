@@ -478,6 +478,9 @@ alias cdcert=' cd "$CERTPATH"'
 PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
 export PATH=$HOME/Applications:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
 
+# Add variable needed for Claude Code SuperClaude plugin
+export TAVILY_API_KEY="{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef5y/credential" }}"
+
 # Disable Fork Safety as it tends to break Ansible
 # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
