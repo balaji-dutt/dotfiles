@@ -193,17 +193,9 @@ sset () {
 
 # Custom aliases
 alias sunset=' unset SSH_AUTH_SOCK'
-alias tf="terraform"
-alias otf="tofu"
 
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
-
-
-#Add variables used by homelab-IaC repo
-export CERTPATH="{{ .CERTPATH }}"
-export LOCALCERTPATH=$HOME/development/keys
-alias cdcert=' cd "$CERTPATH"'
 
 {{   end -}}
 {{ end -}}
