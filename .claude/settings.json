@@ -1,6 +1,9 @@
 {
   "permissions": {
     "allow": [
+        "Bash(chezmoi doctor)",
+        "Bash(cz doctor)",
+        "Bash(grep -l *)"
     ],
     "deny": [
         "Bash(chezmoi destroy *)",
