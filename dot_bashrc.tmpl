@@ -139,10 +139,12 @@ export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
 # Update path for local binaries
-export PATH=~/.local/bin:~/.emacs.d/bin/:$PATH
+export PATH=~/.local/bin{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}:~/.emacs.d/bin/{{- end }}:$PATH
 
+{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # Set Browser variable (enables xdg-open with Emacs)
 export BROWSER=wslview
+{{- end }}
 
 # Set $EDITOR to nano if available else fallback to vi
 # else in a WSLg environment set $EDITOR & $VISUAL to VSCode
