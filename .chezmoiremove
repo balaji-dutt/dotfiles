@@ -29,3 +29,4 @@ configs
 brewfile.txt
 .local/config/gitignore_global.txt
 README.md
+.ansible.cfg
