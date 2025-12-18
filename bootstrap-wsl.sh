@@ -41,6 +41,10 @@ else
     log_info "Ansible already installed"
 fi
 
+# Install Ansible collections
+log_info "Installing Ansible collections..."
+ansible-galaxy collection install -r "${DOTFILES_LOCAL_PATH}/ansible/requirements.yml"
+
 # Install chezmoi
 if ! command -v chezmoi &> /dev/null; then
     log_info "Installing chezmoi..."
