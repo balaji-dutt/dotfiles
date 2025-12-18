@@ -1,0 +1,44 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+#!/bin/bash
+set -euo pipefail
+
+echo "=== WSL2 Provisioning via Ansible ==="
+
+export PATH="$HOME/.local/bin:$PATH"
+
+if ! command -v ansible-playbook &> /dev/null; then
+    echo "ERROR: Ansible not found. Run bootstrap-wsl.sh first."
+    exit 1
+fi
+
+DISTRO_ID="{{ .chezmoi.osRelease.id }}"
+DISTRO_VERSION="{{ .chezmoi.osRelease.versionID }}"
+
+echo "Detected distro: ${DISTRO_ID} ${DISTRO_VERSION}"
+
+ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
+    --ask-become-pass \
+    -e "distro_id=${DISTRO_ID}" \
+    -e "distro_version=${DISTRO_VERSION}" \
+    -e "chezmoi_source_dir={{ .chezmoi.sourceDir }}" \
+    {{- if .CERTPATH }}
+    -e "cert_path={{ .CERTPATH }}" \
+    {{- end }}
+    {{- if .homelab.nfs_server }}
+    -e "nfs_server={{ .homelab.nfs_server }}" \
+    {{- end }}
+    {{- if .homelab.nfs_path }}
+    -e "nfs_path={{ .homelab.nfs_path }}" \
+    {{- end }}
+    {{- if .homelab.windows_user }}
+    -e "windows_user={{ .homelab.windows_user }}" \
+    {{- end }}
+    {{- if .onepassword.account }}
+    -e "op_account={{ .onepassword.account }}" \
+    {{- end }}
+    {{- if .onepassword.email }}
+    -e "op_email={{ .onepassword.email }}" \
+    {{- end }}
+
+echo "=== WSL2 Provisioning Complete ==="
+{{- end }}
