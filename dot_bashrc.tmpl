@@ -141,7 +141,7 @@ export LANGUAGE=en_GB:en_US
 # Update path for local binaries
 export PATH=~/.local/bin{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}:~/.emacs.d/bin/{{- end }}:$PATH
 
-{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if and (eq .chezmoi.osRelease.id "debian") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # Set Browser variable (enables xdg-open with Emacs)
 export BROWSER=wslview
 {{- end }}
