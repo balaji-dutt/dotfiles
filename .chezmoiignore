@@ -15,10 +15,10 @@ Library
 .config/sublime-merge
 {{ end }}
 
-{{- /* SECTION 3: Specific Ignore for Ubuntu 22.04 on WSL */ -}}
-{{- /* Logic: Must be Linux AND Ubuntu AND 22.04 AND Kernel must contain 'microsoft' */ -}}
+{{- /* SECTION 3: Specific Ignore for Ubuntu on WSL */ -}}
+{{- /* Logic: Must be Linux AND Ubuntu AND Kernel must contain 'microsoft' */ -}}
 {{ if eq .chezmoi.os "linux" }}
-{{   if and (eq .chezmoi.osRelease.id "ubuntu") (eq .chezmoi.osRelease.versionID "22.04") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{   if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 Documents/development/container-dotfiles
 {{   end }}
 {{ end }}
