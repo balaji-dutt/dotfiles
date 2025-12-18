@@ -747,5 +747,6 @@
       "Bash(exec > /dev/tcp/*)",
       "Bash(exec 3<>/dev/tcp/*)"
     ]
-  }
+  },
+  "alwaysThinkingEnabled": true
 }
