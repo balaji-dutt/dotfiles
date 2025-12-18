@@ -28,5 +28,6 @@ assets
 archive
 configs
 brewfile.txt
+bootstrap-wsl.sh
 .local/config/gitignore_global.txt
 README.md
