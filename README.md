@@ -30,3 +30,12 @@ The list of configurations that I'm currenly managing through this repo are:
   * antidote (with zprezto and oh-my-zsh framework functions)
   * powerlevel10k
 * Brew package manager
+* Mise (Runtime Manager)
+* Claude (Settings)
+* Claude Code (Config)
+* Package Managers (tracked lists):
+  * pipx packages
+  * uv tools
+  * npm global packages
+  * bunx global packages
+* Devcontainers
