@@ -4,8 +4,28 @@
 {{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
 {{- $org_dir := promptStringOnce . "Org-mode Directory" "Path to Emacs org-mode directory" -}}
 
+{{- /* WSL-specific prompts */ -}}
+{{- $nfsServer := "" -}}
+{{- $nfsPath := "" -}}
+{{- $windowsUser := "" -}}
+{{- $opAccount := "" -}}
+{{- $opEmail := "" -}}
+
+{{- $isWSL := false -}}
+{{- if stat "/proc/sys/fs/binfmt_misc/WSLInterop" -}}
+{{-   $isWSL = true -}}
+{{- end -}}
+
+{{- if $isWSL -}}
+{{-   $nfsServer = promptStringOnce . "homelab.nfs_server" "NFS server IP (leave empty to skip)" -}}
+{{-   $nfsPath = promptStringOnce . "homelab.nfs_path" "NFS export path (leave empty to skip)" -}}
+{{-   $windowsUser = promptStringOnce . "homelab.windows_user" "Windows username" -}}
+{{-   $opAccount = promptStringOnce . "onepassword.account" "1Password account URL e.g. my.1password.com (leave empty to skip)" -}}
+{{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
+{{- end -}}
+
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-sourceDir = "/home/balaji/development/dotfiles"
+sourceDir = "/home/balaji/Documents/development/dotfiles"
 {{- else if eq .chezmoi.os "darwin" -}}
 sourceDir = "/Users/balaji/Documents/development/dotfiles"
 {{ else }}
@@ -23,8 +43,18 @@ args = ["--wait", "--diff"]
 {{- end}}
 
 [data]
-email = {{ $email | toToml }}
-name = {{ $name | toToml }}
-CERTPATH = {{ $CERTPATH | quote }}
-ansible_key = {{ $ansible_key | quote }}
-org_dir = {{ $org_dir | quote }}
+    email = {{ $email | toToml }}
+    name = {{ $name | toToml }}
+    CERTPATH = {{ $CERTPATH | quote }}
+    ansible_key = {{ $ansible_key | quote }}
+    org_dir = {{ $org_dir | quote }}
+    isWSL = {{ $isWSL }}
+
+[data.homelab]
+    nfs_server = {{ $nfsServer | quote }}
+    nfs_path = {{ $nfsPath | quote }}
+    windows_user = {{ $windowsUser | quote }}
+
+[data.onepassword]
+    account = {{ $opAccount | quote }}
+    email = {{ $opEmail | quote }}
