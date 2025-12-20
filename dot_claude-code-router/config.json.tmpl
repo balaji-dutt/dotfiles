@@ -1,10 +1,11 @@
 {
   "LOG": true,
+  "LOG_LEVEL": "debug",
   "CLAUDE_PATH": "",
   "HOST": "127.0.0.1",
   "PORT": 3456,
   "APIKEY": "",
-  "API_TIMEOUT_MS": "600000",
+  "API_TIMEOUT_MS": 600000,
   "PROXY_URL": "",
   "transformers": [],
   "Providers": [
@@ -24,7 +25,9 @@
       "gpt-5.1-reasoning": {
         "model_id": "gpt-5.1",
         "params": {
-          "reasoning": { "effort": "high" }
+          "reasoning": {
+            "effort": "high"
+          }
         }
       }
     },
@@ -36,7 +39,11 @@
         "claude-sonnet-4-5",
         "claude-opus-4-5"
       ],
-      "transformer": { "use": ["anthropic"] }
+      "transformer": {
+        "use": [
+          "anthropic"
+        ]
+      }
     },
     {
       "name": "google",
@@ -46,7 +53,11 @@
         "gemini-3-pro-preview",
         "gemini-3-pro-image-preview"
       ],
-      "transformer": {"use": ["gemini"]},
+      "transformer": {
+        "use": [
+          "gemini"
+        ]
+      },
       "gemini-3-pro-preview": {
         "use": [
           "tooluse"
@@ -61,7 +72,11 @@
         "kimi-k2-0905-preview",
         "kimi-k2-thinking"
       ],
-      "transformer": { "use": ["openai"] },
+      "transformer": {
+        "use": [
+          "openai"
+        ]
+      },
       "kimi-k2-thinking": {
         "use": [
           "tooluse"
@@ -75,7 +90,11 @@
       "models": [
         "sonar-reasoning-pro"
       ],
-      "transformer": { "use": ["openai"] }
+      "transformer": {
+        "use": [
+          "openai"
+        ]
+      }
     },
     {
       "name": "openrouter",
@@ -85,7 +104,11 @@
         "deepseek/deepseek-v3.1-terminus:exacto",
         "deepseek/deepseek-r1"
       ],
-      "transformer": { "use": ["openrouter"] },
+      "transformer": {
+        "use": [
+          "openrouter"
+        ]
+      },
       "deepseek/deepseek-v3.1-terminus:exacto": {
         "params": {
           "reasoning": true
@@ -96,12 +119,24 @@
       }
     }
   ],
+  "StatusLine": {
+    "enabled": false,
+    "currentStyle": "default",
+    "default": {
+      "modules": []
+    },
+    "powerline": {
+      "modules": []
+    }
+  },
   "Router": {
     "default": "anthropic,claude-sonnet-4-5",
     "background": "openai,gpt-4o-mini",
     "think": "google,gemini-3-pro-preview",
+    "longContext": "google,gemini-3-pro-preview",
+    "longContextThreshold": 60000,
     "webSearch": "perplexity,sonar-reasoning-pro",
-    "image": "google,gemini-3-pro-image-preview",
-    "longContext": "google,gemini-3-pro-preview"
-  }
+    "image": "google,gemini-3-pro-image-preview"
+  },
+  "CUSTOM_ROUTER_PATH": ""
 }
