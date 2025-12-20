@@ -118,8 +118,7 @@ export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
 {{- if lookPath "eza" -}}
 {{-   $hasEza = true -}}
 {{- end -}}
-{{- if and (eq .chezmoi.os "darwin") $hasEza }}
-# eza is installed on macOS, use eza aliases
+{{- if $hasEza }}
 alias ls=" eza -l --group-directories-first"
 alias ll=" eza -la --group-directories-first"
 alias lt=" eza -la --sort=modified --reverse --color=always"
@@ -129,8 +128,7 @@ alias tree=" eza --tree"
 alias ls="ls --color=always"
 alias ll="LC_COLLATE=C ls -lah --color=always"
 alias lt="LC_COLLATE=C ls -lahtr --color=always"
-{{ end }}
-
+{{- end }}
 
 {{- /* Editor Configuration */ -}}
 # Set $EDITOR to nano if available else fallback to vi
