@@ -67,6 +67,14 @@ if [ -s "$NPM_FILE" ]; then
     xargs npm install -g < "$NPM_FILE"
 fi
 
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+NPM_LINUX_FILE="$CONFIG_DIR/npm_globals_linux.txt"
+if [ -s "$NPM_LINUX_FILE" ]; then
+    echo "Syncing Linux-specific NPM packages..."
+    xargs npm install -g < "$NPM_LINUX_FILE"
+fi
+{{- end }}
+
 # 5. HYDRATE BUN GLOBAL PACKAGES
 BUN_FILE="$CONFIG_DIR/bun_globals.txt"
 if [ -s "$BUN_FILE" ]; then
