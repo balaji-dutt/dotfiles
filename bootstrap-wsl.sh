@@ -45,6 +45,10 @@ fi
 log_info "Installing Ansible collections..."
 ansible-galaxy collection install -r "${DOTFILES_LOCAL_PATH}/ansible/requirements.yml"
 
+# Install lastversion (needed for chezmoi templates)
+log_info "Installing lastversion via pipx..."
+pipx install lastversion
+
 # Install chezmoi
 if ! command -v chezmoi &> /dev/null; then
     log_info "Installing chezmoi..."
