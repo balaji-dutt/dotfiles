@@ -24,6 +24,9 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     {{- if .CERTPATH }}
     -e "cert_path={{ .CERTPATH }}" \
     {{- end }}
+    {{- if .CERTFILES }}
+    -e "cert_files={{ .CERTFILES }}" \
+    {{- end }}
     {{- if .homelab.nfs_server }}
     -e "nfs_server={{ .homelab.nfs_server }}" \
     {{- end }}
@@ -33,8 +36,8 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     {{- if .homelab.windows_user }}
     -e "windows_user={{ .homelab.windows_user }}" \
     {{- end }}
-    {{- if .onepassword.account }}
-    -e "op_account={{ .onepassword.account }}" \
+    {{- if .onepassword.url }}
+    -e "op_url={{ .onepassword.url }}" \
     {{- end }}
     {{- if .onepassword.email }}
     -e "op_email={{ .onepassword.email }}" \
