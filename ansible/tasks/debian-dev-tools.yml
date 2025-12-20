@@ -1,0 +1,20 @@
+---
+# =============================================================================
+# Debian (WSL2) Development Tools
+# =============================================================================
+
+- name: Check if lazydocker is installed
+  ansible.builtin.stat:
+    path: "{{ local_bin }}/lazydocker"
+  register: lazydocker_stat
+
+- name: Install lazydocker
+  when: not lazydocker_stat.stat.exists
+  block:
+    - name: Download lazydocker
+      ansible.builtin.unarchive:
+        src: "https://github.com/jesseduffield/lazydocker/releases/download/v{{ versions.lazydocker }}/lazydocker_{{ versions.lazydocker }}_Linux_x86_64.tar.gz"
+        dest: "{{ local_bin }}"
+        remote_src: true
+        include:
+          - lazydocker
