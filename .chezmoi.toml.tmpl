@@ -10,8 +10,8 @@
 {{- $nfsServer := "" -}}
 {{- $nfsPath := "" -}}
 {{- $windowsUser := "" -}}
-{{- $opAccount := "" -}}
 {{- $opEmail := "" -}}
+{{- $opURL := "" -}}
 
 {{- $isWSL := false -}}
 {{- if stat "/proc/sys/fs/binfmt_misc/WSLInterop" -}}
@@ -73,5 +73,5 @@ args = [
     windows_user = {{ $windowsUser | quote }}
 
 [data.onepassword]
-    url = {{ $$opURL | quote }}
+    url = {{ $opURL | quote }}
     email = {{ $opEmail | quote }}
