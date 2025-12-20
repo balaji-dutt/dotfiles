@@ -25,7 +25,7 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     -e "cert_path={{ .CERTPATH }}" \
     {{- end }}
     {{- if .CERTFILES }}
-    -e "cert_files={{ .CERTFILES }}" \
+    -e {{ printf "%q" (printf "cert_files=%s" (.CERTFILES | toJson)) }} \
     {{- end }}
     {{- if .homelab.nfs_server }}
     -e "nfs_server={{ .homelab.nfs_server }}" \

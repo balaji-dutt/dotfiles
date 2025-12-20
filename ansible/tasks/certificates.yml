@@ -20,10 +20,13 @@
     # update-ca-certificates requires .crt extension
     dest: "/usr/local/share/ca-certificates/{{ item | basename | regex_replace('\\.(pem|cert)$', '.crt') }}"
     mode: "0644"
-  # split string into list, remove empty items
-  loop: "{{ cert_files.split(' ') | select('length') | list }}"
+  loop: "{{ cert_files }}"
   register: certs_copied
-  when: cert_files | length > 0
+  when:
+    - cert_path is defined
+    - cert_path | length > 0
+    - cert_files is defined
+    - cert_files | length > 0
 
 - name: Update CA certificates
   become: true

@@ -1,9 +1,9 @@
 {{- $name := promptStringOnce . "name" "Name" -}}
 {{- $email := promptStringOnce . "email" "Email address" -}}
-{{- $CERTPATH := promptStringOnce . "~/certpath" "Path to Internal SSL Cert Directory" -}}
-{{- $CERTFILES := promptStringOnce . "rootca.pem" "Certificate filenames (space-separated, e.g. 'root.pem inter.crt')" -}}
 {{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
 {{- $org_dir := promptStringOnce . "Org-mode Directory" "Path to Emacs org-mode directory" -}}
+{{- $CERTPATH := promptStringOnce . "certpath" "Path to Internal SSL Cert Directory" "" -}}
+{{- $certfilesRaw := promptStringOnce . "certfiles" "Certificate filenames (comma-separated, e.g. root.pem, inter.crt)" "" -}}
 
 
 {{- /* WSL-specific prompts */ -}}
@@ -50,14 +50,20 @@ args = [
     "cp {{ .Target | quote }} {{ printf \"%s.base\" .Target | quote }} && code --new-window --wait --merge {{ .Destination | quote }} {{ .Target | quote }} {{ printf \"%s.base\" .Target | quote }} {{ .Source | quote }}",
 ]
 
-{{- end}}
+{{- $CERTFILES := list -}}
+{{- range $f := splitList "," $certfilesRaw -}}
+{{-   $f = $f | trim -}}
+{{-   if $f -}}
+{{-     $CERTFILES = append $CERTFILES $f -}}
+{{-   end -}}
+{{- end }}
 
 [data]
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
     CERTPATH = {{ $CERTPATH | quote }}
-    CERTFILES = {{ $CERTFILES | quote }}
     ansible_key = {{ $ansible_key | quote }}
+    CERTFILES = {{ $CERTFILES | toToml }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
 
