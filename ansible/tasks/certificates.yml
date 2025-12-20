@@ -1,0 +1,33 @@
+---
+# =============================================================================
+# Custom CA Certificates
+# =============================================================================
+
+- name: Check if certificate path exists
+  ansible.builtin.stat:
+    path: "{{ cert_path }}"
+  register: cert_path_stat
+
+- name: Fail if certificate path doesn't exist
+  ansible.builtin.fail:
+    msg: "Certificate path does not exist: {{ cert_path }}"
+  when: not cert_path_stat.stat.exists
+
+- name: Install specific certificates
+  become: true
+  ansible.builtin.copy:
+    src: "{{ cert_path }}/{{ item }}"
+    # update-ca-certificates requires .crt extension
+    dest: "/usr/local/share/ca-certificates/{{ item | basename | regex_replace('\\.(pem|cert)$', '.crt') }}"
+    mode: "0644"
+  # split string into list, remove empty items
+  loop: "{{ cert_files.split(' ') | select('length') | list }}"
+  register: certs_copied
+  when: cert_files | length > 0
+
+- name: Update CA certificates
+  become: true
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  when: certs_copied.changed
+  changed_when: true
