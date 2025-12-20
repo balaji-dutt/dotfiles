@@ -1,4 +1,4 @@
-{{- /* SECTION 1: Ignore MacOS specific files if NOT on MacOS (Linux/Windows) */ -}}
+{{- /* SECTION 1: Ignore MacOS specific files if NOT on macOS (Linux/Windows) */ -}}
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
 .zpreztorc
@@ -9,10 +9,15 @@
 Library
 {{ end }}
 
-{{- /* SECTION 2: Ignore Linux specific files if NOT on Linux (MacOS/Windows) */ -}}
+{{- /* SECTION 2: Ignore Linux specific files if NOT on Linux (macOS/Windows) */ -}}
 {{ if ne .chezmoi.os "linux" }}
 .config/lazygit
 .config/sublime-merge
+{{ end }}
+
+{{- /* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
+{{ if and (ne .chezmoi.os "darwin") (not (and (eq .chezmoi.os "linux") (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft"))) }}
+.config/doom
 {{ end }}
 
 {{- /* SECTION 3: Specific Ignore for Ubuntu on WSL */ -}}
@@ -24,10 +29,19 @@ Documents/development/container-dotfiles
 {{ end }}
 
 {{- /* SECTION 4: Global Ignores */ -}}
-assets
-archive
-configs
+ansible/
+ansible/**
+assets/
+assets/**
+archive/
+archive/**
+configs/
+configs/**
 brewfile.txt
 bootstrap-wsl.sh
 .local/config/gitignore_global.txt
+.ansible.cfg
 README.md
+PLAN.md
+AGENTS.md
+CLAUDE.md

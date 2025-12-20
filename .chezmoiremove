@@ -9,10 +9,17 @@
 Library
 {{ end }}
 
-{{- /* SECTION 2: Remove Linux files if found on MacOS/Windows */ -}}
+{{- /* SECTION 2: Remove Linux files if found on macOS/Windows */ -}}
 {{ if ne .chezmoi.os "linux" }}
 .config/lazygit
 .config/sublime-merge
+{{ end }}
+
+{{- /* SECTION 2a: Remove Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
+{{- /* This cleans up Doom files on platforms where they should not exist */ -}}
+{{ if and (ne .chezmoi.os "darwin") (not (and (eq .chezmoi.os "linux") (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft"))) }}
+.config/doom/
+.config/doom/**
 {{ end }}
 
 {{- /* SECTION 3: Remove files on Ubuntu 22.04 WSL */ -}}
@@ -23,10 +30,19 @@ Documents/development/container-dotfiles
 {{ end }}
 
 {{- /* SECTION 4: Remove Global Repo Metadata */ -}}
-assets
-archive
-configs
+ansible/
+ansible/**
+assets/
+assets/**
+archive/
+archive/**
+configs/
+configs/**
 brewfile.txt
+bootstrap-wsl.sh
 .local/config/gitignore_global.txt
-README.md
 .ansible.cfg
+README.md
+PLAN.md
+AGENTS.md
+CLAUDE.md
