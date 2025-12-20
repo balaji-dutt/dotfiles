@@ -22,7 +22,7 @@
 {{-   $nfsServer = promptStringOnce . "homelab.nfs_server" "NFS server IP (leave empty to skip)" -}}
 {{-   $nfsPath = promptStringOnce . "homelab.nfs_path" "NFS export path (leave empty to skip)" -}}
 {{-   $windowsUser = promptStringOnce . "homelab.windows_user" "Windows username" -}}
-{{-   $opAccount = promptStringOnce . "onepassword.account" "1Password account URL e.g. my.1password.com (leave empty to skip)" -}}
+{{-   $opURL = promptStringOnce . "onepassword.URL" "1Password account URL e.g. my.1password.com (leave empty to skip)" -}}
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
 {{- end -}}
 
@@ -67,5 +67,5 @@ args = [
     windows_user = {{ $windowsUser | quote }}
 
 [data.onepassword]
-    account = {{ $opAccount | quote }}
+    url = {{ $$opURL | quote }}
     email = {{ $opEmail | quote }}
