@@ -1,9 +1,12 @@
 {{- $name := promptStringOnce . "name" "Name" -}}
 {{- $email := promptStringOnce . "email" "Email address" -}}
-{{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
-{{- $org_dir := promptStringOnce . "Org-mode Directory" "Path to Emacs org-mode directory" -}}
 {{- $CERTPATH := promptStringOnce . "certpath" "Path to Internal SSL Cert Directory" "" -}}
 {{- $certfilesRaw := promptStringOnce . "certfiles" "Certificate filenames (comma-separated, e.g. root.pem, inter.crt)" "" -}}
+{{- $ansible_key := "" -}}
+{{- /* When required, replace the line above with:
+      $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" ""
+*/ -}}
+{{- $org_dir := promptStringOnce . "org_dir" "Path to Emacs org-mode directory" "" -}}
 
 
 {{- /* WSL-specific prompts */ -}}
@@ -63,10 +66,14 @@ args = [
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
     CERTPATH = {{ $CERTPATH | quote }}
-    ansible_key = {{ $ansible_key | quote }}
     CERTFILES = {{ $CERTFILES | toToml }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
+    {{- if $ansible_key }}
+    ansible_key = {{ $ansible_key | toToml }}
+    {{- else }}
+    # ansible_key = ""  # Path to Ansible SSH Private Key
+    {{- end }}
 
 [data.homelab]
     nfs_server = {{ $nfsServer | quote }}
