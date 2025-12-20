@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# System Configuration
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# WSL2 Configuration (/etc/wsl.conf)
+# -----------------------------------------------------------------------------
+- name: Configure wsl.conf
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/wsl.conf
+    create: true
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED - WSL CONFIG"
+    block: |
+      [automount]
+      options = "metadata"
+
+- name: Configure NFS mount in fstab
+  become: true
+  ansible.posix.mount:
+    path: /mnt/devdrive
+    src: "{{ nfs_server }}:{{ nfs_path }}"
+    fstype: nfs
+    opts: "nofail,x-systemd.automount,x-systemd.device-timeout=10,timeo=14,x-systemd.idle-timeout=1min"
+    state: present
+  when:
+    - nfs_server | length > 0
+    - nfs_path | length > 0
+
+- name: Create NFS mount point
+  become: true
+  ansible.builtin.file:
+    path: /mnt/devdrive
+    state: directory
+    mode: "0755"
+  when:
+    - nfs_server | length > 0
+    - nfs_path | length > 0
+
+# -----------------------------------------------------------------------------
+# SSH Agent Socket
+# -----------------------------------------------------------------------------
+# Ensures directory exists for Windows OpenSSH agent integration (if used)
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.ssh"
+    state: directory
+    mode: "0700"
