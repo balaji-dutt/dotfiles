@@ -1,8 +1,10 @@
 {{- $name := promptStringOnce . "name" "Name" -}}
 {{- $email := promptStringOnce . "email" "Email address" -}}
 {{- $CERTPATH := promptStringOnce . "~/certpath" "Path to Internal SSL Cert Directory" -}}
+{{- $CERTFILES := promptStringOnce . "rootca.pem" "Certificate filenames (space-separated, e.g. 'root.pem inter.crt')" -}}
 {{- $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" -}}
 {{- $org_dir := promptStringOnce . "Org-mode Directory" "Path to Emacs org-mode directory" -}}
+
 
 {{- /* WSL-specific prompts */ -}}
 {{- $nfsServer := "" -}}
@@ -46,6 +48,7 @@ args = ["--wait", "--diff"]
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
     CERTPATH = {{ $CERTPATH | quote }}
+    CERTFILES = {{ $CERTFILES | quote }}
     ansible_key = {{ $ansible_key | quote }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
