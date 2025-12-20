@@ -1,0 +1,29 @@
+---
+# =============================================================================
+# ZSH Configuration and Antidote
+# =============================================================================
+
+- name: Check current shell
+  ansible.builtin.command:
+    cmd: "getent passwd {{ ansible_env.USER }}"
+  register: current_shell
+  changed_when: false
+
+- name: Set ZSH as default shell
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_env.USER }}"
+    shell: /usr/bin/zsh
+  when: "'/zsh' not in current_shell.stdout"
+
+- name: Check if antidote is installed
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.antidote"
+  register: antidote_stat
+
+- name: Clone antidote
+  ansible.builtin.git:
+    repo: https://github.com/mattmc3/antidote.git
+    dest: "{{ ansible_env.HOME }}/.antidote"
+    depth: 1
+  when: not antidote_stat.stat.exists
