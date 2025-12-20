@@ -1,0 +1,33 @@
+---
+# =============================================================================
+# Emacs and Doom Emacs
+# =============================================================================
+
+- name: Install Emacs and spell-checking dependencies
+  become: true
+  ansible.builtin.apt:
+    name:
+      - emacs
+      - aspell
+      - hunspell
+    state: present
+
+# -----------------------------------------------------------------------------
+# Doom Emacs
+# -----------------------------------------------------------------------------
+- name: Check if Doom Emacs is cloned
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.config/emacs/bin/doom"
+  register: doom_repo
+
+- name: Run Doom install
+  ansible.builtin.command:
+    cmd: "{{ ansible_env.HOME }}/.config/emacs/bin/doom install --no-config --no-env --no-fonts"
+  environment:
+    PATH: "{{ ansible_env.PATH }}:{{ local_bin }}"
+  register: doom_install
+  changed_when: doom_install.rc == 0
+  # Only run if repo exists (via chezmoi) but not yet installed
+  when:
+    - doom_repo.stat.exists
+    - not (ansible_env.HOME + '/.config/doom' | is_dir) # Rough check if already installed
