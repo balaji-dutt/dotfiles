@@ -75,6 +75,7 @@ args = [
     # ansible_key = ""  # Path to Ansible SSH Private Key
     {{- end }}
 
+{{- if $isWSL -}}
 [data.homelab]
     nfs_server = {{ $nfsServer | quote }}
     nfs_path = {{ $nfsPath | quote }}
@@ -83,3 +84,4 @@ args = [
 [data.onepassword]
     url = {{ $opURL | quote }}
     email = {{ $opEmail | quote }}
+{{- end}}
