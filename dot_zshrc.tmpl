@@ -143,16 +143,15 @@ EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
 {{- if lookPath "code" -}}
 {{-   $hasCode = true -}}
 {{- end -}}
-{{ if $hasCode }}
+{{- if $hasCode }}
 if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
   export VISUAL="$(command -v code) --wait"
   EDITOR="$VISUAL"
 fi
-{{ end }}
+{{- end }}
 
-{{- /* macOS Helper Functions (Brew, Git, Etc) */ -}}
-{{- if eq .chezmoi.os "darwin" }}
-DOTFILES_REPO="${HOME}/Documents/development/dotfiles"
+# Dotfiles repository path (parameterized)
+DOTFILES_REPO="{{ .chezmoi.sourceDir }}"
 
 # --- Helper Function: Git Commit ---
 # Usage: sync_to_dotfiles "tool_name" "manifest_file" "action_description"
