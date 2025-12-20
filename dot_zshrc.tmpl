@@ -77,8 +77,16 @@ fi
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
 
-# Set HISTFILE to be machine-specific
+# Set HISTFILE with platform-specific naming
+{{- if eq .chezmoi.os "darwin" }}
 HISTFILE=${ZDOTDIR:-$HOME}/.m4mbp_zsh_history
+{{- else if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+HISTFILE=${ZDOTDIR:-$HOME}/.ubuntuwsl2_zsh_history
+{{- else if and (eq .chezmoi.osRelease.id "debian") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+HISTFILE=${ZDOTDIR:-$HOME}/.debianwsl2_zsh_history
+{{- else }}
+HISTFILE=${ZDOTDIR:-$HOME}/.${(%):-%n}_zsh_history
+{{- end }}
 
 # Set language variables
 export LC_ALL=en_GB.UTF-8
