@@ -1,0 +1,107 @@
+---
+- name: Provision WSL2 Environment
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    # Distro detection - passed from chezmoi
+    distro_id: "{{ distro_id | default(ansible_distribution | lower) }}"
+    distro_version: "{{ distro_version | default(ansible_distribution_version) }}"
+
+    # Conditional flags
+    is_ubuntu: "{{ distro_id == 'ubuntu' }}"
+    is_debian: "{{ distro_id == 'debian' }}"
+
+    # Paths
+    local_bin: "{{ ansible_env.HOME }}/.local/bin"
+    local_share: "{{ ansible_env.HOME }}/.local/share"
+    packages_file: "{{ chezmoi_source_dir }}/configs/packages.yaml"
+
+    # Homelab config - passed from chezmoi, with safe defaults
+    nfs_server: "{{ nfs_server | default('') }}"
+    nfs_path: "{{ nfs_path | default('') }}"
+    windows_user: "{{ windows_user | default('') }}"
+    cert_path: "{{ cert_path | default('') }}"
+    cert_files: "{{ cert_files | default('') }}"
+
+    # 1Password config
+    op_url: "{{ op_url | default('') }}"
+    op_email: "{{ op_email | default('') }}"
+
+    # Architecture mapping
+    arch_map:
+      x86_64: amd64
+      aarch64: arm64
+    deb_arch: "{{ arch_map[ansible_architecture] | default('amd64') }}"
+
+  pre_tasks:
+    - name: Load packages configuration
+      ansible.builtin.include_vars:
+        file: "{{ packages_file }}"
+
+    - name: Display detected configuration
+      ansible.builtin.debug:
+        msg:
+          - "Distro: {{ distro_id }} {{ distro_version }}"
+          - "Is Ubuntu: {{ is_ubuntu }}"
+          - "Is Debian: {{ is_debian }}"
+          - "Architecture: {{ ansible_architecture }} ({{ deb_arch }})"
+          - "Packages file: {{ packages_file }}"
+
+    - name: Ensure local bin directory exists
+      ansible.builtin.file:
+        path: "{{ local_bin }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure local share directory exists
+      ansible.builtin.file:
+        path: "{{ local_share }}"
+        state: directory
+        mode: "0755"
+
+  tasks:
+    - name: Include base packages
+      ansible.builtin.include_tasks: tasks/base-packages.yml
+
+    - name: Include apt repositories
+      ansible.builtin.include_tasks: tasks/apt-repos.yml
+
+    - name: Include ZSH and Antidote setup
+      ansible.builtin.include_tasks: tasks/zsh-setup.yml
+
+    - name: Include Emacs setup (Ubuntu only)
+      ansible.builtin.include_tasks: tasks/emacs.yml
+      when: is_ubuntu | bool
+
+    - name: Include Debian dev tools
+      ansible.builtin.include_tasks: tasks/debian-dev-tools.yml
+      when: is_debian | bool
+
+    - name: Include Ubuntu extras
+      ansible.builtin.include_tasks: tasks/ubuntu-extras.yml
+      when: is_ubuntu | bool
+
+    - name: Include system configuration
+      ansible.builtin.include_tasks: tasks/system-config.yml
+
+    - name: Include certificates
+      ansible.builtin.include_tasks: tasks/certificates.yml
+      when:
+        - cert_path | length > 0
+        - cert_files | length > 0
+
+    - name: Include 1Password setup
+      ansible.builtin.include_tasks: tasks/onepassword-setup.yml
+      when: op_account | length > 0
+
+  post_tasks:
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg:
+          - "WSL2 provisioning complete!"
+          - "Restart your terminal or run: exec zsh"
+          - "You may need to restart WSL for some changes to take effect."
