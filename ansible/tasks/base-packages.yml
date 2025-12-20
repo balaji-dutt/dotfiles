@@ -1,0 +1,19 @@
+---
+- name: Update apt cache
+  become: true
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base apt packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ base_apt_packages }}"
+    state: present
+
+- name: Create fd symlink (fd-find installs as fdfind)
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: "{{ local_bin }}/fd"
+    state: link
+  ignore_errors: true
