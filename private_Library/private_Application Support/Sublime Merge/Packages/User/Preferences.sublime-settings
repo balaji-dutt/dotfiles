@@ -1,0 +1,9 @@
+// Settings in here override those in "Default/Preferences.sublime-settings",
+// and are overridden in turn by syntax-specific settings.
+{
+
+	"editor_argument_format": "--goto ${file}:${line}:${col}",
+	"editor_path": "code",
+	"editor_wait_args": "--wait",
+	"terminal_command": "open -a iTerm \"$working_dir\"",
+}
