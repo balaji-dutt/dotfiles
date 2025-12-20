@@ -1,7 +1,6 @@
-{{ if eq .chezmoi.os "darwin" -}}
 # Load plugins for other frameworks
-getantidote/use-omz
-getantidote/use-prezto
+genantidote/use-omz
+genantidote/use-prezto
 
 # Prezto plugins
 
@@ -29,8 +28,10 @@ mattmc3/zephyr path:plugins/directory
 mattmc3/zephyr path:plugins/editor
 mattmc3/zephyr path:plugins/environment
 mattmc3/zephyr path:plugins/history
+{{- if eq .chezmoi.os "darwin" }}
 mattmc3/zephyr path:plugins/homebrew
 mattmc3/zephyr path:plugins/macos
+{{- end }}
 mattmc3/zephyr path:plugins/prompt
 mattmc3/zephyr path:plugins/utility
 mattmc3/zephyr path:plugins/zfunctions
@@ -54,6 +55,3 @@ zdharma-continuum/fast-syntax-highlighting kind:defer       # Command syntax hig
 #   with prompt plugins, remember to add this to your .zshrc:
 #   `autoload -Uz promptinit && promptinit && prompt pure`
 romkatv/powerlevel10k kind:fpath
-
-
-{{- end }}
