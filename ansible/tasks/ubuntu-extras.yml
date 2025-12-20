@@ -1,0 +1,16 @@
+---
+# =============================================================================
+# Ubuntu-specific Utilities
+# =============================================================================
+
+- name: Install Ubuntu extra apt packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ ubuntu_apt_packages }}"
+    state: present
+
+- name: Install Ubuntu pipx packages
+  community.general.pipx:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ ubuntu_pipx_packages }}"
