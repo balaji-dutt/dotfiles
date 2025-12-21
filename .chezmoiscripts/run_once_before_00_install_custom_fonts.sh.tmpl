@@ -12,12 +12,12 @@ curl -L -o NotoSansSymbols2-Regular.ttf "https://cdn.jsdelivr.net/gh/notofonts/n
 {{- else if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
 mkdir -p ~/.fonts && cd ~/.fonts
-# Set PATH including Python user bin directory for WSL
-PYTHON_USER_BIN="$HOME/.local/bin"
-export PATH="$PYTHON_USER_BIN:$PATH"
-pip3 install --user -U lastversion
-curl -sLO $(lastversion --assets JetBrains/JetBrainsMono) && unzip -j -o $(basename $(lastversion --assets JetBrains/JetBrainsMono)) "fonts/ttf/JetBrainsMonoNL*" -d jetbrainsmono-nl/ \
-&& rm $(basename $(lastversion --assets JetBrains/JetBrainsMono))
+# Install JetBrains Mono Nerd Font
+curl -fLo "JetBrainsMono.zip" "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+unzip -o JetBrainsMono.zip -d ~/.fonts
+rm JetBrainsMono.zip
 curl -sLO https://github.com/indestructible-type/Drafting/archive/refs/heads/main.zip && unzip -j -o main.zip 'Drafting-main/fonts/ttf/*' -d drafting-mono && rm main.zip
 curl -L -o NotoSansSymbols2-Regular.ttf "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io/fonts/NotoSansSymbols2/unhinted/ttf/NotoSansSymbols2-Regular.ttf"
+# Update font cache
+fc-cache -fv
 {{ end -}}
