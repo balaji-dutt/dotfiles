@@ -135,14 +135,22 @@
     }
   ],
   "StatusLine": {
-    "enabled": false,
-    "currentStyle": "default",
+    "enabled": true,
+    "currentStyle": "powerline",
     "default": {
       "modules": []
     },
     "powerline": {
-      "modules": []
-    }
+      "modules": [
+        {
+          "type": "model",
+          "icon": "🤖",
+          "text": "{{ "{{" }}model{{ "}}" }}",
+          "color": "bright_yellow"
+        }
+      ]
+    },
+    "fontFamily": "JetBrainsMono Nerd Font Mono"
   },
   "Router": {
     "default": "anthropic,claude-sonnet-4-5",
