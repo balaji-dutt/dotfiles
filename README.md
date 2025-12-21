@@ -33,6 +33,7 @@ The list of configurations that I'm currenly managing through this repo are:
 * Mise (Runtime Manager)
 * Claude Code (Settings)
 * Claude Code Router (Config)
+* Markdownlint
 * Package Managers (tracked lists):
   * pipx packages
   * uv tools
@@ -58,6 +59,9 @@ The list of configurations that I'm currenly managing through this repo are:
 | LazyGit | `~/.config/lazygit/config.yml` | No | | ✅ | ✅ | | | No |
 | macOS | `~/Library/LaunchAgents/Environment.plist` | Yes | ✅ | | | | | No |
 | macOS | `~/Library/LaunchAgents/com.ssh-add-keychain.plist` | No | ✅ | | | | | No |
+| macOS | `~/Library/LaunchAgents/com.user.vncmonitor.plist` | Yes | ✅ | | | | | No |
+| macOS | `~/bin/vnc_monitor.sh` | No | ✅ | | | | | No |
+| Markdownlint | `~/.markdownlint-cli2.jsonc` | No | ✅ | ✅ | ✅ | | | No |
 | Mise | `~/.config/mise/config.toml` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.p10k.zsh` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.local/config/.p10k.zsh` | No | ✅ | ✅ | ✅ | | | No |
@@ -88,6 +92,7 @@ The list of configurations that I'm currenly managing through this repo are:
 | Sublime Merge | `run_once_before_copy_sublime_merge_packages.sh.tmpl` | ✅ | | ✅ | | |
 | System | `run_once_before_00_install_custom_fonts.sh.tmpl` | ✅ | | | ✅ | |
 | System | `run_once_before_00-wsl-provision.sh.tmpl` | | | ✅ | ✅ | ✅ |
+| System | `run_onchange_after_reload_launch_agents.sh.tmpl` | ✅ | | | | |
 
 ## Bootstrap Process
 
