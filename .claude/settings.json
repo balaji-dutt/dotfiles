@@ -3,6 +3,8 @@
     "allow": [
         "Bash(chezmoi doctor)",
         "Bash(cz doctor)",
+        "Bash(chezmoi apply --dry-run --verbose)",
+        "Bash(cz apply --dry-run --verbose)",
         "Bash(grep:*)",
         "Bash(git status:*)",
         "Bash(git log:*)",
