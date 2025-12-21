@@ -14,19 +14,34 @@
       "api_base_url": "https://api.openai.com/v1/chat/completions",
       "api_key": "{{ onepasswordRead "op://Private/ryptv6jhozhiod5sl4ha6mctqa/credential" }}",
       "models": [
-        "gpt-5.1",
-        "gpt-5.1-reasoning",
-        "gpt-5.1-codex",
+        "gpt-5.2",
+        "gpt-5.2-reasoning",
+        "gpt-5.2-reasoning-extra",
+        "gpt-5.1-codex-max",
         "gpt-4o-mini"
       ],
-      "gpt-5.1": {
-        "description": "Default low-latency mode (reasoning: none)"
+      "gpt-5.2": {
+        "description": "Default modified for reasoning quality medium",
+        "model_id": "gpt-5.1",
+        "params": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        }
       },
-      "gpt-5.1-reasoning": {
+      "gpt-5.2-reasoning": {
         "model_id": "gpt-5.1",
         "params": {
           "reasoning": {
             "effort": "high"
+          }
+        }
+      },
+      "gpt-5.2-reasoning-extra": {
+        "model_id": "gpt-5.1",
+        "params": {
+          "reasoning": {
+            "effort": "xhigh"
           }
         }
       }
