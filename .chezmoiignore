@@ -4,15 +4,15 @@
 Library
 {{ end }}
 
+{{- /* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
+{{ if and (ne .chezmoi.os "darwin") (not (and (eq .chezmoi.os "linux") (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft"))) }}
+.config/doom
+{{ end }}
+
 {{- /* SECTION 2: Ignore Linux specific files if NOT on Linux (macOS/Windows) */ -}}
 {{ if ne .chezmoi.os "linux" }}
 .config/lazygit
 .config/sublime-merge
-{{ end }}
-
-{{- /* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
-{{ if and (ne .chezmoi.os "darwin") (not (and (eq .chezmoi.os "linux") (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft"))) }}
-.config/doom
 {{ end }}
 
 {{- /* SECTION 3: Specific Ignore for Ubuntu on WSL */ -}}
@@ -32,6 +32,8 @@ archive/
 archive/**
 configs/
 configs/**
+docs/
+docs/**
 brewfile.txt
 bootstrap-wsl.sh
 .local/config/gitignore_global.txt

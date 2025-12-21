@@ -38,6 +38,8 @@ archive/
 archive/**
 configs/
 configs/**
+docs/
+docs/**
 brewfile.txt
 bootstrap-wsl.sh
 .local/config/gitignore_global.txt
