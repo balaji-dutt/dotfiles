@@ -31,8 +31,8 @@ The list of configurations that I'm currenly managing through this repo are:
   * powerlevel10k
 * Brew package manager
 * Mise (Runtime Manager)
-* Claude (Settings)
-* Claude Code (Config)
+* Claude Code (Settings)
+* Claude Code Router (Config)
 * Package Managers (tracked lists):
   * pipx packages
   * uv tools
@@ -94,35 +94,35 @@ The list of configurations that I'm currenly managing through this repo are:
 ### For WSL2 Instances
 
 1. **Initial Bootstrap**: Run `./bootstrap-wsl.sh` to install:
-   - Ansible (via pipx)
-   - Ansible collections
-   - lastversion
-   - chezmoi
-   - Initialize chezmoi with local repository
+   * Ansible (via pipx)
+   * Ansible collections
+   * lastversion
+   * chezmoi
+   * Initialize chezmoi with local repository
 
 2. **Full Provisioning**: Run `chezmoi apply` to trigger:
-   - Script: `run_once_before_00-wsl-provision.sh.tmpl`
-   - Ansible playbook: `ansible/wsl-playbook.yml`
-   - Package installation via `run_onchange_after_install_packages.sh.tmpl`
+   * Script: `run_once_before_00-wsl-provision.sh.tmpl`
+   * Ansible playbook: `ansible/wsl-playbook.yml`
+   * Package installation via `run_onchange_after_install_packages.sh.tmpl`
 
    #### Ansible Playbook Components
 
    The following Ansible components are executed as part of the provisioning process:
 
    **Main Playbooks**
-   - `ansible/wsl-playbook.yml` - Main playbook that orchestrates all WSL2 provisioning tasks
-   - `ansible/requirements.yml` - Ansible collection dependencies (community.general, ansible.posix)
+   * `ansible/wsl-playbook.yml` - Main playbook that orchestrates all WSL2 provisioning tasks
+   * `ansible/requirements.yml` - Ansible collection dependencies (community.general, ansible.posix)
 
    **Task Files**
-   - `ansible/tasks/apt-repos.yml` - Configures APT repositories for all WSL2 instances
-   - `ansible/tasks/base-packages.yml` - Installs base packages (fzf, ripgrep, curl, etc.)
-   - `ansible/tasks/zsh-setup.yml` - Installs and configures Zsh with Antidote plugin manager
-   - `ansible/tasks/system-config.yml` - Applies system-level configurations
-   - `ansible/tasks/ubuntu-extras.yml` - Ubuntu-specific packages and tools (gedit, nautilus, wslu)
-   - `ansible/tasks/emacs.yml` - Installs and configures Emacs (Ubuntu only)
-   - `ansible/tasks/debian-dev-tools.yml` - Debian-specific development tools
-   - `ansible/tasks/certificates.yml` - Installs SSL certificates (conditional, if cert_path provided)
-   - `ansible/tasks/onepassword-setup.yml` - Configures 1Password CLI (conditional, if op_account provided)
+   * `ansible/tasks/apt-repos.yml` - Configures APT repositories for all WSL2 instances
+   * `ansible/tasks/base-packages.yml` - Installs base packages (fzf, ripgrep, curl, etc.)
+   * `ansible/tasks/zsh-setup.yml` - Installs and configures Zsh with Antidote plugin manager
+   * `ansible/tasks/system-config.yml` - Applies system-level configurations
+   * `ansible/tasks/ubuntu-extras.yml` - Ubuntu-specific packages and tools (gedit, nautilus, wslu)
+   * `ansible/tasks/emacs.yml` - Installs and configures Emacs (Ubuntu only)
+   * `ansible/tasks/debian-dev-tools.yml` - Debian-specific development tools
+   * `ansible/tasks/certificates.yml` - Installs SSL certificates (conditional, if cert_path provided)
+   * `ansible/tasks/onepassword-setup.yml` - Configures 1Password CLI (conditional, if op_account provided)
 
 ## Configuration Files
 
@@ -138,10 +138,10 @@ The list of configurations that I'm currenly managing through this repo are:
 
 ### Package Categories in packages.yaml
 
-- `base_apt_packages` - Core packages for all WSL2 instances (build-essential, curl, git, etc.)
-- `ubuntu_apt_packages` - Ubuntu-specific packages (gedit, nautilus, wslu, etc.)
-- `ubuntu_pipx_packages` - pipx packages for Ubuntu (FanFicFare)
-- `versions` - GitHub release versions for external tools (lazygit, lazydocker)
+* `base_apt_packages` - Core packages for all WSL2 instances (build-essential, curl, git, etc.)
+* `ubuntu_apt_packages` - Ubuntu-specific packages (gedit, nautilus, wslu, etc.)
+* `ubuntu_pipx_packages` - pipx packages for Ubuntu (FanFicFare)
+* `versions` - GitHub release versions for external tools (lazygit, lazydocker)
 
 ## Auto-Commit / Self-Replicating Features
 
