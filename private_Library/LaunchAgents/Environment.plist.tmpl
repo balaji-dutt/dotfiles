@@ -7,7 +7,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>{{ if eq .chezmoi.arch "arm64" }}/opt/homebrew/bin{{ else }}/usr/local/bin{{ end }}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/X11/bin:/usr/local/sbin</string>
+    <string>{{ .chezmoi.homeDir }}/bin:{{ if eq .chezmoi.arch "arm64" }}/opt/homebrew/bin{{ else }}/usr/local/bin{{ end }}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/X11/bin:/usr/local/sbin</string>
 
     <!-- Example of another env var you want globally in GUI apps -->
     <key>DICPATH</key>
