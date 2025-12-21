@@ -39,3 +39,142 @@ The list of configurations that I'm currenly managing through this repo are:
   * npm global packages
   * bunx global packages
 * Devcontainers
+
+## Program Dotfiles
+
+| Program Name | Rendered Dotfile Path ($HOME relative) | Is Template? | macOS | Linux | Generic WSL2 | Ubuntu (WSL2) | Debian (WSL2) | Has Scripts? |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Bash | `~/.bashrc` | Yes | | | ✅ | ✅ | | No |
+| Chezmoi | `~/.chezmoi.toml` | Yes | ✅ | ✅ | ✅ | | | No |
+| Claude | `~/.claude/settings.json` | No | ✅ | ✅ | ✅ | | | No |
+| Claude Code Router | `~/.claude-code-router/config.json` | Yes | ✅ | ✅ | ✅ | | | No |
+| Emacs | `~/.config/doom/config.el` | Yes | ✅ | | | ✅ | | Yes |
+| Emacs | `~/.config/doom/custom.el` | No | ✅ | | | ✅ | | Yes |
+| Emacs | `~/.config/doom/init.el` | No | ✅ | | | ✅ | | Yes |
+| Emacs | `~/.config/doom/packages.el` | No | ✅ | | | ✅ | | Yes |
+| Git | `~/.gitconfig` | Yes | ✅ | ✅ | ✅ | | | Yes |
+| Git | `~/.gitignore_global` | Yes | ✅ | | | | | Yes |
+| LazyGit | `~/Library/Application Support/lazygit/config.yml` | No | ✅ | | | | | No |
+| LazyGit | `~/.config/lazygit/config.yml` | No | | ✅ | ✅ | | | No |
+| macOS | `~/Library/LaunchAgents/Environment.plist` | Yes | ✅ | | | | | No |
+| macOS | `~/Library/LaunchAgents/com.ssh-add-keychain.plist` | No | ✅ | | | | | No |
+| Mise | `~/.config/mise/config.toml` | Yes | ✅ | ✅ | ✅ | | | No |
+| Powerlevel10k | `~/.p10k.zsh` | Yes | ✅ | ✅ | ✅ | | | No |
+| Powerlevel10k | `~/.local/config/.p10k.zsh` | No | ✅ | ✅ | ✅ | | | No |
+| Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/custom.sublime-commands` | No | ✅ | | | | | Yes |
+| Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/User/Commit Message.sublime-settings` | No | ✅ | | | | | Yes |
+| Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/User/Preferences.sublime-settings` | No | ✅ | | | | | Yes |
+| Sublime Merge | `~/.config/sublime-merge/Packages/custom.sublime-commands` | No | | ✅ | ✅ | | | Yes |
+| Sublime Merge | `~/.config/sublime-merge/Packages/User/Commit Message.sublime-settings` | No | | ✅ | ✅ | | | Yes |
+| Sublime Merge | `~/.config/sublime-merge/Packages/User/Preferences.sublime-settings` | Yes | | | ✅ | | | Yes |
+| Zsh | `~/.zshrc` | Yes | ✅ | ✅ | ✅ | | | No |
+| Zsh | `~/.zsh_plugins.txt` | Yes | ✅ | ✅ | ✅ | | | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.ansible.cfg` | Yes | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.claude-code-router` | No | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.config/direnv/direnv.toml` | No | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.gitconfig` | Yes | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.p10k.zsh` | No | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.zsh_plugins.txt` | No | | | | ❌ | ✅ | No |
+| Container Dotfiles | `~/Documents/development/container-dotfiles/dotfiles/.zshrc` | No | | | | ❌ | ✅ | No |
+
+*Note: Container Dotfiles are explicitly ignored (❌) on all Ubuntu WSL2 variants but included (✅) on Debian WSL2.*
+
+## Scripts
+
+| Program Name | Script Name | macOS | Linux | Generic WSL2 | Ubuntu (WSL2) | Debian (WSL2) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| Emacs | `run_once_after_emacs_spellcheck.sh.tmpl` | ✅ | | | ✅ | |
+| Package Management | `run_onchange_after_install_packages.sh.tmpl` | ✅ | ✅ | | ✅ | ✅ |
+| Sublime Merge | `run_once_before_copy_sublime_merge_packages.sh.tmpl` | ✅ | | ✅ | | |
+| System | `run_once_before_00_install_custom_fonts.sh.tmpl` | ✅ | | | ✅ | |
+| System | `run_once_before_00-wsl-provision.sh.tmpl` | | | ✅ | ✅ | ✅ |
+
+## Bootstrap Process
+
+### For WSL2 Instances
+
+1. **Initial Bootstrap**: Run `./bootstrap-wsl.sh` to install:
+   - Ansible (via pipx)
+   - Ansible collections
+   - lastversion
+   - chezmoi
+   - Initialize chezmoi with local repository
+
+2. **Full Provisioning**: Run `chezmoi apply` to trigger:
+   - Script: `run_once_before_00-wsl-provision.sh.tmpl`
+   - Ansible playbook: `ansible/wsl-playbook.yml`
+   - Package installation via `run_onchange_after_install_packages.sh.tmpl`
+
+   #### Ansible Playbook Components
+
+   The following Ansible components are executed as part of the provisioning process:
+
+   **Main Playbooks**
+   - `ansible/wsl-playbook.yml` - Main playbook that orchestrates all WSL2 provisioning tasks
+   - `ansible/requirements.yml` - Ansible collection dependencies (community.general, ansible.posix)
+
+   **Task Files**
+   - `ansible/tasks/apt-repos.yml` - Configures APT repositories for all WSL2 instances
+   - `ansible/tasks/base-packages.yml` - Installs base packages (fzf, ripgrep, curl, etc.)
+   - `ansible/tasks/zsh-setup.yml` - Installs and configures Zsh with Antidote plugin manager
+   - `ansible/tasks/system-config.yml` - Applies system-level configurations
+   - `ansible/tasks/ubuntu-extras.yml` - Ubuntu-specific packages and tools (gedit, nautilus, wslu)
+   - `ansible/tasks/emacs.yml` - Installs and configures Emacs (Ubuntu only)
+   - `ansible/tasks/debian-dev-tools.yml` - Debian-specific development tools
+   - `ansible/tasks/certificates.yml` - Installs SSL certificates (conditional, if cert_path provided)
+   - `ansible/tasks/onepassword-setup.yml` - Configures 1Password CLI (conditional, if op_account provided)
+
+## Configuration Files
+
+| Filename | Purpose | Structure |
+| :--- | :--- | :--- |
+| `configs/packages.yaml` | Single source of truth for package management | YAML with apt, pipx, npm, and tool versions |
+| `configs/pipx_packages.txt` | pipx packages for installation | Plain text list (one package per line) |
+| `configs/mise.toml` | Mise tool versions and plugins | TOML format |
+| `configs/uv_tools.txt` | uv-installed tools for Python | Plain text list |
+| `configs/npm_globals.txt` | npm global packages | Plain text list (Auto-generated) |
+| `brewfile.txt` | Homebrew Bundle file | List of taps, brews, casks, and mas apps |
+| `bootstrap-wsl.sh` | Bootstrap script for new WSL2 instances | Bash script |
+
+### Package Categories in packages.yaml
+
+- `base_apt_packages` - Core packages for all WSL2 instances (build-essential, curl, git, etc.)
+- `ubuntu_apt_packages` - Ubuntu-specific packages (gedit, nautilus, wslu, etc.)
+- `ubuntu_pipx_packages` - pipx packages for Ubuntu (FanFicFare)
+- `versions` - GitHub release versions for external tools (lazygit, lazydocker)
+
+## Auto-Commit / Self-Replicating Features
+
+The ZSH configuration (`.zshrc`) includes custom wrapper functions for several package managers. These wrappers automatically commit changes to the dotfiles repository when packages are installed, removed, or updated.
+
+| Tool | Wrapper Function | Manifest File | Logic |
+| :--- | :--- | :--- | :--- |
+| **Homebrew** | `brew` | `brewfile.txt` | Dumps `Brewfile` on install/uninstall/tap/untap success and commits changes. |
+| **Mise** | `mise` | `configs/mise.toml` | Commits changes to global config or local `mise.toml` if in a git repo. |
+| **Pipx** | `pipx` | `configs/pipx_packages.txt` | Updates package list and commits on state changes. |
+| **uv** | `uv` | `configs/uv_tools.txt` | Updates tool list and commits on `uv tool` operations. |
+| **npm** | `npm` | `configs/npm_globals.txt` | Updates global package list and commits on global install/remove. |
+| **Bun** | `bunx` | `.claude/bunx_commands.txt` or `.bunx/` | Logs executed commands and commits artifacts/logs if in a git repo. |
+
+## Variables
+
+### Chezmoi Template Variables (`.chezmoi.toml.tmpl`)
+
+| Variable | Purpose | Used By |
+| :--- | :--- | :--- |
+| `name` | User's full name | Git configuration |
+| `email` | User's email address | Git configuration |
+| `CERTPATH` | Path to SSL certificate directory | Certificate installation scripts |
+| `CERTFILES` | Space-separated certificate filenames | Certificate installation scripts |
+| `ansible_key` | Path to Ansible SSH private key | (Reserved for future use) |
+| `org_dir` | Path to Emacs org-mode directory | Emacs configuration |
+
+#### WSL2-Specific Variables
+
+| Variable | Purpose | Used By |
+| :--- | :--- | :--- |
+| `homelab.nfs_server` | NFS server IP address | NFS mounting tasks |
+| `homelab.nfs_path` | NFS export path | NFS mounting tasks |
+| `homelab.windows_user` | Windows username | WSL integration |
+| `onepassword.url` | 1Password account URL | 1Password CLI setup |
+| `onepassword.email` | 1Password email address | 1Password CLI setup |
