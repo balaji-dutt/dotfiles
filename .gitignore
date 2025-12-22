@@ -1,0 +1,3 @@
+# Container rendered configs (exclude all files, keep .gitkeep to preserve directory structure)
+private_Documents/development/container-dotfiles/dotfiles/configs/*
+!private_Documents/development/container-dotfiles/dotfiles/configs/.gitkeep

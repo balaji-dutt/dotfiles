@@ -38,6 +38,8 @@ archive/
 archive/**
 configs/
 configs/**
+# Exclude rendered container configs
+private_Documents/development/container-dotfiles/dotfiles/configs/
 docs/
 docs/**
 brewfile.txt
