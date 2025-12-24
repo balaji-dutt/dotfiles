@@ -24,7 +24,7 @@ description: Manage the project TODO.md list (add, complete, pause, or resume ta
   "no-hard-tabs": true
 }
 -->
-3. Add '# TODO' as the title
+3. Add '# TO-DO LIST' as the title
 4. Analyze `$ARGUMENTS` to determine the action:
    - **COMPLETING**: If it contains "done", "complete", or "finished":
      - Find task, change `[ ]` to `[x]`, remove `[PAUSED]`.
