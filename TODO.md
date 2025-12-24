@@ -31,3 +31,6 @@
 
 - [ ] Signup for morphllm and add API_KEY to local .zshrc
   - Added: 2025-12-24 19:22
+
+- [ ] Extend existing logic to copy Tavily API key into container for morphllm as well.
+  - Added: 2025-12-24 19:22
