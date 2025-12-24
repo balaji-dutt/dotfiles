@@ -28,3 +28,6 @@
 
 - [ ] Add Renovate bot to this repo so that it can update pinned versions both in package lists and devcontainer.json
   - Added: 2025-12-24 19:17
+
+- [ ] Signup for morphllm and add API_KEY to local .zshrc
+  - Added: 2025-12-24 19:22
