@@ -6,13 +6,22 @@
     "DEVCONTAINER": "1", // Additional environment variable for use with chezmoi
     "FZF_VERSION": "0.66.0",
     "ZOXIDE_VERSION": "0.9.8",
-    "CERTPATH": "/home/vscode/development/keys"
+    "CERTPATH": "/home/vscode/development/keys",
+    "NVM_VERSION": "0.40.3",
+    "NODE_VERSION": "24"
   },
 
   "mounts": [
     // String syntax used here as the object syntax does not support readonly mounting.
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/container-dotfiles/dotfiles,target=/home/vscode/.host-dotfiles,type=bind,readonly",
+    // --- Mount for Claude Code configs and package lists ---
+    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/private_settings.json,target=/tmp/claude-private-settings.json,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/config.json,target=/tmp/claude-router-config.json,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/container_env,target=/tmp/container_env,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt,target=/tmp/container_packages/npm.txt,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/pipx_packages.txt,target=/tmp/container_packages/pipx.txt,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt,target=/tmp/container_packages/uv.txt,type=bind,readonly",
     // --- Mount for Internal SSL Certs ---
     {
       "source": "{{ .CERTPATH }}",
@@ -35,7 +44,8 @@
   "postCreateCommand": [
     "bash",
     "-lc",
-    "set -e && sudo chown -R vscode:vscode /home/vscode/persistent-data && sudo apt-get update && sudo apt-get install -y locales && sudo sed -i '/en_GB.UTF-8/s/^# //g' /etc/locale.gen && sudo locale-gen && SRC=/home/vscode/.host-dotfiles; if [ -d \"$SRC\" ]; then if [ -f \"$SRC/install.sh\" ]; then bash \"$SRC/install.sh\"; else cp -R \"$SRC\"/. \"$HOME\"/; fi; fi; if [ -f /opt/antidote/antidote.zsh ]; then zsh -lc 'source /opt/antidote/antidote.zsh && antidote load' || true; fi"
+    "set -e && sudo chown -R vscode:vscode /home/vscode/persistent-data && sudo apt-get update && sudo apt-get install -y locales && sudo sed -i '/en_GB.UTF-8/s/^# //g' /etc/locale.gen && sudo locale-gen && sudo apt-get install -y python3-pip python3-venv pipx && export PATH=\"$HOME/.local/bin:$PATH\" && while read pkg; do [ -n \"$pkg\" ] && pipx install $pkg; done < /tmp/container_packages/pipx.txt && hash -r && if [ -s \"/usr/local/share/nvm/nvm.sh\" ]; then export NVM_DIR=\"/usr/local/share/nvm\"; else export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] || PROFILE=/dev/null bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh | bash'; fi && . \"$NVM_DIR/nvm.sh\" && nvm install ${NODE_VERSION} && while read pkg; do [ -n \"$pkg\" ] && npm install -g $pkg; done < /tmp/container_packages/npm.txt && export PATH=\"$HOME/.local/bin:$PATH\" && while read tool; do [ -n \"$tool\" ] && uv tool install $tool; done < /tmp/container_packages/uv.txt && mkdir -p /home/vscode/.claude /home/vscode/.claude-code-router/auth && (cp /tmp/claude-private-settings.json /home/vscode/.claude/settings.json || true) && (cp /tmp/claude-router-config.json /home/vscode/.claude-code-router/config.json || true) && source /tmp/container_env && export TAVILY_API_KEY && SRC=/home/vscode/.host-dotfiles; if [ -d \"$SRC\" ]; then if [ -f \"$SRC/install.sh\" ]; then TAVILY_API_KEY=$TAVILY_API_KEY bash \"$SRC/install.sh\"; else cp -R \"$SRC\"/. \"$HOME\"/; fi; fi; if [ -f /opt/antidote/antidote.zsh ]; then zsh -lc 'source /opt/antidote/antidote.zsh && antidote load' || true; fi"
+  ],
   ],
 
   "customizations": {
@@ -53,6 +63,9 @@
         "terminal.integrated.defaultProfile.linux": "Container zsh"
       },
       "extensions": [
+        // --- Claude Code ---
+        "anthropic.claude-code",
+
         // --- High-Quality General Purpose ---
         "mikestead.dotenv",
         "gruntfuggly.todo-tree",

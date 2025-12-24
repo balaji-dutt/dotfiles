@@ -246,4 +246,18 @@ if [ -d "$SRC" ]; then
   install_and_patch_terraform_py || echo "!! terraform.py setup failed; continuing"
 fi
 
+# Append environment variables for Claude Code and Router
+if [ "${DEVCONTAINER:-}" = "1" ]; then
+  echo "==> Configuring Claude Code and Router environment"
+  for f in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    [ -f "$f" ] || continue
+    sed -i -e '$a\' "$f"
+    {
+      [ -n "${TAVILY_API_KEY:-}" ] && echo "export TAVILY_API_KEY=\"$TAVILY_API_KEY\""
+      echo "export ANTHROPIC_BASE_URL=\"http://127.0.0.1:3456/v1\""
+      echo "export ANTHROPIC_API_KEY=\"claude-code-router\""
+    } >> "$f"
+  done
+fi
+
 echo "==> Dotfiles install complete."

@@ -1,0 +1,2 @@
+superclaude==4.1.9
+uv==0.9.18
