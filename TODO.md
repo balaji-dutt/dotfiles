@@ -22,3 +22,6 @@
 
 - [ ] Add function to run eval (ccr activate) in container zshrc
   - Added: 2025-12-24 19:12
+
+- [ ] Add instructions to agents.md to use tmux-cli
+  - Added: 2025-12-24 19:15
