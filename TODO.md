@@ -23,8 +23,9 @@
 - [ ] Add function to run eval (ccr activate) in container zshrc
   - Added: 2025-12-24 19:12
 
-- [ ] Add instructions to agents.md to use tmux-cli
+- [x] Add instructions to agents.md to use tmux-cli
   - Added: 2025-12-24 19:15
+  - Completed: 2025-12-24 19:23
 
 - [ ] Add Renovate bot to this repo so that it can update pinned versions both in package lists and devcontainer.json
   - Added: 2025-12-24 19:17
