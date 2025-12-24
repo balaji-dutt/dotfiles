@@ -1,4 +1,5 @@
 {
+  "NON_INTERACTIVE_MODE": {{ env "NON_INTERACTIVE_MODE" | default "false" }},
   "LOG": true,
   "LOG_LEVEL": "debug",
   "CLAUDE_PATH": "",
@@ -7,7 +8,11 @@
   "APIKEY": "",
   "API_TIMEOUT_MS": "600000",
   "PROXY_URL": "",
-  "transformers": [],
+  "transformers": [
+    {
+      "path": "/Users/balaji/.claude-code-router/plugins/perplexity-websearch-fix.js"
+    }
+  ],
   "Providers": [
     {
       "name": "openai",
@@ -44,6 +49,21 @@
             "effort": "xhigh"
           }
         }
+      },
+      "transformer": {
+        "use": [
+          "OpenAI"
+        ],
+        "gpt-4o-mini": {
+          "use": [
+            [
+              "maxtoken",
+              {
+                "max_tokens": 16384
+              }
+            ]
+          ]
+        }
       }
     },
     {
@@ -51,12 +71,13 @@
       "api_base_url": "https://api.anthropic.com/v1/messages",
       "api_key": "{{ onepasswordRead "op://Private/qwhr7uxduofl3gr66imqwer35m/credential" }}",
       "models": [
+        "claude-haiku-4-5",
         "claude-sonnet-4-5",
         "claude-opus-4-5"
       ],
       "transformer": {
         "use": [
-          "anthropic"
+          "Anthropic"
         ]
       }
     },
@@ -66,16 +87,12 @@
       "api_key": "{{ onepasswordRead "op://Private/x24pktz5hmyap3lhv36mcfohju/credential" }}",
       "models": [
         "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
         "gemini-3-pro-image-preview"
       ],
       "transformer": {
         "use": [
           "gemini"
-        ]
-      },
-      "gemini-3-pro-preview": {
-        "use": [
-          "tooluse"
         ]
       }
     },
@@ -89,13 +106,19 @@
       ],
       "transformer": {
         "use": [
-          "openai"
-        ]
+          "OpenAI"
+        ],
+        "kimi-k2-thinking": {
+          "use": [
+            "OpenAI",
+            "reasoning"
+          ]
+        }
       },
       "kimi-k2-thinking": {
-        "use": [
-          "tooluse"
-        ]
+        "params": {
+          "reasoning": true
+        }
       }
     },
     {
@@ -107,7 +130,10 @@
       ],
       "transformer": {
         "use": [
-          "openai"
+          "OpenAI",
+          "reasoning",
+          "perplexity-websearch-fix",
+          "cleancache"
         ]
       }
     },
@@ -122,15 +148,37 @@
       "transformer": {
         "use": [
           "openrouter"
-        ]
+        ],
+        "deepseek/deepseek-v3.1-terminus:exacto": {
+          "use": [
+            "openrouter",
+            "reasoning",
+            "enhancetool"
+          ]
+        },
+        "deepseek/deepseek-r1": {
+          "use": [
+            "openrouter",
+            "reasoning",
+            "enhancetool"
+          ]
+        }
       },
       "deepseek/deepseek-v3.1-terminus:exacto": {
         "params": {
-          "reasoning": true
-        },
-        "use": [
-          "tooluse"
-        ]
+          "reasoning": {
+            "enabled": true,
+            "exclude": false
+          }
+        }
+      },
+      "deepseek/deepseek-r1": {
+        "params": {
+          "reasoning": {
+            "enabled": true,
+            "exclude": false
+          }
+        }
       }
     }
   ],
@@ -155,10 +203,10 @@
   "Router": {
     "default": "anthropic,claude-sonnet-4-5",
     "background": "openai,gpt-4o-mini",
-    "think": "google,gemini-3-pro-preview",
-    "longContext": "google,gemini-3-pro-preview",
+    "think": "google,gemini-3-flash-preview",
+    "longContext": "google,gemini-3-flash-preview",
     "longContextThreshold": 60000,
-    "webSearch": "perplexity,sonar-reasoning-pro",
+    "webSearch": "anthropic,claude-haiku-4-5",
     "image": "google,gemini-3-pro-image-preview"
   },
   "CUSTOM_ROUTER_PATH": ""
