@@ -16,3 +16,6 @@
 
 - [ ] Add "superclaude install" to postcreate command for homelab-iac container.
   - Added: 2025-12-24 10:23
+
+- [ ] Add git-mkver / change install to devcontainer install.sh
+  - Added: 2025-12-24 10:24
