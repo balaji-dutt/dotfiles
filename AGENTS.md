@@ -73,4 +73,5 @@ docs/DISCOVERIES.md contains useful lessons learned and discoveries made during 
 **CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following in order:
 
 - Make atomic changes. After each change, Run `cz apply --dry-run --verbose 2>&1` and review the output to check for any errors introduced by the change. If errors are encountered, address the issue before proceeding further.
+  - If you are creating new files as part of a plan, note that `cz apply --dry-run --verbose 2>&1` will not show any files being created. If you need the files to be created in order to validate correctness, pause and ask me if it is okay to run `cz apply` for each new file that you would like to create.
 - If execution of `cz apply --dry-run --verbose 2>&1` succeeds, run `cz doctor` to check for any errors. If you find any that are related to your changes, fix them before moving on to the next task.
