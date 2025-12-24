@@ -110,6 +110,14 @@ if [ -d "$PYTHON_USER_BIN_DIR" ]; then
     export PATH="$PYTHON_USER_BIN_DIR:$PATH"
 fi
 
+# Load nvm
+if [ -d "/usr/local/share/nvm" ]; then
+    export NVM_DIR="/usr/local/share/nvm"
+elif [ -d "$HOME/.nvm" ]; then
+    export NVM_DIR="$HOME/.nvm"
+fi
+[ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
 # This is added at the end of the file to avoid potential conflicts
 if command -v smartcache >/dev/null 2>&1; then
     (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
