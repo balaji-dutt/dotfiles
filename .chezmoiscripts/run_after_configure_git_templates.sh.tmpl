@@ -1,0 +1,16 @@
+{{- if or (eq .chezmoi.os "darwin") (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) -}}
+#!/bin/bash
+
+# REPO_DIR is your chezmoi source directory (the dotfiles repo itself)
+REPO_DIR="{{ .chezmoi.sourceDir }}"
+
+# Check if it's a git repo and if the .gitmessage file exists
+if [ -d "$REPO_DIR/.git" ]; then
+    if [ -f "$REPO_DIR/.gitmessage" ]; then
+        echo "Setting up relaxed commit template for dotfiles repo..."
+        git -C "$REPO_DIR" config commit.template .gitmessage
+    else
+        echo "Warning: .gitmessage not found in $REPO_DIR. Create it to enable relaxed mode."
+    fi
+fi
+{{- end -}}
