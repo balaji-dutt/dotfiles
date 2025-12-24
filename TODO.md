@@ -13,3 +13,6 @@
 
 - [ ] Read rendered ccr config.json to get the port for poststartcommand
   - Added: 2025-12-24 10:20
+
+- [ ] Add "superclaude install" to postcreate command for homelab-iac container.
+  - Added: 2025-12-24 10:23
