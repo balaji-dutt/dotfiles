@@ -43,3 +43,14 @@
 - As a first step towards solving a problem or when working with a tech stack, library, etc. always check for any related documentation under the ./docs directory.
 - Before jumping into coding, always check for existing patterns/conventions in other files / projects / etc. to ensure consistency in the codebase.
 - Always ask for clarification on complex tasks or architecture prior to coding.
+
+## Task Management Protocol
+
+- **Storage:** Use `TODO.md` in the project root. 
+- **Universal Command:** For any request to add, finish, pause, or resume a task, always use the `/todo` command.
+- **Viewing:**
+  - "Show my todos" / "What's next" / "What's on my todo list" / "What's left to do": Display ONLY active tasks (no `[x]`, no `[PAUSED]`) in a clean Markdown table with columns for "Status" (🔲) and "Task". Hide audit logs.
+  - "Show paused": Display ONLY tasks with the `[PAUSED]` prefix in a clean Markdown table with columns for "Status" (⏸️) and "Task". Hide audit logs.
+  - "Show completed": Show completed tasks in a clean Markdown table with columns for "Task", "Start Time", and "End Time". "Start Time" is the earliest "Added" timestamp and "End Time" is the "Completed" timestamp.
+- **Execution Scope:** When I use the `/todo` command or ask you to update a task's status, your responsibility ends the moment the `TODO.md` file is committed.
+- **Wait for Instructions:** Never assume I want you to start working on a task just because you added it to the list. Always wait for a separate, explicit request before taking any code-related actions.
