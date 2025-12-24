@@ -1,3 +1,6 @@
+---
+description: Manage the project TODO.md list (add, complete, pause, or resume tasks)
+---
 <!-- markdownlint-disable MD007 MD022 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
 <!-- markdownlint-configure-file
 {
@@ -9,9 +12,6 @@
 }
 -->
 
----
-description: Manage the project TODO.md list (add, complete, pause, or resume tasks)
----
 1. Check if `TODO.md` exists in the project root.
 2. If it DOES NOT exist, create it with this EXACT content at the top:
 <!-- markdownlint-disable MD007 MD022 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
