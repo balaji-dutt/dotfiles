@@ -1,20 +1,86 @@
 #!/bin/bash
-# Get the git root
+
+# 1. Git Awareness
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+IS_GIT=true
+if [ -z "$GIT_ROOT" ]; then
+    GIT_ROOT="."
+    IS_GIT=false
+fi
 
-if [ -n "$GIT_ROOT" ]; then
-    STATUS=$1
-    MESSAGE="docs(todo): update list" # Fallback
+ACTION=$1
+INPUT_TEXT=$2
+AUTHOR="Claude <claude@anthropic.com>"
+NOW=$(date '+%Y-%m-%d %H:%M')
+TODO_FILE="$GIT_ROOT/TODO.md"
+TARGET=""
+FULL_MSG=""
 
-    # Map the action to a clean commit message
-    case $STATUS in
-        "add")      MESSAGE="docs(todo): task added" ;;
-        "pause")    MESSAGE="docs(todo): task paused" ;;
-        "resume")   MESSAGE="docs(todo): task resumed" ;;
-        "complete") MESSAGE="docs(todo): task completed" ;;
-    esac
+# 2. Initialize TODO.md if it doesn't exist
+if [ ! -f "$TODO_FILE" ] && [[ "$ACTION" != "readme" ]]; then
+    cat <<EOF > "$TODO_FILE"
+<!-- markdownlint-disable MD007 MD022 MD023 MD029 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-configure-file
+{
+  "options": {
+    "frontMatter": "(^---\\\\s*\$[^]*?^---\\\\s*\$)(\\\\r\\\\n|\\\\r|\\\\n|\$)"
+  },
+  "no-trailing-spaces": false,
+  "no-hard-tabs": true
+}
+-->
 
-    git add "$GIT_ROOT/TODO.md"
-    # Force Claude as the primary author for this commit
-    git commit -m "$MESSAGE" --author="Claude <claude@anthropic.com>"
+# TO-DO LIST
+
+EOF
+fi
+
+# 3. Logic Engine
+case $ACTION in
+    "add")
+        printf -- "- [ ] %s\n  \`\`\`\n  Added: %s\n  \`\`\`\n" "$INPUT_TEXT" "$NOW" >> "$TODO_FILE"
+        FULL_MSG="docs(todo): task added"
+        TARGET="TODO.md"
+        ;;
+    "pause")
+        sed -i "s/- \[ \] $INPUT_TEXT/- [ ] [PAUSED] $INPUT_TEXT/" "$TODO_FILE"
+        sed -i "/- \[ \] \[PAUSED\] $INPUT_TEXT/,/\`\`\`/ s/\`\`\//  Paused: $NOW\n  \`\`\// " "$TODO_FILE"
+        FULL_MSG="docs(todo): task paused"
+        TARGET="TODO.md"
+        ;;
+    "resume")
+        sed -i "s/- \[ \] \[PAUSED\] $INPUT_TEXT/- [ ] $INPUT_TEXT/" "$TODO_FILE"
+        sed -i "/- \[ \] $INPUT_TEXT/,/\`\`\`/ s/\`\`\//  Resumed: $NOW\n  \`\`\// " "$TODO_FILE"
+        FULL_MSG="docs(todo): task resumed"
+        TARGET="TODO.md"
+        ;;
+    "complete")
+        sed -i "s/- \[ \] .*$INPUT_TEXT/- [x] $INPUT_TEXT/" "$TODO_FILE"
+        sed -i "/- \[x\] $INPUT_TEXT/,/\`\`\`/ s/\`\`\//  Completed: $NOW\n  \`\`\// " "$TODO_FILE"
+        FULL_MSG="docs(todo): task completed"
+        TARGET="TODO.md"
+        ;;
+    "readme")
+        TARGET="README.md"
+        # Subject: First line, remove docs prefix if present, limit to 44 chars
+        FIRST_LINE=$(echo "$INPUT_TEXT" | head -n 1)
+        CLEAN_CONTENT=$(echo "$FIRST_LINE" | sed 's/^docs: //')
+        SUBJ="docs: $CLEAN_CONTENT"
+        # Body: Everything after line 1, wrap at 72
+        BODY=$(echo "$INPUT_TEXT" | tail -n +2 | sed '/./,$!d' | fmt -w 72)
+        if [ -n "$BODY" ]; then
+            FULL_MSG=$(printf "%s\n\n%s" "$SUBJ" "$BODY")
+        else
+            FULL_MSG="$SUBJ"
+        fi
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+
+# 4. Execution (Update File & Git Commit)
+if [ "$IS_GIT" = true ] && [ -f "$GIT_ROOT/$TARGET" ]; then
+    git add "$GIT_ROOT/$TARGET"
+    git commit -m "$FULL_MSG" --author="$AUTHOR"
 fi

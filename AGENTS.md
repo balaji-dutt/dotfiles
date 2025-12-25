@@ -35,6 +35,17 @@ These tools are installed globally on the system and can be used via CLI command
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
 - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development.
 
+## Documentation Workflow (README.md)
+
+- **Modifications:** When updating `README.md`, you are authorized to update/commit the changes, but follow this protocol:
+  1. Perform the edits.
+  2. Propose a descriptive summary of the change following the **50/72 rule**:
+     - **Subject:** A single line under 44 characters (the script adds the "docs: " prefix automatically).
+     - **Body:** Detailed explanation, with each line wrapped at 72 characters.
+  3. **Ask for my approval** of the draft message before proceeding.
+  4. Once approved, run `~/.claude/commit-docs.sh "readme" "<insert approved multi-line message here>"`.
+  5. **Note:** The script automatically handles the "docs: " prefix and the blank line separator, so do not include them in your draft.
+
 ## Final Steps
 
 **CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following in order:
