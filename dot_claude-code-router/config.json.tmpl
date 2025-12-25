@@ -10,7 +10,7 @@
   "PROXY_URL": "",
   "transformers": [
     {
-      "path": "/Users/balaji/.claude-code-router/plugins/perplexity-websearch-fix.js"
+      "path": "{{ if (env "FOR_CONTAINER") }}/home/vscode{{ else }}{{ .chezmoi.homeDir }}{{ end }}/.claude-code-router/plugins/perplexity-websearch-fix.js"
     }
   ],
   "Providers": [

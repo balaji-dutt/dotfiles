@@ -25,7 +25,7 @@ mkdir -p private_Documents/development/container-dotfiles/dotfiles/configs
 
 # Render Claude Code Router config (reads 1Password, generates config with API keys)
 echo "Rendering Claude Code Router config..."
-NON_INTERACTIVE_MODE=true chezmoi execute-template < dot_claude-code-router/config.json.tmpl > private_Documents/development/container-dotfiles/dotfiles/configs/config.json
+FOR_CONTAINER=true NON_INTERACTIVE_MODE=true chezmoi execute-template < dot_claude-code-router/config.json.tmpl > private_Documents/development/container-dotfiles/dotfiles/configs/config.json
 
 # Render TAVILY_API_KEY (reads 1Password)
 echo "Rendering container environment file..."
