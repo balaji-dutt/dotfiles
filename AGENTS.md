@@ -50,6 +50,40 @@ These tools are installed globally on the system and can be used via CLI command
 
 **CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following in order:
 
-- Make atomic changes. After each change, Run `cz apply --dry-run --verbose 2>&1` and review the output to check for any errors introduced by the change. If errors are encountered, address the issue before proceeding further.
-  - If you are creating new files as part of a plan, note that `cz apply --dry-run --verbose 2>&1` will not show any files being created. If you need the files to be created in order to validate correctness, pause and ask me if it is okay to run `cz apply` for each new file that you would like to create.
-- If execution of `cz apply --dry-run --verbose 2>&1` succeeds, run `cz doctor` to check for any errors. If you find any that are related to your changes, fix them before moving on to the next task.
+- Make atomic changes.
+
+  This repo is edited primarily by changing **chezmoi source-state files** (files in the repo such as `dot_*`, `private_*`, `dot_config/...`, `*.tmpl`). After each change, validate only what you touched (avoid a full repo-wide apply):
+
+  1) Run a *scoped* dry-run apply using the source path(s) you changed:
+
+     `cz apply --dry-run --verbose --source-path <source-path...> 2>&1`
+
+     Review the output and fix any errors before proceeding.
+
+     Notes:
+     - Prefer passing the specific source file(s) you edited (often just one).
+     - If you changed a shared template, template directory, or other input that may affect many targets and you cannot confidently enumerate impacted paths, pause and ask me if it's OK to run a full:
+       `cz apply --dry-run --verbose 2>&1`
+
+  2) Review diffs in a terminal-friendly way (do not open GUI diff tools such as VS Code):
+
+     `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
+
+     Target-path selection rules:
+     - If the target path is obvious from the source-state naming (e.g. `dot_zshrc` -> `~/.zshrc`, `dot_config/git/config.tmpl` -> `~/.config/git/config`), use it.
+     - If the correct target path is not obvious or could be ambiguous, **pause and ask me to confirm the intended target path(s)** before running `cz diff`.
+
+  3) If you created a new source file and want to verify the generated target contents without applying:
+
+     - Print the computed target contents:
+       `cz cat <target-path...>`
+
+     - Or review what would change via:
+       `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
+
+     If filesystem side-effects must be validated (permissions, directory creation, scripts, etc.)
+     and dry-run/cat/diff are insufficient, pause and ask me if it is OK to run:
+     `cz apply <target-path...>`.
+
+- If the scoped `cz apply --dry-run --verbose --source-path ...` succeeds, run `cz doctor`.
+  If any findings appear related to your changes, fix them before moving on.
