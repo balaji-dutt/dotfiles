@@ -12,14 +12,14 @@
 # TO-DO LIST
 
 - [x] Read rendered ccr config.json to get the port for poststartcommand
-  - Added: 2025-12-24 10:20
-  - Completed: 2025-12-24 19:24
+  - Added: 2025-12-24 19:48
+  - Completed: 2025-12-25 13:27
 
 - [ ] Add "superclaude install" to postcreate command for homelab-iac container.
-  - Added: 2025-12-24 10:23
+  - Added: 2025-12-24 19:48
 
 - [ ] Add git-mkver / change install to devcontainer install.sh
-  - Added: 2025-12-24 10:24
+  - Added: 2025-12-24 19:48
 
 - [ ] Add function to run eval (ccr activate) in container zshrc
   - Added: 2025-12-24 19:12
