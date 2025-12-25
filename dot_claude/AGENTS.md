@@ -56,3 +56,20 @@
 - **Execution Scope:** When I use the `/todo` command or ask you to update a task's status, your responsibility ends the moment the `TODO.md` file is updated/committed by the script.
 - **Wait for Instructions:** Never assume I want you to start working on a task just because you added it to the list. Always wait for a separate, explicit request before taking any code-related actions.
 
+## tmux-cli Command to interact with CLI applications
+
+Check if `tmux-cli` is available for use by running `command -v tmux-cli`. If the command returns a path, then proceed.
+
+`tmux-cli` is a bash command that enables Claude Code to control CLI applications
+running in separate tmux panes - launch programs, send input, capture output,
+and manage interactive sessions. Run `tmux-cli --help` for detailed usage
+instructions.
+
+Example uses:
+- Interact with a script that waits for user input
+- Launch another Claude Code instance to have it perform some analysis or review or
+  debugging etc
+- Run a Python script with the Pdb debugger to step thru its execution, for
+  code-understanding and debugging
+- Launch web apps and test them with browser automation MCP tools like Playwright or
+Chrome Dev Tools.
