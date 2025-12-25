@@ -54,7 +54,7 @@
   "postStartCommand": [
     "bash",
     "-lc",
-    "postStartCommand": "bash -lc 'set -euo pipefail; mkdir -p /home/vscode/persistent-data \"$HOME/.claude-code-router/logs\"; CCR_BIN=\"$(command -v ccr || true)\"; echo \"postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH\" >>/home/vscode/persistent-data/poststart-debug.log; PORT=3456; if [ -n \"$CCR_BIN\" ] && ! ss -ltn | grep -q \":${PORT} \"; then setsid -f \"$CCR_BIN\" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1; fi'"
+    "set -euo pipefail; mkdir -p /home/vscode/persistent-data \"$HOME/.claude-code-router/logs\"; CCR_BIN=\"$(command -v ccr || true)\"; echo \"postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH\" >>/home/vscode/persistent-data/poststart-debug.log; PORT={{ .ccr_port }}; if [ -n \"$CCR_BIN\" ] && ! ss -ltn | grep -q \":${PORT} \"; then setsid -f \"$CCR_BIN\" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1; fi"
   ],
 
   "customizations": {
