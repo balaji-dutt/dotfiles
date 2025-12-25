@@ -23,7 +23,7 @@
       "Bash(git remote:*)",
       "Bash(git show:*)",
       "Bash(git blame:*)",
-      "Bash(~/.claude/commit-todo.sh:*)",
+      "Bash(~/.claude/commit-docs.sh:*)",
       "Bash(ls:*)",
       "Bash(ll:*)",
       "Bash(pwd:*)",
