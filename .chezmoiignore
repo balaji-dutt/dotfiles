@@ -42,6 +42,6 @@ bootstrap-wsl.sh
 .local/config/gitignore_global.txt
 .ansible.cfg
 README.md
-PLAN.md
+TODO.md
 AGENTS.md
 CLAUDE.md
