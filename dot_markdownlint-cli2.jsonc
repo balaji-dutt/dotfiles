@@ -2,6 +2,7 @@
   "ignores": [
     "**/.claude/plans/**",
     "**/tmp/claude-*",
-    "**/.claude-*"
+    "**/.claude-*",
+    "**/.claude/commands*"
   ]
 }
