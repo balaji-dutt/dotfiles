@@ -46,8 +46,6 @@ The list of configurations that I'm currenly managing through this repo are:
 | Program Name | Rendered Dotfile Path ($HOME relative) | Is Template? | macOS | Linux | Generic WSL2 | Ubuntu (WSL2) | Debian (WSL2) | Has Scripts? |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Bash | `~/.bashrc` | Yes | | | ✅ | ✅ | | No |
-| Chezmoi | `~/.chezmoi.toml` | Yes | ✅ | ✅ | ✅ | | | No |
-| Chezmoi | `.chezmoidata.yaml` | No | ✅ | ✅ | ✅ | | | No |
 | Claude | `~/.claude/settings.json` | No | ✅ | ✅ | ✅ | | | No |
 | Claude | `~/.claude/AGENTS.md` | No | ✅ | ✅ | ✅ | | | No |
 | Claude | `~/.claude/CLAUDE.md` | No | ✅ | ✅ | ✅ | | | No |
