@@ -21,7 +21,7 @@
 - [ ] Add git-mkver / change install to devcontainer install.sh
   - Added: 2025-12-24 19:48
 
-- [ ] Add function to run eval (ccr activate) in container zshrc
+- [x] Add function to run eval (ccr activate) in container zshrc
   - Added: 2025-12-24 19:12
 
 - [x] Add instructions to agents.md to use tmux-cli
