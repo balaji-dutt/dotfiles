@@ -40,3 +40,7 @@
   ```
   Added: 2025-12-26 14:54
   ```
+- [ ] Symlink "Build README.md" into this repo and get Claude to help refactor it.
+  ```
+  Added: 2025-12-26 14:58
+  ```
