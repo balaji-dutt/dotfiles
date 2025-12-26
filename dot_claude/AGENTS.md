@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD007 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-disable MD007 MD013 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
 <!-- markdownlint-configure-file
 {
   options": {
@@ -48,6 +48,7 @@
 
 - **Storage:** Use `TODO.md` in the project root (the current directory or git root).
 - **Universal Command:** For any request to add, finish, pause, or resume a task, always use the `/todo` command.
+- **Internal vs. External Todos:** The `TODO.md` file and `/todo` command are for MY personal tasks only. Do NOT use them to track your own sub-steps or progress for the current coding session. If you need to plan, use your internal thought process or session-only tools, but do not write them to `TODO.md`.
 - **Time & Logic Delegation:** Do NOT manually edit `TODO.md` or generate timestamps. Always delegate the file update and the timestamping to the `~/.claude/commit-docs.sh` script.
 - **Viewing:**
   - "Show my todos" / "What's next" / "What's on my todo list" / "What's left to do": Display ONLY active tasks (no `[x]`, no `[PAUSED]`) in a clean Markdown table with columns for "Status" (🔲) and "Task". Hide audit logs.

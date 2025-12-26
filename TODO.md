@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD007 MD022 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-disable MD007 MD013 MD022 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
 <!-- markdownlint-configure-file
 {
   options": {
