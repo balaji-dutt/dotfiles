@@ -36,3 +36,7 @@
 
 - [ ] Extend existing logic to copy Tavily API key into container for morphllm as well.
   - Added: 2025-12-24 19:22
+- [ ] Look into creating a script that will render devcontainer.json and run render-container-configs when one of those files change.
+  ```
+  Added: 2025-12-26 14:54
+  ```
