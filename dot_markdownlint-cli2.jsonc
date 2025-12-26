@@ -1,8 +1,14 @@
 {
   "ignores": [
+    // Claude plans in home
     "**/.claude/plans/**",
-    "**/tmp/claude-*",
-    "**/.claude-*",
-    "**/.claude/commands*"
+
+    // macOS temp (VS Code/Node sometimes resolves /var as /private/var)
+    "**/var/folders/**/T/chezmoi-diff*/**",
+    "**/private/var/folders/**/T/chezmoi-diff*/**",
+
+    // Linux temp
+    "**/tmp/chezmoi-diff*/**",
+    "**/tmp/claude-*/**"
   ]
 }
