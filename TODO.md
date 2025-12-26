@@ -44,3 +44,7 @@
   ```
   Added: 2025-12-26 14:58
   ```
+- [ ] Add bunx wrapper function to dev container zshrc
+  ```
+  Added: 2025-12-26 15:13
+  ```
