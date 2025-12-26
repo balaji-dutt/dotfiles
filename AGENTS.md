@@ -56,7 +56,7 @@ These tools are installed globally on the system and can be used via CLI command
 
   1) Run a *scoped* dry-run apply using the source path(s) you changed:
 
-     `cz apply --dry-run --verbose --source-path <source-path...> 2>&1`
+     `cz apply --use-builtin-diff --no-pager --dry-run --verbose --source-path <source-path...> 2>&1`
 
      Review the output and fix any errors before proceeding.
 
@@ -69,6 +69,8 @@ These tools are installed globally on the system and can be used via CLI command
 
      `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
 
+  IMPORTANT: The `cz --use-builtin-diff --no-pager diff` command expects you to provide the target-path for the file being diffed and not the source path. Remember to provide the target-path when running a `cz --use-builtin-diff --no-pager diff` command.
+
      Target-path selection rules:
      - If the target path is obvious from the source-state naming (e.g. `dot_zshrc` -> `~/.zshrc`, `dot_config/git/config.tmpl` -> `~/.config/git/config`), use it.
      - If the correct target path is not obvious or could be ambiguous, **pause and ask me to confirm the intended target path(s)** before running `cz diff`.
@@ -76,7 +78,7 @@ These tools are installed globally on the system and can be used via CLI command
   3) If you created a new source file and want to verify the generated target contents without applying:
 
      - Print the computed target contents:
-       `cz cat <target-path...>`
+       `cz --use-builtin-diff --no-pager cat <target-path...>`
 
      - Or review what would change via:
        `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
@@ -85,5 +87,5 @@ These tools are installed globally on the system and can be used via CLI command
      and dry-run/cat/diff are insufficient, pause and ask me if it is OK to run:
      `cz apply <target-path...>`.
 
-- If the scoped `cz apply --dry-run --verbose --source-path ...` succeeds, run `cz doctor`.
+- If the scoped `cz --use-builtin-diff --no-pager apply --dry-run --verbose --source-path ...` succeeds, run `cz doctor`.
   If any findings appear related to your changes, fix them before moving on.
