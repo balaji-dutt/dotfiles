@@ -20,7 +20,7 @@
   ```
   Added: 2025-12-24 19:48
   ```
-- [ ] Add git-mkver / change install to devcontainer install.sh
+- [x] Add git-mkver / change install to devcontainer install.sh
   ```
   Added: 2025-12-24 19:48
   ```
