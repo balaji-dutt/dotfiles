@@ -190,6 +190,44 @@ install_fzf_gh() {
 }
 install_fzf_gh || echo "!! fzf install failed; continuing"
 
+# git-mkver: install latest Linux binary from GitHub releases
+install_git_mkver_gh() {
+  echo "==> Resolving latest git-mkver version from GitHub..."
+  if ! need_cmd jq; then
+    echo "!! jq not available; cannot resolve latest git-mkver. Install jq."
+    return 1
+  fi
+
+  local tag
+  tag="$(curl -fsSL https://api.github.com/repos/idc101/git-mkver/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+  [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest git-mkver version."; return 1; }
+
+  # If already installed, skip
+  if need_cmd git-mkver; then
+    echo "==> git-mkver already installed; skipping."
+    return 0
+  fi
+
+  local tmpd asset url
+  tmpd="$(mktemp -d)"
+  asset="git-mkver-linux-x86_64-${tag}.tar.gz"
+  url="https://github.com/idc101/git-mkver/releases/download/v${tag}/${asset}"
+
+  echo "==> Installing git-mkver ${tag}"
+  curl -fsSL "$url" -o "${tmpd}/mkver.tgz"
+  as_root "tar -xzf '${tmpd}/mkver.tgz' -C /usr/local/bin git-mkver"
+  as_root "chmod 0755 /usr/local/bin/git-mkver"
+  rm -rf "$tmpd"
+
+  # Verify
+  if ! need_cmd git-mkver; then
+    echo "!! git-mkver not found after install."
+    return 1
+  fi
+  echo "==> git-mkver installed"
+}
+install_git_mkver_gh || echo "!! git-mkver install failed; continuing"
+
 # Make zsh default shell (best-effort; VS Code settings can also set terminal default)
 if need_cmd zsh; then
   current_shell="$(getent passwd "$(id -un)" | cut -d: -f7 || echo "")"
@@ -229,6 +267,22 @@ install_and_patch_terraform_py() {
   fi
 }
 
+install_change() {
+  echo "==> Setting up change utility"
+  local url="https://raw.githubusercontent.com/adamtabrams/change/master/change"
+  local target_dir="$HOME/.local/bin"
+  local target_file="$target_dir/change"
+
+  mkdir -p "$target_dir"
+  if [ ! -f "$target_file" ]; then
+    echo "==> Downloading change..."
+    curl -fsSL -o "$target_file" "$url"
+    chmod +x "$target_file"
+  else
+    echo "==> change utility already present"
+  fi
+}
+
 # Copy dotfiles from the mounted host folder if present
 SRC="/home/vscode/.host-dotfiles"
 if [ -d "$SRC" ]; then
@@ -244,6 +298,7 @@ if [ -d "$SRC" ]; then
   "$SRC/" "$HOME/"
   # Now, run the custom installer for terraform.py which needs the patch file from the source
   install_and_patch_terraform_py || echo "!! terraform.py setup failed; continuing"
+  install_change || echo "!! change setup failed; continuing"
 fi
 
 # Append environment variables for Claude Code and Router
