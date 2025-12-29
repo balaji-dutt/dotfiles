@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD007 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-disable MD007 MD013 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
 <!-- markdownlint-configure-file
 {
   options": {
@@ -74,7 +74,7 @@ These tools are installed globally on the system and can be used via CLI command
      Target-path selection rules:
      - If the target path is obvious from the source-state naming (e.g. `dot_zshrc` -> `~/.zshrc`, `dot_config/git/config.tmpl` -> `~/.config/git/config`), use it.
      - If the correct target path is not obvious or could be ambiguous, **pause and ask me to confirm the intended target path(s)** before running `cz diff`.
-
+<!-- markdownlint-disable MD029 -->
   3) If you created a new source file and want to verify the generated target contents without applying:
 
      - Print the computed target contents:
@@ -86,6 +86,6 @@ These tools are installed globally on the system and can be used via CLI command
      If filesystem side-effects must be validated (permissions, directory creation, scripts, etc.)
      and dry-run/cat/diff are insufficient, pause and ask me if it is OK to run:
      `cz apply <target-path...>`.
-
+<!-- markdownlint-enable MD029 -->
 - If the scoped `cz --use-builtin-diff --no-pager apply --dry-run --verbose --source-path ...` succeeds, run `cz doctor`.
   If any findings appear related to your changes, fix them before moving on.
