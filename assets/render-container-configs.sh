@@ -3,6 +3,16 @@ set -e
 
 echo "Rendering container configuration files..."
 
+echo "NOTE: This script is ONLY for generating container runtime inputs that must be"
+echo "materialized from templates (e.g., files that read 1Password)."
+echo ""
+echo "It runs on the host, so any chezmoi template logic that depends on host values"
+echo "(e.g. .chezmoi.os, lookPath, etc.) may NOT match the container environment."
+echo ""
+echo "If a template needs container-specific behavior, gate it behind FOR_CONTAINER=true"
+echo "and ensure the template branches on that variable rather than host characteristics."
+echo ""
+
 # Change to dotfiles root directory
 cd "$(dirname "$0")/.."
 
