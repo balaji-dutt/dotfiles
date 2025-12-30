@@ -9,6 +9,8 @@
         "Bash(cz --use-builtin-diff --no-pager apply --dry-run --verbose:*)",
         "Bash(chezmoi apply --use-builtin-diff --no-pager --dry-run --verbose:*)",
         "Bash(chezmoi --use-builtin-diff --no-pager apply --dry-run --verbose:*)",
+        "Bash(chezmoi --use-builtin-diff --no-pager diff:*)",
+        "Bash(cz --use-builtin-diff --no-pager diff:*)",
         "Bash(chezmoi target-path:*)",
         "Bash(cz target-path:*)",
         "Bash(grep:*)",
