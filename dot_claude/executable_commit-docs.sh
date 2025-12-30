@@ -10,6 +10,56 @@ safe_sed() {
     fi
 }
 
+insert_stamp() {
+    local file="$1"
+    local header="$2"
+    local label="$3"
+    local now="$4"
+
+    local tmp
+    tmp="$(mktemp -t commit-docs.XXXXXX)" || return 1
+
+    if ! HEADER="$header" LABEL="$label" NOW="$now" awk '
+        BEGIN {
+            header = ENVIRON["HEADER"]
+            label = ENVIRON["LABEL"]
+            now = ENVIRON["NOW"]
+            in_task = 0
+            fence_count = 0
+            done = 0
+        }
+        {
+            if (!done && $0 == header) {
+                in_task = 1
+                fence_count = 0
+            }
+
+            if (!done && in_task && $0 == "  ```") {
+                fence_count++
+                if (fence_count == 2) {
+                    print "  " label ": " now
+                    print $0
+                    done = 1
+                    in_task = 0
+                    next
+                }
+            }
+
+            print $0
+        }
+    ' "$file" > "$tmp"; then
+        echo "ERROR: awk failed; temp preserved at: $tmp" >&2
+        return 1
+    fi
+
+    if cat "$tmp" > "$file"; then
+        rm -f "$tmp"
+    else
+        echo "ERROR: write-back failed; temp preserved at: $tmp" >&2
+        return 1
+    fi
+}
+
 # 2. Git Awareness
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 IS_GIT=true
@@ -26,9 +76,14 @@ TODO_FILE="$GIT_ROOT/TODO.md"
 TARGET=""
 FULL_MSG=""
 
-# 3. Escape INPUT_TEXT for use in Sed Regex
-# This escapes characters that sed treats as special: \ . [ ] ^ $ * /
-ESCAPED_TEXT=$(echo "$INPUT_TEXT" | sed 's/[^^]/[&]/g; s/\^/\\^/g; s/\//\\\//g')
+# 3. Escape INPUT_TEXT for use in Sed
+# - ESCAPED_TEXT is used in the *pattern* (regex) side.
+# - ESCAPED_REPLACEMENT is used in the *replacement* side.
+#
+# NOTE: If INPUT_TEXT contains '/', it must be escaped in replacements or the
+# sed command breaks (e.g. "bad flag in substitute command").
+ESCAPED_TEXT=$(printf '%s' "$INPUT_TEXT" | sed 's/[][\\.^$*\/]/\\&/g')
+ESCAPED_REPLACEMENT=$(printf '%s' "$INPUT_TEXT" | sed 's/[\\/&]/\\&/g')
 
 # 4. Initialize TODO.md if it doesn't exist
 if [ ! -f "$TODO_FILE" ] && [[ "$ACTION" != "readme" ]]; then
@@ -57,20 +112,26 @@ case $ACTION in
         TARGET="TODO.md"
         ;;
     "pause")
-        safe_sed "s/- \[ \] $ESCAPED_TEXT/- [ ] [PAUSED] $INPUT_TEXT/" "$TODO_FILE"
-        safe_sed "/- \[ \] \[PAUSED\] $ESCAPED_TEXT/,/\`\`\`/ s/\`\`\//  Paused: $NOW\n  \`\`\// " "$TODO_FILE"
+        if grep -F -q -- "- [ ] $INPUT_TEXT" "$TODO_FILE"; then
+            safe_sed "s/- \[ \] $ESCAPED_TEXT/- [ ] [PAUSED] $ESCAPED_REPLACEMENT/" "$TODO_FILE"
+            insert_stamp "$TODO_FILE" "- [ ] [PAUSED] $INPUT_TEXT" "Paused" "$NOW" || exit 1
+        fi
         FULL_MSG="docs(todo): task paused"
         TARGET="TODO.md"
         ;;
     "resume")
-        safe_sed "s/- \[ \] \[PAUSED\] $ESCAPED_TEXT/- [ ] $INPUT_TEXT/" "$TODO_FILE"
-        safe_sed "/- \[ \] $ESCAPED_TEXT/,/\`\`\`/ s/\`\`\//  Resumed: $NOW\n  \`\`\// " "$TODO_FILE"
+        if grep -F -q -- "- [ ] [PAUSED] $INPUT_TEXT" "$TODO_FILE"; then
+            safe_sed "s/- \[ \] \[PAUSED\] $ESCAPED_TEXT/- [ ] $ESCAPED_REPLACEMENT/" "$TODO_FILE"
+            insert_stamp "$TODO_FILE" "- [ ] $INPUT_TEXT" "Resumed" "$NOW" || exit 1
+        fi
         FULL_MSG="docs(todo): task resumed"
         TARGET="TODO.md"
         ;;
     "complete")
-        safe_sed "s/- \[ \] .*$ESCAPED_TEXT/- [x] $INPUT_TEXT/" "$TODO_FILE"
-        safe_sed "/- \[x\] $ESCAPED_TEXT/,/\`\`\`/ s/\`\`\//  Completed: $NOW\n  \`\`\// " "$TODO_FILE"
+        if grep -F -q -- "- [ ] $INPUT_TEXT" "$TODO_FILE" || grep -F -q -- "- [ ] [PAUSED] $INPUT_TEXT" "$TODO_FILE"; then
+            safe_sed "s/- \[ \] .*$ESCAPED_TEXT/- [x] $ESCAPED_REPLACEMENT/" "$TODO_FILE"
+            insert_stamp "$TODO_FILE" "- [x] $INPUT_TEXT" "Completed" "$NOW" || exit 1
+        fi
         FULL_MSG="docs(todo): task completed"
         TARGET="TODO.md"
         ;;
