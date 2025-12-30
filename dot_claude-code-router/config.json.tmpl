@@ -11,6 +11,9 @@
   "transformers": [
     {
       "path": "{{ if (env "FOR_CONTAINER") }}/home/vscode{{ else }}{{ .chezmoi.homeDir }}{{ end }}/.claude-code-router/plugins/perplexity-websearch-fix.js"
+    },
+    {
+      "path": "{{ if (env "FOR_CONTAINER") }}/home/vscode{{ else }}{{ .chezmoi.homeDir }}{{ end }}/.claude-code-router/plugins/openai-reasoning-presets.js"
     }
   ],
   "Providers": [
@@ -20,50 +23,17 @@
       "api_key": "{{ onepasswordRead "op://Private/ryptv6jhozhiod5sl4ha6mctqa/credential" }}",
       "models": [
         "gpt-5.2",
-        "gpt-5.2-reasoning",
-        "gpt-5.2-reasoning-extra",
-        "gpt-5.1-codex-max",
+        "gpt-5.2-high",
+        "gpt-5.2-xhigh",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
         "gpt-4o-mini"
       ],
-      "gpt-5.2": {
-        "description": "Default modified for reasoning quality medium",
-        "model_id": "gpt-5.1",
-        "params": {
-          "reasoning": {
-            "effort": "medium"
-          }
-        }
-      },
-      "gpt-5.2-reasoning": {
-        "model_id": "gpt-5.1",
-        "params": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      },
-      "gpt-5.2-reasoning-extra": {
-        "model_id": "gpt-5.1",
-        "params": {
-          "reasoning": {
-            "effort": "xhigh"
-          }
-        }
-      },
       "transformer": {
         "use": [
-          "OpenAI"
-        ],
-        "gpt-4o-mini": {
-          "use": [
-            [
-              "maxtoken",
-              {
-                "max_tokens": 16384
-              }
-            ]
-          ]
-        }
+          "OpenAI",
+          "openai-reasoning-presets"
+        ]
       }
     },
     {
@@ -202,9 +172,9 @@
   },
   "Router": {
     "default": "anthropic,claude-sonnet-4-5",
-    "background": "openai,gpt-4o-mini",
-    "think": "google,gemini-3-flash-preview",
-    "longContext": "google,gemini-3-flash-preview",
+    "background": "openai,gpt-4.1-nano",
+    "think": "openai,gpt-5.2-high",
+    "longContext": "openai,gpt-5.2-high",
     "longContextThreshold": 60000,
     "webSearch": "anthropic,claude-haiku-4-5",
     "image": "google,gemini-3-pro-image-preview"
