@@ -74,6 +74,23 @@ elif (( ${+commands[brew]} )); then
     source $(brew --prefix)/opt/antidote/share/antidote/antidote.zsh
 fi
 
+# WSL2: some upstream repos used by antidote can trigger git fsck
+# errors (e.g., zeroPaddedFilemode). Avoid persisting this in ~/.gitconfig
+# by applying the fsck relaxation only for the git processes spawned by
+# antidote.
+if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+  antidote() {
+    GIT_CONFIG_COUNT=3 \
+    GIT_CONFIG_KEY_0=fetch.fsck.zeroPaddedFilemode \
+    GIT_CONFIG_VALUE_0=ignore \
+    GIT_CONFIG_KEY_1=receive.fsck.zeroPaddedFilemode \
+    GIT_CONFIG_VALUE_1=ignore \
+    GIT_CONFIG_KEY_2=fsck.zeroPaddedFilemode \
+    GIT_CONFIG_VALUE_2=ignore \
+    command antidote "$@"
+  }
+fi
+
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
 
