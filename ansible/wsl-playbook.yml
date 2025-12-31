@@ -151,7 +151,7 @@
 
     - name: Include 1Password setup
       ansible.builtin.include_tasks: tasks/onepassword-setup.yml
-      when: op_account | length > 0
+      when: op_url | length > 0
 
   post_tasks:
     - name: Display completion message
