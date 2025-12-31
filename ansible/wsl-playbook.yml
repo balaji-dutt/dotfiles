@@ -159,4 +159,5 @@
         msg:
           - "WSL2 provisioning complete!"
           - "Restart your terminal or run: exec zsh"
+          - "NOTE: Run 'cz apply' again to finalize shell config (some .zshrc sections are generated based on which tools exist at apply time)."
           - "You may need to restart WSL for some changes to take effect."
