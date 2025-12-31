@@ -2,10 +2,6 @@
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
 .zpreztorc
-.zshrc
-.p10k.zsh
-.zsh_plugins.txt
-.local/config/.p10k.zsh
 Library
 {{ end }}
 
