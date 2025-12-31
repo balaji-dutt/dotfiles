@@ -20,7 +20,7 @@
     # update-ca-certificates requires .crt extension
     dest: "/usr/local/share/ca-certificates/{{ item | basename | regex_replace('\\.(pem|cert)$', '.crt') }}"
     mode: "0644"
-  loop: "{{ cert_files }}"
+  loop: "{{ (cert_files | from_json) if (cert_files is string) else cert_files }}"
   register: certs_copied
   when:
     - cert_path is defined
