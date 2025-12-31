@@ -35,4 +35,4 @@
   # Only run if repo exists (via chezmoi) but not yet installed
   when:
     - doom_repo.stat.exists
-    - not doom_straight.stat.isdir
+    - not doom_straight.stat.exists
