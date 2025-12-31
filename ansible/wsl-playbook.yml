@@ -108,6 +108,7 @@
         executable: /bin/bash
       register: uv_tools_installed_raw
       changed_when: false
+      failed_when: uv_tools_installed_raw.rc not in [0, 1]
 
     - name: Parse installed uv tools
       ansible.builtin.set_fact:
