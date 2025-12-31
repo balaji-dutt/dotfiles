@@ -1,1 +1,2 @@
 claude-code-tools==1.1.5
+superclaude==4.1.9

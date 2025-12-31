@@ -1,2 +1,3 @@
-superclaude==4.1.9
-uv==0.9.18
+# Deprecated: pipx is no longer used in this devcontainer.
+# Python CLIs are installed via `uv tool` from uv_tools.txt.
+# uv is bootstrapped via pip: `python3 -m pip install --user "uv==0.9.18"`
