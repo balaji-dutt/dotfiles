@@ -1,13 +1,30 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
+set -euo pipefail
+
+# This script uses `lastversion`, which calls the GitHub API.
+# If you hit rate limits, export GITHUB_API_TOKEN and rerun.
+if [ -z "${GITHUB_API_TOKEN:-}" ]; then
+  echo "ERROR: GITHUB_API_TOKEN is not set."
+  echo "This script uses GitHub API via lastversion and will likely hit rate limits without a token."
+  echo ""
+  echo "Run: export GITHUB_API_TOKEN=..."
+  echo "Then rerun chezmoi apply."
+  exit 1
+fi
+
 # Set PATH including Python user bin directory for WSL
 PYTHON_USER_BIN="$HOME/.local/bin"
 export PATH="$PYTHON_USER_BIN:$PATH"
-mkdir -p $HOME/.config/sublime-merge/Packages/User && cd $HOME/.config/sublime-merge/Packages/User
-filename=$(basename $(lastversion --assets sublimehq/Packages))
+
+mkdir -p "$HOME/.config/sublime-merge/Packages/User" && cd "$HOME/.config/sublime-merge/Packages/User"
+
+pkg_url="$(lastversion --assets sublimehq/Packages)"
+filename="$(basename "$pkg_url")"
 output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
-curl -sLO $(lastversion --assets sublimehq/Packages) && tar -xzf $(basename $(lastversion --assets sublimehq/Packages)) --strip-components=1 $output/Git\ Formats/ \
-&& rm $(basename $(lastversion --assets sublimehq/Packages))
+
+curl -sLO "$pkg_url" && tar -xzf "$filename" --strip-components=1 "$output/Git Formats/" \
+&& rm "$filename"
 target_dir="Git Formats"
 target_file="$target_dir/Git Commit.sublime-syntax"
 mkdir -p "$target_dir"
