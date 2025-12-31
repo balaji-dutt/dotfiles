@@ -6,6 +6,7 @@ set -euo pipefail
 echo "=== WSL2 Provisioning via Ansible ==="
 
 export PATH="$HOME/.local/bin:$PATH"
+export ANSIBLE_CONFIG="{{ .chezmoi.sourceDir }}/ansible/ansible.cfg"
 
 if ! command -v ansible-playbook &> /dev/null; then
     echo "ERROR: Ansible not found. Run bootstrap-wsl.sh first."
