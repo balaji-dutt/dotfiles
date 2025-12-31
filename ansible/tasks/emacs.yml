@@ -20,10 +20,10 @@
     path: "{{ ansible_env.HOME }}/.config/emacs/bin/doom"
   register: doom_repo
 
-- name: Check if Doom is already installed
+- name: Check if Doom packages are installed
   ansible.builtin.stat:
-    path: "{{ ansible_env.HOME }}/.config/emacs/.local"
-  register: doom_local
+    path: "{{ ansible_env.HOME }}/.config/emacs/.local/straight"
+  register: doom_straight
 
 - name: Run Doom install
   ansible.builtin.command:
@@ -35,4 +35,4 @@
   # Only run if repo exists (via chezmoi) but not yet installed
   when:
     - doom_repo.stat.exists
-    - not doom_local.stat.isdir
+    - not doom_straight.stat.isdir
