@@ -309,8 +309,6 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
     sed -i -e '$a\' "$f"
     {
       [ -n "${TAVILY_API_KEY:-}" ] && echo "export TAVILY_API_KEY=\"$TAVILY_API_KEY\""
-      echo "export ANTHROPIC_BASE_URL=\"http://127.0.0.1:{{ .ccr_port }}/v1\""
-      echo "export ANTHROPIC_API_KEY=\"claude-code-router\""
     } >> "$f"
   done
 fi
