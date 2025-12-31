@@ -41,6 +41,9 @@ else
     log_info "Ansible already installed"
 fi
 
+# Define path to dotfiles location.
+DOTFILES_LOCAL_PATH="${1:-$HOME/Documents/development/dotfiles}"
+
 # Install Ansible collections
 log_info "Installing Ansible collections..."
 ansible-galaxy collection install -r "${DOTFILES_LOCAL_PATH}/ansible/requirements.yml"
@@ -58,8 +61,6 @@ else
 fi
 
 # Initialize chezmoi with local dotfiles repo
-DOTFILES_LOCAL_PATH="${1:-$HOME/Documents/development/dotfiles}"
-
 if [ ! -f "$HOME/.config/chezmoi/chezmoi.toml" ]; then
     if [ -d "$DOTFILES_LOCAL_PATH" ]; then
         log_info "Initializing chezmoi with local repo: ${DOTFILES_LOCAL_PATH}..."
