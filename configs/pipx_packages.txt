@@ -1,1 +1,2 @@
-superclaude
+# pipx is used only for WSL2 bootstrap (see bootstrap-wsl.sh).
+# Steady-state Python CLIs are installed via `uv tool` from configs/uv_tools.txt.

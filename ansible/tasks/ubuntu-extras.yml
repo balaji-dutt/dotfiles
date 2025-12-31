@@ -9,8 +9,3 @@
     name: "{{ ubuntu_apt_packages }}"
     state: present
 
-- name: Install Ubuntu pipx packages
-  community.general.pipx:
-    name: "{{ item }}"
-    state: present
-  loop: "{{ ubuntu_pipx_packages }}"

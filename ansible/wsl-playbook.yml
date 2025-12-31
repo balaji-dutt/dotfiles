@@ -70,6 +70,60 @@
     - name: Include apt repositories
       ansible.builtin.include_tasks: tasks/apt-repos.yml
 
+    - name: Ensure mise config directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.config/mise"
+        state: directory
+        mode: "0755"
+
+    - name: Symlink mise global config to dotfiles
+      ansible.builtin.file:
+        src: "{{ chezmoi_source_dir }}/configs/mise.toml"
+        dest: "{{ ansible_env.HOME }}/.config/mise/config.toml"
+        state: link
+        force: true
+
+    - name: Install mise tools from global config
+      ansible.builtin.command: mise install -y
+
+    - name: Read uv tools manifest
+      ansible.builtin.slurp:
+        src: "{{ chezmoi_source_dir }}/configs/uv_tools.txt"
+      register: uv_tools_manifest
+
+    - name: Parse uv tools manifest
+      ansible.builtin.set_fact:
+        uv_tools_desired: >-
+          {{
+            (uv_tools_manifest.content | b64decode).splitlines()
+            | reject('match', '^\\s*(#|$)')
+            | list
+          }}
+
+    - name: List installed uv tools
+      ansible.builtin.shell: |
+        set -euo pipefail
+        mise exec -- uv tool list | grep -v '^-'
+      args:
+        executable: /bin/bash
+      register: uv_tools_installed_raw
+      changed_when: false
+
+    - name: Parse installed uv tools
+      ansible.builtin.set_fact:
+        uv_tools_installed: >-
+          {{
+            uv_tools_installed_raw.stdout_lines
+            | map('regex_replace', '\\s+.*$', '')
+            | reject('equalto', '')
+            | list
+          }}
+
+    - name: Install uv tools
+      ansible.builtin.command: mise exec -- uv tool install {{ item }} --force
+      loop: "{{ uv_tools_desired }}"
+      when: item not in uv_tools_installed
+
     - name: Include ZSH and Antidote setup
       ansible.builtin.include_tasks: tasks/zsh-setup.yml
 

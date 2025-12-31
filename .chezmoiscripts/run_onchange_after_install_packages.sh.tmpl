@@ -8,9 +8,6 @@
 {{- $mise := joinPath .chezmoi.sourceDir "configs/mise.toml" }}
 # config/mise.toml hash: {{ if stat $mise }}{{ include $mise | sha256sum }}{{ else }}empty{{ end }}
 
-{{- $pipx := joinPath .chezmoi.sourceDir "configs/pipx_packages.txt" }}
-# pipx_packages.txt hash: {{ if stat $pipx }}{{ include $pipx | sha256sum }}{{ else }}empty{{ end }}
-
 {{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 
@@ -46,20 +43,7 @@ echo "Installing Runtimes from mise.toml..."
 mise install -y
 mise reshim
 
-# 3. HYDRATE PIPX PACKAGES
-PIPX_FILE="$CONFIG_DIR/pipx_packages.txt"
-if [ -s "$PIPX_FILE" ]; then
-    echo "Syncing Pipx packages..."
-    while IFS= read -r package; do
-        [[ -z "$package" || "$package" =~ ^# ]] && continue
-        if ! pipx list --short | grep -q "^$package "; then
-            echo "   + Installing $package..."
-            pipx install "$package" --force
-        fi
-    done < "$PIPX_FILE"
-fi
-
-# 4. HYDRATE NPM GLOBAL PACKAGES
+# 3. HYDRATE NPM GLOBAL PACKAGES
 NPM_FILE="$CONFIG_DIR/npm_globals.txt"
 if [ -s "$NPM_FILE" ]; then
     echo "Syncing NPM global packages..."

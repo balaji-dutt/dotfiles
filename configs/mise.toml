@@ -2,6 +2,5 @@
 bun = "latest"
 jq = "latest"
 node = "lts"
-pipx = "latest"
 python = "3.14"
 uv = "latest"

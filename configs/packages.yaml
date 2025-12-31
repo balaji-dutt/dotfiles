@@ -46,7 +46,7 @@ ubuntu_apt_packages:
   - wslu
 
 # -----------------------------------------------------------------------------
-# Pipx packages - Ubuntu only
+# Python CLI tools
 # -----------------------------------------------------------------------------
-ubuntu_pipx_packages:
-  - FanFicFare
+# Installed via `uv tool` (NOT pipx).
+# Source of truth is `configs/uv_tools.txt`.
