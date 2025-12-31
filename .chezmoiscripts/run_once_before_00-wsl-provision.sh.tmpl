@@ -1,6 +1,7 @@
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 #!/bin/bash
 set -euo pipefail
+
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 
 echo "=== WSL2 Provisioning via Ansible ==="
 
