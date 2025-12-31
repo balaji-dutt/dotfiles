@@ -6,6 +6,7 @@
     // macOS temp (VS Code/Node sometimes resolves /var as /private/var)
     "**/var/folders/**/T/chezmoi-diff*/**",
     "**/private/var/folders/**/T/chezmoi-diff*/**",
+    "**/private/var/folders/**/T/claude-prompt*",
 
     // Linux temp
     "**/tmp/chezmoi-diff*/**",
