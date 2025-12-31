@@ -57,3 +57,7 @@
   ```
   Added: 2025-12-26 15:13
   ```
+- [ ] Add ccr start as launchctl plist so it survives reboots
+  ```
+  Added: 2025-12-31 19:52
+  ```
