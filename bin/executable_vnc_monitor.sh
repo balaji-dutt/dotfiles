@@ -19,12 +19,15 @@ while true; do
             # logger "VNC Active: Forced screensaver to Never."
         fi
 
-        # Prevent display from sleeping
+        # Prevent display/system from sleeping while VNC is active
         if [ -z "$CAFFEINATE_PID" ] || ! kill -0 "$CAFFEINATE_PID" 2>/dev/null; then
-            caffeinate -d &
+            caffeinate -d -i &
             CAFFEINATE_PID=$!
             # logger "VNC Active: Started caffeinate (PID: $CAFFEINATE_PID) to prevent display sleep."
         fi
+
+        # Declare user activity so idle-time lock/logout timers don't trigger
+        caffeinate -u -t "$((CHECK_INTERVAL + 5))" >/dev/null 2>&1 &
 
         STATE="connected"
     else
@@ -34,7 +37,7 @@ while true; do
             STATE="disconnected"
             # logger "VNC Disconnected: Restored screensaver to $RESTORE_TIMEOUT."
 
-            # Allow display to sleep again
+            # Allow display/system to sleep again
             if [ -n "$CAFFEINATE_PID" ]; then
                 kill "$CAFFEINATE_PID" 2>/dev/null
                 CAFFEINATE_PID=""
