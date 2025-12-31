@@ -11,6 +11,30 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+prompt_github_api_token() {
+    if [ -n "${GITHUB_API_TOKEN:-}" ]; then
+        return 0
+    fi
+
+    if [ ! -t 0 ]; then
+        log_error "GITHUB_API_TOKEN is required but no TTY is available to prompt for it"
+        exit 1
+    fi
+
+    echo
+    log_warn "GitHub API token required"
+    log_warn "Some setup steps use GitHub API (via lastversion) and will rate-limit without a token."
+    read -r -s -p "Enter GITHUB_API_TOKEN: " GITHUB_API_TOKEN
+    echo
+
+    if [ -z "${GITHUB_API_TOKEN:-}" ]; then
+        log_error "GITHUB_API_TOKEN cannot be empty"
+        exit 1
+    fi
+
+    export GITHUB_API_TOKEN
+}
+
 # Detect distro
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -22,6 +46,8 @@ else
 fi
 
 log_info "Detected: ${DISTRO_ID} ${DISTRO_VERSION}"
+
+prompt_github_api_token
 
 # Update and install essentials
 log_info "Installing essential packages..."
@@ -77,5 +103,11 @@ else
 fi
 
 log_info "Bootstrap complete!"
-log_info "Run 'chezmoi apply' to provision the system and apply dotfiles"
-log_warn "You may need to restart your shell or run: source ~/.bashrc"
+log_info "Starting a new login shell with GITHUB_API_TOKEN in the environment."
+log_info "Next: run 'chezmoi apply'"
+
+if [ -n "${SHELL:-}" ] && [ -x "${SHELL}" ]; then
+    exec "${SHELL}" -l
+else
+    exec bash -l
+fi
