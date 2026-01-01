@@ -1,0 +1,45 @@
+{
+    "folders": [
+        {
+            "name": "dotfiles",
+            "path": "../dotfiles"
+        },
+        {
+            "name": "private-dotfiles",
+            "path": "../private-dotfiles"
+        },
+        {
+            "path": "../../../.config/chezmoi"
+        },
+        {
+            "path": "../../../.config/chezmoi-private"
+        }
+    ],
+    "settings": {
+        "dotfiles.isDotfilesWorkspace": true, // Special parameter added to enable per workspace keybinding
+        "terminal.integrated.cwd": "${workspaceFolder:dotfiles}",
+        "ansible.validation.lint.enabled": false,
+        "ansible.validation.enabled": false,
+        "todo-tree.tree.showBadges": true,
+        "todo-tree.tree.showCountsInTree": true
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+        {
+            "label": "Terminal: private-dotfiles shell",
+            "type": "process",
+            "command": "${env:SHELL}",
+            "options": {
+            "cwd": "${workspaceFolder:private-dotfiles}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+            "reveal": "always",
+            "panel": "new",
+            "focus": true
+            }
+        }
+        ]
+    }
+}
