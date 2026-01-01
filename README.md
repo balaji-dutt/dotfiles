@@ -63,6 +63,8 @@ The list of configurations that I'm currenly managing through this repo are:
 | macOS | `~/Library/LaunchAgents/com.ssh-add-keychain.plist` | No | ✅ | | | | | No |
 | macOS | `~/Library/LaunchAgents/com.user.vncmonitor.plist` | Yes | ✅ | | | | | No |
 | macOS | `~/bin/vnc_monitor.sh` | No | ✅ | | | | | No |
+| macOS | `~/Library/LaunchAgents/com.user.ccr.plist` | Yes | ✅ | | | | | No |
+| macOS | `~/bin/ccr_launcher.sh` | Yes | ✅ | | | | | No |
 | Markdownlint | `~/.markdownlint-cli2.jsonc` | No | ✅ | ✅ | ✅ | | | No |
 | Mise | `~/.config/mise/config.toml` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.p10k.zsh` | Yes | ✅ | ✅ | ✅ | | | No |
