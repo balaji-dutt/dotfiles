@@ -4,6 +4,8 @@
 # private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/com.ssh-add-keychain.plist hash: {{ include "private_Library/LaunchAgents/com.ssh-add-keychain.plist" | sha256sum }}
 # private_Library/LaunchAgents/Environment.plist.tmpl hash: {{ include "private_Library/LaunchAgents/Environment.plist.tmpl" | sha256sum }}
+# private_Library/LaunchAgents/com.user.ccr.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.ccr.plist.tmpl" | sha256sum }}
+# bin/executable_ccr_launcher.sh.tmpl hash: {{ include "bin/executable_ccr_launcher.sh.tmpl" | sha256sum }}
 
 echo "Reloading LaunchAgents..."
 
@@ -36,8 +38,14 @@ reload_agent() {
 # Expand the home directory for the plist paths
 HOME_DIR="{{ .chezmoi.homeDir }}"
 
+# launchd will not create missing parent directories for StandardOutPath/StandardErrorPath.
+mkdir -p "$HOME_DIR/.claude-code-router/logs"
+: >"$HOME_DIR/.claude-code-router/logs/launchagent.out"
+: >"$HOME_DIR/.claude-code-router/logs/launchagent.err"
+
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.vncmonitor.plist" "com.user.vncmonitor"
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.ssh-add-keychain.plist" "com.ssh-add-keychain"
 reload_agent "$HOME_DIR/Library/LaunchAgents/Environment.plist" "Environment"
+reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.ccr.plist" "com.user.ccr"
 
 {{- end -}}

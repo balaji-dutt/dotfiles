@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -euo pipefail
+
+CCR_PORT={{ .ccr_port }}
+LOG_DIR="$HOME/.claude-code-router/logs"
+LAUNCHER_LOG="$LOG_DIR/ccr-launcher.err"
+CCR_LOG="$LOG_DIR/ccr.log"
+
+mkdir -p "$LOG_DIR"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"$LAUNCHER_LOG"
+}
+
+# Find ccr binary.
+CCR_BIN=""
+if command -v ccr >/dev/null 2>&1; then
+    CCR_BIN="$(command -v ccr)"
+else
+    for candidate in /opt/homebrew/bin/ccr /usr/local/bin/ccr; do
+        if [ -x "$candidate" ]; then
+            CCR_BIN="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$CCR_BIN" ]; then
+    log "ERROR: ccr binary not found"
+    exit 1
+fi
+
+# Idempotency: if port is already bound, do nothing.
+if command -v lsof >/dev/null 2>&1; then
+    if lsof -nP -iTCP:"${CCR_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+        log "ccr already listening on port ${CCR_PORT}; skipping start"
+        exit 0
+    fi
+fi
+
+log "Starting ccr using: $CCR_BIN"
+"$CCR_BIN" start >>"$CCR_LOG" 2>&1 || {
+    log "ERROR: ccr start failed (see $CCR_LOG)"
+    exit 1
+}
+
+exit 0
