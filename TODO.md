@@ -57,9 +57,10 @@
   ```
   Added: 2025-12-26 15:13
   ```
-- [ ] Add ccr start as launchctl plist so it survives reboots
+- [x] Add ccr start as launchctl plist so it survives reboots
   ```
   Added: 2025-12-31 19:52
+  Completed: 2026-01-01 21:33
   ```
 - [ ] Finish CopyQ config - copy command & icon
   ```
