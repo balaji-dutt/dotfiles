@@ -431,9 +431,17 @@ npm() {
         # We parse with awk to get just the package names
         # "$ORIGINAL_NPM" list -g --depth=0 --json | grep '"key":' | awk -F'"' '{print $4}' > "${DOTFILES_REPO}/${NPM_MANIFEST}"
 
-        # Note: If you don't have grep/awk piping working perfectly for JSON, 
-        # a simpler list format is: 
-        "$ORIGINAL_NPM" list -g --depth=0 --parseable | sed '1d' | awk -F/ '{print $NF}' > "${DOTFILES_REPO}/${NPM_MANIFEST}"
+        # Note: If you don't have grep/awk piping working perfectly for JSON,
+        # a simpler list format is:
+        # - Unscoped packages: .../node_modules/<pkg>
+        # - Scoped packages:   .../node_modules/@scope/<pkg>
+        # We strip everything up to node_modules/ and reconstruct @scope/pkg.
+        "$ORIGINAL_NPM" list -g --depth=0 --parseable \
+          | sed '1d' \
+          | sed 's#.*/node_modules/##' \
+          | awk -F/ '($1 ~ /^@/ && $2 != ""){print $1"/"$2; next} ($1 !~ /^@/){print $1}' \
+          | LC_ALL=C sort -u \
+          > "${DOTFILES_REPO}/${NPM_MANIFEST}"
 
         # Commit
         sync_to_dotfiles "npm" "$NPM_MANIFEST" "$*"
@@ -588,6 +596,24 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef
 {{- end -}}
 {{- if $hasccr }}
     eval "$(ccr activate)"
+
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    # Autostart claude-code-router on login (WSL2)
+    if [[ -o interactive ]]; then
+        CCR_BIN="$(command -v ccr)"
+        PORT={{ .ccr_port }}
+        if [ -n "$CCR_BIN" ] \
+        && command -v ss >/dev/null 2>&1 \
+        && ! ss -ltn | grep -q ":${PORT} "; then
+            mkdir -p "$HOME/.claude-code-router/logs"
+            if command -v setsid >/dev/null 2>&1; then
+                setsid -f "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1
+            else
+                "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1 &
+            fi
+        fi
+    fi
+{{- end }}
 {{- end }}
 
 # Initialize fasd with smartcache if available, or directly if only fasd is available

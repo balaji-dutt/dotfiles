@@ -11,6 +11,11 @@
 {{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- $npm_linux := joinPath .chezmoi.sourceDir "configs/npm_globals_linux.txt" }}
+# npm_globals_linux.txt hash: {{ if stat $npm_linux }}{{ include $npm_linux | sha256sum }}{{ else }}empty{{ end }}
+{{- end }}
+
 {{- $bun := joinPath .chezmoi.sourceDir "configs/bun_globals.txt" }}
 # bun_globals.txt hash: {{ if stat $bun }}{{ include $bun | sha256sum }}{{ else }}empty{{ end }}
 
