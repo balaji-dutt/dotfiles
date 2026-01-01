@@ -65,3 +65,7 @@
   ```
   Added: 2026-01-01 21:24
   ```
+- [ ] Commit remaining VScode workspace files to repo
+  ```
+  Added: 2026-01-01 21:32
+  ```
