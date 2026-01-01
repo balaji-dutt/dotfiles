@@ -1,4 +1,25 @@
 ---
+- name: Ensure required locales
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  environment:
+    LC_ALL: C
+    LANG: C
+
+  tasks:
+    - name: List available locales
+      ansible.builtin.command: locale -a
+      register: locale_a
+      changed_when: false
+
+    - name: Generate en_GB.UTF-8 and en_SG.UTF-8 locales
+      become: true
+      ansible.builtin.command: locale-gen en_GB.UTF-8 en_SG.UTF-8
+      when: >
+        ('en_GB.utf8' not in locale_a.stdout_lines) or
+        ('en_SG.utf8' not in locale_a.stdout_lines)
+
 - name: Provision WSL2 Environment
   hosts: localhost
   connection: local
