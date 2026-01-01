@@ -692,6 +692,7 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef
         && command -v ss >/dev/null 2>&1 \
         && ! ss -ltn | grep -q ":${PORT} "; then
             mkdir -p "$HOME/.claude-code-router/logs"
+            touch "$HOME/.claude-code-router/logs/ccr.log"
             if command -v setsid >/dev/null 2>&1; then
                 setsid -f "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1
             else
