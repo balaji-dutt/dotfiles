@@ -13,6 +13,7 @@
 {{- $nfsServer := "" -}}
 {{- $nfsPath := "" -}}
 {{- $windowsUser := "" -}}
+{{- $npiperelayPath := "" -}}
 {{- $opEmail := "" -}}
 {{- $opURL := "" -}}
 
@@ -25,6 +26,7 @@
 {{-   $nfsServer = promptStringOnce . "homelab.nfs_server" "NFS server IP (leave empty to skip)" -}}
 {{-   $nfsPath = promptStringOnce . "homelab.nfs_path" "NFS export path (leave empty to skip)" -}}
 {{-   $windowsUser = promptStringOnce . "homelab.windows_user" "Windows username" -}}
+{{-   $npiperelayPath = promptStringOnce . "homelab.npiperelay_path" "npiperelay.exe relative to C:\\Users\\<username> (default: Applications/npiperelay.exe)" "Applications/npiperelay.exe" -}}
 {{-   $opURL = promptStringOnce . "onepassword.URL" "1Password account URL e.g. my.1password.com (leave empty to skip)" -}}
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
 {{- end -}}
@@ -80,6 +82,7 @@ args = [
     nfs_server = {{ $nfsServer | quote }}
     nfs_path = {{ $nfsPath | quote }}
     windows_user = {{ $windowsUser | quote }}
+    npiperelay_path = {{ $npiperelayPath | quote }}
 
 [data.onepassword]
     url = {{ $opURL | quote }}

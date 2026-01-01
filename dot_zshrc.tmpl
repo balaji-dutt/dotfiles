@@ -128,6 +128,13 @@ export LC_NUMERIC=en_SG.UTF-8
 export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if eq .chezmoi.osRelease.id "ubuntu" }}
+# Set Browser variable (enables xdg-open with Emacs)
+export BROWSER=wslview
+{{- end }}
+{{- end }}
+
 # Set parameters for zsh-autosuggestions
 export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
@@ -326,6 +333,85 @@ if command -v npm >/dev/null 2>&1; then
         fi
     fi
 fi
+
+{{- if .homelab.windows_user }}
+# Pageant/WSL2 inter-op (via npiperelay + socat)
+export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
+
+wsl2_pageant_ensure() {
+    local npiperelay_exe="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
+    local pageant_pipe='//./pipe/ssh-pageant'
+    local pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
+
+    command -v socat >/dev/null 2>&1 || return 0
+    [ -x "$npiperelay_exe" ] || return 0
+
+    if pgrep -f "$pgrep_pattern" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ -S "$SSH_AUTH_SOCK" ]; then
+        rm -f "$SSH_AUTH_SOCK"
+    fi
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f socat \
+          EXEC:"$npiperelay_exe -ei -s $pageant_pipe" \
+          UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+          </dev/null >/dev/null 2>&1
+    else
+        nohup socat \
+          EXEC:"$npiperelay_exe -ei -s $pageant_pipe" \
+          UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+          </dev/null >/dev/null 2>&1 &!
+    fi
+}
+
+sset() {
+    local pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
+
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "$pgrep_pattern" >/dev/null 2>&1 || true
+    else
+        local pids
+        pids="$(pgrep -f "$pgrep_pattern" 2>/dev/null)"
+        [ -n "$pids" ] && kill $pids >/dev/null 2>&1 || true
+    fi
+
+    rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
+
+    if wsl2_pageant_ensure; then
+        echo "Pageant socket reconnected: $SSH_AUTH_SOCK"
+    else
+        echo "Failed to reconnect Pageant socket."
+        return 1
+    fi
+}
+
+alias sunset=' unset SSH_AUTH_SOCK'
+
+if [[ -o interactive ]]; then
+    wsl2_pageant_ensure >/dev/null 2>&1
+
+    autoload -Uz add-zsh-hook
+
+    _wsl2_pageant_auto_heal() {
+        typeset -g _WSL2_PAGEANT_LAST_CHECK
+        local last=${_WSL2_PAGEANT_LAST_CHECK:-0}
+
+        if (( EPOCHSECONDS - last < 30 )); then
+            return 0
+        fi
+        _WSL2_PAGEANT_LAST_CHECK=$EPOCHSECONDS
+
+        if ! pgrep -f 'socat.*npiperelay\.exe.*ssh-pageant' >/dev/null 2>&1; then
+            wsl2_pageant_ensure >/dev/null 2>&1
+        fi
+    }
+
+    add-zsh-hook precmd _wsl2_pageant_auto_heal
+fi
+{{- end }}
 {{- end }}
 
 # Override mise, pipx and npm with custom functions to ensure package installs are 

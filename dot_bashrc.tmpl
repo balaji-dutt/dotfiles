@@ -141,7 +141,7 @@ export LANGUAGE=en_GB:en_US
 # Update path for local binaries
 export PATH=~/.local/bin{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}:~/.emacs.d/bin/{{- end }}:$PATH
 
-{{- if and (eq .chezmoi.osRelease.id "debian") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # Set Browser variable (enables xdg-open with Emacs)
 export BROWSER=wslview
 {{- end }}
@@ -160,36 +160,58 @@ else
   SUDO_EDITOR="$(command -v visudo)"
 fi
 
-# Pageant/WSL2 inter-op
+# Pageant/WSL2 inter-op (via npiperelay + socat)
 
 export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
+NPIPERELAY_EXE="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
+PAGEANT_PIPE='//./pipe/ssh-pageant'
+PGREP_PATTERN='socat.*npiperelay\.exe.*ssh-pageant'
 
-EXISTING_SSH_PID=$(ps -xww | grep -q "[n]piperelay.exe -ei -s //./pipe/ssh-pageant" | awk '{ print $1 }')
+pageant_ensure() {
+  command -v socat >/dev/null 2>&1 || return 0
+  [ -x "$NPIPERELAY_EXE" ] || return 0
 
-if [[ -z "${EXISTING_SSH_PID}" ]]; then
- socat \
-   EXEC:"/mnt/c/Users/Balaji/Applications/npiperelay.exe -ei -s /\/\./\pipe/\ssh-pageant" \
-   UNIX-LISTEN:/tmp/wsl2-ssh-agent.sock,unlink-close,unlink-early,fork >/dev/null 2>&1 &
-else
-        echo "removing previous socket..."
-        rm $SSH_AUTH_SOCK
-fi
+  if pgrep -f "$PGREP_PATTERN" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ -S "$SSH_AUTH_SOCK" ]; then
+    rm -f "$SSH_AUTH_SOCK"
+  fi
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid -f socat \
+      EXEC:"$NPIPERELAY_EXE -ei -s $PAGEANT_PIPE" \
+      UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+      </dev/null >/dev/null 2>&1
+  else
+    nohup socat \
+      EXEC:"$NPIPERELAY_EXE -ei -s $PAGEANT_PIPE" \
+      UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+      </dev/null >/dev/null 2>&1 &
+  fi
+}
+
+pageant_ensure
 
 # Wrap the previous commands in a function so that we can reconnect to Pageant
 # in case of socat crash.
 
 sset () {
-  export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
-
-  EXISTING_SSH_PID=$(ps -xww | grep -q "[n]piperelay.exe -ei -s //./pipe/ssh-pageant" | awk '{ print $1 }')
-
-  if [[ -z "${EXISTING_SSH_PID}" ]]; then
-   socat \
-     EXEC:"/mnt/c/Users/Balaji/Applications/npiperelay.exe -ei -s /\/\./\pipe/\ssh-pageant" \
-     UNIX-LISTEN:/tmp/wsl2-ssh-agent.sock,unlink-close,unlink-early,fork >/dev/null 2>&1 &
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "$PGREP_PATTERN" >/dev/null 2>&1 || true
   else
-          echo "removing previous socket..."
-          rm $SSH_AUTH_SOCK
+    PIDS="$(pgrep -f "$PGREP_PATTERN" 2>/dev/null)"
+    [ -n "$PIDS" ] && kill $PIDS >/dev/null 2>&1 || true
+  fi
+
+  rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
+
+  if pageant_ensure; then
+    echo "Pageant socket reconnected: $SSH_AUTH_SOCK"
+  else
+    echo "Failed to reconnect Pageant socket."
+    return 1
   fi
 }
 
