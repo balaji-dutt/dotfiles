@@ -65,7 +65,7 @@ if (( ${+commands[fzf]} )); then
   fi
 fi
 
-{{- if ne .chezmoi.os "darwin" }}
+{{- if eq .chezmoi.os "darwin" }}
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
 
 #Fix for Window Title
