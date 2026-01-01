@@ -1,0 +1,121 @@
+#!/bin/bash
+# macOS-only guard via chezmoi template
+{{- if ne .chezmoi.os "darwin" }}
+exit 0
+{{- end }}
+
+set -e
+
+APP_NAME="CopyQ.app"
+APP_PATH="/Applications/$APP_NAME"
+CACHE_DIR="${HOME}/.cache/chezmoi-copyq"
+LAST_CHECK_FILE="${CACHE_DIR}/last-check"
+CHECK_INTERVAL=$((7 * 24 * 60 * 60))  # 7 days in seconds (matches .chezmoiexternal.toml refreshPeriod)
+
+# Ensure cache directory exists
+mkdir -p "$CACHE_DIR"
+
+# --- Rate Limiting ---
+# Skip GitHub API call if we checked recently (unless app is missing)
+if [[ -f "$LAST_CHECK_FILE" ]] && [[ -d "$APP_PATH" ]]; then
+    LAST_CHECK=$(cat "$LAST_CHECK_FILE")
+    NOW=$(date +%s)
+    ELAPSED=$((NOW - LAST_CHECK))
+    if [[ $ELAPSED -lt $CHECK_INTERVAL ]]; then
+        exit 0  # Silent exit - checked recently
+    fi
+fi
+
+echo "Checking for CopyQ updates..."
+
+# --- Fetch Latest Version from GitHub ---
+GITHUB_RESPONSE=$(curl -sL "https://api.github.com/repos/hluk/CopyQ/releases/latest")
+
+# Check for rate limit
+if echo "$GITHUB_RESPONSE" | grep -q "API rate limit exceeded"; then
+    echo "GitHub API rate limit exceeded, skipping update check."
+    exit 0
+fi
+
+LATEST_VERSION=$(echo "$GITHUB_RESPONSE" | grep -o '"tag_name": "[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
+DOWNLOAD_URL=$(echo "$GITHUB_RESPONSE" | grep -o '"browser_download_url": "[^"]*macos[^"]*\.dmg\.zip"' | head -1 | cut -d'"' -f4)
+
+if [[ -z "$LATEST_VERSION" ]] || [[ -z "$DOWNLOAD_URL" ]]; then
+    echo "Error: Could not parse GitHub release info"
+    exit 1
+fi
+
+# Update last check timestamp (we successfully queried GitHub)
+date +%s > "$LAST_CHECK_FILE"
+
+# --- Version Comparison ---
+INSTALLED_VERSION=""
+if [[ -d "$APP_PATH" ]]; then
+    INSTALLED_VERSION=$(defaults read "$APP_PATH/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "")
+fi
+
+if [[ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]]; then
+    echo "CopyQ ${INSTALLED_VERSION} is up to date."
+    exit 0
+fi
+
+if [[ -n "$INSTALLED_VERSION" ]]; then
+    echo "Updating CopyQ: ${INSTALLED_VERSION} -> ${LATEST_VERSION}"
+else
+    echo "Installing CopyQ ${LATEST_VERSION}..."
+fi
+
+# --- Download and Install ---
+TEMP_DIR=$(mktemp -d /tmp/copyq.XXXXXX)
+TEMP_ZIP="$TEMP_DIR/copyq.dmg.zip"
+
+curl -sL "$DOWNLOAD_URL" -o "$TEMP_ZIP"
+
+# Unzip to get the DMG
+unzip -q "$TEMP_ZIP" -d "$TEMP_DIR"
+TEMP_DMG=$(find "$TEMP_DIR" -name "*.dmg" | head -1)
+
+if [[ -z "$TEMP_DMG" ]] || [[ ! -f "$TEMP_DMG" ]]; then
+    echo "Error: DMG not found after unzip"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Mount DMG (plist output is captured; nothing is printed)
+ATTACH_OUTPUT=$(hdiutil attach "$TEMP_DMG" -nobrowse -plist)
+
+# Extract mount point from plist XML
+MOUNT_POINT=$(echo "$ATTACH_OUTPUT" \
+  | grep -A 1 "<key>mount-point</key>" \
+  | grep "<string>" \
+  | head -1 \
+  | sed 's/.*<string>\(.*\)<\/string>.*/\1/')
+
+if [[ -z "$MOUNT_POINT" ]] || [[ ! -d "$MOUNT_POINT" ]]; then
+    echo "Error: could not determine DMG mount point"
+    echo "$ATTACH_OUTPUT"
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+if [[ ! -d "$MOUNT_POINT/$APP_NAME" ]]; then
+    echo "Error: $APP_NAME not found in mounted DMG"
+    ls -la "$MOUNT_POINT" || true
+    hdiutil detach "$MOUNT_POINT" -quiet || true
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Remove old version if exists, then copy new
+[[ -d "$APP_PATH" ]] && rm -rf "$APP_PATH"
+cp -R "$MOUNT_POINT/$APP_NAME" /Applications/
+
+# Unmount and cleanup
+hdiutil detach "$MOUNT_POINT" -quiet
+rm -rf "$TEMP_DIR"
+
+# --- Gatekeeper Bypass ---
+xattr -d com.apple.quarantine "$APP_PATH" 2>/dev/null || true
+codesign --force --deep --sign - "$APP_PATH"
+
+echo "CopyQ ${LATEST_VERSION} installed successfully."
