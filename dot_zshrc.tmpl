@@ -664,7 +664,7 @@ PYTHON_USER_BIN="$HOME/.local/bin"
 {{- if eq .chezmoi.os "darwin" }}
 export PATH=$HOME/bin:$HOME/Applications:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
 {{- else }}
-export PATH=$HOME/bin:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
+export PATH=$HOME/bin:$HOME/.config/emacs/bin/:$PYTHON_USER_BIN:$PATH
 {{- end }}
 
 # Add variable needed for Claude Code SuperClaude plugin
