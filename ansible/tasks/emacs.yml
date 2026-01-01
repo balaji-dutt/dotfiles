@@ -27,7 +27,7 @@
 
 - name: Run Doom install
   ansible.builtin.command:
-    cmd: "{{ ansible_env.HOME }}/.config/emacs/bin/doom install --no-config --no-env --no-fonts"
+    cmd: "{{ ansible_env.HOME }}/.config/emacs/bin/doom install --no-config --no-env"
   environment:
     PATH: "{{ ansible_env.PATH }}:{{ local_bin }}"
   register: doom_install
