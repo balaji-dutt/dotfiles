@@ -1,22 +1,14 @@
 {
   "ignores": [
-    // Claude plans in home
-    "**/.claude/plans/**",
-
-    // macOS temp (VS Code/Node sometimes resolves /var as /private/var)
-    "**/var/folders/**/T/chezmoi-diff*/**",
-    "**/var/folders/**/T/claude-prompt*",
-    "**/private/var/folders/**/T/chezmoi-diff*/**",
-    "**/private/var/folders/**/T/claude-prompt*",
-
-    // Linux temp
-    "**/tmp/chezmoi-diff*/**",
-    "**/tmp/claude-*/**",
-
-    // Additional ignores for Dev Containers
     "**/.claude/**",
     "**/chezmoi-diff*/**",
-    "**/claude-*/**",
-    "**/tmp/**/.claude/**"
+
+    // temp files written directly into /tmp \
+    "**/tmp/claude-prompt-*",
+    "**/tmp/claude-*",
+
+    // macOS: /tmp often resolves to /private/tmp
+    "**/private/tmp/claude-prompt-*",
+    "**/private/tmp/claude-*"
   ]
 }
