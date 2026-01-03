@@ -72,7 +72,7 @@
     state: present
 
 # -----------------------------------------------------------------------------
-# Sublime Text / Sublime Merge (Debian only)
+# Sublime Text / Sublime Merge (Debian/Ubuntu)
 # -----------------------------------------------------------------------------
 - name: Add Sublime GPG key
   become: true
@@ -80,14 +80,14 @@
     wget -qO- https://download.sublimetext.com/sublimehq-pub.gpg | gpg --dearmor -o /etc/apt/keyrings/sublimehq-archive.gpg
   args:
     creates: /etc/apt/keyrings/sublimehq-archive.gpg
-  when: is_debian | bool
+  when: (is_debian | default(false)) or (is_ubuntu | default(false))
 
 - name: Set Sublime GPG key permissions
   become: true
   ansible.builtin.file:
     path: /etc/apt/keyrings/sublimehq-archive.gpg
     mode: "0644"
-  when: is_debian | bool
+  when: (is_debian | default(false)) or (is_ubuntu | default(false))
 
 - name: Add Sublime repository
   become: true
@@ -95,7 +95,7 @@
     repo: "deb [signed-by=/etc/apt/keyrings/sublimehq-archive.gpg] https://download.sublimetext.com/ apt/stable/"
     filename: sublime-text
     state: present
-  when: is_debian | bool
+  when: (is_debian | default(false)) or (is_ubuntu | default(false))
 
 # -----------------------------------------------------------------------------
 # Docker (Debian only)
@@ -138,12 +138,19 @@
       - 1password-cli
     state: present
 
-- name: Install Debian-specific packages from third-party repos
+- name: Install Sublime packages from third-party repos
   become: true
   ansible.builtin.apt:
     name:
       - sublime-text
       - sublime-merge
+    state: present
+  when: (is_debian | default(false)) or (is_ubuntu | default(false))
+
+- name: Install Debian-specific packages from third-party repos
+  become: true
+  ansible.builtin.apt:
+    name:
       - docker-ce
       - docker-ce-cli
       - containerd.io
