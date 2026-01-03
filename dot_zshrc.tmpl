@@ -105,6 +105,10 @@ if [[ -n "${WSL_DISTRO_NAME:-}" ]] && (( ${+functions[antidote]} )); then
   }
 fi
 
+if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    setopt AUTO_CD
+fi
+
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
 
