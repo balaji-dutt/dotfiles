@@ -64,6 +64,7 @@ These tools are installed globally on the system and can be used via CLI command
      - Prefer passing the specific source file(s) you edited (often just one).
      - If you changed a shared template, template directory, or other input that may affect many targets and you cannot confidently enumerate impacted paths, pause and ask me if it's OK to run a full:
        `cz apply --dry-run --verbose 2>&1`
+     - If a change touches `.chezmoi.toml.tmpl`, **pause and ask Mr. Dutt to test/regenerate the chezmoi config manually**.
 
   2) Review diffs in a terminal-friendly way (do not open GUI diff tools such as VS Code):
 
