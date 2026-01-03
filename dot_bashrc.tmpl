@@ -1,4 +1,3 @@
-{{- if eq (env "SHELL") "/bin/bash" -}}
 # ~/.bashrc: executed by bash(1) for non-login shells.
 # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
 # for examples
@@ -139,7 +138,7 @@ export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
 # Update path for local binaries
-export PATH=~/.local/bin{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}:~/.emacs.d/bin/{{- end }}:$PATH
+export PATH=~/.local/bin{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}:~/.emacs.d/bin/{{- end }}:$HOME/bin:$PATH
 
 {{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # Set Browser variable (enables xdg-open with Emacs)
@@ -226,5 +225,3 @@ alias ops=' eval $(op signin)'
 
 # This is added at the end of the file to avoid potential conflicts
 eval "$(direnv hook bash)"
-
-{{- end -}}
