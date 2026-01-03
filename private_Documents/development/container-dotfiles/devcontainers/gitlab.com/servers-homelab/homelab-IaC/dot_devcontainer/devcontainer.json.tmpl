@@ -15,6 +15,7 @@
     // String syntax used here as the object syntax does not support readonly mounting.
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/container-dotfiles/dotfiles,target=/home/vscode/.host-dotfiles,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_markdownlint-cli2.jsonc,target=/home/vscode/.markdownlint-cli2.jsonc,type=bind,readonly",
     // --- Mount for Claude Code configs and package lists ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/private_settings.json,target=/tmp/claude-private-settings.json,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/config.json,target=/tmp/claude-router-config.json,type=bind,readonly",
@@ -69,7 +70,8 @@
             "overrideName": true
           }
         },
-        "terminal.integrated.defaultProfile.linux": "Container zsh"
+        "terminal.integrated.defaultProfile.linux": "Container zsh",
+        "markdownlint.configFile": "/home/vscode/.markdownlint-cli2.jsonc"
       },
       "extensions": [
         // --- Claude Code ---
