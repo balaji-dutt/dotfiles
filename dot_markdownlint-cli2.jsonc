@@ -11,6 +11,12 @@
 
     // Linux temp
     "**/tmp/chezmoi-diff*/**",
-    "**/tmp/claude-*/**"
+    "**/tmp/claude-*/**",
+
+    // Additional ignores for Dev Containers
+    "**/.claude/**",
+    "**/chezmoi-diff*/**",
+    "**/claude-*/**",
+    "**/tmp/**/.claude/**"
   ]
 }
