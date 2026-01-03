@@ -683,8 +683,8 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef
 {{- if $hasccr }}
     eval "$(ccr activate)"
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-    # Autostart claude-code-router on login (WSL2)
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") (eq .chezmoi.osRelease.id "ubuntu") }}
+    # Autostart claude-code-router on login (Ubuntu WSL2)
     if [[ -o interactive ]]; then
         CCR_BIN="$(command -v ccr)"
         PORT={{ .ccr_port }}

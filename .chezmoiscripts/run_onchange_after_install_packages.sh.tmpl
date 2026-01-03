@@ -12,8 +12,13 @@
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if eq .chezmoi.osRelease.id "debian" }}
+{{- $npm_linux := joinPath .chezmoi.sourceDir "configs/npm_globals_linux_debian.txt" }}
+# npm_globals_linux_debian.txt hash: {{ if stat $npm_linux }}{{ include $npm_linux | sha256sum }}{{ else }}empty{{ end }}
+{{- else }}
 {{- $npm_linux := joinPath .chezmoi.sourceDir "configs/npm_globals_linux.txt" }}
 # npm_globals_linux.txt hash: {{ if stat $npm_linux }}{{ include $npm_linux | sha256sum }}{{ else }}empty{{ end }}
+{{- end }}
 {{- end }}
 
 {{- $bun := joinPath .chezmoi.sourceDir "configs/bun_globals.txt" }}
@@ -57,7 +62,11 @@ if [ -s "$NPM_FILE" ]; then
 fi
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if eq .chezmoi.osRelease.id "debian" }}
+NPM_LINUX_FILE="$CONFIG_DIR/npm_globals_linux_debian.txt"
+{{- else }}
 NPM_LINUX_FILE="$CONFIG_DIR/npm_globals_linux.txt"
+{{- end }}
 if [ -s "$NPM_LINUX_FILE" ]; then
     echo "Syncing Linux-specific NPM packages..."
     xargs npm install -g < "$NPM_LINUX_FILE"
