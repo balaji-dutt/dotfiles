@@ -67,7 +67,8 @@
   Added: 2026-01-01 21:24
   Completed: 2026-01-03 15:08
   ```
-- [ ] Commit remaining VScode workspace files to repo
+- [x] Commit remaining VScode workspace files to repo
   ```
   Added: 2026-01-01 21:32
+  Completed: 2026-01-03 15:08
   ```
