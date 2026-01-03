@@ -24,6 +24,11 @@ Documents/development/container-dotfiles
 {{   end }}
 {{ end }}
 
+{{- /* SECTION 3a: Ignore files if not on WSL2 */ -}}
+{{- if not (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+bin/code
+{{- end }}
+
 {{- /* SECTION 4: Global Ignores */ -}}
 ansible/
 ansible/**

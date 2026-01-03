@@ -4,3 +4,7 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 
 # Override global gitignore to allow VS Code workspace files
 !*.code-workspace
+
+# Override global gitignore ([Bb]in) to allow repo scripts
+!bin/
+!bin/**

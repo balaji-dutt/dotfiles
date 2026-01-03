@@ -25,6 +25,12 @@ Documents/development/container-dotfiles
 {{   end }}
 {{ end }}
 
+{{- /* SECTION 3a: Remove files if not on WSL2 */ -}}
+{{- if not (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+bin/code
+{{- end }}
+
+
 {{- /* SECTION 4: Remove Global Repo Metadata */ -}}
 ansible/
 ansible/**
