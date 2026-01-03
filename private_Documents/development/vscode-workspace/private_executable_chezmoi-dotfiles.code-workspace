@@ -13,6 +13,10 @@
         },
         {
             "path": "../../../.config/chezmoi-private"
+        },
+        {
+            "name": "claude-home",
+            "path": "../../../.claude"
         }
     ],
     "settings": {
