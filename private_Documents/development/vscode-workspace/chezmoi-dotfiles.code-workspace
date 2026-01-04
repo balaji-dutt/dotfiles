@@ -25,7 +25,13 @@
         "ansible.validation.lint.enabled": false,
         "ansible.validation.enabled": false,
         "todo-tree.tree.showBadges": true,
-        "todo-tree.tree.showCountsInTree": true
+        "todo-tree.tree.showCountsInTree": true,
+        "files.associations": {
+            "*.tmpl": "helm",
+            ".chezmoi*": "helm",
+            "*.el.tmpl": "lisp",
+            "*.el": "lisp"
+        }
     },
     "tasks": {
         "version": "2.0.0",
