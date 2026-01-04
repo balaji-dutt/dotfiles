@@ -15,10 +15,6 @@
                         "**/homelab-IaC/**/*inventory.yml": "yaml",
                         "*.yml": "ansible"
         },
-        "terraform.languageServer.rootModules": [
-          "/vmachines-legacy",
-          "/vmachines/adhost01"
-        ],
         "todo-tree.tree.scanMode": "workspace",
         "taskexplorer.exclude": [
             "**/.vscode-test/**",
