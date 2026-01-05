@@ -1,8 +1,12 @@
 {{- /* SECTION 1: Ignore MacOS specific files if NOT on macOS (Linux/Windows) */ -}}
 {{ if ne .chezmoi.os "darwin" }}
-.gitignore_global
 Library
 bin/vnc_monitor.sh
+{{ end }}
+
+{{- /* SECTION 1b: Global gitignore is managed by Windows/macOS */ -}}
+{{ if eq .chezmoi.os "linux" }}
+.gitignore_global
 {{ end }}
 
 {{- /* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
@@ -16,18 +20,43 @@ bin/vnc_monitor.sh
 .config/sublime-merge
 {{ end }}
 
-{{- /* SECTION 3: Specific Ignore for Ubuntu on WSL */ -}}
-{{- /* Logic: Must be Linux AND Ubuntu AND Kernel must contain 'microsoft' */ -}}
-{{ if eq .chezmoi.os "linux" }}
-{{   if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-Documents/development/container-dotfiles
-{{   end }}
+{{- /* SECTION 3: Specific Ignore for WSL2 */ -}}
+{{- /* Logic: Must be Linux AND Kernel must contain 'microsoft' */ -}}
+{{ if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+# Apply container-dotfiles on WSL2, but never apply .devcontainer dirs.
+Documents/development/container-dotfiles/**/.devcontainer
+Documents/development/container-dotfiles/**/.devcontainer/**
 {{ end }}
 
 {{- /* SECTION 3a: Ignore files if not on WSL2 */ -}}
 {{- if not (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
 bin/code
 {{- end }}
+
+{{- /* SECTION 4: Windows minimal whitelist */ -}}
+{{ if eq .chezmoi.os "windows" }}
+# Ignore everything by default (including dotfiles)...
+**/*
+**/.*
+
+# ...then allow-list the Windows-managed targets.
+!/.claude/
+!/.claude/**
+!/.gitconfig
+!/.gitignore_global
+!/.markdownlint-cli2.jsonc
+
+# Allow all chezmoi repo metadata/templates/scripts.
+!/.chezmoi*
+!/.chezmoi*/**
+
+# Allow-list the specific Documents subtree we want on Windows.
+!/Documents/
+!/Documents/development/
+!/Documents/development/container-dotfiles/
+!/Documents/development/container-dotfiles/**/.devcontainer/
+!/Documents/development/container-dotfiles/**/.devcontainer/**
+{{ end }}
 
 {{- /* SECTION 4: Global Ignores */ -}}
 ansible/

@@ -1,6 +1,7 @@
 {{- /* Convenience flags */ -}}
 {{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $isDarwin := eq .chezmoi.os "darwin" -}}
+{{- $isWindows := eq .chezmoi.os "windows" -}}
 
 [init]
     defaultBranch = main
@@ -14,7 +15,7 @@
 
 [core]
 {{- if $isWSL }}
-    excludesfile = /mnt/c/Users/Balaji/gitignore_global.txt
+    excludesfile = /mnt/c/Users/{{ .homelab.windows_user }}/.gitignore_global
     # Works when VS Code sets PATH inside WSL shells
     editor = code --wait
     # Don't consider trailing space change as a cause for merge conflicts
@@ -28,17 +29,24 @@
     whitespace = -trailing-space
     preloadindex = true
     pager = diff-so-fancy | less --tabs=4 -RFX
+{{- else if $isWindows }}
+    excludesfile = {{ .chezmoi.homeDir | replace "\\" "/" }}/.gitignore_global
+    editor = code --wait
+    whitespace = -trailing-space
+    preloadindex = true
 {{- else }}
     # Generic Linux / Other Unix
     excludesfile = $HOME/.gitignore
     whitespace = -trailing-space
     preloadindex = true
     fsmonitor = true
-{{- end }}
+{{ end }}
+
+{{- $hasOpSession := env "OP_SESSION_my" | ne "" }}
 
 [user]
     name = {{ .name }}
-{{- if or $isWSL $isDarwin }}
+{{- if and (or $isWSL $isDarwin) $hasOpSession }}
     email = {{ onepasswordRead "op://private/gitlab.com/email" }}
 {{- else }}
     email = {{ .email }}
@@ -139,6 +147,25 @@
 [safe]
     directory = /Volumes/devdrive/homelab-IaC
     directory = /Volumes/devdrive/hosted-servers-iac
+{{- else if $isWindows }}
+[diff]
+    mnemonicPrefix = true
+    colorMoved = zebra
+    renames = true
+    tool = vscode
+[difftool "vscode"]
+    cmd = code --wait --diff $LOCAL $REMOTE
+[difftool]
+    prompt = false
+[merge]
+    tool = vscode
+[mergetool "vscode"]
+    cmd = code --wait --merge $REMOTE $LOCAL $BASE $MERGED
+    keepTemporaries = false
+    trustExitCode = true
+[mergetool]
+    prompt = false
+    keepBackup = false
 {{- else }}
 # Generic Linux / Other Unix
 [diff]

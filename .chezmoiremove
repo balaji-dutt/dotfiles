@@ -1,3 +1,5 @@
+{{- if ne .chezmoi.os "windows" -}}
+
 {{- /* SECTION 1: Remove MacOS files if found on Linux/Windows */ -}}
 {{ if ne .chezmoi.os "darwin" }}
 .gitignore_global
@@ -18,11 +20,11 @@ Library
 .config/doom/**
 {{ end }}
 
-{{- /* SECTION 3: Remove files on Ubuntu 22.04 WSL */ -}}
-{{ if eq .chezmoi.os "linux" }}
-{{   if and (eq .chezmoi.osRelease.id "ubuntu") (eq .chezmoi.osRelease.versionID "22.04") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-Documents/development/container-dotfiles
-{{   end }}
+{{- /* SECTION 3: Remove files on WSL2 */ -}}
+{{ if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+# Ensure .devcontainer dirs are removed on WSL2.
+Documents/development/container-dotfiles/**/.devcontainer
+Documents/development/container-dotfiles/**/.devcontainer/**
 {{ end }}
 
 {{- /* SECTION 3a: Remove files if not on WSL2 */ -}}
@@ -52,3 +54,5 @@ README.md
 TODO.md
 AGENTS.md
 CLAUDE.md
+
+{{ end }}
