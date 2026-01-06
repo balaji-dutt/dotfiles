@@ -46,9 +46,12 @@ bin/code
 !/.gitignore_global
 !/.markdownlint-cli2.jsonc
 
-# Allow all chezmoi repo metadata/templates/scripts.
+# Allow all chezmoi repo metadata/templates.
 !/.chezmoi*
-!/.chezmoi*/**
+
+# Keep scripts ignored on Windows (they are primarily bash-oriented).
+/.chezmoiscripts/
+/.chezmoiscripts/**
 
 # Allow-list the specific Documents subtree we want on Windows.
 !/Documents/
