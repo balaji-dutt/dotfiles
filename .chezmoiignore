@@ -53,10 +53,10 @@ bin/code
 /.chezmoiscripts/
 /.chezmoiscripts/**
 
+# Keep Documents root ignored on Windows (as otherwise chezmoi tries to replace the symlink in %USERPROFILE%)
+/Documents/
+
 # Allow-list the specific Documents subtree we want on Windows.
-!/Documents/
-!/Documents/development/
-!/Documents/development/container-dotfiles/
 !/Documents/development/container-dotfiles/**/.devcontainer/
 !/Documents/development/container-dotfiles/**/.devcontainer/**
 {{ end }}
