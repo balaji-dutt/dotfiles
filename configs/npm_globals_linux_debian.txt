@@ -1,2 +1,3 @@
 @anthropic-ai/claude-code
 @musistudio/claude-code-router
+@devcontainers/cli

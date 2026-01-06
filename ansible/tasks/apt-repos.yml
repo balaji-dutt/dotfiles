@@ -97,33 +97,6 @@
     state: present
   when: (is_debian | default(false)) or (is_ubuntu | default(false))
 
-# -----------------------------------------------------------------------------
-# Docker (Debian only)
-# -----------------------------------------------------------------------------
-- name: Add Docker GPG key
-  become: true
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/{{ distro_id }}/gpg
-    dest: /etc/apt/keyrings/docker-archive-keyring.asc
-    mode: "0644"
-  when: is_debian | bool
-
-- name: Dearmor Docker GPG key
-  become: true
-  ansible.builtin.shell: |
-    gpg --dearmor < /etc/apt/keyrings/docker-archive-keyring.asc > /etc/apt/keyrings/docker-archive-keyring.gpg
-  args:
-    creates: /etc/apt/keyrings/docker-archive-keyring.gpg
-  when: is_debian | bool
-
-- name: Add Docker repository
-  become: true
-  ansible.builtin.apt_repository:
-    repo: "deb [arch={{ deb_arch }} signed-by=/etc/apt/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/{{ distro_id }} {{ ansible_distribution_release }} stable"
-    filename: docker
-    state: present
-  when: is_debian | bool
-
 - name: Update apt cache after adding repos
   become: true
   ansible.builtin.apt:
@@ -146,26 +119,3 @@
       - sublime-merge
     state: present
   when: (is_debian | default(false)) or (is_ubuntu | default(false))
-
-- name: Install Debian-specific packages from third-party repos
-  become: true
-  ansible.builtin.apt:
-    name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
-    state: present
-  when: is_debian | bool
-
-# -----------------------------------------------------------------------------
-# Docker post-install
-# -----------------------------------------------------------------------------
-- name: Add user to docker group
-  become: true
-  ansible.builtin.user:
-    name: "{{ ansible_env.USER }}"
-    groups: docker
-    append: true
-  when: is_debian | bool
