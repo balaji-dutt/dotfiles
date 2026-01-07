@@ -8,16 +8,29 @@
             "name": "private-dotfiles",
             "path": "../private-dotfiles"
         },
+{{- if eq .chezmoi.os "windows" }}
+        {
+            "path": "C:/Users/Balaji/.config/chezmoi"
+        },
+{{- else }}
         {
             "path": "../../../.config/chezmoi"
         },
+{{- end }}
         {
             "path": "../../../.config/chezmoi-private"
         },
+{{- if eq .chezmoi.os "windows" }}
+        {
+            "name": "claude-home",
+            "path": "C:/Users/Balaji/.claude"
+        }
+{{- else }}
         {
             "name": "claude-home",
             "path": "../../../.claude"
         }
+{{- end }}
     ],
     "settings": {
         "dotfiles.isDotfilesWorkspace": true, // Special parameter added to enable per workspace keybinding
