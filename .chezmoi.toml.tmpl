@@ -92,7 +92,7 @@ args = [
 [data]
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
-    CERTPATH = {{ $CERTPATH | quote }}
+    CERTPATH = {{ $certpath | toJson }}
     CERTFILES = {{ $CERTFILES | toToml }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
