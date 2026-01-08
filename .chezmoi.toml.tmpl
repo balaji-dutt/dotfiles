@@ -30,21 +30,18 @@
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
 {{- end -}}
 
-
-{{- $hasCode := false -}}
-{{- if lookPath "code" -}}
-{{-   $hasCode = true -}}
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
 {{- $defaultSourceDir := "" -}}
 {{- if ne .chezmoi.os "windows" -}}
   {{- $defaultSourceDir = joinPath .chezmoi.homeDir "Documents" "development" "dotfiles" -}}
 {{- end -}}
-{{if $hasCode}}
 
 {{- $sourceDir := promptStringOnce . "sourceDirInput" "Path to dotfiles repo (sourceDir)" $defaultSourceDir -}}
 
 # Chezmoi config (other templates/scripts can use this via {{ "{{ .chezmoi.sourceDir }}" }})
 sourceDir = {{ $sourceDir | toToml }}
+
+{{ if lookPath "code" -}}
 [diff]
 command = "code"
 {{- if $isWSL }}
@@ -72,7 +69,7 @@ args = [
   {{- end }}
 ]
 {{- end }}
-{{ end }}
+{{ end -}}
 
 {{- $CERTFILES := list -}}
 {{- range $f := splitList "," $CERTFILES_RAW -}}
@@ -95,6 +92,8 @@ args = [
     {{- else }}
     # ansible_key = ""  # Path to Ansible SSH Private Key
     {{- end }}
+    # Ensures chezmoi will not reprompt on init.
+    sourceDirInput = {{ $sourceDir | toToml }}
 
 {{ if $isWSL -}}
 [data.homelab]
