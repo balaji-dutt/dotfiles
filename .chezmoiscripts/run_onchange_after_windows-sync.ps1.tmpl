@@ -1,0 +1,85 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+$ErrorActionPreference = "Stop"
+
+$SourceDir = "{{ .chezmoi.sourceDir }}"
+$DestRoot  = "F:\Balaji\Development"
+
+$Mappings = @(
+  @{
+    Src = Join-Path $SourceDir "private_Documents\development\vscode-workspace"
+    Dst = Join-Path $DestRoot  "vscode-workspace"
+  }
+)
+
+function Convert-Component([string]$name) {
+  if ($name.StartsWith("dot_"))        { return "." + $name.Substring(4) }
+  if ($name.StartsWith("private_"))    { return $name.Substring(8) }
+  if ($name.StartsWith("readonly_"))   { return $name.Substring(9) }
+  if ($name.StartsWith("executable_")) { return $name.Substring(11) }
+  return $name
+}
+
+function Convert-RelativePath([string]$rel) {
+  $parts = $rel -split "[/\\]"
+  ($parts | ForEach-Object { Convert-Component $_ }) -join "\"
+}
+
+function Ensure-ParentDir([string]$path) {
+  $parent = Split-Path -Parent $path
+  if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  }
+}
+
+function Render-Or-CopyFile([string]$srcFile, [string]$dstFile) {
+  Ensure-ParentDir $dstFile
+
+  if ($srcFile.EndsWith(".tmpl")) {
+    # Render chezmoi template. PowerShell captures this as an array of lines.
+    $lines = & chezmoi execute-template --file $srcFile
+
+    # Re-join lines with LF newlines so JSON stays pretty / multiline.
+    # (If you prefer CRLF, use "`r`n" instead.)
+    $text = ($lines -join "`n")
+
+    # Strip the .tmpl extension in the output filename
+    $dstFileNoTmpl = $dstFile.Substring(0, $dstFile.Length - 5)
+    Ensure-ParentDir $dstFileNoTmpl
+
+    # Write UTF-8 without BOM (some JSON consumers dislike BOM)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($dstFileNoTmpl, $text, $utf8NoBom)
+  } else {
+    Copy-Item -Force -LiteralPath $srcFile -Destination $dstFile
+  }
+}
+
+foreach ($m in $Mappings) {
+  $srcRoot = $m.Src
+  $dstRoot = $m.Dst
+
+  if (-not (Test-Path -LiteralPath $srcRoot)) {
+    Write-Host "chezmoi windows-sync: source missing, skipping: $srcRoot"
+    continue
+  }
+
+  Write-Host "chezmoi windows-sync: syncing $srcRoot -> $dstRoot"
+
+  Get-ChildItem -LiteralPath $srcRoot -Recurse -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($srcRoot.Length).TrimStart('\','/')
+    if ($rel -eq "") { return }
+
+    $relConverted = Convert-RelativePath $rel
+    $dstPath = Join-Path $dstRoot $relConverted
+
+    if ($_.PSIsContainer) {
+      New-Item -ItemType Directory -Force -Path $dstPath | Out-Null
+      return
+    }
+
+    Render-Or-CopyFile $_.FullName $dstPath
+  }
+}
+{{- end -}}
