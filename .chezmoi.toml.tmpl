@@ -1,13 +1,12 @@
 {{- $name := promptStringOnce . "name" "Name" -}}
 {{- $email := promptStringOnce . "email" "Email address" -}}
-{{- $CERTPATH := promptStringOnce . "certpath" "Path to Internal SSL Cert Directory" "" -}}
-{{- $certfilesRaw := promptStringOnce . "certfiles" "Certificate filenames (comma-separated, e.g. root.pem, inter.crt)" "" -}}
+{{- $CERTPATH := promptStringOnce . "CERTPATH" "Path to Internal SSL Cert Directory" "" -}}
+{{- $CERTFILES_RAW := promptStringOnce . "CERTFILES_RAW" "Certificate filenames (comma-separated, e.g. root.pem, inter.crt)" "" -}}
 {{- $ansible_key := "" -}}
 {{- /* When required, replace the line above with:
       $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" ""
 */ -}}
 {{- $org_dir := promptStringOnce . "org_dir" "Path to Emacs org-mode directory" "" -}}
-
 
 {{- /* WSL-specific prompts */ -}}
 {{- $nfsServer := "" -}}
@@ -82,7 +81,7 @@ args = [
 {{ end }}
 
 {{- $CERTFILES := list -}}
-{{- range $f := splitList "," $certfilesRaw -}}
+{{- range $f := splitList "," $CERTFILES_RAW -}}
 {{-   $f = $f | trim -}}
 {{-   if $f -}}
 {{-     $CERTFILES = append $CERTFILES $f -}}
@@ -92,7 +91,8 @@ args = [
 [data]
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
-    CERTPATH = {{ $certpath | toJson }}
+    CERTPATH = {{ $CERTPATH | toJson }}
+    CERTFILES_RAW = {{ $CERTFILES_RAW | quote }}
     CERTFILES = {{ $CERTFILES | toToml }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
