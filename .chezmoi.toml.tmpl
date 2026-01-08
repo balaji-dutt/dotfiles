@@ -16,12 +16,6 @@
 {{- $opEmail := "" -}}
 {{- $opURL := "" -}}
 
-{{- /* Windows-specific prompts */ -}}
-{{- $windowsSourceDir := "" -}}
-{{- if eq .chezmoi.os "windows" -}}
-{{-   $windowsSourceDir = promptStringOnce . "windows_source_dir" "Path to dotfiles repo (Windows)" "" -}}
-{{- end -}}
-
 {{- $isWSL := false -}}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 {{-   $isWSL = true -}}
@@ -36,21 +30,21 @@
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
 {{- end -}}
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-sourceDir = "/home/balaji/Documents/development/dotfiles"
-{{- else if eq .chezmoi.os "darwin" -}}
-sourceDir = "/Users/balaji/Documents/development/dotfiles"
-{{- else if eq .chezmoi.os "windows" -}}
-sourceDir = {{ $windowsSourceDir | toToml }}
-{{ else }}
-# other operating system
-{{ end }}
 
 {{- $hasCode := false -}}
 {{- if lookPath "code" -}}
 {{-   $hasCode = true -}}
+{{- /* sourceDir: prompt once; default on everything except Windows */ -}}
+{{- $defaultSourceDir := "" -}}
+{{- if ne .chezmoi.os "windows" -}}
+  {{- $defaultSourceDir = joinPath .chezmoi.homeDir "Documents" "development" "dotfiles" -}}
 {{- end -}}
 {{if $hasCode}}
+
+{{- $sourceDir := promptStringOnce . "sourceDirInput" "Path to dotfiles repo (sourceDir)" $defaultSourceDir -}}
+
+# Chezmoi config (other templates/scripts can use this via {{ "{{ .chezmoi.sourceDir }}" }})
+sourceDir = {{ $sourceDir | toToml }}
 [diff]
 command = "code"
 {{- if $isWSL }}
