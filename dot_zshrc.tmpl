@@ -659,11 +659,35 @@ git_pull_rebase_then_apply_stash() {
     emulate -L zsh
     setopt pipefail
 
+    local debug=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --debug)
+                debug=true
+                shift
+                ;;
+            -*)
+                echo "gpls: unknown option: $1" >&2
+                return 1
+                ;;
+            *)
+                echo "gpls: unexpected argument: $1" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ $debug == true ]]; then
+        local -x GIT_TRACE=1
+        local -x GIT_TRACE_SETUP=1
+    fi
+
     local stash_message="autostash-before-pull"
     local stash_ref="stash@{0}"
     local before after
     local tmpdir=""
     local preflight_log=""
+
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "Not inside a git repository."
@@ -676,9 +700,16 @@ git_pull_rebase_then_apply_stash() {
         return $?
     fi
 
+    print -r -- "[gpls $(date '+%H:%M:%S')] dirty worktree detected; stashing before pull" >&2
+
     before=$(git rev-parse -q --verify stash@{0} 2>/dev/null || true)
 
-    if ! git stash push -u -m "$stash_message" >/dev/null; then
+    if [[ $debug == true ]]; then
+        git stash push -u -m "$stash_message"
+    else
+        git stash push -u -m "$stash_message" >/dev/null
+    fi
+    if [[ $? -ne 0 ]]; then
         echo "Failed to create stash."
         return 1
     fi
@@ -696,6 +727,7 @@ git_pull_rebase_then_apply_stash() {
         return $?
     fi
 
+    print -r -- "[gpls $(date '+%H:%M:%S')] git pull --rebase" >&2
     if ! git pull --rebase; then
         echo "git pull --rebase failed; stash left intact: $stash_ref"
         return 1
@@ -716,11 +748,20 @@ git_pull_rebase_then_apply_stash() {
     }
     trap _gpls_cleanup EXIT INT TERM
 
-    if ! git worktree add --detach "$tmpdir" HEAD >/dev/null 2>&1; then
+    print -r -- "[gpls $(date '+%H:%M:%S')] creating preflight worktree" >&2
+    if [[ $debug == true ]]; then
+        git worktree add --detach "$tmpdir" HEAD
+    else
+        git worktree add --detach "$tmpdir" HEAD >/dev/null 2>&1
+    fi
+    if [[ $? -ne 0 ]]; then
         echo "Failed to create temporary worktree for preflight."
         return 1
     fi
 
+    if [[ $debug == true ]]; then
+        print -r -- "[gpls $(date '+%H:%M:%S')] preflight stash apply" >&2
+    fi
     ( cd "$tmpdir" && git stash apply --index "$stash_ref" ) >"$preflight_log" 2>&1
     local preflight_exit=$?
 
@@ -746,9 +787,17 @@ git_pull_rebase_then_apply_stash() {
         if [[ -n "$conflicts" ]]; then
             echo "Conflicted files:"
             echo "$conflicts" | sed 's/^/  - /'
+            if [[ $debug == true ]]; then
+                echo "Preflight output (first 300 lines):" >&2
+                sed -n '1,300p' "$preflight_log" >&2
+            fi
         else
             echo "Could not determine conflicted files. Output:"
-            sed -n '1,120p' "$preflight_log"
+            if [[ $debug == true ]]; then
+                sed -n '1,300p' "$preflight_log" >&2
+            else
+                sed -n '1,120p' "$preflight_log"
+            fi
         fi
         return 1
     fi
@@ -756,6 +805,7 @@ git_pull_rebase_then_apply_stash() {
     local apply_log
     apply_log=$(mktemp 2>/dev/null || mktemp -t gpls)
 
+    print -r -- "[gpls $(date '+%H:%M:%S')] applying stash to working tree" >&2
     git stash apply --index "$stash_ref" >"$apply_log" 2>&1
     local apply_exit=$?
 
@@ -768,9 +818,17 @@ git_pull_rebase_then_apply_stash() {
         if [[ -n "$real_conflicts" ]]; then
             echo "Conflicted files:"
             echo "$real_conflicts" | sed 's/^/  - /'
+            if [[ $debug == true ]]; then
+                echo "Apply output (first 300 lines):" >&2
+                sed -n '1,300p' "$apply_log" >&2
+            fi
         else
             echo "Output:"
-            sed -n '1,120p' "$apply_log"
+            if [[ $debug == true ]]; then
+                sed -n '1,300p' "$apply_log" >&2
+            else
+                sed -n '1,120p' "$apply_log"
+            fi
         fi
 
         rm -f "$apply_log" >/dev/null 2>&1 || true
@@ -779,6 +837,9 @@ git_pull_rebase_then_apply_stash() {
 
     rm -f "$apply_log" >/dev/null 2>&1 || true
 
+    if [[ $debug == true ]]; then
+        print -r -- "[gpls $(date '+%H:%M:%S')] dropping stash" >&2
+    fi
     git stash drop "$stash_ref" >/dev/null 2>&1
     local drop_exit=$?
 
@@ -787,6 +848,7 @@ git_pull_rebase_then_apply_stash() {
         return $drop_exit
     fi
 
+    print -r -- "[gpls $(date '+%H:%M:%S')] done" >&2
     return 0
 }
 
