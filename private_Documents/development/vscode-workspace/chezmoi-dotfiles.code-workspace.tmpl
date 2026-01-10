@@ -17,6 +17,11 @@
             "path": "../../../.config/chezmoi"
         },
 {{- end }}
+{{- if eq .chezmoi.os "windows" }}
+        {
+            "path": "C:/Users/Balaji/.config/chezmoi-private"
+        },
+{{- else }}
         {
             "path": "../../../.config/chezmoi-private"
         },
