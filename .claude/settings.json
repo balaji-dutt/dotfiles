@@ -13,6 +13,8 @@
         "Bash(cz --use-builtin-diff --no-pager diff:*)",
         "Bash(chezmoi target-path:*)",
         "Bash(cz target-path:*)",
+        "Bash(./assets/cz-audit.sh:*)",
+        "Bash(pwsh ./tools/cz-audit.ps1:*)",
         "Bash(grep:*)",
         "Bash(git status:*)",
         "Bash(git log:*)",
@@ -56,5 +58,38 @@
         "Bash(cz unmanage:*)",
         "Bash(cz upgrade)"
       ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/clear-needs-review-on-pass.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-review-on-stop.sh\""
+          }
+        ]
+      }
+    ]
   }
 }

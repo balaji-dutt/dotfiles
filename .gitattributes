@@ -1,0 +1,4 @@
+# Preserve line endings for Claude Code files to avoid interpreter/diff issues on Windows
+.claude/hooks/*.sh text eol=lf
+.claude/settings.json text eol=lf
+.claude/agents/*.md text eol=lf

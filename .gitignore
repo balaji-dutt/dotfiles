@@ -8,3 +8,6 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 # Override global gitignore ([Bb]in) to allow repo scripts
 !bin/
 !bin/**
+
+# Ignore Claude Code hook files
+.claude/.needs_dotfiles_review
