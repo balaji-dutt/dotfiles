@@ -33,7 +33,7 @@ These tools are installed globally on the system and can be used via CLI command
 ## Documentation References
 
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
-- docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development.
+<!-- - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development. -->
 
 ## Documentation Workflow (README.md)
 
@@ -46,47 +46,110 @@ These tools are installed globally on the system and can be used via CLI command
   4. Once approved, run `~/.claude/commit-docs.sh "readme" "<insert approved multi-line message here>"`.
   5. **Note:** The script automatically handles the "docs: " prefix and the blank line separator, so do not include them in your draft.
 
-## Final Steps
+## Post-edit verification (required)
 
-**CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following in order:
+**CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following steps:
 
-- Make atomic changes.
+After editing any file in this repository, run the audit tool using the **repo-relative path**
+(i.e. the path relative to the repo root / `chezmoi source-path`).
 
-  This repo is edited primarily by changing **chezmoi source-state files** (files in the repo such as `dot_*`, `private_*`, `dot_config/...`, `*.tmpl`). After each change, validate only what you touched (avoid a full repo-wide apply):
+### macOS / WSL2
 
-  1) Run a *scoped* dry-run apply using the source path(s) you changed:
+```sh
+./assets/cz-audits.sh check <repo-relative-path>
+```
 
-     `cz apply --use-builtin-diff --no-pager --dry-run --verbose --source-path <source-path...> 2>&1`
+### Native Windows (PowerShell 7)
 
-     Review the output and fix any errors before proceeding.
+```powershell
+pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
+```
 
-     Notes:
-     - Prefer passing the specific source file(s) you edited (often just one).
-     - If you changed a shared template, template directory, or other input that may affect many targets and you cannot confidently enumerate impacted paths, pause and ask me if it's OK to run a full:
-       `cz apply --dry-run --verbose 2>&1`
-     - If a change touches `.chezmoi.toml.tmpl`, **pause and ask Mr. Dutt to test/regenerate the chezmoi config manually**.
+### Examples
 
-  2) Review diffs in a terminal-friendly way (do not open GUI diff tools such as VS Code):
+``` sh
+./assets/cz-audits.sh check dot_bashrc
+./assets/cz-audits.sh check .chezmoiscripts/run_once_after_99-cleanup-wrong-apply.sh.tmpl
+./assets/cz-audits.sh check ansible/site.yml
+```
 
-     `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
+``` powershell
+pwsh ./assets/cz-audit.ps1 check bootstrap-wsl.sh
+pwsh ./assets/cz-audit.ps1 check ansible/site.yml
+```
 
-  IMPORTANT: The `cz --use-builtin-diff --no-pager diff` command expects you to provide the target-path for the file being diffed and not the source path. Remember to provide the target-path when running a `cz --use-builtin-diff --no-pager diff` command.
+### What the audit tool does
 
-     Target-path selection rules:
-     - If the target path is obvious from the source-state naming (e.g. `dot_zshrc` -> `~/.zshrc`, `dot_config/git/config.tmpl` -> `~/.config/git/config`), use it.
-     - If the correct target path is not obvious or could be ambiguous, **pause and ask me to confirm the intended target path(s)** before running `cz diff`.
-<!-- markdownlint-disable MD029 -->
-  3) If you created a new source file and want to verify the generated target contents without applying:
+- It checks whether the edited repo file maps to a managed chezmoi target on this machine.
+  - If managed, it runs:
+    - `chezmoi diff --verbose <target>`
+    - `chezmoi apply --dry-run --verbose <target>`
+    - If not managed (repo-only inputs like `.chezmoiscripts/**`, `ansible/**`, `assets/**`, `configs/**`, `docs/**`), it will not run `chezmoi apply --dry-run --verbose <target>`.
+    - For repo-only inputs it runs best-effort checks:
+      - `.chezmoiscripts/** and bootstrap-wsl.sh:`
+        - Uses `shellcheck` if available locally; otherwise runs ShellCheck in a Docker/Podman container (if available).
+      - `ansible/**`:
+        - Uses `ansible-playbook --syntax-check` if available locally; otherwise runs it in a Docker/Podman container (if available).
+      - `configs/**`:
+        - Attempts to validate YAML/TOML if Python tooling is available; otherwise skips.
+    - **chezmoi configuration / special files**:
+      - These are special files and should **not** be treated like normal managed dotfiles (i.e. do **not** run `chezmoi apply --dry-run` directly for them).
+        - Examples:
+          - `.chezmoiignore` / `.chezmoiignore.tmpl`
+          - `.chezmoiremove` / `.chezmoiremove.tmpl`
+          - `.chezmoi.toml` / `.chezmoi.toml.tmpl`
+          - `.chezmoidata.*`
+          - `.chezmoiroot`
+      - Always use the audit tool:
+        - macOS / WSL2:
+          ```sh
+          ./assets/cz-audits.sh check <repo-relative-path>
+          ```
+        - Windows (PowerShell 7):
+          ``` powershell
+          pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
+          ```
+      - What the audit tool does for `.chezmoi*` files:
+        - If the file is templated (`*.tmpl`), it runs `chezmoi execute-template -f <file>` to ensure the template renders on the current machine (catches missing-key/template errors early).
+        - It then runs `chezmoi doctor` to surface config warnings.
+          - A warning message that "config file template has changed, run `chezmoi init` to regenerate config file" can be ignored.
+        - It does not run `chezmoi diff` / `chezmoi apply` for these files.
 
-     - Print the computed target contents:
-       `cz --use-builtin-diff --no-pager cat <target-path...>`
+- If the audit tool returns any error/warning messages, you **must fix the errors** before moving.
+  - One exception is permitted to the above rule, A warning message that "config file template has changed, run `chezmoi init` to regenerate config file" can be ignored.
 
-     - Or review what would change via:
-       `cz --use-builtin-diff --no-pager diff <target-path...> 2>&1`
+### Post audit tool execution steps
 
-     If filesystem side-effects must be validated (permissions, directory creation, scripts, etc.)
-     and dry-run/cat/diff are insufficient, pause and ask me if it is OK to run:
-     `cz apply <target-path...>`.
-<!-- markdownlint-enable MD029 -->
-- If the scoped `cz --use-builtin-diff --no-pager apply --dry-run --verbose --source-path ...` succeeds, run `cz doctor`.
-  If any findings appear related to your changes, fix them before moving on.
+- If the audit tool run has been completed successfully as defined in the previous section, run `cz doctor`
+  - If any findings appear related to your changes, fix them before moving on.
+  - Errors relating to a `vault` command failure can be ignored. 
+
+## New files (not yet in chezmoi state)
+
+If you add a brand new file to the repo/source state, it may not appear in `chezmoi managed` yet on this machine (because it hasn’t been applied/recorded in state). In this case, do not assume it is unmanaged; instead, preview the computed target output.
+
+### Preview target contents without applying
+
+- Print the computed target contents:
+  ```sh
+  cz --use-builtin-diff --no-pager cat <target-path>
+  ```
+- Or review what would change:
+  ```sh
+  cz --use-builtin-diff --no-pager diff <target-path> 2>&1
+  ```
+
+### Applying changes
+
+If filesystem side-effects must be validated (permissions, directory creation, scripts, etc.) and cat/diff is
+insufficient, pause and ask before running:
+
+```sh
+cz apply <target-path>
+```
+
+### Post new file preview execution steps
+
+- Run the `cz doctor` command.
+  - If any findings appear related to your changes, fix them before moving on.
+  - Errors relating to a `vault` command failure can be ignored. 
