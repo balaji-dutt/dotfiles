@@ -79,6 +79,11 @@ args = [
 {{-   end -}}
 {{- end }}
 
+{{- if $isWSL }}
+[onepassword]
+command = "op.exe"
+{{- end }}
+
 [data]
     email = {{ $email | toToml }}
     name = {{ $name | toToml }}
