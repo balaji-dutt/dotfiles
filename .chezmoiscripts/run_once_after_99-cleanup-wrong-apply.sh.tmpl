@@ -33,15 +33,17 @@ rm_rel() {
 {{ $os := .chezmoi.os }}
 {{ $isLinux := eq $os "linux" }}
 {{ $isDarwin := eq $os "darwin" }}
+{{ $isWindows := eq $os "windows" }}
 
 {{ $osrel := "" }}
 {{ $osID := "" }}
+{{ $isWSL2 := false }}
+
 {{ if $isLinux }}
   {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
   {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
+  {{ $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") }}
 {{ end }}
-
-{{ $isWSL2 := and $isLinux ($osrel | contains "microsoft") ($osrel | contains "wsl2") }}
 
 # -----------------------
 # 1) Repo-metadata / repo-only files that should NOT live in $HOME
