@@ -23,7 +23,7 @@ bin/vnc_monitor.sh
 {{- /* SECTION 3: Ignore files if not on WSL2 */ -}}
 {{- if not (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
 bin/code
-{{- end }}
+{{ end -}}
 
 {{- /* SECTION 4: Windows minimal whitelist */ -}}
 {{ if eq .chezmoi.os "windows" }}
