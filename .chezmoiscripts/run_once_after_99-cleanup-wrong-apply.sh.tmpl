@@ -28,7 +28,7 @@ rm_rel() {
 }
 
 # -----------------------
-# Detection (Option A)
+# OS Detection
 # -----------------------
 {{ $os := .chezmoi.os }}
 {{ $isLinux := eq $os "linux" }}
@@ -40,7 +40,8 @@ rm_rel() {
   {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
   {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
 {{ end }}
-{{ $isWSL2 := and $isLinux (contains $osrel "microsoft") (contains $osrel "wsl2") }}
+
+{{ $isWSL2 := and $isLinux ($osrel | contains "microsoft") ($osrel | contains "wsl2") }}
 
 # -----------------------
 # 1) Repo-metadata / repo-only files that should NOT live in $HOME
@@ -100,17 +101,17 @@ for p in "${REMOVE_IF_NOT_LINUX[@]}"; do rm_rel "$p"; done
 # Your specific policies
 # -----------------------
 
-# A) bin/code should exist ONLY on WSL2
+# bin/code should exist ONLY on WSL2
 {{ if not $isWSL2 }}
 rm_rel "bin/code"
 {{ end }}
 
-# B) Doom should exist ONLY on macOS OR Ubuntu WSL2
+# Doom should exist ONLY on macOS OR Ubuntu WSL2
 {{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
 rm_rel ".config/doom"
 {{ end }}
 
-# C) On WSL2 (excluding Debian), remove entire container-dotfiles tree
+# On WSL2 (excluding Debian), remove entire container-dotfiles tree
 {{ if and $isWSL2 (ne $osID "debian") }}
 rm_rel "Documents/development/container-dotfiles"
 {{ end }}
