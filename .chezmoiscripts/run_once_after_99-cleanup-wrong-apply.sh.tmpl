@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Preview mode:
+#   CHEZMOI_WRONG_APPLY_DRYRUN=1 cz apply
+DRYRUN="${CHEZMOI_WRONG_APPLY_DRYRUN:-0}"
+DEST="{{ .chezmoi.destDir }}"
+
+rm_rel() {
+  local rel="$1"
+
+  # Safety: reject absolute paths and traversal.
+  [[ -z "$rel" ]] && return 0
+  case "$rel" in
+    /*|~* ) echo "Refusing absolute-ish path: $rel" >&2; return 2 ;;
+    ""|"."|".."|../*|*/../* ) echo "Refusing traversal path: $rel" >&2; return 2 ;;
+  esac
+
+  local abs="$DEST/$rel"
+  if [[ -e "$abs" || -L "$abs" ]]; then
+    if [[ "$DRYRUN" == "1" ]]; then
+      echo "[dry-run] would remove: $abs" >&2
+    else
+      echo "removing: $abs" >&2
+      rm -rf -- "$abs"
+    fi
+  fi
+}
+
+# -----------------------
+# Detection (Option A)
+# -----------------------
+{{ $os := .chezmoi.os }}
+{{ $isLinux := eq $os "linux" }}
+{{ $isDarwin := eq $os "darwin" }}
+
+{{ $osrel := "" }}
+{{ $osID := "" }}
+{{ if $isLinux }}
+  {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
+  {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
+{{ end }}
+{{ $isWSL2 := and $isLinux (contains $osrel "microsoft") (contains $osrel "wsl2") }}
+
+# -----------------------
+# 1) Repo-metadata / repo-only files that should NOT live in $HOME
+# (target-relative paths)
+# Keep this list curated.
+# -----------------------
+REMOVE_ALWAYS=(
+  "ansible"
+  "assets"
+  "archive"
+  "configs"
+  "docs"
+  "brewfile.txt"
+  "bootstrap-wsl.sh"
+  ".local/config/gitignore_global.txt"
+  ".ansible.cfg"
+  "README.md"
+  "TODO.md"
+  "AGENTS.md"
+  "CLAUDE.md"
+  "Documents/development/container-dotfiles/dotfiles/configs"
+)
+
+# -----------------------
+# 2) macOS-only stuff that should be removed everywhere except macOS
+# -----------------------
+REMOVE_IF_NOT_DARWIN=(
+  ".gitignore_global"
+  ".zpreztorc"
+  "Library"
+  "bin/vnc_monitor.sh"
+)
+
+# -----------------------
+# 3) Linux-only stuff that should be removed everywhere except Linux
+# -----------------------
+REMOVE_IF_NOT_LINUX=(
+  ".config/lazygit"
+  ".config/sublime-merge"
+)
+
+# -----------------------
+# Apply universal cleanup
+# -----------------------
+for p in "${REMOVE_ALWAYS[@]}"; do rm_rel "$p"; done
+
+# Apply cross-platform cleanup
+{{ if not $isDarwin }}
+for p in "${REMOVE_IF_NOT_DARWIN[@]}"; do rm_rel "$p"; done
+{{ end }}
+
+{{ if not $isLinux }}
+for p in "${REMOVE_IF_NOT_LINUX[@]}"; do rm_rel "$p"; done
+{{ end }}
+
+# -----------------------
+# Your specific policies
+# -----------------------
+
+# A) bin/code should exist ONLY on WSL2
+{{ if not $isWSL2 }}
+rm_rel "bin/code"
+{{ end }}
+
+# B) Doom should exist ONLY on macOS OR Ubuntu WSL2
+{{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
+rm_rel ".config/doom"
+{{ end }}
+
+# C) On WSL2 (excluding Debian), remove entire container-dotfiles tree
+{{ if and $isWSL2 (ne $osID "debian") }}
+rm_rel "Documents/development/container-dotfiles"
+{{ end }}

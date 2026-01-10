@@ -1,0 +1,71 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$Dest = "{{ .chezmoi.destDir }}"
+
+function Remove-RelPath {
+  param([Parameter(Mandatory=$true)][string]$Rel)
+
+  if ([string]::IsNullOrWhiteSpace($Rel)) { return }
+
+  # Safety checks
+  if ([IO.Path]::IsPathRooted($Rel)) {
+    throw "Refusing rooted path: $Rel"
+  }
+  if ($Rel -match '(^|[\\/])\.\.([\\/]|$)') {
+    throw "Refusing traversal path: $Rel"
+  }
+
+  $Abs = Join-Path -Path $Dest -ChildPath $Rel
+
+  if (Test-Path -LiteralPath $Abs) {
+    if ($env:CHEZMOI_WRONG_APPLY_DRYRUN -eq '1') {
+      Write-Host "[dry-run] would remove: $Abs"
+    } else {
+      Write-Host "removing: $Abs"
+      Remove-Item -LiteralPath $Abs -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+# WARNING: keep this list curated; these are TARGET-relative paths under your Windows destDir.
+$RepoMetadata = @(
+  "ansible",
+  "assets",
+  "archive",
+  "configs",
+  "docs",
+  "brewfile.txt",
+  "bootstrap-wsl.sh",
+  ".local\config\gitignore_global.txt",
+  ".ansible.cfg",
+  "README.md",
+  "TODO.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "Documents\development\container-dotfiles\dotfiles\configs"
+)
+
+$PlatformCleanup = @(
+  # If bin/code should never be in native Windows home:
+  "bin\code",
+
+  # macOS/Linux leftovers that should not exist on Windows:
+  ".config\lazygit",
+  ".config\sublime-merge",
+  ".config\doom",
+  "Library",
+  ".zpreztorc",
+  ".gitignore_global",
+  "bin\vnc_monitor.sh"
+
+  # Optional: if you ever accidentally wrote container-dotfiles into Windows home and want it gone:
+  # "Documents\development\container-dotfiles"
+)
+
+foreach ($p in $RepoMetadata)     { Remove-RelPath $p }
+foreach ($p in $PlatformCleanup)  { Remove-RelPath $p }
+{{- end -}}

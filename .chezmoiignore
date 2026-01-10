@@ -1,32 +1,56 @@
-{{- /* SECTION 1: Ignore MacOS specific files if NOT on macOS (Linux/Windows) */ -}}
-{{ if ne .chezmoi.os "darwin" }}
+{{/* ----------
+   Shared detection helpers (safe on all OSes)
+   ---------- */}}
+{{ $os := .chezmoi.os }}
+{{ $isLinux := eq $os "linux" }}
+{{ $isDarwin := eq $os "darwin" }}
+{{ $isWindows := eq $os "windows" }}
+
+{{ $osrel := "" }}
+{{ $osID := "" }}
+{{ if $isLinux }}
+  {{/* .chezmoi.kernel and .chezmoi.osRelease are Linux-only */}}
+  {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
+  {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
+{{ end }}
+
+{{ $isWSL2 := and $isLinux (contains $osrel "microsoft") (contains $osrel "wsl2") }}
+
+{{/* Ignore macOS-specific files if NOT on macOS (Linux/Windows) */}}
+{{ if not $isDarwin }}
 Library
 bin/vnc_monitor.sh
 {{ end }}
 
-{{- /* SECTION 1b: Global gitignore is managed by Windows/macOS */ -}}
-{{ if eq .chezmoi.os "linux" }}
+{{/*  Global gitignore is managed by Windows/macOS (ignore on Linux) */}}
+{{ if $isLinux }}
 .gitignore_global
 {{ end }}
 
-{{- /* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */ -}}
-{{ if and (ne .chezmoi.os "darwin") (not (and (eq .chezmoi.os "linux") (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft"))) }}
+{{/* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */}}
+{{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
 .config/doom
 {{ end }}
 
-{{- /* SECTION 2: Ignore Linux specific files if NOT on Linux (macOS/Windows) */ -}}
-{{ if ne .chezmoi.os "linux" }}
+{{/* Ignore Linux specific files if NOT on Linux (macOS/Windows) */}}
+{{ if not $isLinux }}
 .config/lazygit
 .config/sublime-merge
 {{ end }}
 
-{{- /* SECTION 3: Ignore files if not on WSL2 */ -}}
-{{- if not (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+{{/* bin/code should exist ONLY on WSL2 */}}
+{{ if not $isWSL2 }}
 bin/code
-{{ end -}}
+{{ end }}
 
-{{- /* SECTION 4: Windows minimal whitelist */ -}}
-{{ if eq .chezmoi.os "windows" }}
+{{/*  container-dotfiles should NOT exist on WSL2 excluding Debian */}}
+{{ if and $isWSL2 (ne $osID "debian") }}
+Documents/development/container-dotfiles/
+Documents/development/container-dotfiles/**
+{{ end }}
+
+{{/* Windows minimal whitelist */}}
+{{ if $isWindows }}
 # Ignore everything by default
 **/*
 **/.*
@@ -41,18 +65,15 @@ bin/code
 !/.gitignore_global
 !/.markdownlint-cli2.jsonc
 
-# Allow other Windows configuration files
-# Example: !/AppData/Roaming/espanso/match/base.yml
-
-# Keep chezmoi scripts ignored by default on Windows since most of the scripts rely on Bash
-/.chezmoiscripts/
-/.chezmoiscripts/**
-
-# Only allow Windows specific scripts
+# Keep scripts ignored by default on Windows, but allow specific PS scripts.
+# (Must unignore parent dir too)
+ /.chezmoiscripts/**
+!/.chezmoiscripts/
 !.chezmoiscripts/windows-sync.ps1
+!.chezmoiscripts/run_once_after_99-cleanup-wrong-apply.ps1
 {{ end }}
 
-{{- /* SECTION 4: Global Ignores */ -}}
+{{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}
 ansible/
 ansible/**
 assets/
@@ -61,10 +82,11 @@ archive/
 archive/**
 configs/
 configs/**
-# Exclude rendered container configs
-private_Documents/development/container-dotfiles/dotfiles/configs/
 docs/
 docs/**
+# Exclude rendered container configs
+Documents/development/container-dotfiles/dotfiles/configs/
+Documents/development/container-dotfiles/dotfiles/configs/**
 brewfile.txt
 bootstrap-wsl.sh
 .local/config/gitignore_global.txt
