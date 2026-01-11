@@ -1,0 +1,16 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+# Claude Code env
+$env:ANTHROPIC_BASE_URL      = 'http://127.0.0.1:3456'
+$env:ANTHROPIC_AUTH_TOKEN    = 'test'
+$env:ANTHROPIC_API_KEY       = ''
+$env:NO_PROXY                = '127.0.0.1'
+$env:DISABLE_TELEMETRY       = 'true'
+$env:DISABLE_COST_WARNINGS   = 'true'
+$env:API_TIMEOUT_MS          = '600000'
+
+# Optional: also set lowercase variants (some tooling checks these)
+$env:no_proxy = $env:NO_PROXY
+{{- end -}}

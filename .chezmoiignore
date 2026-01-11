@@ -52,6 +52,12 @@ Documents/development/container-dotfiles/
 Documents/development/container-dotfiles/**
 {{ end }}
 
+{{/* PowerShell should only exist on Windows */}}
+{{ if not $isWindows }}
+Documents/PowerShell
+.config/powershell
+{{ end }}
+
 {{/* Windows minimal whitelist */}}
 {{ if $isWindows }}
 # Ignore everything by default
@@ -74,6 +80,11 @@ Documents/development/container-dotfiles/**
 !/.chezmoiscripts/
 !/.chezmoiscripts/windows-sync.ps1
 !/.chezmoiscripts/99-cleanup-wrong-apply.ps1
+# Windows specific paths
+!/.config/
+!/.config/**
+!/.config/powershell/
+!/.config/powershell/**
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}

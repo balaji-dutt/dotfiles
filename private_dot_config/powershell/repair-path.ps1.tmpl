@@ -1,0 +1,25 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+# --- Repair PATH in hosts that don't load registry PATH correctly (e.g., VS Code) ---
+try {
+  $userPath    = [Environment]::GetEnvironmentVariable("Path","User")
+  $machinePath = [Environment]::GetEnvironmentVariable("Path","Machine")
+
+  # Merge machine + user, preserve order, de-dup
+  $merged = @()
+  foreach ($p in (($machinePath, $userPath) -join ';' -split ';')) {
+    $p = $p.Trim()
+    if (-not $p) { continue }
+    if ($merged -notcontains $p) { $merged += $p }
+  }
+
+  if ($merged.Count -gt 0) {
+    $env:Path = ($merged -join ';')
+  }
+} catch {
+  # ignore
+}
+# --- end PATH repair ---
+{{- end -}}
