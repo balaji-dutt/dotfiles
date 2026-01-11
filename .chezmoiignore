@@ -22,9 +22,8 @@ Library
 bin/vnc_monitor.sh
 {{ end }}
 
-{{/*  Global gitignore is managed by Windows/macOS (ignore on Linux) */}}
+{{/*  Placeholder for Linux */}}
 {{ if $isLinux }}
-.gitignore_global
 {{ end }}
 
 {{/* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */}}
@@ -38,9 +37,13 @@ bin/vnc_monitor.sh
 .config/sublime-merge
 {{ end }}
 
-{{/* bin/code should exist ONLY on WSL2 */}}
+{{/* ----------
+  bin/code should exist ONLY on WSL2
+  Global gitignore is managed by Windows/macOS (ignore on WSL2)
+   ---------- */}}
 {{ if not $isWSL2 }}
 bin/code
+.gitignore_global
 {{ end }}
 
 {{/* container-dotfiles should NOT exist on WSL2 excluding Debian */}}
