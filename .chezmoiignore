@@ -80,6 +80,8 @@ Documents/PowerShell
 !/.chezmoiscripts/
 !/.chezmoiscripts/windows-sync.ps1
 !/.chezmoiscripts/99-cleanup-wrong-apply.ps1
+!/.chezmoiscripts/windows-bootstrap.ps1
+
 # Windows specific paths
 !/.config/
 !/.config/**
