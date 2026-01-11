@@ -70,10 +70,10 @@ Documents/development/container-dotfiles/**
 
 # Keep scripts ignored by default on Windows, but allow specific PS scripts.
 # (Must unignore parent dir too)
- /.chezmoiscripts/**
+/.chezmoiscripts/**
 !/.chezmoiscripts/
-!.chezmoiscripts/windows-sync.ps1
-!.chezmoiscripts/run_once_after_99-cleanup-wrong-apply.ps1
+!/.chezmoiscripts/windows-sync.ps1
+!/.chezmoiscripts/99-cleanup-wrong-apply.ps1
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}
