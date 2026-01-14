@@ -78,7 +78,7 @@ function Classify([string]$relsrc) {
 function DryRun-IfManaged([string]$relsrc) {
   if (Test-ChezmoiConfigFile $relsrc) {
     Write-Host "chezmoi-config file; skipping apply/diff: $relsrc"
-    Write-Host "Run: pwsh ./tools/cz-audit.ps1 check $relsrc"
+    Write-Host "Run: pwsh ./assets/cz-audit.ps1 check $relsrc"
     return
   }
 

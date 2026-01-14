@@ -68,9 +68,9 @@ pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 ### Examples
 
 ``` sh
-./assets/cz-audits.sh check dot_bashrc
-./assets/cz-audits.sh check .chezmoiscripts/run_once_after_99-cleanup-wrong-apply.sh.tmpl
-./assets/cz-audits.sh check ansible/site.yml
+./assets/cz-audit.sh check dot_bashrc
+./assets/cz-audit.sh check .chezmoiscripts/run_once_after_99-cleanup-wrong-apply.sh.tmpl
+./assets/cz-audit.sh check ansible/site.yml
 ```
 
 ``` powershell

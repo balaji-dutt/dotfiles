@@ -232,5 +232,5 @@ case "$cmd" in
   classify) need_rel; classify ;;
   dryrun-if-managed) need_rel; dryrun_if_managed ;;
   check) need_rel; check ;;
-  *) die "usage: tools/cz-audit {classify|dryrun-if-managed|check} <repo-relative-source-path>" ;;
+  *) die "usage: assets/cz-audit {classify|dryrun-if-managed|check} <repo-relative-source-path>" ;;
 esac
