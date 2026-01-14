@@ -14,6 +14,106 @@ runtime() {
   return 1
 }
 
+repo_root() {
+  local script_dir
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  (cd -- "$script_dir/.." && pwd -P)
+}
+
+# Load default variables for syntax checks
+[[ -f "assets/cz-audit.env" ]] && source "assets/cz-audit.env"
+
+info(){ echo "INFO: $*" >&2; }
+
+audit_logdir() {
+  local d="${CZ_AUDIT_LOGDIR:-.cz-audit}"
+  mkdir -p "$d"
+  echo "$d"
+}
+
+audit_clean_logs_once() {
+  [[ "${CZ_AUDIT_CLEAN_LOGS:-1}" -eq 1 ]] || return 0
+  local d; d="$(audit_logdir)"
+  rm -f "$d"/*.log 2>/dev/null || true
+}
+
+sanitize_key() {
+  # Turn "ansible/tasks/foo.yml" into "ansible__tasks__foo.yml"
+  echo "${1//[^A-Za-z0-9._-]/_}" | tr '/' '_'
+}
+
+# Always run checks from repo root so "repo-relative paths" actually resolve.
+ROOT="$(repo_root)"
+cd "$ROOT"
+
+audit_clean_logs_once
+
+# Capture stdout+stderr of a command without letting `set -e` abort the script.
+# Sets global AUDIT_OUT, AUDIT_RC.
+audit_capture() {
+  AUDIT_OUT=""
+  AUDIT_RC=0
+  set +e
+  AUDIT_OUT="$("$@" 2>&1)"
+  AUDIT_RC=$?
+  set -e
+}
+
+# Handle a check result in a way that is "agent-friendly":
+# - By default, advisory tools (lint/shellcheck/etc.) do NOT print their scary output.
+# - Output is saved to a log file and you get a single INFO line.
+# - Strict mode prints the full output and returns non-zero.
+#
+# Env controls:
+#   CZ_AUDIT_STRICT=1                     -> enforce all advisory checks (fail)
+#   CZ_AUDIT_SHOW=1                       -> print tool output even when not failing
+#   CZ_AUDIT_STRICT_<CHECK>=1             -> enforce just one check (e.g. CZ_AUDIT_STRICT_ANSIBLE_LINT=1)
+#   CZ_AUDIT_SHOW_<CHECK>=1               -> show output for just one check
+audit_handle() {
+  local check="$1"        # e.g. ANSIBLE_LINT, SHELLCHECK, YAML, TOML, CHEZMOI_DOCTOR
+  local subject="${2:-}"  # file path or label
+  local advisory="${3:-1}"# 1=advisory (default), 0=enforced (always fail on rc!=0)
+
+  local strict_var="CZ_AUDIT_STRICT_${check}"
+  local show_var="CZ_AUDIT_SHOW_${check}"
+
+  local strict="${!strict_var-}"
+  local show="${!show_var-}"
+
+  [[ -z "${strict:-}" ]] && strict="${CZ_AUDIT_STRICT:-0}"
+  [[ -z "${show:-}"   ]] && show="${CZ_AUDIT_SHOW:-0}"
+
+  # If no output and success, be quiet.
+  if [[ $AUDIT_RC -eq 0 ]]; then
+    if [[ "$show" == "1" && -n "${AUDIT_OUT:-}" ]]; then
+      printf '%s\n' "$AUDIT_OUT" >&2
+    fi
+    return 0
+  fi
+
+  # Enforced checks always fail and print output.
+  if [[ "$advisory" == "0" ]]; then
+    printf '%s\n' "$AUDIT_OUT" >&2
+    return "$AUDIT_RC"
+  fi
+
+  # Advisory checks:
+  if [[ "$strict" == "1" ]]; then
+    printf '%s\n' "$AUDIT_OUT" >&2
+    return "$AUDIT_RC"
+  fi
+
+  # Non-strict advisory: log output, print one INFO line.
+  local logdir; logdir="$(audit_logdir)"
+  local key; key="$(sanitize_key "${subject:-unknown}")"
+  local logfile="$logdir/${check}.${key}.log"
+  printf '%s\n' "$AUDIT_OUT" >"$logfile"
+
+  info "${check} found issues (advisory). Full output saved to: $logfile"
+  info "Set ${strict_var}=1 (or CZ_AUDIT_STRICT=1) to enforce; set ${show_var}=1 (or CZ_AUDIT_SHOW=1) to print output."
+  return 0
+}
+
 shellcheck_container() {
   local file_rel="$1"
   local rt; rt="$(runtime)" || { info "No docker/podman; shellcheck skipped"; return 0; }
@@ -98,13 +198,13 @@ classify() {
 dryrun_if_managed() {
   need_rel
   if is_chezmoi_config_file; then
-    echo "chezmoi-config file; skipping apply/diff: $relsrc" >&2
-    echo "Run: ./tools/cz-audit check $relsrc" >&2
+    info "chezmoi-config file; skipping apply/diff: $relsrc"
+    info "Run: ./assets/cz-audit.sh check $relsrc"
     return 0
   fi
   if ! is_managed_source_rel; then
-    echo "Not a managed chezmoi target: $relsrc" >&2
-    echo "Classification: $(classify)" >&2
+    info "Not a managed chezmoi target: $relsrc"
+    info "Classification: $(classify)"
     return 0
   fi
   local t
@@ -115,23 +215,43 @@ dryrun_if_managed() {
 
 check_shell_file_rel() {
   local file_rel="$1"
+
+  # Enforced: bash syntax must be valid.
   bash -n "$file_rel"
+
+  # Advisory: shellcheck is useful, but noisy; don’t print raw output by default.
   if have shellcheck; then
-    shellcheck "$file_rel" || true
+    audit_capture shellcheck "$file_rel"
   else
-    shellcheck_container "$file_rel"
+    audit_capture shellcheck_container "$file_rel"
   fi
+  audit_handle "SHELLCHECK" "$file_rel" 1
 }
 
 check_ansible_file_rel() {
   local file_rel="$1"
+
+  # Enforced: syntax-check should be clean; suppress warnings unless failing.
   if have ansible-playbook; then
-    ansible-playbook --syntax-check "$file_rel"
-    if have ansible-lint; then ansible-lint "$file_rel" || true; else ansible_container_lint "$file_rel"; fi
+    audit_capture ansible-playbook -i localhost, --syntax-check "$file_rel"
   else
-    ansible_container_syntax "$file_rel"
-    ansible_container_lint "$file_rel"
+    audit_capture ansible_container_syntax "$file_rel"
   fi
+  # advisory=0 (enforced)
+  audit_handle "ANSIBLE_SYNTAX" "$file_rel" 0
+
+  # Advisory: ansible-lint; do not print raw output by default.
+  if have ansible-lint; then
+    # Use repo-local config if present; otherwise fall back to default behavior.
+    if [[ -f "ansible/.ansible-lint.yml" ]]; then
+      audit_capture ansible-lint -c "ansible/.ansible-lint.yml" "$file_rel"
+    else
+      audit_capture ansible-lint "$file_rel"
+    fi
+  else
+    audit_capture ansible_container_lint "$file_rel"
+  fi
+  audit_handle "ANSIBLE_LINT" "$file_rel" 1
 }
 
 check_configs_file_rel() {
@@ -139,34 +259,39 @@ check_configs_file_rel() {
   case "$file_rel" in
     *.yml|*.yaml)
       if have python3; then
-        python3 - <<'PY' "$file_rel" || true
+        # Advisory: YAML parse. If PyYAML missing or parse fails, log it but don’t spam output by default.
+        audit_capture python3 - <<'PY' "$file_rel"
 import sys
 try:
   import yaml
 except Exception:
-  print("PyYAML not installed; YAML parse skipped", file=sys.stderr); sys.exit(0)
+  print("PyYAML not installed; YAML parse skipped", file=sys.stderr)
+  sys.exit(0)
 with open(sys.argv[1], "r", encoding="utf-8") as f:
   yaml.safe_load(f)
 print("YAML OK")
 PY
+        audit_handle "YAML" "$file_rel" 1
       else
-        echo "python3 not available; YAML parse skipped" >&2
+        info "python3 not available; YAML parse skipped"
       fi
       ;;
     *.toml)
       if have python3; then
-        python3 - <<'PY' "$file_rel" || true
+        audit_capture python3 - <<'PY' "$file_rel"
 import sys
 try:
   import tomllib
 except Exception:
-  print("tomllib not available (need Python 3.11+); TOML parse skipped", file=sys.stderr); sys.exit(0)
+  print("tomllib not available (need Python 3.11+); TOML parse skipped", file=sys.stderr)
+  sys.exit(0)
 with open(sys.argv[1], "rb") as f:
   tomllib.load(f)
 print("TOML OK")
 PY
+        audit_handle "TOML" "$file_rel" 1
       else
-        echo "python3 not available; TOML parse skipped" >&2
+        info "python3 not available; TOML parse skipped"
       fi
       ;;
   esac
@@ -176,22 +301,24 @@ check_chezmoi_config() {
   local abs
   abs="$(srcdir)/$relsrc"
 
-  echo "Validating chezmoi config file: $relsrc" >&2
+  info "Validating chezmoi config file: $relsrc"
 
   # If templated, ensure it renders on THIS machine.
   if [[ "$relsrc" == *.tmpl ]]; then
     chezmoi execute-template -f "$abs" >/dev/null
-    echo "Template renders OK: $relsrc" >&2
+    info "Template renders OK: $relsrc"
   fi
 
-  # General sanity check (may emit warnings; we don't fail hard on them here).
-  chezmoi doctor || true
+  # Advisory: may emit warnings; capture and suppress by default.
+  audit_capture chezmoi doctor
+  audit_handle "CHEZMOI_DOCTOR" "$relsrc" 1
 }
 
 check() {
   need_rel
+  local kind
   kind="$(classify)"
-  echo "Classification: $kind" >&2
+  info "Classification: $kind"
 
   case "$kind" in
     chezmoi-config:*)
@@ -212,24 +339,28 @@ check() {
       elif [[ "$relsrc" == *.sh ]]; then
         check_shell_file_rel "$relsrc"
       else
-        echo "No automated check for $relsrc (non-shell chezmoi script). Review manually." >&2
+        info "No automated check for $relsrc (non-shell chezmoi script). Review manually."
       fi
       ;;
     ansible:*)
       if [[ -f "$relsrc" ]]; then
         check_ansible_file_rel "$relsrc"
       else
-        echo "ansible path isn't a file; run against a playbook (e.g. ansible/site.yml)" >&2
+        info "ansible path isn't a file; run against a playbook (e.g. ansible/site.yml)"
       fi
       ;;
     configs:*)
       [[ -f "$relsrc" ]] && check_configs_file_rel "$relsrc"
       ;;
     assets:*)
-      if [[ "$relsrc" == *.sh ]]; then check_shell_file_rel "$relsrc"; else echo "Assets changed; run project-specific checks if any." >&2; fi
+      if [[ "$relsrc" == *.sh ]]; then
+        check_shell_file_rel "$relsrc"
+      else
+        info "Assets changed; run project-specific checks if any."
+      fi
       ;;
     docs:*|repo:*)
-      echo "Repo-only file; no chezmoi apply/diff required." >&2
+      info "Repo-only file; no chezmoi apply/diff required."
       ;;
   esac
 }

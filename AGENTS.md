@@ -115,8 +115,20 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
           - A warning message that "config file template has changed, run `chezmoi init` to regenerate config file" can be ignored.
         - It does not run `chezmoi diff` / `chezmoi apply` for these files.
 
-- If the audit tool returns any error/warning messages, you **must fix the errors** before moving.
-  - One exception is permitted to the above rule, A warning message that "config file template has changed, run `chezmoi init` to regenerate config file" can be ignored.
+- You must run the repo audit for changed files using:
+  - `./assets/cz-audit.sh check <repo-relative-path>`
+
+- A change is considered **failing** and must be fixed (or reverted) if:
+  - the audit command exits non-zero, **or**
+  - the audit output contains a line beginning with `ERROR:`.
+
+- Output lines beginning with `INFO:` (and references to `.cz-audit/*.log`) are **informational** and do not block changes unless strict mode is enabled.
+
+- Strict mode (optional): enforce advisory checks (e.g. ansible-lint/shellcheck):
+  - `CZ_AUDIT_STRICT=1 ./assets/cz-audit.sh check <path>`
+  - or per-check strict flags (see `assets/cz-audit.env`)
+
+- Exception: A message that says "config file template has changed, run `chezmoi init` to regenerate config file" may be ignored.
 
 ### Post audit tool execution steps
 
