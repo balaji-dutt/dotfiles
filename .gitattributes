@@ -2,3 +2,6 @@
 .claude/hooks/*.sh text eol=lf
 .claude/settings.json text eol=lf
 .claude/agents/*.md text eol=lf
+
+# Shell scripts must remain LF to be valid on Linux/WSL
+*.sh text eol=lf
