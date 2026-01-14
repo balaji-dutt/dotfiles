@@ -1,6 +1,3 @@
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 param(
   [Parameter(Mandatory = $true)]
   [ValidateSet('classify', 'dryrun-if-managed', 'check')]
@@ -9,6 +6,9 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $RelSrc
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 function HaveCmd($name) { return [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 
