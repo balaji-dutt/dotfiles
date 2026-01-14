@@ -16,6 +16,7 @@ versions:
 # Apt packages - All WSL instances
 # -----------------------------------------------------------------------------
 base_apt_packages:
+  - locales
   - build-essential
   - curl
   - wget

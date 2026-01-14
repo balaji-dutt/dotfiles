@@ -1,4 +1,5 @@
 ---
+# WSL2 provisioning playbook (managed via chezmoi)
 - name: Ensure required locales
   hosts: localhost
   connection: local
@@ -8,17 +9,59 @@
     LANG: C
 
   tasks:
+    - name: Ensure locales package is installed
+      become: true
+      ansible.builtin.apt:
+        name: locales
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
     - name: List available locales
       ansible.builtin.command: locale -a
       register: locale_a
       changed_when: false
 
-    - name: Generate en_GB.UTF-8 and en_SG.UTF-8 locales
+    - name: Ensure en_GB.UTF-8 is enabled in /etc/locale.gen
       become: true
-      ansible.builtin.command: locale-gen en_GB.UTF-8 en_SG.UTF-8
+      ansible.builtin.lineinfile:
+        path: /etc/locale.gen
+        regexp: '^#?\s*en_GB\.UTF-8\s+UTF-8\s*$'
+        line: 'en_GB.UTF-8 UTF-8'
+      register: locale_gen_gb
+
+    - name: Ensure en_SG.UTF-8 is enabled in /etc/locale.gen
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/locale.gen
+        regexp: '^#?\s*en_SG\.UTF-8\s+UTF-8\s*$'
+        line: 'en_SG.UTF-8 UTF-8'
+      register: locale_gen_sg
+
+    - name: Generate enabled locales
+      become: true
+      ansible.builtin.command: locale-gen
       when: >
+        locale_gen_gb.changed or
+        locale_gen_sg.changed or
         ('en_GB.utf8' not in locale_a.stdout_lines) or
         ('en_SG.utf8' not in locale_a.stdout_lines)
+
+    - name: Set default locale environment
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/default/locale
+        create: true
+        mode: '0644'
+        regexp: '^{{ item.key }}='
+        line: '{{ item.key }}={{ item.value }}'
+      loop:
+        - { key: LANG, value: en_GB.UTF-8 }
+        - { key: LANGUAGE, value: 'en_GB:en_US' }
+        - { key: LC_MESSAGES, value: en_GB.UTF-8 }
+        - { key: LC_TIME, value: en_SG.UTF-8 }
+        - { key: LC_NUMERIC, value: en_SG.UTF-8 }
+        - { key: LC_MONETARY, value: en_SG.UTF-8 }
 
 - name: Provision WSL2 Environment
   hosts: localhost
