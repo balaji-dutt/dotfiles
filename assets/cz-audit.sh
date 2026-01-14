@@ -4,6 +4,13 @@ set -euo pipefail
 cmd="${1:-}"; shift || true
 relsrc="${1:-}"
 
+# Normalize common user input forms ("./foo", ".\\foo") into repo-relative paths.
+relsrc="${relsrc#./}"
+relsrc="${relsrc#.\\}"
+relsrc="${relsrc#/}"
+relsrc="${relsrc#\\}"
+relsrc="${relsrc//\\//}"
+
 die(){ echo "ERROR: $*" >&2; exit 2; }
 need_rel(){ [[ -n "${relsrc:-}" ]] || die "missing repo-relative source path (e.g. dot_bashrc, ansible/site.yml)"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
@@ -156,8 +163,17 @@ target_rel_from_source_rel() {
 }
 
 is_managed_source_rel() {
+  # If the source entry doesn't exist (e.g. user passed dot_bashrc instead of
+  # dot_bashrc.tmpl), treat as unmanaged instead of failing.
+  if [[ ! -e "$(srcdir)/$relsrc" ]]; then
+    info "source file not found, skipping for audit verification: $relsrc"
+    return 1
+  fi
+
   local rel
   rel="$(target_rel_from_source_rel)"
+  [[ -n "${rel:-}" ]] || return 1
+
   chezmoi managed | grep -Fx "$rel" >/dev/null 2>&1
 }
 
