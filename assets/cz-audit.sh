@@ -72,7 +72,7 @@ audit_capture() {
 audit_handle() {
   local check="$1"        # e.g. ANSIBLE_LINT, SHELLCHECK, YAML, TOML, CHEZMOI_DOCTOR
   local subject="${2:-}"  # file path or label
-  local advisory="${3:-1}"# 1=advisory (default), 0=enforced (always fail on rc!=0)
+  local advisory="${3:-1}" # 1=advisory (default), 0=enforced (always fail on rc!=0)
 
   local strict_var="CZ_AUDIT_STRICT_${check}"
   local show_var="CZ_AUDIT_SHOW_${check}"
