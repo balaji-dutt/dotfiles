@@ -16,9 +16,6 @@ runtime() {
 
 shellcheck_container() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { echo "No docker/podman; shellcheck skipped" >&2; return 0; }
-  "$rt" run --rm -v "$PWD:/work" -w /work koalaman/shellcheck:stable \
-    shellcheck "$file_rel" || true
   local rt; rt="$(runtime)" || { info "No docker/podman; shellcheck skipped"; return 0; }
   # koalaman/shellcheck image uses shellcheck as ENTRYPOINT
   "$rt" run --rm -v "$ROOT:/work" -w /work koalaman/shellcheck:stable \
@@ -27,16 +24,15 @@ shellcheck_container() {
 
 ansible_container_syntax() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { echo "No docker/podman; ansible syntax-check skipped" >&2; return 0; }
-  "$rt" run --rm -t -v "$PWD:/work" -w /work quay.io/ansible/ansible-runner:stable \
-    ansible-playbook --syntax-check "$file_rel"
+  local rt; rt="$(runtime)" || { info "No docker/podman; ansible syntax-check skipped"; return 0; }
+  local image="local/ansible-syntax:repo"
+  "$rt" run --rm -t \
+    -v "$ROOT:/work" -w /work \
+    "$image" ansible-playbook -i localhost, --syntax-check "$file_rel"
 }
 
 ansible_container_lint() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { echo "No docker/podman; ansible-lint skipped" >&2; return 0; }
-  "$rt" run --rm -t -v "$PWD:/work" -w /work quay.io/ansible/ansible-runner:stable \
-    sh -lc "command -v ansible-lint >/dev/null 2>&1 && ansible-lint '$file_rel' || exit 0" || true
   local rt; rt="$(runtime)" || { info "No docker/podman; ansible-lint skipped"; return 0; }
   local image="local/ansible-syntax:repo"
   local cfg="ansible/.ansible-lint.yml"

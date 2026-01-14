@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+# Pin if you want stability; loosen if you really want "always latest"
+ARG ANSIBLE_CORE_SPEC="ansible-core==2.16.*"
+ARG ANSIBLE_LINT_SPEC="ansible-lint==24.*"
+
+RUN pip install --no-cache-dir "$ANSIBLE_CORE_SPEC" "$ANSIBLE_LINT_SPEC"
+
+# Repo-relative to build context (we’ll set context to git root)
+COPY ansible/requirements.yml /tmp/requirements.yml
+
+RUN mkdir -p /usr/share/ansible/collections /usr/share/ansible/roles \
+ && ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections \
+ && ansible-galaxy role install -r /tmp/requirements.yml -p /usr/share/ansible/roles || true
+
+ENV ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections
+ENV ANSIBLE_ROLES_PATH=/usr/share/ansible/roles
+
+WORKDIR /work
