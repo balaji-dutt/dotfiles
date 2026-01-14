@@ -10,6 +10,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Normalize common user input forms on Windows (e.g. ".\ansible\\foo.yml")
+# into repo-relative paths that match our classification rules.
+$RelSrc = $RelSrc.Trim()
+$RelSrc = $RelSrc -replace '^[.][\\/]', ''
+$RelSrc = $RelSrc -replace '^[\\/]+', ''
+$RelSrc = $RelSrc -replace '\\', '/'
+
 function HaveCmd($name) { return [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 
 function Write-Info([string]$Message) {
@@ -159,11 +166,11 @@ function Get-ContainerRuntime {
   return $null
 }
 
-function Invoke-Cz([string[]]$Args) {
+function Invoke-Cz([string[]]$CzArgs) {
   $exe = (Get-Command cz -ErrorAction SilentlyContinue)
   if (-not $exe) { $exe = (Get-Command chezmoi -ErrorAction SilentlyContinue) }
   if (-not $exe) { throw "Neither 'cz' nor 'chezmoi' found in PATH" }
-  & $exe @Args
+  & $exe @CzArgs
 }
 
 function Get-SourceDir { (Invoke-Cz @('source-path')).Trim() }
@@ -188,7 +195,18 @@ function Get-TargetRelFromSourceRel([string]$relsrc) {
 }
 
 function Test-ManagedSourceRel([string]$relsrc) {
-  $rel = Get-TargetRelFromSourceRel $relsrc
+  $src = Join-Path (Get-SourceDir) $relsrc
+  if (-not (Test-Path -LiteralPath $src)) {
+    Write-Info "source file not found, skipping for audit verification: $relsrc"
+    return $false
+  }
+
+  try {
+    $rel = Get-TargetRelFromSourceRel $relsrc
+  } catch {
+    return $false
+  }
+
   $managed = Invoke-Cz @('managed')
   return ($managed -split "`r?`n" | Where-Object { $_ -ceq $rel } | Measure-Object).Count -gt 0
 }
