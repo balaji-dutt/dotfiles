@@ -1,0 +1,24 @@
+# assets/ansible-lint.yml
+profile: basic
+
+skip_list:
+  # https://ansible-lint.readthedocs.io/en/latest/default_rules/#no-changed-when
+  # - no-changed-when
+  # https://ansible-lint.readthedocs.io/en/latest/default_rules/#deprecated-local-action
+  - deprecated-local-action
+  # https://ansible-lint.readthedocs.io/en/latest/default_rules/#risky-shell-pipe
+  - risky-shell-pipe
+  # - risky-file-permissions
+  # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/git_module.html
+  # - command-instead-of-module
+  # https://ansible-lint.readthedocs.io/en/latest/default_rules/#command-instead-of-shell
+  - command-instead-of-shell
+  - yaml[line-length]
+
+# Optional: if you find it too noisy at first, uncomment these:
+#  - yaml[empty-lines]
+#  - no-handler
+#  - no-changed-when
+
+# Helps avoid false positives / makes linting saner in personal repos
+warn_list: []

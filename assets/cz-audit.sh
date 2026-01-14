@@ -37,6 +37,12 @@ ansible_container_lint() {
   local rt; rt="$(runtime)" || { echo "No docker/podman; ansible-lint skipped" >&2; return 0; }
   "$rt" run --rm -t -v "$PWD:/work" -w /work quay.io/ansible/ansible-runner:stable \
     sh -lc "command -v ansible-lint >/dev/null 2>&1 && ansible-lint '$file_rel' || exit 0" || true
+  local rt; rt="$(runtime)" || { info "No docker/podman; ansible-lint skipped"; return 0; }
+  local image="local/ansible-syntax:repo"
+  local cfg="ansible/.ansible-lint.yml"
+  "$rt" run --rm -t \
+    -v "$ROOT:/work" -w /work \
+    "$image" ansible-lint -c "$cfg" "$file_rel"
 }
 
 srcdir(){ chezmoi source-path; }
