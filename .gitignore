@@ -11,3 +11,4 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 
 # Ignore Claude Code hook files
 .claude/.needs_dotfiles_review
+.cz-audit

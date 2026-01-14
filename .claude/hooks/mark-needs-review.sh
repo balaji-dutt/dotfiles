@@ -7,5 +7,8 @@ if [[ -z "$PROJECT_DIR" ]]; then
 fi
 
 cd "$PROJECT_DIR"
-mkdir -p .claude
-touch .claude/.needs_dotfiles_review
+SENTINEL=".claude/.needs_dotfiles_review"
+mkdir -p "$(dirname "$SENTINEL")"
+
+# epoch seconds; cross-platform (works in macOS/WSL/Git Bash)
+date -u +%s > "$SENTINEL"
