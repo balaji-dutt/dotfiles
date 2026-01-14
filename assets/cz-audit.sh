@@ -19,6 +19,10 @@ shellcheck_container() {
   local rt; rt="$(runtime)" || { echo "No docker/podman; shellcheck skipped" >&2; return 0; }
   "$rt" run --rm -v "$PWD:/work" -w /work koalaman/shellcheck:stable \
     shellcheck "$file_rel" || true
+  local rt; rt="$(runtime)" || { info "No docker/podman; shellcheck skipped"; return 0; }
+  # koalaman/shellcheck image uses shellcheck as ENTRYPOINT
+  "$rt" run --rm -v "$ROOT:/work" -w /work koalaman/shellcheck:stable \
+    "$file_rel"
 }
 
 ansible_container_syntax() {
