@@ -17,17 +17,27 @@ Keep suggestions minimal and behavior-identical.
 
 - Do NOT scan the repo broadly (no `Glob "**/*"`, no broad `Grep` over `.`).
 - Do NOT spawn other agents or call `call_omo_agent`.
-- Your first step is always to determine what changed via git:
-  - `git diff --name-only`
-  - `git diff --cached --name-only`
-- Review ONLY those changed files.
-  - For each changed file, inspect the exact hunks with:
-    - `git diff -U0 -- <file>`
-    - `git diff --cached -U0 -- <file>`
-  - Use `git diff -U3 -- <file>` only if you need a little more context.
-  - Use `Read <file>` ONLY when you need context around a specific hunk.
 
-If there are no changes in either working tree or index, output PASS and say “No changes detected”.
+### Determine what changed (MUST run BOTH)
+
+1) Unstaged (working tree) changes:
+   - `git diff --name-only`
+2) Staged (index) changes:
+   - `git diff --cached --name-only`
+
+You MUST review changes from BOTH lists. Do not do a staged-only review unless Mr. Dutt explicitly asks.
+
+### Review changed files (ONLY)
+
+- Compute the union of changed files from the two name-only commands.
+- For each file in that union, inspect exact hunks:
+  - Unstaged hunks: `git diff -U0 -- <file>`
+  - Staged hunks: `git diff --cached -U0 -- <file>`
+- If a file appears in only one list, review only the corresponding diff (don’t waste time running the other).
+- Use `git diff -U3 -- <file>` only if you need a little more context.
+- Use `Read <file>` ONLY when you need context around a specific hunk.
+
+If BOTH name-only commands return empty, output PASS and say: “No changes detected (staged or unstaged)”.
 
 ## Core rules
 1) Prefer the simplest equivalent logic.
