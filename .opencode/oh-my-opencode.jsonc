@@ -1,0 +1,46 @@
+{
+    "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+    "claude_code": {
+        "hooks": true,
+        "agents": false,
+        "skills": false,
+        "commands": false,
+        "mcp": false,
+        "plugins": false
+    },
+    "disabled_agents": [
+        "Sisyphus",
+        "oracle",
+        "librarian",
+        "explore",
+        "frontend-ui-ux-engineer",
+        "document-writer",
+        "multimodal-looker"
+    ],
+    "disabled_hooks": [
+        "keyword-detector",
+        "auto-slash-command",
+        "todo-continuation-enforcer",
+        "context-window-monitor",
+        "session-recovery",
+        "session-notification",
+        "comment-checker",
+        "directory-agents-injector",
+        "directory-readme-injector",
+        "think-mode",
+        "rules-injector",
+        "background-notification",
+        "auto-update-checker",
+        "startup-toast",
+        "keyword-detector",
+        "agent-usage-reminder",
+        "non-interactive-env",
+        "interactive-bash-session",
+        "auto-slash-command"
+    ],
+    "disabled_mcps": [
+        "websearch",
+        "context7",
+        "grep_app"
+    ]
+}

@@ -1,0 +1,329 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ----------------------------
+  // General defaults
+  // ----------------------------
+  "theme": "nord",
+  "autoupdate": false,
+
+  // Pick what you want OpenCode to start as.
+  // You can change later to "plan" if you want the search planner to be default.
+  "default_agent": "plan",
+
+  // Default model (agents override this).
+  // OpenCode selects models as `provider_id/model_id`.
+  "model": "openai/gpt-5.2",
+  "small_model": "google/gemini-3-flash-preview",
+
+  // ----------------------------
+  // Global permissions
+  // ----------------------------
+  "permission": {
+    // Keep edits gated by default; coder subagent will override to allow.
+    "edit": "ask",
+
+    // Prevent “oops” reads of env files by default (OpenCode shows this pattern). ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
+    },
+
+    // Safety guards (OpenCode calls these out specifically). ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    "doom_loop": "ask",
+    "external_directory": "ask",
+
+    // Bash is pattern-matchable and supports wildcards; "last matching rule wins". ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    "bash": {
+      "*": "ask",
+      "git *": "allow",
+
+      // ---------
+      // Global denies (ported from your Claude deny list)
+      // ---------
+      "rm -rf /": "deny",
+      "rm -rf / *": "deny",
+      "sudo rm -rf /": "deny",
+      "sudo rm -rf / *": "deny",
+
+      "dd *": "deny",
+      "mkfs*": "deny",
+      "fdisk*": "deny",
+      "parted*": "deny",
+
+      "passwd*": "deny",
+      "sudo passwd*": "deny",
+      "sudo useradd*": "deny",
+      "sudo userdel*": "deny",
+
+      "sudo chmod 777*": "deny",
+
+      "nmap*": "deny",
+      "masscan*": "deny",
+
+      "shutdown*": "deny",
+      "reboot*": "deny",
+
+      "git push --force*": "deny",
+      "git push -f*": "deny",
+      "git reset --hard*": "deny",
+
+      "exec < /dev/tcp/*": "deny",
+      "exec > /dev/tcp/*": "deny"
+    }
+  },
+
+  // ----------------------------
+  // Plugins
+  // ----------------------------
+
+  "plugin": [
+    "@franlol/opencode-md-table-formatter@0.0.3",
+    "@tarquinen/opencode-dcp@latest",
+    "opencode-websearch-cited@1.2.0"
+  ],
+
+  // ----------------------------
+  // Providers
+  // ----------------------------
+  "provider": {
+    "openai": {
+      // OpenAI auth: OAuth via `/connect` / `opencode auth login`.
+      // Do not set apiKey here.
+      "options": {
+        "timeout": 600000,
+        // Required by opencode-websearch-cited:
+        // This tells the plugin which OpenAI model to use when it runs the websearch_cited tool.
+        "websearch_cited": {
+          "model": "gpt-5.2"
+        }
+      },
+
+      "models": {
+        // Base model with UI-cyclable variants (optional but useful).
+        "gpt-5.2": {
+          "variants": {
+            "low": {
+              "reasoningEffort": "low",
+              "textVerbosity": "low",
+              "reasoningSummary": "auto"
+            },
+            "medium": {
+              "reasoningEffort": "medium",
+              "textVerbosity": "low",
+              "reasoningSummary": "auto"
+            },
+            "high": {
+              "reasoningEffort": "high",
+              "textVerbosity": "high",
+              "reasoningSummary": "auto"
+            }
+          }
+        },
+
+        // Older models
+        "gpt-4.1": {},
+        "gpt-4.1-mini": {},
+        "gpt-4.1-nano": {},
+        "gpt-4o-mini": {},
+
+        // (Optional) handy deep-research models present in your list
+        "o3": {},
+        "o3-mini": {},
+        "o3-deep-research": {},
+        "o4-mini": {},
+        "o4-mini-deep-research": {}
+      }
+    },
+
+    // Anthropic: API key from env
+    "anthropic": {
+      "options": {
+        "apiKey": "{env:ANTHROPIC_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "claude-haiku-4-5": {},
+        "claude-sonnet-4-5": {},
+        "claude-opus-4-5": {}
+      }
+    },
+
+    // Google: API key from env
+    "google": {
+      "options": {
+        "apiKey": "{env:GEMINI_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "gemini-3-pro-preview": {},
+        "gemini-3-flash-preview": {},
+        "gemini-3-pro-image-preview": {}
+      }
+    },
+
+    // Moonshot/Kimi (OpenAI-compatible)
+    "moonshot": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Moonshot",
+      "options": {
+        "baseURL": "https://api.moonshot.ai/v1",
+        "apiKey": "{env:MOONSHOT_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "kimi-k2-0905-preview": {},
+
+        // NOTE: provider-specific reasoning flags are not standardized in OpenCode docs.
+        // This is a stub matching your router intent. Verify behavior by testing the model. (See note below.)
+        "kimi-k2-thinking": {
+          "options": {
+            "reasoning": true
+          }
+        }
+      }
+    },
+
+    // Perplexity (OpenAI-compatible) for search-capable planning
+    "perplexity": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Perplexity",
+      "options": {
+        "baseURL": "https://api.perplexity.ai",
+        "apiKey": "{env:PERPLEXITY_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "sonar-reasoning-pro": {}
+      }
+    },
+
+    // OpenRouter (API key from env)
+    "openrouter": {
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        // NOTE: the following "reasoning" options are stubs copied from your router approach.
+        // OpenCode will pass "options" to the provider, but vendor-specific keys may or may not be honored.
+        // Validate by testing the model and checking if "thinking" behavior changes.
+        "deepseek/deepseek-v3.1-terminus:exacto": {
+          "options": {
+            "reasoning": {
+              "enabled": true
+            }
+          }
+        },
+        "deepseek/deepseek-r1": {
+          "options": {
+            "reasoning": {
+              "enabled": true
+            }
+          }
+        }
+      }
+    }
+  },
+
+  // ----------------------------
+  // Agents
+  // ----------------------------
+  "agent": {
+    // Overwrite built-in Plan agent: search-capable planning manager.
+    // Permissions support websearch/webfetch tools too, but your plan model itself is search-capable.
+    "plan": {
+      "mode": "primary",
+      "description": "Planning manager (GPT-5.2 high + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.2",
+      "reasoningEffort": "high",
+      "temperature": 0.4,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "git *": "allow"
+        },
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "task": {
+          "*": "deny"
+        }
+      }
+    },
+
+    "plan-GPT5.2-xhigh": {
+      "mode": "primary",
+      "description": "Planning manager (GPT-5.2 xhigh + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.2",
+      "reasoningEffort": "xhigh",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "git *": "allow"
+        },
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "task": {
+          "*": "deny"
+        }
+      }
+    },
+
+    // Keep Build as a “manual interactive” agent.
+    "build": {
+      "mode": "primary",
+      "description": "Manual interactive build agent (ad-hoc coding).",
+      "model": "openai/gpt-5.2-codex",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "ask",
+        "bash": {
+          "*": "ask",
+          "git *": "allow"
+        }
+      }
+    },
+
+    // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
+    "code-manager": {
+      "mode": "primary",
+      "description": "Orchestrator: coder -> (coder DONE) audit -> reviewer -> loop (max 3) -> finalize.",
+      "model": "openai/gpt-5.2",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "git *": "allow"
+        },
+        "task": {
+          "*": "deny",
+          "coder": "allow",
+          "dotfiles-reviewer": "allow"
+        }
+      }
+    },
+
+    // Subagent: implementation
+    "coder": {
+      "mode": "subagent",
+      "description": "Implementation subagent (edits allowed).",
+      "model": "openai/gpt-5.2-codex",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "ask",
+          "git *": "allow"
+        }
+      }
+    }
+  }
+}
