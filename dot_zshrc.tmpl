@@ -75,6 +75,11 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 # }
 {{- end }}
 
+{{- if eq .chezmoi.os "darwin" }}
+OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+[[ -f "$OPENCODE_ENV_FILE" ]] && source "$OPENCODE_ENV_FILE"
+{{- end }}
+
 # source antidote from brew (macOS) or ~/.antidote (WSL2)
 if [ -d "$HOME/.antidote" ]; then
     # WSL2/Ansible installation path
