@@ -6,7 +6,13 @@ if [[ -t 0 ]]; then
   exit 0
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
+# Claude-only: if this isn't Claude Code, don't do anything.
+# (OpenCode will clear via plugin instead.)
+if [[ -z "${CLAUDE_PROJECT_DIR:-}" ]]; then
+  exit 0
+fi
+
+PROJECT_DIR="$CLAUDE_PROJECT_DIR"
 if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
@@ -18,8 +24,18 @@ fi
 
 cd "$PROJECT_DIR"
 
-SENTINEL=".claude/.needs_dotfiles_review"
-[[ -f "$SENTINEL" ]] || exit 0
+SENTINEL_OPENCODE=".opencode/.needs_dotfiles_review"
+SENTINEL_CLAUDE=".claude/.needs_dotfiles_review"
+
+# Prefer the shared OpenCode sentinel, but tolerate legacy Claude sentinel.
+SENTINEL=""
+if [[ -f "$SENTINEL_OPENCODE" ]]; then
+  SENTINEL="$SENTINEL_OPENCODE"
+elif [[ -f "$SENTINEL_CLAUDE" ]]; then
+  SENTINEL="$SENTINEL_CLAUDE"
+else
+  exit 0
+fi
 
 # Pick a Python
 PY="python3"
@@ -157,8 +173,10 @@ PY
 # Retry briefly to allow transcript flush; check agent first, then main
 for _ in {1..15}; do
   if has_pass "$AGENT_TRANSCRIPT_PATH" || has_pass "$MAIN_TRANSCRIPT_PATH"; then
-    rm -f "$SENTINEL"
+    rm -f "$SENTINEL_OPENCODE" "$SENTINEL_CLAUDE"
     exit 0
   fi
   sleep 0.2
 done
+
+exit 0
