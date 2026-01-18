@@ -9,6 +9,7 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 !bin/
 !bin/**
 
-# Ignore Claude Code hook files
+# Ignore Claude Code & opencode hook files
 .claude/.needs_dotfiles_review
 .cz-audit
+.opencode/.dotfiles-review-gate.log
