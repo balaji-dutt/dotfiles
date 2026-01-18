@@ -34,6 +34,7 @@ You MUST review changes from BOTH lists. Do not do a staged-only review unless M
   - Unstaged hunks: `git diff -U0 -- <file>`
   - Staged hunks: `git diff --cached -U0 -- <file>`
 - If a file appears in only one list, review only the corresponding diff (don’t waste time running the other).
+- Ignore .opencode/.needs_dotfiles_review and .opencode/.dotfiles-review-gate.log as workflow artifacts.
 - Use `git diff -U3 -- <file>` only if you need a little more context.
 - Use `Read <file>` ONLY when you need context around a specific hunk.
 
