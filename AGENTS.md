@@ -12,7 +12,6 @@
 # Standards
 
 - This git repository linked with this project is publicly available. In order to prevent information leakage, any sensitive information is stored in 1Password or provided at runtime and is to NEVER be included as part of a git commit.
-- When executing a `chezmoi` command, always the use alias `cz`.
 
 ## About This Project
 
@@ -20,14 +19,19 @@ This project contains configuration files (commonly referred to as dotfiles) for
 
 - chezmoi
 - Bash scripts
+- PowerShell scripts (on Windows)
 
-The configuration files are intended to be used in a cross-platform manner. At this time, cross-platform represents the following 1)macOS and 2) Linux VM's running under WSL2.
+The configuration files are intended to be used in a cross-platform manner across macOS, WSL2/Linux, and (where applicable) native Windows (PowerShell). Some validation commands are OS-specific; follow the audit instructions below.
 
 ## Available Tools
 
 These tools are installed globally on the system and can be used via CLI commands.
 
 - chezmoi: for applying changes to configuration files.
+- python3 (preferred) / python: for ad-hoc script execution; if unavailable, ask before installing.
+
+The following tools may be available, so check for their availability before executing a command. If required, stop and ask if the tool can be installed. Prefer containerized fallbacks (Docker/Podman) when available.
+
 - jq: for processing JSON data.
 
 ## Documentation References
@@ -43,7 +47,7 @@ These tools are installed globally on the system and can be used via CLI command
      - **Subject:** A single line under 44 characters (the script adds the "docs: " prefix automatically).
      - **Body:** Detailed explanation, with each line wrapped at 72 characters.
   3. **Ask for my approval** of the draft message before proceeding.
-  4. Once approved, run `~/.claude/commit-docs.sh "readme" "<insert approved multi-line message here>"`.
+  4. Once approved, run `./assets/commit-docs.sh "readme" "<insert approved multi-line message here>"`.
   5. **Note:** The script automatically handles the "docs: " prefix and the blank line separator, so do not include them in your draft.
 
 ## Post-edit verification (required)
@@ -56,7 +60,7 @@ After editing any file in this repository, run the audit tool using the **repo-r
 ### macOS / WSL2
 
 ```sh
-./assets/cz-audits.sh check <repo-relative-path>
+./assets/cz-audit.sh check <repo-relative-path>
 ```
 
 ### Native Windows (PowerShell 7)
@@ -73,7 +77,7 @@ pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 ./assets/cz-audit.sh check ansible/site.yml
 ```
 
-``` powershell
+```powershell
 pwsh ./assets/cz-audit.ps1 check bootstrap-wsl.sh
 pwsh ./assets/cz-audit.ps1 check ansible/site.yml
 ```
@@ -103,10 +107,10 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
       - Always use the audit tool:
         - macOS / WSL2:
           ```sh
-          ./assets/cz-audits.sh check <repo-relative-path>
+          ./assets/cz-audit.sh check <repo-relative-path>
           ```
         - Windows (PowerShell 7):
-          ``` powershell
+          ```powershell
           pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
           ```
       - What the audit tool does for `.chezmoi*` files:
@@ -115,8 +119,9 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
           - A warning message that "config file template has changed, run `chezmoi init` to regenerate config file" can be ignored.
         - It does not run `chezmoi diff` / `chezmoi apply` for these files.
 
-- You must run the repo audit for changed files using:
-  - `./assets/cz-audit.sh check <repo-relative-path>`
+- You must run the repo audit for changed files:
+  - For macOS/WSL2: `./assets/cz-audit.sh check <repo-relative-path>`
+  - For Windows: `pwsh ./assets/cz-audit.ps1 check <repo-relative-path>`
 
 - A change is considered **failing** and must be fixed (or reverted) if:
   - the audit command exits non-zero, **or**
@@ -132,9 +137,9 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
 
 ### Post audit tool execution steps
 
-- If the audit tool run has been completed successfully as defined in the previous section, run `cz doctor`
+- If the audit tool run has been completed successfully as defined in the previous section, run `chezmoi doctor`
   - If any findings appear related to your changes, fix them before moving on.
-  - Errors relating to a `vault` command failure can be ignored. 
+  - Errors relating to a `vault` command failure can be ignored.
 
 ## New files (not yet in chezmoi state)
 
@@ -144,11 +149,11 @@ If you add a brand new file to the repo/source state, it may not appear in `chez
 
 - Print the computed target contents:
   ```sh
-  cz --use-builtin-diff --no-pager cat <target-path>
+  chezmoi --use-builtin-diff --no-pager cat <target-path>
   ```
 - Or review what would change:
   ```sh
-  cz --use-builtin-diff --no-pager diff <target-path> 2>&1
+  chezmoi --use-builtin-diff --no-pager diff <target-path> 2>&1
   ```
 
 ### Applying changes
@@ -157,11 +162,11 @@ If filesystem side-effects must be validated (permissions, directory creation, s
 insufficient, pause and ask before running:
 
 ```sh
-cz apply <target-path>
+chezmoi apply <target-path>
 ```
 
 ### Post new file preview execution steps
 
-- Run the `cz doctor` command.
+- Run the `chezmoi doctor` command.
   - If any findings appear related to your changes, fix them before moving on.
-  - Errors relating to a `vault` command failure can be ignored. 
+  - Errors relating to a `vault` command failure can be ignored.
