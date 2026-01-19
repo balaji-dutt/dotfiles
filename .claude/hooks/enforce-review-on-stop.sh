@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Read hook JSON payload (Claude provides JSON via stdin; OpenCode/OMO may provide empty or different shapes).
+# Read hook payload (Claude provides JSON via stdin; OpenCode/OMO may provide empty/different shapes).
 PAYLOAD="$(cat || true)"
 
-# Resolve project dir for both Claude Code + OpenCode (+ oh-my-opencode hook runner).
-# Prefer CWD (if provided), then OPENCODE_PROJECT_DIR, then CLAUDE_PROJECT_DIR.
+# Resolve project dir (works for Claude + OpenCode + oh-my-opencode hook runner).
 PROJECT_DIR="${CWD:-${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}}"
 if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -26,19 +25,25 @@ if [[ ! -f "$SENTINEL_OPENCODE" && ! -f "$SENTINEL_CLAUDE" ]]; then
   exit 0
 fi
 
-# Detect "real Claude Code hook payload" by presence of known Claude hook fields.
-# (Claude hooks provide JSON via stdin and include transcript paths for Stop/SubagentStop.)
+# ---- Context detection ----
+# oh-my-opencode can export CLAUDE_PROJECT_DIR even under OpenCode, so do NOT branch on that.
+# Prefer OpenCode detection from env, otherwise treat as Claude only if stdin payload looks like Claude hook JSON.
+IS_OPENCODE_ENV=0
+if [[ -n "${OPENCODE_PROJECT_DIR:-}" || -n "${CWD:-}" ]]; then
+  IS_OPENCODE_ENV=1
+fi
+
 IS_CLAUDE_PAYLOAD=0
 if [[ "$PAYLOAD" == *'"transcript_path"'* || "$PAYLOAD" == *'"agent_transcript_path"'* ]]; then
   IS_CLAUDE_PAYLOAD=1
 fi
 
-# If it's Claude, emit Claude decision JSON. Otherwise, emit OpenCode-friendly instructions.
-if [[ "$IS_CLAUDE_PAYLOAD" -eq 1 ]]; then
+# Claude branch only when it really looks like a Claude hook call and we're not obviously in OpenCode.
+if [[ "$IS_CLAUDE_PAYLOAD" -eq 1 && "$IS_OPENCODE_ENV" -eq 0 ]]; then
   cat <<'JSON'
 {
   "decision": "block",
-  "reason": "Dotfiles review required before stopping.\n\nNext:\n1) Run the dotfiles reviewer subagent.\n2) Ensure the reviewer’s FINAL line is:\n   DOTFILES_REVIEWER_RESULT=PASS\n"
+  "reason": "Dotfiles review required before stopping.\n\nNext:\n1) Run the dotfiles reviewer subagent.\n2) Ensure the reviewer’s FINAL line is:\n   DOTFILES_REVIEWER_RESULT=PASS\n\nOnce PASS is recorded, the SubagentStop hook will clear the review gate automatically.\n"
 }
 JSON
   exit 0

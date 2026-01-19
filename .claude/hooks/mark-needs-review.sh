@@ -14,8 +14,12 @@ fi
 
 cd "$PROJECT_DIR"
 
-SENTINEL=".opencode/.needs_dotfiles_review"
-mkdir -p "$(dirname "$SENTINEL")"
+TS="$(date -u +%s)"
 
-# epoch seconds; cross-platform (macOS/WSL/Git Bash)
-date -u +%s > "$SENTINEL"
+SENTINEL_OPENCODE=".opencode/.needs_dotfiles_review"
+SENTINEL_CLAUDE=".claude/.needs_dotfiles_review" # transitional
+
+mkdir -p "$(dirname "$SENTINEL_OPENCODE")" "$(dirname "$SENTINEL_CLAUDE")"
+
+printf '%s\n' "$TS" > "$SENTINEL_OPENCODE"
+printf '%s\n' "$TS" > "$SENTINEL_CLAUDE"
