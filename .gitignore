@@ -13,3 +13,4 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 .claude/.needs_dotfiles_review
 .cz-audit
 .opencode/.dotfiles-review-gate.log
+.opencode/.needs_dotfiles_review
