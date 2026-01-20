@@ -35,6 +35,7 @@ base_apt_packages:
   - ca-certificates
   - gnupg
   - apt-transport-https
+  - gettext
 
 # -----------------------------------------------------------------------------
 # Apt packages - Ubuntu only
