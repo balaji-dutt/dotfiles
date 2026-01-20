@@ -1,11 +1,34 @@
 {
   "$schema": "https://opencode.ai/config.json",
   // ----------------------------
-  // Plugins
+  // Project specific plugins
   // ----------------------------
   "plugin": [
     "oh-my-opencode@3.0.0-beta.11"
   ],
+  // ----------------------------
+  // Project specific permissions
+  // ----------------------------
+  "permission": {
+    "bash": {
+      // allow safe chezmoi ops
+      "chezmoi doctor*": "allow",
+      "chezmoi apply --dry-run --verbose*": "allow",
+      "chezmoi --use-builtin-diff --no-pager diff*": "allow",
+      "chezmoi target-path*": "allow",
+      "./assets/commit-docs.sh*": "allow",
+      "./assets/cz-audit.sh*": "allow",
+      "pwsh ./assets/cz-audit.ps1*": "allow",
+
+      // deny destructive chezmoi ops (keep these after allows)
+      "chezmoi destroy*": "deny",
+      "chezmoi purge*": "deny",
+      "chezmoi unmanage*": "deny",
+      "chezmoi state delete*": "deny",
+      "chezmoi state reset*": "deny",
+      "chezmoi upgrade*": "deny",
+    }
+  },
   "agent": {
     // Customize global agents for this project
     "plan": {
@@ -18,6 +41,15 @@
       }
     },
     "plan-GPT5.2-xhigh": {
+      "permission": {
+        "task": {
+          "*": "deny",
+          "dotfiles-reviewer": "allow",
+          "dotfiles-reviewer-deep": "allow"
+        }
+      }
+    },
+    "code-manager": {
       "permission": {
         "task": {
           "*": "deny",

@@ -23,7 +23,7 @@
     // Keep edits gated by default; coder subagent will override to allow.
     "edit": "ask",
 
-    // Prevent “oops” reads of env files by default (OpenCode shows this pattern). ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    // Prevent “oops” reads of env files by default (OpenCode shows this pattern).
     "read": {
       "*": "allow",
       "*.env": "deny",
@@ -31,45 +31,118 @@
       "*.env.example": "allow"
     },
 
-    // Safety guards (OpenCode calls these out specifically). ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    // Safety guards (OpenCode calls these out specifically).
     "doom_loop": "ask",
     "external_directory": "ask",
 
-    // Bash is pattern-matchable and supports wildcards; "last matching rule wins". ([opencode.ai](https://opencode.ai/docs/permissions/?utm_source=openai))[cite](#tm-cite:2|opencode.ai)
+    // Bash is pattern-matchable and supports wildcards; "last matching rule wins".
     "bash": {
       "*": "ask",
-      "git *": "allow",
 
-      // ---------
-      // Global denies (ported from your Claude deny list)
-      // ---------
+      // ---- git (Claude-style; notably NOT allowing push by default)
+      "git status*": "allow",
+      "git log*": "allow",
+      "git diff*": "allow",
+      "git show*": "allow",
+      "git blame*": "allow",
+      "git branch*": "allow",
+      "git checkout*": "allow",
+      "git switch*": "allow",
+      "git fetch*": "allow",
+      "git pull*": "allow",
+      "git stash*": "allow",
+      "git remote*": "allow",
+      "git add*": "allow",
+      "git commit*": "allow",
+      "git rev-parse*": "allow",
+      "git push*": "ask",
+
+      // ---- docker (read-only-ish)
+      "docker ps*": "allow",
+      "docker images*": "allow",
+      "docker logs*": "allow",
+      "docker inspect*": "allow",
+      "docker version*": "allow",
+      "docker info*": "allow",
+      "docker compose ps*": "allow",
+      "docker compose logs*": "allow",
+      "docker-compose ps*": "allow",
+      "docker-compose logs*": "allow",
+
+      // ---- filesystem + text inspection
+      "ls*": "allow",
+      "pwd*": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "grep *": "allow",
+      "find *": "allow",
+      "tree*": "allow",
+      "mkdir *": "allow",
+      "touch *": "allow",
+      "cp *": "allow",
+      "mv *": "allow",
+      "chmod *": "allow",
+      "basename *": "allow",
+      "dirname *": "allow",
+      "realpath *": "allow",
+
+      // (optional; safer to keep ask)
+      "chown *": "ask",
+      "rm *": "ask",
+
+      // ---- node toolchain
+      "node -v*": "allow",
+      "node --version*": "allow",
+      "npm install*": "allow",
+      "npm run*": "allow",
+      "npm test*": "allow",
+      "npm list*": "allow",
+      "npx*": "allow", // if you want Claude parity; otherwise set this to "ask"
+      "bun install*": "allow",
+      "bun run*": "allow",
+
+      // ---- misc
+      "echo *": "allow",
+      "printenv*": "allow",
+      "jq *": "allow",
+      "yq *": "allow",
+      "ps aux*": "allow",
+      "pgrep*": "allow",
+      "date*": "allow",
+      "whoami*": "allow",
+      "hostname*": "allow",
+      "uname*": "allow",
+      "which *": "allow",
+      "whereis *": "allow",
+      "df -h*": "allow",
+      "du -sh*": "allow",
+      "uptime*": "allow",
+      "curl -s*": "allow",
+      "curl --version*": "allow",
+      "wget --version*": "allow",
+
+      // ---- keep your existing DENIES after the allows (last-match wins)
       "rm -rf /": "deny",
       "rm -rf / *": "deny",
       "sudo rm -rf /": "deny",
       "sudo rm -rf / *": "deny",
-
       "dd *": "deny",
       "mkfs*": "deny",
       "fdisk*": "deny",
       "parted*": "deny",
-
       "passwd*": "deny",
       "sudo passwd*": "deny",
       "sudo useradd*": "deny",
       "sudo userdel*": "deny",
-
       "sudo chmod 777*": "deny",
-
       "nmap*": "deny",
       "masscan*": "deny",
-
       "shutdown*": "deny",
       "reboot*": "deny",
-
       "git push --force*": "deny",
       "git push -f*": "deny",
       "git reset --hard*": "deny",
-
       "exec < /dev/tcp/*": "deny",
       "exec > /dev/tcp/*": "deny"
     }
@@ -242,10 +315,6 @@
       "temperature": 0.4,
       "permission": {
         "edit": "deny",
-        "bash": {
-          "*": "ask",
-          "git *": "allow"
-        },
         "webfetch": "allow",
         "websearch_cited": "allow",
         "codesearch": "allow",
@@ -263,10 +332,6 @@
       "temperature": 0.2,
       "permission": {
         "edit": "deny",
-        "bash": {
-          "*": "ask",
-          "git *": "allow"
-        },
         "webfetch": "allow",
         "websearch_cited": "allow",
         "codesearch": "allow",
@@ -283,10 +348,10 @@
       "model": "openai/gpt-5.2-codex",
       "temperature": 0.2,
       "permission": {
-        "edit": "ask",
-        "bash": {
-          "*": "ask",
-          "git *": "allow"
+        "edit": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
         }
       }
     },
@@ -299,14 +364,12 @@
       "temperature": 0.2,
       "permission": {
         "edit": "deny",
-        "bash": {
-          "*": "ask",
-          "git *": "allow"
-        },
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
         "task": {
           "*": "deny",
-          "coder": "allow",
-          "dotfiles-reviewer": "allow"
+          "coder": "allow"
         }
       }
     },
@@ -318,10 +381,10 @@
       "model": "openai/gpt-5.2-codex",
       "temperature": 0.2,
       "permission": {
-        "edit": "allow",
-        "bash": {
-          "*": "ask",
-          "git *": "allow"
+        "edit": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny"
         }
       }
     }
