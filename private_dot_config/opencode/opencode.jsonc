@@ -8,8 +8,7 @@
   "autoupdate": false,
 
   // Pick what you want OpenCode to start as.
-  // You can change later to "plan" if you want the search planner to be default.
-  "default_agent": "plan",
+  "default_agent": "build",
 
   // Default model (agents override this).
   // OpenCode selects models as `provider_id/model_id`.
