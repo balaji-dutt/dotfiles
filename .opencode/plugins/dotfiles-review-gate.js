@@ -52,25 +52,51 @@ function isIgnorableTrailingLine(t) {
   return false;
 }
 
-function lastNonEmptyLine(text) {
+function lastMeaningfulLine(text) {
   if (typeof text !== "string") return "";
+
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+
+  // OpenCode sometimes appends:
+  //   <task_metadata> ... </task_metadata>
+  // after the model output. We want to ignore that whole block.
+  let inTaskMetaBlock = false;
+
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i].trim();
-    if (isIgnorableTrailingLine(t)) continue;
+    if (!t) continue;
+
+    // Ignore the entire <task_metadata>...</task_metadata> trailer if present
+    if (t === "</task_metadata>") {
+      inTaskMetaBlock = true;
+      continue;
+    }
+    if (inTaskMetaBlock) {
+      if (t === "<task_metadata>") inTaskMetaBlock = false;
+      continue;
+    }
+    if (t === "<task_metadata>") continue;
+
+    // Ignore common OpenCode task trailers
+    if (/^to resume:/i.test(t)) continue;
+    if (/delegate_task\(/i.test(t)) continue;
+
+    // Ignore UI-ish footer noise if it leaks into payloads
+    if (t.startsWith("▣")) continue;
+
     return t;
   }
+
   return "";
 }
 
 function isRealPass(text) {
   if (typeof text !== "string") return false;
 
-  // If FAIL appears anywhere, never clear.
+  // Safety: if FAIL appears anywhere in the payload, never clear the gate.
   if (text.includes(FAIL)) return false;
 
-  // Must end with PASS as the final non-empty line.
-  return lastNonEmptyLine(text) === PASS;
+  return lastMeaningfulLine(text) === PASS;
 }
 
 // Recursively collect candidate strings.
