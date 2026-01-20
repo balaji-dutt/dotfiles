@@ -1,152 +1,160 @@
+// .opencode/plugins/dotfiles-review-gate.js
+// Clears the dotfiles review gate when a REAL PASS is observed.
+//
+// REAL PASS = the final non-empty line of some observed assistant/tool text is exactly:
+//   DOTFILES_REVIEWER_RESULT=PASS
+//
+// This listens to BOTH:
+// - tool.execute.after (covers background_output / call_omo_agent / etc)
+// - message.updated / message.part.updated (covers cases where parent prints the result)
+
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const PASS_LINE = "DOTFILES_REVIEWER_RESULT=PASS";
-const FAIL_LINE = "DOTFILES_REVIEWER_RESULT=FAIL";
+const PASS = "DOTFILES_REVIEWER_RESULT=PASS";
+const FAIL = "DOTFILES_REVIEWER_RESULT=FAIL";
 
-const DEBUG = process.env.DOTFILES_REVIEW_GATE_DEBUG === "1";
-const RECENT_WINDOW_MS = 10 * 60 * 1000; // only clear within 10 min of a reviewer run
+const DEBUG =
+  process.env.DOTFILES_REVIEW_GATE_DEBUG === "1" ||
+  process.env.DOTFILES_REVIEW_GATE_DEBUG === "true";
 
 async function exists(p) {
-  try { await fs.stat(p); return true; } catch { return false; }
+  try {
+    await fs.stat(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function appendDebug(baseDir, line) {
   if (!DEBUG) return;
   const logPath = path.join(baseDir, ".opencode", ".dotfiles-review-gate.log");
   const ts = new Date().toISOString();
-  await fs.mkdir(path.dirname(logPath), { recursive: true });
-  await fs.appendFile(logPath, `${ts} ${line}\n`, "utf8");
+  try {
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    await fs.appendFile(logPath, `${ts} ${line}\n`, "utf8");
+  } catch {
+    // ignore logging failures
+  }
 }
 
-async function clearGate(baseDir) {
-  await fs.rm(path.join(baseDir, ".opencode", ".needs_dotfiles_review"), { force: true });
-  await fs.rm(path.join(baseDir, ".claude", ".needs_dotfiles_review"), { force: true }); // transitional
-}
-
-function stripTrailingMetadata(text) {
+function lastNonEmptyLine(text) {
   if (typeof text !== "string") return "";
-  let t = text;
-  // remove trailing <task_metadata> blocks if present
-  t = t.replace(/\r?\n<task_metadata>[\s\S]*$/i, "");
-  // trim trailing whitespace/newlines
-  t = t.replace(/\s+$/g, "");
-  return t;
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (t) return t;
+  }
+  return "";
 }
 
-function isFinalLinePass(text) {
+function isRealPass(text) {
   if (typeof text !== "string") return false;
-  if (!text.includes("DOTFILES_REVIEWER_RESULT=")) return false;
-  if (text.includes(FAIL_LINE)) return false;
 
-  // Avoid clearing on enforcement/instruction text (which often mentions PASS/FAIL choices)
-  const instructionPatterns = [
-    /End your response with exactly one of/i,
-    /Your response MUST end with exactly ONE of/i,
-    /Ensure the .*FINAL line/i,
-    /Do this next \(invoke the agent explicitly\)/i,
-  ];
-  for (const re of instructionPatterns) {
-    if (re.test(text)) return false;
+  // If FAIL appears anywhere, never clear.
+  if (text.includes(FAIL)) return false;
+
+  // Must end with PASS as the final non-empty line.
+  return lastNonEmptyLine(text) === PASS;
+}
+
+// Recursively collect candidate strings.
+// Skip keys that commonly contain instruction text (the biggest false-positive source).
+function collectStrings(x, out = [], depth = 0, key = "") {
+  if (x == null || depth > 8) return out;
+
+  if (typeof x === "string") {
+    out.push(x);
+    return out;
   }
 
-  const stripped = stripTrailingMetadata(text);
-  const lines = stripped.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (!lines.length) return false;
+  if (Array.isArray(x)) {
+    for (const v of x) collectStrings(v, out, depth + 1, key);
+    return out;
+  }
 
-  return lines[lines.length - 1] === PASS_LINE;
-}
-
-// Collect strings from an event/object while avoiding prompt-ish keys
-function collectStrings(x, out = []) {
-  if (!x) return out;
-  if (typeof x === "string") { out.push(x); return out; }
-  if (Array.isArray(x)) { for (const v of x) collectStrings(v, out); return out; }
   if (typeof x === "object") {
     for (const [k, v] of Object.entries(x)) {
-      const lower = k.toLowerCase();
+      const lk = String(k).toLowerCase();
+
+      // Don’t scan prompt/reason/decision/description/instructions (they frequently quote PASS/FAIL)
       if (
-        lower.includes("prompt") ||
-        lower.includes("instruction") ||
-        lower === "reason" ||
-        lower === "description"
-      ) continue;
-      collectStrings(v, out);
+        lk.includes("prompt") ||
+        lk.includes("instruction") ||
+        lk === "reason" ||
+        lk === "decision" ||
+        lk === "description"
+      ) {
+        continue;
+      }
+
+      collectStrings(v, out, depth + 1, lk);
     }
   }
+
   return out;
 }
 
-export default async ({ project, directory, worktree }) => {
-  const baseDir = worktree || project?.worktree || directory || process.cwd();
-  const gateO = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
-  const gateC = path.join(baseDir, ".claude", ".needs_dotfiles_review");
+export default async (ctx) => {
+  const baseDir =
+    ctx?.worktree ||
+    ctx?.project?.worktree ||
+    ctx?.directory ||
+    process.cwd();
 
-  let lastReviewerRunAt = 0;
+  const gateOpenCode = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
+  const gateClaude = path.join(baseDir, ".claude", ".needs_dotfiles_review"); // transitional
 
   await appendDebug(baseDir, `initialized baseDir=${baseDir}`);
 
-  async function gated() {
-    return (await exists(gateO)) || (await exists(gateC));
+  async function clearGate(where) {
+    if (!(await exists(gateOpenCode)) && !(await exists(gateClaude))) return;
+
+    await appendDebug(baseDir, `PASS detected via ${where} -> clearing gate`);
+    await fs.rm(gateOpenCode, { force: true });
+    await fs.rm(gateClaude, { force: true });
   }
 
-  function markReviewerRun(why) {
-    lastReviewerRunAt = Date.now();
-    appendDebug(baseDir, `marked reviewer run (${why})`).catch(() => {});
-  }
+  async function scanAndClear(where, obj) {
+    if (!(await exists(gateOpenCode)) && !(await exists(gateClaude))) return;
 
-  function isRecentReviewerRun() {
-    return (Date.now() - lastReviewerRunAt) <= RECENT_WINDOW_MS;
-  }
-
-  async function maybeClearFromStrings(strings, why) {
-    if (!(await gated())) return;
-
-    // If we *haven’t* recently invoked the reviewer, be conservative and do nothing.
-    // (This avoids clearing from random old text containing PASS.)
-    if (!isRecentReviewerRun()) {
-      await appendDebug(baseDir, `PASS check skipped (no recent reviewer run) via ${why}`);
-      return;
+    const strings = collectStrings(obj, []);
+    for (const s of strings) {
+      if (isRealPass(s)) {
+        await clearGate(where);
+        return;
+      }
     }
 
-    for (const s of strings) {
-      if (isFinalLinePass(s)) {
-        await appendDebug(baseDir, `PASS(final-line) via ${why} -> clearing gate`);
-        await clearGate(baseDir);
-        return;
+    if (DEBUG) {
+      const sawMarker = strings.some(
+        (s) => typeof s === "string" && s.includes("DOTFILES_REVIEWER_RESULT=")
+      );
+      if (sawMarker) {
+        await appendDebug(
+          baseDir,
+          `marker seen but not REAL PASS via ${where}; lastLine=${JSON.stringify(
+            lastNonEmptyLine(strings.find((s) => s.includes("DOTFILES_REVIEWER_RESULT=")) || "")
+          )}`
+        );
       }
     }
   }
 
   return {
     "tool.execute.after": async (input, output) => {
-      const toolName = input?.tool || "unknown";
-      await appendDebug(baseDir, `tool.execute.after tool=${toolName}`);
-
-      // When we see the reviewer background task being launched, mark it.
-      if (toolName === "background_task") {
-        const blob = JSON.stringify({ input, output });
-        if (blob.includes("agent=dotfiles-reviewer") || blob.includes('"agent":"dotfiles-reviewer"')) {
-          markReviewerRun("background_task(dotfiles-reviewer)");
-        }
-        return;
-      }
-
-      // Primary path: background_output sometimes contains the final reviewer text.
-      if (toolName === "background_output") {
-        const strings = collectStrings(output, []);
-        await maybeClearFromStrings(strings, "tool.execute.after:background_output");
-      }
+      const tool = input?.tool || input?.name || "unknown";
+      await appendDebug(baseDir, `tool.execute.after tool=${tool}`);
+      await scanAndClear(`tool.execute.after:${tool}`, output);
     },
 
-    // Secondary path: sometimes the parent agent prints the reviewer result as a normal message.
+    // Some builds emit the final reviewer text as a normal assistant message.
     "message.updated": async (ev) => {
-      const strings = collectStrings(ev, []);
-      await maybeClearFromStrings(strings, "message.updated");
+      await scanAndClear("message.updated", ev);
     },
     "message.part.updated": async (ev) => {
-      const strings = collectStrings(ev, []);
-      await maybeClearFromStrings(strings, "message.part.updated");
+      await scanAndClear("message.part.updated", ev);
     },
   };
 };
