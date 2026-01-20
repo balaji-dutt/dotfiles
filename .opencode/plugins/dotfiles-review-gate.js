@@ -39,12 +39,26 @@ async function appendDebug(baseDir, line) {
   }
 }
 
+function isIgnorableTrailingLine(t) {
+  if (!t) return true;
+
+  // OpenCode task footer (your logs show this exact shape)
+  if (/^to resume:/i.test(t)) return true;
+  if (/delegate_task\(/i.test(t)) return true;
+
+  // Optional: UI-ish footer lines that may appear in some payloads
+  if (/^▣\s/.test(t)) return true;
+
+  return false;
+}
+
 function lastNonEmptyLine(text) {
   if (typeof text !== "string") return "";
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const t = lines[i].trim();
-    if (t) return t;
+    if (isIgnorableTrailingLine(t)) continue;
+    return t;
   }
   return "";
 }
