@@ -75,9 +75,37 @@ test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell
 # }
 {{- end }}
 
-{{- if eq .chezmoi.os "darwin" }}
+{{- if or (eq .chezmoi.os "darwin")
+          (and (eq .chezmoi.os "linux")
+               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+# OpenCode env (trusted file)
+case $- in
+  *a*)
+    set +a
+    _opencode_restore_allexport=1
+    ;;
+  *)
+    unset _opencode_restore_allexport
+    ;;
+esac
+
 OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
-[[ -f "$OPENCODE_ENV_FILE" ]] && source "$OPENCODE_ENV_FILE"
+if [ -n "${_opencode_restore_allexport:-}" ]; then
+  export OPENCODE_ENV_FILE
+fi
+
+if [ -r "$OPENCODE_ENV_FILE" ]; then
+  set -a
+  . "$OPENCODE_ENV_FILE"
+
+  if [ -z "${_opencode_restore_allexport:-}" ]; then
+    set +a
+  fi
+elif [ -n "${_opencode_restore_allexport:-}" ]; then
+  set -a
+fi
+
+unset _opencode_restore_allexport
 {{- end }}
 
 # source antidote from brew (macOS) or ~/.antidote (WSL2)

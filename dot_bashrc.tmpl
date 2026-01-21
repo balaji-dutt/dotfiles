@@ -223,5 +223,40 @@ alias ops=' eval $(op signin)'
 {{   end -}}
 {{ end -}}
 
+{{- if or (eq .chezmoi.os "darwin")
+          (and (eq .chezmoi.os "linux")
+               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+
+# OpenCode env (trusted file)
+case $- in
+  *a*)
+    set +a
+    _opencode_restore_allexport=1
+    ;;
+  *)
+    unset _opencode_restore_allexport
+    ;;
+esac
+
+OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+if [ -n "${_opencode_restore_allexport:-}" ]; then
+  export OPENCODE_ENV_FILE
+fi
+
+if [ -r "$OPENCODE_ENV_FILE" ]; then
+  set -a
+  . "$OPENCODE_ENV_FILE"
+
+  if [ -z "${_opencode_restore_allexport:-}" ]; then
+    set +a
+  fi
+elif [ -n "${_opencode_restore_allexport:-}" ]; then
+  set -a
+fi
+
+unset _opencode_restore_allexport
+
+{{- end }}
+
 # This is added at the end of the file to avoid potential conflicts
 eval "$(direnv hook bash)"
