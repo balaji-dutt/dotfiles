@@ -140,10 +140,23 @@
         state: directory
         mode: "0755"
 
+    - name: Ensure mise conf.d directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.config/mise/conf.d"
+        state: directory
+        mode: "0755"
+
     - name: Symlink mise global config to dotfiles
       ansible.builtin.file:
         src: "{{ chezmoi_source_dir }}/configs/mise.toml"
         dest: "{{ ansible_env.HOME }}/.config/mise/config.toml"
+        state: link
+        force: true
+
+    - name: Symlink mise WSL2 config fragment to dotfiles
+      ansible.builtin.file:
+        src: "{{ chezmoi_source_dir }}/configs/mise_wsl2.toml"
+        dest: "{{ ansible_env.HOME }}/.config/mise/conf.d/90-wsl2.toml"
         state: link
         force: true
 
