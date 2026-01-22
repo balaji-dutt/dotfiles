@@ -915,32 +915,31 @@ export TAVILY_API_KEY="{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef
 # export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 {{- end }}
 
-# Initialize claude-code-router if available.
-{{- $hasccr := false -}}
-{{- if lookPath "ccr" -}}
-{{-   $hasccr = true -}}
-{{- end -}}
-{{- if $hasccr }}
-    eval "$(ccr activate)"
+# Initialize claude-code-router integration if available.
+if (( ${+commands[ccr]} && ${+commands[claude]} )); then
+    claude() {
+        eval "$(ccr activate)"
+        command claude "$@"
+    }
+fi
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") (eq .chezmoi.osRelease.id "ubuntu") }}
-    # Autostart claude-code-router on login (Ubuntu WSL2)
-    if [[ -o interactive ]]; then
-        CCR_BIN="$(command -v ccr)"
-        PORT={{ .ccr_port }}
-        if [ -n "$CCR_BIN" ] \
-        && command -v ss >/dev/null 2>&1 \
-        && ! ss -ltn | grep -q ":${PORT} "; then
-            mkdir -p "$HOME/.claude-code-router/logs"
-            touch "$HOME/.claude-code-router/logs/ccr.log"
-            if command -v setsid >/dev/null 2>&1; then
-                setsid -f "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1
-            else
-                "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1 &
-            fi
+# Autostart claude-code-router on login (Ubuntu WSL2)
+if [[ -o interactive ]] && (( ${+commands[ccr]} )); then
+    CCR_BIN="$(command -v ccr)"
+    PORT={{ .ccr_port }}
+    if [ -n "$CCR_BIN" ] \
+    && command -v ss >/dev/null 2>&1 \
+    && ! ss -ltn | grep -q ":${PORT} "; then
+        mkdir -p "$HOME/.claude-code-router/logs"
+        touch "$HOME/.claude-code-router/logs/ccr.log"
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1
+        else
+            "$CCR_BIN" start </dev/null >>"$HOME/.claude-code-router/logs/ccr.log" 2>&1 &
         fi
     fi
-{{- end }}
+fi
 {{- end }}
 
 # Initialize fasd with smartcache if available, or directly if only fasd is available
