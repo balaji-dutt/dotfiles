@@ -9,7 +9,7 @@
         "plugins": false
     },
     "disabled_agents": [
-        "Sisyphus",
+        "orchestrator-sisyphus",
         "oracle",
         "librarian",
         "explore",
