@@ -55,20 +55,30 @@
     "tasks": {
         "version": "2.0.0",
         "tasks": [
-        {
-            "label": "Terminal: private-dotfiles shell",
-            "type": "process",
-            "command": "${env:SHELL}",
-            "options": {
-            "cwd": "${workspaceFolder:private-dotfiles}"
-            },
-            "problemMatcher": [],
-            "presentation": {
-            "reveal": "always",
-            "panel": "new",
-            "focus": true
+            {
+              "label": "Terminal: private-dotfiles shell",
+              "type": "process",
+              "options": {
+                "cwd": "${workspaceFolder:private-dotfiles}"
+              },
+              "problemMatcher": [],
+              "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "focus": true
+              },
+
+              // macOS/Linux
+              "command": "${env:SHELL}",
+              "args": ["-l"],
+
+              // Windows
+              "windows": {
+                "command": "pwsh.exe",
+                "args": ["-NoExit"]
+              }
             }
-        }
+
         ]
     }
 }
