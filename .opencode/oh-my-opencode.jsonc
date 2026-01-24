@@ -11,6 +11,9 @@
     "sisyphus_agent": {
         "disabled": true
     },
+    "ralph_loop": {
+        "enabled": false
+    },
     "disabled_agents": [
         "sisyphus",
         "prometheus",
@@ -26,24 +29,17 @@
         "keyword-detector",
         "auto-slash-command",
         "todo-continuation-enforcer",
-        "context-window-monitor",
-        "session-recovery",
-        "session-notification",
         "comment-checker",
         "directory-agents-injector",
         "directory-readme-injector",
         "think-mode",
         "rules-injector",
         "startup-toast",
-        "keyword-detector",
         "agent-usage-reminder",
         "non-interactive-env",
-        "interactive-bash-session",
-        "auto-slash-command"
+        "interactive-bash-session"
     ],
     "disabled_mcps": [
-        "websearch",
-        "context7",
-        "grep_app"
+        "websearch"
     ]
 }
