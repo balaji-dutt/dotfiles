@@ -36,6 +36,7 @@ base_apt_packages:
   - gnupg
   - apt-transport-https
   - gettext
+  - libgl1
 
 # -----------------------------------------------------------------------------
 # Apt packages - Ubuntu only
