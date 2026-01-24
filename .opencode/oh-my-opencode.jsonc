@@ -12,17 +12,15 @@
         "disabled": true
     },
     "disabled_agents": [
-        "Sisyphus",
-        "orchestrator-sisyphus",
-        "Metis (Plan Consultant)",
-        "Momus (Plan Reviewer)",
+        "sisyphus",
+        "prometheus",
+        "metis",
+        "momus",
+        "atlas",
         "multimodal-looker",
         "oracle",
         "librarian",
-        "explore",
-        "frontend-ui-ux-engineer",
-        "document-writer",
-        "multimodal-looker"
+        "explore"
     ],
     "disabled_hooks": [
         "keyword-detector",
