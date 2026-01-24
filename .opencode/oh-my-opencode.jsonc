@@ -8,12 +8,16 @@
         "mcp": false,
         "plugins": false
     },
-    "sisyphus_agent": {
-        "disabled": true
-    },
     "ralph_loop": {
         "enabled": false
     },
+    "sisyphus_agent": {
+        "disabled": true
+    },
+    "disabled_commands": [
+        "init-deep",
+        "start-work"
+    ],
     "disabled_agents": [
         "sisyphus",
         "prometheus",
@@ -28,6 +32,7 @@
     "disabled_hooks": [
         "keyword-detector",
         "auto-slash-command",
+        "ralph-loop",
         "todo-continuation-enforcer",
         "comment-checker",
         "directory-agents-injector",
@@ -40,6 +45,7 @@
         "interactive-bash-session"
     ],
     "disabled_mcps": [
-        "websearch"
+        "websearch",
+        "grep_app"
     ]
 }
