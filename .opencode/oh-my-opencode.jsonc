@@ -8,8 +8,15 @@
         "mcp": false,
         "plugins": false
     },
+    "sisyphus_agent": {
+        "disabled": true
+    },
     "disabled_agents": [
+        "Sisyphus",
         "orchestrator-sisyphus",
+        "Metis (Plan Consultant)",
+        "Momus (Plan Reviewer)",
+        "multimodal-looker",
         "oracle",
         "librarian",
         "explore",
@@ -29,8 +36,6 @@
         "directory-readme-injector",
         "think-mode",
         "rules-injector",
-        "background-notification",
-        "auto-update-checker",
         "startup-toast",
         "keyword-detector",
         "agent-usage-reminder",
