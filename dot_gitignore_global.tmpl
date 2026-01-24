@@ -221,15 +221,15 @@ zsdoc/data
 # $ git config --global mergetool.keepBackup false
 *.orig
 
-# Created by git when using merge tools for conflicts
-*.BACKUP.*
-*.BASE.*
-*.LOCAL.*
-*.REMOTE.*
-*_BACKUP_*.txt
-*_BASE_*.txt
-*_LOCAL_*.txt
-*_REMOTE_*.txt
+# Created by git when using merge tools for conflicts (portable across case-sensitive/insensitive FS)
+*.[bB][aA][cC][kK][uU][pP].*
+*.[bB][aA][sS][eE].*
+*.[lL][oO][cC][aA][lL].*
+*.[rR][eE][mM][oO][tT][eE].*
+*_[bB][aA][cC][kK][uU][pP]_*.txt
+*_[bB][aA][sS][eE]_*.txt
+*_[lL][oO][cC][aA][lL]_*.txt
+*_[rR][eE][mM][oO][tT][eE]_*.txt
 
 # End of https://www.toptal.com/developers/gitignore/api/git
 
