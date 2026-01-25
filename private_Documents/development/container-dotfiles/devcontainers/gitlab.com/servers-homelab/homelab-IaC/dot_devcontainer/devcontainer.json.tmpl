@@ -37,9 +37,9 @@
       "target": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
       "type": "bind"
     },
-    // --- Mount for persistent Zsh history (using a named volume) ---
+    // --- Mount for persistent data (using a named volume) ---
     {
-      "source": "homelab-iac-zshhistory-volume",
+      "source": "homelab-iac-data-volume",
       "target": "/home/vscode/persistent-data",
       "type": "volume"
     }
@@ -74,8 +74,9 @@
         "markdownlint.configFile": "/home/vscode/.markdownlint-cli2.jsonc"
       },
       "extensions": [
-        // --- Claude Code ---
+        // --- Coding Agents ---
         "anthropic.claude-code",
+        "sst-dev.opencode",
 
         // --- High-Quality General Purpose ---
         "mikestead.dotenv",
@@ -83,10 +84,6 @@
         "ionutvmi.path-autocomplete",
         "shardulm94.trailing-spaces",
         "davidanson.vscode-markdownlint",
-
-        // --- Useful General Purpose ---
-        "deerawan.vscode-dash",
-        "spmeesseman.vscode-taskexplorer",
 
         // --- Minor extensions for formatting ---
         "annsk.alignment",
