@@ -11,24 +11,15 @@ export default async (ctx) => {
 
   const sentinel = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
 
-  // Toggle behavior:
-  // - OPENCODE_MARK_REVIEW=0 disables everywhere
-  // - OPENCODE_MARK_REVIEW=1 enables everywhere
-  // - otherwise: enable only on Windows + WSL
+  // Universal by default.
+  // - OPENCODE_MARK_REVIEW=0 disables
+  // - OPENCODE_MARK_REVIEW=1 forces enable (useful if you later add other gating)
   const env = (process.env.OPENCODE_MARK_REVIEW || "").toLowerCase();
-  const forcedOff = env === "0" || env === "false" || env === "off";
-  const forcedOn = env === "1" || env === "true" || env === "on";
-
-  const isWin = process.platform === "win32";
-  const isWSL =
-    process.platform === "linux" &&
-    !!(process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP);
-
-  const enabled = forcedOn || (!forcedOff && (isWin || isWSL));
+  const disabled = env === "0" || env === "false" || env === "off";
+  const enabled = !disabled; // default on
   if (!enabled) return { event: async () => {} };
 
-  // If something already touched the sentinel very recently (eg your Claude hook on macOS),
-  // skip writing again to avoid noise.
+  // Dedupe to avoid double-marking (e.g. if Claude hooks also mark on macOS)
   const DEDUPE_MS = 2000;
   async function recentlyMarked() {
     try {
@@ -52,23 +43,15 @@ export default async (ctx) => {
 
   function isInsideRepo(p) {
     if (!p) return false;
-
-    // If absolute, ensure it starts with repo root (case-insensitive via normalize)
     if (path.isAbsolute(p)) return normalize(p).startsWith(baseNorm);
-
-    // Relative paths assumed repo-relative
     return true;
   }
 
   function isOpencodeArtifact(pNorm) {
-    // catches ".opencode/..." anywhere in the path, windows or unix style
     return pNorm.includes("/.opencode/") || pNorm.startsWith(".opencode/");
   }
 
-  // Extract "which file" from different payload shapes
   function extractFileFromEvent(event) {
-    // Your event-tap proved `event.path` exists for file.edited in your build,
-    // but keep these fallbacks for portability.
     return (
       event?.path ||
       event?.properties?.file ||
@@ -83,7 +66,6 @@ export default async (ctx) => {
     event: async ({ event }) => {
       if (!event?.type) return;
 
-      // 1) Mark on file-edits
       if (event.type === "file.edited") {
         const file = extractFileFromEvent(event);
         if (!isInsideRepo(file)) return;
@@ -96,8 +78,7 @@ export default async (ctx) => {
         return;
       }
 
-      // 2) Optional safety net: if tool events occur on some platforms, mark on those too.
-      // (Doesn’t hurt; dedupe prevents double-mark.)
+      // Optional safety net for platforms that emit tool events
       if (event.type === "tool.execute.after") {
         const tool = String(event?.tool || event?.properties?.tool || "").toLowerCase();
         if (tool === "edit" || tool === "write" || tool === "multiedit" || tool === "apply_patch") {
