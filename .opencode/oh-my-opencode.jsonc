@@ -1,9 +1,9 @@
 {
     "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
     "claude_code": {
-        "hooks": true,
+        "hooks": false,
         "agents": false,
-        "skills": false,
+        "skills": true,
         "commands": false,
         "mcp": false,
         "plugins": false
