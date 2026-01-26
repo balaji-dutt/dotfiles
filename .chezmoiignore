@@ -92,8 +92,8 @@ Documents/PowerShell
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}
 ansible/
 ansible/**
-assets/
-assets/**
+/assets/
+/assets/**
 archive/
 archive/**
 configs/
