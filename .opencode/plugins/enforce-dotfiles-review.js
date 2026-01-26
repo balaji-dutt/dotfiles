@@ -88,28 +88,44 @@ export default async (ctx = {}) => {
   async function kickReviewer(reason) {
     await trace({ action: "kickReviewer", reason });
 
-    // Toast is optional; ignore if not supported
+    // Toast (best-effort)
     try {
       await ctx.client?.tui?.showToast?.({
-        body: { message: "Dotfiles review required — running dotfiles-reviewer…", variant: "info" },
+        body: { message: "Dotfiles review required — preparing dotfiles-reviewer…", variant: "info" },
       });
     } catch {}
 
     const text = reviewerPrompt();
 
-    // Append + submit prompt. Some builds want a payload for submitPrompt.
+    // 1) Prefill the prompt input
+    let appended = false;
     try {
-      await ctx.client?.tui?.appendPrompt?.({ body: { text } });
+      appended = await ctx.client?.tui?.appendPrompt?.({ body: { text } });
     } catch (e) {
       await trace({ action: "appendPrompt.failed", reason, error: String(e?.message || e) });
-      throw e;
     }
 
+    // 2) Try to submit it automatically
+    let submitted = false;
     try {
-      await ctx.client?.tui?.submitPrompt?.({ body: { text: "" } });
+      // Workaround: some builds need an empty body here.
+      submitted = await ctx.client?.tui?.submitPrompt?.({ body: { text: "" } });
     } catch (e) {
       await trace({ action: "submitPrompt.failed", reason, error: String(e?.message || e) });
-      throw e;
+    }
+
+    // 3) If submission didn’t happen, tell the human what to do
+    if (!submitted) {
+      try {
+        await ctx.client?.tui?.showToast?.({
+          body: {
+            message: appended
+              ? "Review prompt inserted. Press Enter to run dotfiles-reviewer."
+              : "Couldn’t auto-insert review prompt. Run @dotfiles-reviewer manually.",
+            variant: "warning",
+          },
+        });
+      } catch {}
     }
   }
 

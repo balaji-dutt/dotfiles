@@ -13,14 +13,24 @@ export default async (ctx) => {
 
   // Universal by default.
   // - OPENCODE_MARK_REVIEW=0 disables
-  // - OPENCODE_MARK_REVIEW=1 forces enable (useful if you later add other gating)
   const env = (process.env.OPENCODE_MARK_REVIEW || "").toLowerCase();
   const disabled = env === "0" || env === "false" || env === "off";
-  const enabled = !disabled; // default on
+  const enabled = !disabled;
   if (!enabled) return { event: async () => {} };
 
-  // Dedupe to avoid double-marking (e.g. if Claude hooks also mark on macOS)
+  // Toast toggle:
+  // - OPENCODE_MARK_REVIEW_TOAST=0 disables toast
+  const toastEnv = (process.env.OPENCODE_MARK_REVIEW_TOAST || "").toLowerCase();
+  const toastDisabled = toastEnv === "0" || toastEnv === "false" || toastEnv === "off";
+  const toastEnabled = !toastDisabled;
+
+  // Dedupe (avoid double-marking)
   const DEDUPE_MS = 2000;
+
+  // Toast throttle (avoid spam)
+  const TOAST_THROTTLE_MS = 10_000;
+  let lastToastAtMs = 0;
+
   async function recentlyMarked() {
     try {
       const s = await stat(sentinel);
@@ -36,19 +46,28 @@ export default async (ctx) => {
   }
 
   function normalize(p) {
-    return String(p || "").replace(/\\/g, "/").toLowerCase();
+    return String(p || "").replace(/\\/g, "/");
+  }
+  function normalizeLower(p) {
+    return normalize(p).toLowerCase();
   }
 
   const baseNorm = normalize(baseDir);
+  const baseNormLower = normalizeLower(baseDir);
+  const isWin = process.platform === "win32";
 
   function isInsideRepo(p) {
     if (!p) return false;
-    if (path.isAbsolute(p)) return normalize(p).startsWith(baseNorm);
+    if (path.isAbsolute(p)) {
+      const nl = normalizeLower(p);
+      return isWin ? nl.startsWith(baseNormLower) : normalize(p).startsWith(baseNorm);
+    }
     return true;
   }
 
-  function isOpencodeArtifact(pNorm) {
-    return pNorm.includes("/.opencode/") || pNorm.startsWith(".opencode/");
+  function isOpencodeArtifact(p) {
+    const n = normalizeLower(p);
+    return n.includes("/.opencode/") || n.startsWith(".opencode/");
   }
 
   function extractFileFromEvent(event) {
@@ -62,6 +81,40 @@ export default async (ctx) => {
     );
   }
 
+  function relPath(p) {
+    if (!p) return "unknown file";
+    if (!path.isAbsolute(p)) return normalize(p);
+
+    // Use path.relative for nice repo-relative display
+    try {
+      const rel = path.relative(baseDir, p);
+      return rel && rel !== "" ? normalize(rel) : normalize(p);
+    } catch {
+      return normalize(p);
+    }
+  }
+
+  async function maybeToast(message) {
+    if (!toastEnabled) return;
+    const now = Date.now();
+    if (now - lastToastAtMs < TOAST_THROTTLE_MS) return;
+    lastToastAtMs = now;
+
+    try {
+      await ctx.client?.tui?.showToast?.({
+        body: { message, variant: "info" },
+      });
+    } catch {
+      // no-op if not supported
+    }
+  }
+
+  async function markAndToast(file, reasonLabel) {
+    await mark();
+    const fileDisplay = relPath(file);
+    await maybeToast(`Marked for review: ${fileDisplay}`);
+  }
+
   return {
     event: async ({ event }) => {
       if (!event?.type) return;
@@ -69,12 +122,10 @@ export default async (ctx) => {
       if (event.type === "file.edited") {
         const file = extractFileFromEvent(event);
         if (!isInsideRepo(file)) return;
-
-        const pNorm = normalize(file);
-        if (isOpencodeArtifact(pNorm)) return;
+        if (isOpencodeArtifact(file)) return;
 
         if (await recentlyMarked()) return;
-        await mark();
+        await markAndToast(file, "file.edited");
         return;
       }
 
@@ -83,7 +134,7 @@ export default async (ctx) => {
         const tool = String(event?.tool || event?.properties?.tool || "").toLowerCase();
         if (tool === "edit" || tool === "write" || tool === "multiedit" || tool === "apply_patch") {
           if (await recentlyMarked()) return;
-          await mark();
+          await markAndToast("", `tool.execute.after:${tool}`);
         }
       }
     },
