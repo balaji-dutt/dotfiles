@@ -71,13 +71,12 @@ export default async (ctx = {}) => {
   }
 
   function reviewerPrompt() {
-    // This is your battle-tested text, with one extra nudge:
-    // "final line only" to satisfy scanAndClear/isRealPass behavior.
     return (
       "Dotfiles review required before stopping.\n\n" +
       "Do this next (invoke the agent explicitly):\n\n" +
       "@dotfiles-reviewer\n" +
-      "Review ONLY the latest git changes (use git diff) and end with EXACTLY ONE of the following as the FINAL LINE ONLY:\n" +
+      "Review ONLY the latest git changes, ignoring workflow artifacts under .opencode/. Use git diff\n" +
+      "and end with EXACTLY ONE of the following as the FINAL LINE ONLY:\n" +
       "DOTFILES_REVIEWER_RESULT=PASS\n" +
       "DOTFILES_REVIEWER_RESULT=FAIL\n\n" +
       "If FAIL: fix Must-fix issues and rerun the agent.\n\n" +
