@@ -20,6 +20,8 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/private_settings.json,target=/tmp/claude-private-settings.json,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/config.json,target=/tmp/claude-router-config.json,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/container_env,target=/tmp/container_env,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_dot_config/opencode/opencode.jsonc,target=/tmp/opencode.jsonc,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/opencode.env,target=/tmp/opencode.env,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt,target=/tmp/container_packages/npm.txt,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt,target=/tmp/container_packages/uv.txt,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/AGENTS.md,target=/tmp/claude-agents.md,type=bind,readonly",
@@ -54,7 +56,7 @@
   "postStartCommand": [
     "bash",
     "-lc",
-    "set -euo pipefail; mkdir -p /home/vscode/persistent-data \"$HOME/.claude-code-router/logs\"; CCR_BIN=\"$(command -v ccr || true)\"; echo \"postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH\" >>/home/vscode/persistent-data/poststart-debug.log; PORT={{ .ccr_port }}; if [ -n \"$CCR_BIN\" ] && ! ss -ltn | grep -q \":${PORT} \"; then setsid -f \"$CCR_BIN\" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1; fi"
+    "set -euo pipefail; mkdir -p /home/vscode/persistent-data \"$HOME/.claude-code-router/logs\" /home/vscode/persistent-data/opencode/{config,cache,share,state} \"$HOME/.config\" \"$HOME/.cache\" \"$HOME/.local/share\" \"$HOME/.local/state\"; ln -sfn /home/vscode/persistent-data/opencode/config \"$HOME/.config/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/cache \"$HOME/.cache/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/share \"$HOME/.local/share/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/state \"$HOME/.local/state/opencode\"; ln -sf /tmp/opencode.jsonc \"$HOME/.config/opencode/opencode.jsonc\"; ln -sf /tmp/opencode.env \"$HOME/.config/opencode/opencode.env\"; CCR_BIN=\"$(command -v ccr || true)\"; echo \"postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH\" >>/home/vscode/persistent-data/poststart-debug.log; PORT={{ .ccr_port }}; if [ -n \"$CCR_BIN\" ] && ! ss -ltn | grep -q \":${PORT} \"; then setsid -f \"$CCR_BIN\" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1; fi"
   ],
 
   "customizations": {

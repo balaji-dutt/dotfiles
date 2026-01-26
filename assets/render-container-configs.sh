@@ -41,11 +41,18 @@ FOR_CONTAINER=true NON_INTERACTIVE_MODE=true chezmoi execute-template < dot_clau
 echo "Rendering container environment file..."
 echo "TAVILY_API_KEY=$(chezmoi execute-template '{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef5y/credential" }}')" > private_Documents/development/container-dotfiles/dotfiles/configs/container_env
 
+# Render OpenCode environment file (reads 1Password)
+echo "Rendering OpenCode environment file..."
+FOR_CONTAINER=true NON_INTERACTIVE_MODE=true \
+  chezmoi execute-template < private_dot_config/opencode/private_opencode.env.tmpl \
+  > private_Documents/development/container-dotfiles/dotfiles/configs/opencode.env
+
 echo "✓ Done!"
 echo ""
 echo "Generated files:"
 echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/config.json"
 echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/container_env"
+echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/opencode.env"
 echo ""
 echo "Next steps:"
 echo "  1. Review generated files (DO NOT commit them to git)"

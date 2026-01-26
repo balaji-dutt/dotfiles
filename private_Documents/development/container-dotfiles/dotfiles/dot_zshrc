@@ -32,6 +32,35 @@ alias cd=" cd"
 # Direnv initialization
 (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 
+# OpenCode env (trusted file)
+case $- in
+  *a*)
+    set +a
+    _opencode_restore_allexport=1
+    ;;
+  *)
+    unset _opencode_restore_allexport
+    ;;
+esac
+
+OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+if [ -n "${_opencode_restore_allexport:-}" ]; then
+  export OPENCODE_ENV_FILE
+fi
+
+if [ -r "$OPENCODE_ENV_FILE" ]; then
+  set -a
+  . "$OPENCODE_ENV_FILE"
+
+  if [ -z "${_opencode_restore_allexport:-}" ]; then
+    set +a
+  fi
+elif [ -n "${_opencode_restore_allexport:-}" ]; then
+  set -a
+fi
+
+unset _opencode_restore_allexport
+
 # Enable Powerlevel10k instant prompt.
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
@@ -125,9 +154,12 @@ else
     (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 fi
 
-# Initialize claude-code-router if available
-if command -v ccr >/dev/null 2>&1; then
-    eval "$(ccr activate)"
+# Initialize claude-code-router integration if available.
+if (( ${+commands[ccr]} && ${+commands[claude]} )); then
+    claude() {
+        eval "$(ccr activate)"
+        command claude "$@"
+    }
 fi
 
 # 1. Bind the Up Arrow to the fzf_history_search widget

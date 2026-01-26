@@ -311,6 +311,41 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
       [ -n "${TAVILY_API_KEY:-}" ] && echo "export TAVILY_API_KEY=\"$TAVILY_API_KEY\""
     } >> "$f"
   done
+
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$repo_root" ]; then
+    if [ -n "${WORKSPACE_FOLDER:-}" ] && [ -d "$WORKSPACE_FOLDER/.git" ]; then
+      repo_root="$WORKSPACE_FOLDER"
+    elif [ -n "${REMOTE_CONTAINERS_WORKSPACE_FOLDER:-}" ] && [ -d "$REMOTE_CONTAINERS_WORKSPACE_FOLDER/.git" ]; then
+      repo_root="$REMOTE_CONTAINERS_WORKSPACE_FOLDER"
+    elif [ -d /workspaces ]; then
+      repo_count=0
+      repo_candidate=""
+      for workspace in /workspaces/*; do
+        [ -d "$workspace/.git" ] || continue
+        repo_candidate="$workspace"
+        repo_count=$((repo_count + 1))
+      done
+      if [ "$repo_count" -eq 1 ]; then
+        repo_root="$repo_candidate"
+      elif [ "$repo_count" -gt 1 ]; then
+        echo "!! multiple git repos under /workspaces; skipping .opencode seeding"
+      fi
+    fi
+  fi
+
+  if [ -n "$repo_root" ]; then
+    repo_name="$(basename "$repo_root")"
+    seed_dir="$SRC/assets/workspace-templates/$repo_name/.opencode"
+    if [ -d "$seed_dir" ]; then
+      mkdir -p "$repo_root/.opencode"
+      rsync -a --ignore-existing "$seed_dir/." "$repo_root/.opencode/"
+    else
+      echo "!! .opencode seed directory not found for $repo_name; skipping"
+    fi
+  else
+    echo "!! repo root not found; skipping .opencode seeding"
+  fi
 fi
 
 echo "==> Dotfiles install complete."
