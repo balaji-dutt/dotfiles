@@ -9,6 +9,10 @@
 
     // macOS: /tmp often resolves to /private/tmp
     "**/private/tmp/claude-prompt-*",
-    "**/private/tmp/claude-*"
+    "**/private/tmp/claude-*",
+
+    // OpenCode/macOS temp files
+    "**/var/folders/**/T/**",
+    "**/private/var/folders/**/T/**"
   ]
 }
