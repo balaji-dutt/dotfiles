@@ -1,13 +1,5 @@
 #!/bin/bash
 
-safe_sed() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i "" "$@"
-    else
-        sed -i "$@"
-    fi
-}
-
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 IS_GIT=true
 if [ -z "$GIT_ROOT" ]; then
