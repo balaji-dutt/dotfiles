@@ -1,32 +1,41 @@
 import { appendFile } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 
 export default async () => {
+  // Off by default. Enable with: OPENCODE_EVENT_TAP=1
   const enabled = /^(1|true|on)$/i.test(process.env.OPENCODE_EVENT_TAP || "");
   const outFile = process.env.OPENCODE_EVENT_TAP_FILE || "/tmp/opencode-event-tap.log";
 
-  // Dump full payload once for one of these event types (in order)
-  const dumpTargets = [
-    "tui.command.execute",
-    "session.idle",
-  ];
-
-  // If you want to force which one gets dumped:
-  // OPENCODE_EVENT_TAP_DUMP=tui.command.execute
-  const forcedDump = (process.env.OPENCODE_EVENT_TAP_DUMP || "").trim();
-
+  // Optional: dump one full sanitized payload for a specific event type:
+  // OPENCODE_EVENT_TAP_DUMP=message.updated
+  const forcedDumpType = (process.env.OPENCODE_EVENT_TAP_DUMP || "").trim();
   let dumped = false;
 
-  const log = (obj) => {
+  const logAsync = (obj) => {
     if (!enabled) return;
     const line = `${new Date().toISOString()} ${JSON.stringify(obj)}\n`;
+    // Fire-and-forget; never await inside the event loop.
     void appendFile(outFile, line).catch(() => {});
+  };
+
+  // Sync write only for one-time FULL_DUMP, so it survives fast shutdown.
+  const logSync = (obj) => {
+    if (!enabled) return;
+    try {
+      const line = `${new Date().toISOString()} ${JSON.stringify(obj)}\n`;
+      appendFileSync(outFile, line);
+    } catch {
+      // ignore
+    }
   };
 
   // Best-effort redaction
   const redact = (value) => {
     if (typeof value !== "string") return value;
-    // crude but helpful: redact obvious key/token-ish strings
-    if (/sk-|api[_-]?key|token|bearer|anthropic|openai/i.test(value) && value.length > 12) {
+    if (
+      /sk-|api[_-]?key|token|bearer|anthropic|openai/i.test(value) &&
+      value.length > 12
+    ) {
       return "[REDACTED]";
     }
     return value;
@@ -37,14 +46,18 @@ export default async () => {
     if (obj === null || obj === undefined) return obj;
 
     if (Array.isArray(obj)) {
-      if (obj.length > 50) return obj.slice(0, 50).map((x) => sanitize(x, depth + 1)).concat(["[TRUNCATED_ARRAY]"]);
+      if (obj.length > 50) {
+        return obj
+          .slice(0, 50)
+          .map((x) => sanitize(x, depth + 1))
+          .concat(["[TRUNCATED_ARRAY]"]);
+      }
       return obj.map((x) => sanitize(x, depth + 1));
     }
 
     if (typeof obj === "object") {
       const out = {};
       const keys = Object.keys(obj);
-      // cap keys to avoid huge logs
       for (const k of keys.slice(0, 80)) {
         const v = obj[k];
         if (typeof v === "string") out[k] = redact(v);
@@ -57,71 +70,90 @@ export default async () => {
     return redact(obj);
   };
 
-  setTimeout(() => log({ kind: "loaded", enabled, outFile }), 0);
+  setTimeout(() => {
+    logAsync({ kind: "loaded", enabled, outFile, forcedDumpType });
+  }, 0);
 
+  // Keep this list small — logging everything can get noisy fast.
   const interesting = new Set([
     "file.edited",
+    "session.idle",
+    "session.created",
+    "message.updated",
+    "message.part.updated",
     "tool.execute.before",
     "tool.execute.after",
-    "session.idle",
-    "tui.command.execute",
   ]);
 
-  // Throttle for the small entries
+  // Throttle small entries
   let lastMs = 0;
 
-  return {
-    event: async ({ event }) => {
-      if (!enabled || !event?.type || !interesting.has(event.type)) return;
+  function pickFirst(...vals) {
+    for (const v of vals) {
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return null;
+  }
 
-      // One-time full dump
-      if (!dumped) {
-        const target = forcedDump || dumpTargets.find((t) => t === event.type);
-        if (target && event.type === target) {
-          dumped = true;
-          log({
-            kind: "FULL_DUMP",
-            note: "One-time sanitized dump of event payload",
-            eventType: event.type,
-            event: sanitize(event),
-          });
-        }
+  function extractCommandish(evt) {
+    return pickFirst(
+      evt?.properties?.command,
+      evt?.properties?.text,
+      evt?.properties?.args,
+      evt?.input?.command,
+      evt?.input?.text,
+      evt?.input?.args,
+      evt?.command,
+      evt?.text,
+      evt?.args
+    );
+  }
+
+  return {
+    // Rename handler param to avoid DOM global `event` lint warnings.
+    event: async ({ event: evt }) => {
+      if (!enabled || !evt?.type || !interesting.has(evt.type)) return;
+
+      // One-time full dump if requested
+      if (!dumped && forcedDumpType && evt.type === forcedDumpType) {
+        dumped = true;
+        logSync({
+          kind: "FULL_DUMP",
+          note: "One-time sanitized dump by forced type",
+          eventType: evt.type,
+          event: sanitize(evt),
+        });
       }
 
       const now = Date.now();
-      if (now - lastMs < 100) return;
+      if (now - lastMs < 100) return; // 10 lines/sec max
       lastMs = now;
 
-      // Small stable entries
-      const entry = { type: event.type };
+      const entry = { type: evt.type };
 
-      if (event.type === "file.edited") {
-        entry.path =
-          event.path ??
-          event.file ??
-          event.filePath ??
-          event.properties?.path ??
-          event.properties?.file ??
-          null;
+      if (evt.type === "file.edited") {
+        entry.path = pickFirst(
+          evt.path,
+          evt.file,
+          evt.filePath,
+          evt.properties?.path,
+          evt.properties?.file
+        );
       }
 
-      if (event.type.startsWith("tool.execute.")) {
-        entry.tool =
-          event.tool ??
-          event.properties?.tool ??
-          event.input?.tool ??
-          null;
+      if (evt.type.startsWith("tool.execute.")) {
+        entry.tool = pickFirst(evt.tool, evt.properties?.tool, evt.input?.tool);
+        entry.command = extractCommandish(evt);
       }
 
-      if (event.type === "tui.command.execute") {
-        entry.command =
-          event.properties?.command ??
-          event.properties?.name ??
-          event.command ??
-          null;
+      if (evt.type === "message.updated") {
+        // Useful to debug session routing without logging entire payload
+        entry.sessionID = pickFirst(evt?.properties?.info?.sessionID, evt?.properties?.sessionID);
+        entry.role = pickFirst(evt?.properties?.info?.role);
+        entry.agent = pickFirst(evt?.properties?.info?.agent);
       }
 
-      log(entry);
+      logAsync(entry);
     },
   };
 };
