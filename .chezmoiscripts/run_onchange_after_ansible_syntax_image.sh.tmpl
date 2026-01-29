@@ -1,0 +1,19 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/bin/bash
+
+# assets/Dockerfile.ansible-syntax hash: {{ include "assets/Dockerfile.ansible-syntax" | sha256sum }}
+
+set -e
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker not found; skipping ansible syntax image rebuild."
+  exit 0
+fi
+
+GIT_ROOT="{{ .chezmoi.sourceDir }}"
+DOCKERFILE="$GIT_ROOT/assets/Dockerfile.ansible-syntax"
+IMAGE_TAG="local/ansible-syntax:repo"
+
+echo "Rebuilding $IMAGE_TAG from $DOCKERFILE..."
+docker build -f "$DOCKERFILE" -t "$IMAGE_TAG" "$GIT_ROOT"
+{{- end -}}
