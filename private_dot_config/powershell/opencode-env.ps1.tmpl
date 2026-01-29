@@ -1,0 +1,38 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+# OpenCode env (trusted file)
+$configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
+$env:OPENCODE_ENV_FILE = Join-Path (Join-Path $configHome "opencode") "opencode.env"
+
+if (Test-Path -LiteralPath $env:OPENCODE_ENV_FILE) {
+  Get-Content -LiteralPath $env:OPENCODE_ENV_FILE | ForEach-Object {
+    $line = $_.Trim()
+    if ($line.Length -eq 0) { return }
+    if ($line.StartsWith("#")) { return }
+
+    if ($line -match '^\s*export\s+') {
+      $line = ($line -replace '^\s*export\s+', '')
+    }
+
+    $parts = $line -split '=', 2
+    if ($parts.Count -ne 2) { return }
+
+    $key = $parts[0].Trim()
+    $val = $parts[1].Trim()
+
+    if ($key -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { return }
+
+    if ($val.Length -ge 2 -and (
+        ($val.StartsWith("'") -and $val.EndsWith("'")) -or
+        ($val.StartsWith('"') -and $val.EndsWith('"'))
+      )) {
+      $val = $val.Substring(1, $val.Length - 2)
+    }
+
+    Set-Item -Path ("Env:{0}" -f $key) -Value $val
+  }
+}
+
+{{- end -}}

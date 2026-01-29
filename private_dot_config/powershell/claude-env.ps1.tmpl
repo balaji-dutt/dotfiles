@@ -2,15 +2,67 @@
 {{- /* not Windows */ -}}
 {{- else -}}
 
-# Claude Code env
-$env:ANTHROPIC_BASE_URL      = 'http://127.0.0.1:3456'
-$env:ANTHROPIC_AUTH_TOKEN    = 'test'
-$env:ANTHROPIC_API_KEY       = ''
-$env:NO_PROXY                = '127.0.0.1'
-$env:DISABLE_TELEMETRY       = 'true'
-$env:DISABLE_COST_WARNINGS   = 'true'
-$env:API_TIMEOUT_MS          = '600000'
+# Claude Code env (scoped to claude invocation)
+function Invoke-WithScopedEnv {
+  param(
+    [Parameter(Mandatory)][hashtable]$Env,
+    [Parameter(Mandatory)][scriptblock]$ScriptBlock
+  )
 
-# Optional: also set lowercase variants (some tooling checks these)
-$env:no_proxy = $env:NO_PROXY
+  $had = @{}
+  $prev = @{}
+
+  foreach ($k in $Env.Keys) {
+    $had[$k] = Test-Path "Env:$k"
+    $prev[$k] = if ($had[$k]) { (Get-Item "Env:$k").Value } else { $null }
+    Set-Item -Path "Env:$k" -Value $Env[$k]
+  }
+
+  try {
+    & $ScriptBlock
+  } finally {
+    foreach ($k in $Env.Keys) {
+      if ($had[$k]) {
+        Set-Item -Path "Env:$k" -Value $prev[$k]
+      } else {
+        Remove-Item -Path "Env:$k" -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
+function global:claude {
+  param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
+
+  $cmd = Get-Command claude -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    Write-Error "claude executable not found in PATH"
+    return
+  }
+
+  $cliArgs = $Args
+
+  Invoke-WithScopedEnv -Env @{
+    ANTHROPIC_BASE_URL    = 'http://127.0.0.1:3456'
+    ANTHROPIC_AUTH_TOKEN  = 'test'
+    ANTHROPIC_API_KEY     = ''
+    NO_PROXY              = '127.0.0.1'
+    no_proxy              = '127.0.0.1'
+    DISABLE_TELEMETRY     = 'true'
+    DISABLE_COST_WARNINGS = 'true'
+    API_TIMEOUT_MS        = '600000'
+  } -ScriptBlock { & $cmd.Source @cliArgs }
+}
+
+function global:claude_raw {
+  param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
+
+  $cmd = Get-Command claude -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    Write-Error "claude executable not found in PATH"
+    return
+  }
+
+  & $cmd.Source @Args
+}
 {{- end -}}
