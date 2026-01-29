@@ -9,7 +9,13 @@
     <key>ProgramArguments</key>
     <array>
       <string>/usr/bin/ssh-add</string>
-      <string>--apple-load-keychain</string>
+      <string>--apple-use-keychain</string>
+      <string>/Users/balaji/.ssh/keys/public_averagegeek_2019-ed25519</string>
+      <string>/Users/balaji/.ssh/keys/godmode_primaryvps-id_rsa</string>
+      <string>/Users/balaji/.ssh/keys/godmode_torbox-id_rsa</string>
+      <string>/Users/balaji/.ssh/keys/avggeek_primaryvps-id_rsa</string>
+      <string>/Users/balaji/.ssh/keys/avggeek_torbox_2019-ed25519</string>
+      <string>/Users/balaji/.ssh/keys/superuser_ldap-ed25519</string>
     </array>
 
     <key>RunAtLoad</key>
