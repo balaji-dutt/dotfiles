@@ -419,9 +419,41 @@ function Get-WslPath([string]$WindowsPath) {
   }
 }
 
+function Get-BashPath([string]$WindowsPath) {
+  if (-not (HaveCmd 'bash')) { return $null }
+
+  if (HaveCmd 'cygpath') {
+    try {
+      $out = & cygpath -u -- $WindowsPath 2>$null
+      $path = ($out | Out-String).Trim()
+      if (-not [string]::IsNullOrEmpty($path)) { return $path }
+    } catch {
+      # Fall through to bash -lc
+    }
+  }
+
+  try {
+    $escaped = $WindowsPath.Replace('\', '\\').Replace('"', '\"')
+    $cmd = 'cygpath -u "' + $escaped + '"'
+    $out = & bash -lc $cmd 2>$null
+    $path = ($out | Out-String).Trim()
+    if (-not [string]::IsNullOrEmpty($path)) { return $path }
+  } catch {
+    return $null
+  }
+
+  return $null
+}
+
 function Invoke-BashSyntaxCheckPath([string]$Path) {
   if (HaveCmd 'bash') {
-    bash -n $Path
+    $full = [IO.Path]::GetFullPath($Path)
+    $bashPath = Get-BashPath $full
+    if (-not [string]::IsNullOrEmpty($bashPath)) {
+      bash -n $bashPath
+    } else {
+      bash -n $full
+    }
     return
   }
 
