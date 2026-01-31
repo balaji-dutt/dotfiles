@@ -373,23 +373,41 @@ fi
 
 {{- if .homelab.windows_user }}
 # Pageant/WSL2 inter-op (via npiperelay + socat)
-export SSH_AUTH_SOCK=/tmp/wsl2-ssh-agent.sock
+WSL2_PAGEANT_SSH_AUTH_SOCK=${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent.sock}
+export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
 
-wsl2_pageant_ensure() {
+_wsl2_pageant_pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
+
+_wsl2_pageant_agent_ok() {
+    [ -n "${SSH_AUTH_SOCK:-}" ] || return 1
+    [ -S "$SSH_AUTH_SOCK" ] || return 1
+
+    if command -v ssh-add >/dev/null 2>&1; then
+        ssh-add -l >/dev/null 2>&1
+        case $? in
+            0|1) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    return 0
+}
+
+_wsl2_pageant_kill() {
+    local pattern="${1:-$_wsl2_pageant_pgrep_pattern}"
+
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "$pattern" >/dev/null 2>&1 || true
+    else
+        local pids
+        pids="$(pgrep -f "$pattern" 2>/dev/null)"
+        [ -n "$pids" ] && kill $pids >/dev/null 2>&1 || true
+    fi
+}
+
+_wsl2_pageant_start() {
     local npiperelay_exe="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
     local pageant_pipe='//./pipe/ssh-pageant'
-    local pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
-
-    command -v socat >/dev/null 2>&1 || return 0
-    [ -x "$npiperelay_exe" ] || return 0
-
-    if pgrep -f "$pgrep_pattern" >/dev/null 2>&1; then
-        return 0
-    fi
-
-    if [ -S "$SSH_AUTH_SOCK" ]; then
-        rm -f "$SSH_AUTH_SOCK"
-    fi
 
     if command -v setsid >/dev/null 2>&1; then
         setsid -f socat \
@@ -404,16 +422,38 @@ wsl2_pageant_ensure() {
     fi
 }
 
-sset() {
-    local pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
+wsl2_pageant_ensure() {
+    local npiperelay_exe="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
 
-    if command -v pkill >/dev/null 2>&1; then
-        pkill -f "$pgrep_pattern" >/dev/null 2>&1 || true
-    else
-        local pids
-        pids="$(pgrep -f "$pgrep_pattern" 2>/dev/null)"
-        [ -n "$pids" ] && kill $pids >/dev/null 2>&1 || true
+    command -v socat >/dev/null 2>&1 || return 1
+    [ -x "$npiperelay_exe" ] || return 1
+
+    if _wsl2_pageant_agent_ok; then
+        return 0
     fi
+
+    local attempt
+    for (( attempt = 0; attempt < 6; attempt++ )); do
+        _wsl2_pageant_kill "$_wsl2_pageant_pgrep_pattern"
+        rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
+        _wsl2_pageant_start
+
+        local i
+        for (( i = 0; i < 50; i++ )); do
+            _wsl2_pageant_agent_ok && return 0
+            sleep 0.1
+        done
+
+        sleep 0.5
+    done
+
+    return 1
+}
+
+sset() {
+    export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
+
+    _wsl2_pageant_kill "$_wsl2_pageant_pgrep_pattern"
 
     rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
 
@@ -433,6 +473,8 @@ if [[ -o interactive ]]; then
     autoload -Uz add-zsh-hook
 
     _wsl2_pageant_auto_heal() {
+        [ -n "${SSH_AUTH_SOCK:-}" ] || return 0
+
         typeset -g _WSL2_PAGEANT_LAST_CHECK
         local last=${_WSL2_PAGEANT_LAST_CHECK:-0}
 
@@ -441,7 +483,7 @@ if [[ -o interactive ]]; then
         fi
         _WSL2_PAGEANT_LAST_CHECK=$EPOCHSECONDS
 
-        if ! pgrep -f 'socat.*npiperelay\.exe.*ssh-pageant' >/dev/null 2>&1; then
+        if ! _wsl2_pageant_agent_ok; then
             wsl2_pageant_ensure >/dev/null 2>&1
         fi
     }
@@ -987,4 +1029,3 @@ bind_fzf_history() {
 }
 # 3. Ensure this runs AFTER antidote loads plugins.
 bind_fzf_history
-
