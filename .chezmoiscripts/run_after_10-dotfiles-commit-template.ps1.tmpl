@@ -1,0 +1,37 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$repoRoot = "{{ .chezmoi.workingTree }}"
+$gitMessage = Join-Path $repoRoot ".gitmessage"
+
+if (-not (Test-Path -LiteralPath $gitMessage)) {
+  return
+}
+
+$commitTemplate = (& git -C $repoRoot config --local --get commit.template 2>$null) -join "`n"
+$commitTemplate = $commitTemplate.Trim()
+
+if (-not $commitTemplate) {
+  & git -C $repoRoot config --local commit.template .gitmessage
+  Write-Host "INFO: set commit.template to .gitmessage for $repoRoot"
+  return
+}
+
+$resolvedTemplate = (& git -C $repoRoot config --path --local --get commit.template 2>$null) -join "`n"
+$resolvedTemplate = $resolvedTemplate.Trim()
+
+if ($resolvedTemplate -and (Test-Path -LiteralPath $resolvedTemplate)) {
+  return
+}
+
+$relativeTemplate = Join-Path $repoRoot $commitTemplate
+if (Test-Path -LiteralPath $relativeTemplate) {
+  return
+}
+
+& git -C $repoRoot config --local commit.template .gitmessage
+Write-Host "INFO: reset commit.template to .gitmessage for $repoRoot (previous path missing)"
+{{- end -}}

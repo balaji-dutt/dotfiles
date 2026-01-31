@@ -1,0 +1,34 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- /* Windows uses the PowerShell variant. */ -}}
+{{- else -}}
+#!/bin/bash
+set -euo pipefail
+
+repo_root='{{ .chezmoi.workingTree }}'
+gitmessage="$repo_root/.gitmessage"
+
+if [ ! -f "$gitmessage" ]; then
+  exit 0
+fi
+
+commit_template="$(git -C "$repo_root" config --local --get commit.template 2>/dev/null || true)"
+
+if [ -z "$commit_template" ]; then
+  git -C "$repo_root" config --local commit.template .gitmessage
+  echo "INFO: set commit.template to .gitmessage for $repo_root"
+  exit 0
+fi
+
+resolved_template="$(git -C "$repo_root" config --path --local --get commit.template 2>/dev/null || true)"
+
+if [ -n "$resolved_template" ] && [ -f "$resolved_template" ]; then
+  exit 0
+fi
+
+if [ -f "$repo_root/$commit_template" ]; then
+  exit 0
+fi
+
+git -C "$repo_root" config --local commit.template .gitmessage
+echo "INFO: reset commit.template to .gitmessage for $repo_root (previous path missing)"
+{{- end -}}
