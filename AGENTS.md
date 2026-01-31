@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD007 MD013 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-disable MD007 MD013 MD023 MD024 MD031 MD032 MD034 MD040 MD041 MD051 -->
 <!-- markdownlint-configure-file
 {
   options": {
@@ -170,3 +170,52 @@ chezmoi apply <target-path>
 - Run the `chezmoi doctor` command.
   - If any findings appear related to your changes, fix them before moving on.
   - Errors relating to a `vault` command failure can be ignored.
+
+### Commit message workflow (required)
+
+- After changes are complete and verification has passed (audit tool + `chezmoi doctor` as applicable), the agent must propose a commit message before running any commit-related commands.
+- Exception: If the change includes `README.md`, follow Documentation Workflow (README.md) for committing.
+
+#### Commit message format
+
+- Subject line: max 50 characters, summary in imperative mood (e.g., “Add …”, “Fix …”, “Update …”), no trailing period.
+- Second line: blank
+- Body (optional):
+  - From the third line onward, use bulleted lines starting with ` - `.
+  - Each bullet line must be < 80 characters.
+  - Bullets should explain *what changed and why*, not a changelog of every tiny edit.
+
+#### Choosing short vs full message (small vs big)
+
+Use `git diff --stat` (and/or `git diff --numstat`) to classify the change. Prefer the full format if unsure.
+
+Small change → subject-only (no body):
+- No new files, and
+- Touches 1 file, and
+- Total changed lines (additions + deletions) is <= 15, and
+- Change is low-risk (typos, comments, formatting, trivial docs, narrow tweak).
+
+Big change → full format (subject + blank line + bullets):
+- Any new file added, or
+- Touches 2+ files, or
+- Total changed lines (additions + deletions) is >= 16, or
+- Change is higher-risk / behavior-affecting (scripts, bootstrap, chezmoi templates,
+  audit tooling, cross-platform logic), even if the diff is small.
+
+Body guidance for big changes (recommended 1–5 bullets):
+- Mention key behavior changes, cross-platform considerations, and any safety/rollback notes.
+- If the work naturally splits into unrelated changes, propose splitting into multiple commits.
+
+#### Examples
+
+**Small (subject-only):**
+- `Fix typo in zsh alias comment`
+- `Tweak git prompt spacing`
+
+**Big (subject + bullets):**
+
+Add WSL bootstrap step for package sync
+
+- Ensure apt packages are updated before applying dotfiles
+- Skip when running under native Windows PowerShell
+- Document expected env vars and failure modes
