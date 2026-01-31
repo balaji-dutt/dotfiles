@@ -1,0 +1,200 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+if (-not $env:GITHUB_API_TOKEN) {
+  Write-Host "ERROR: GITHUB_API_TOKEN is not set."
+  Write-Host "This script uses the GitHub API and will likely hit rate limits without a token."
+  Write-Host ""
+  Write-Host "Run: `$env:GITHUB_API_TOKEN=..."
+  Write-Host "Then rerun chezmoi apply."
+  exit 1
+}
+
+$userPackages = Join-Path $env:APPDATA "Sublime Merge\Packages\User"
+$tempRoot = Join-Path $env:TEMP ("smerge-packages-" + [guid]::NewGuid().ToString("N"))
+$zipPath = Join-Path $tempRoot "Packages.zip"
+$extractDir = Join-Path $tempRoot "extract"
+
+$headers = @{
+  Authorization = "Bearer $env:GITHUB_API_TOKEN"
+  Accept = "application/vnd.github+json"
+  "User-Agent" = "chezmoi-smerge-packages"
+}
+
+New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+try {
+  $tagsUrl = "https://api.github.com/repos/sublimehq/Packages/tags?per_page=1"
+  $tags = Invoke-RestMethod -Uri $tagsUrl -Headers $headers -Method Get
+  if (-not $tags -or -not $tags[0].zipball_url) {
+    throw "Unable to resolve latest tag zipball URL."
+  }
+
+  Invoke-WebRequest -Uri $tags[0].zipball_url -Headers $headers -OutFile $zipPath -UseBasicParsing
+  New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+  Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+  $syntaxFile = Get-ChildItem -Path $extractDir -Recurse -File -Filter "Git Commit.sublime-syntax" | Select-Object -First 1
+  if (-not $syntaxFile) {
+    throw "Git Commit.sublime-syntax not found in archive."
+  }
+
+  $gitFormatsDir = Split-Path -Parent $syntaxFile.FullName
+  if (-not (Test-Path -LiteralPath $gitFormatsDir)) {
+    throw "Git Formats directory not found in archive."
+  }
+
+  if (-not (Test-Path -LiteralPath $userPackages)) {
+    New-Item -ItemType Directory -Force -Path $userPackages | Out-Null
+  }
+
+  $targetDir = Join-Path $userPackages "Git Formats"
+  if (Test-Path -LiteralPath $targetDir) {
+    Remove-Item -LiteralPath $targetDir -Recurse -Force
+  }
+
+  Copy-Item -LiteralPath $gitFormatsDir -Destination $targetDir -Recurse -Force
+
+  $targetFile = Join-Path $targetDir "Git Commit.sublime-syntax"
+  $syntaxContents = @'
+%YAML 1.2
+---
+name: Git Commit
+file_extensions:
+  - COMMIT_EDITMSG
+  - MERGE_MSG
+  - TAG_EDITMSG
+scope: text.git.commit
+version: 2
+
+variables:
+  comment_char: '[#;]'
+  on_branch: On branch|На клон|En la branca|Auf Branch|Sur la branche|Sul branch|현재 브랜치|No ramo|На ветке|På grenen|Trên nhánh|位于分支
+
+contexts:
+  prototype:
+    - include: dropped-content
+
+  main:
+    # 1. Check for magic comment on Line 1.
+    - match: '^{{ "{{" }}comment_char{{ "}}" }}\s*mode:\s*relaxed'
+      set: relaxed-flow
+    # 2. Handle standard comments
+    - include: comments
+    # 3. If it's text, it's the subject. Start Strict Flow.
+    - match: ^(?=\S)
+      set: strict-subject
+
+  relaxed-flow:
+    - match: ^(?=\S)
+      set: relaxed-subject
+    - include: comments
+    - match: \n
+
+  ##[ STRICT MODE - RED ILLEGAL ]#######################################
+
+  strict-subject:
+    - meta_scope: meta.subject.git.commit markup.heading.subject.git.commit
+    # Error for Subject > 50 chars
+    - match: (?<=^.{50}).+
+      scope: invalid.illegal.git.commit
+    - match: \n
+      set: strict-separator
+    # This allows hashes/numbers to be colored even inside the subject
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+    - include: comments
+
+  strict-separator:
+    - match: ^\n
+      set: strict-message
+    - match: ^\S.*
+      scope: invalid.illegal.git.commit
+      set: strict-message
+    - include: comments
+
+  strict-message:
+    - meta_scope: meta.message.git.commit
+    # Error for Body > 72 chars
+    - match: (?<=^.{72}).+
+      scope: invalid.illegal.git.commit
+    - include: signed-off
+    - include: comments
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+
+  ##[ RELAXED MODE - YELLOW WARNING ]####################################
+
+  relaxed-subject:
+    - meta_scope: meta.subject.git.commit markup.heading.subject.git.commit
+    # Warning for Subject > 50 chars
+    - match: (?<=^.{50}).+
+      scope: invalid.deprecated.git.commit
+    - match: \n
+      set: relaxed-separator
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+    - include: comments
+
+  relaxed-separator:
+    - include: comments
+    - match: ^
+      set: relaxed-message
+    # - match: ^\n
+    #   set: relaxed-message
+    # - match: ^\S.*
+    #   scope: invalid.deprecated.git.commit
+    #   set: relaxed-message
+    # - include: comments
+
+  relaxed-message:
+    - meta_scope: meta.message.git.commit
+    # Warning for Body > 72 chars
+    - match: (?<=^.{72}).+
+      scope: invalid.deprecated.git.commit
+    - include: signed-off
+    - include: comments
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+
+  ##[ SHARED CONTEXTS ]#################################################
+
+  signed-off:
+    - match: ^\s*(Signed-off-by)\s*(:)
+      captures:
+        1: keyword.other.signed-off-by.git.commit
+        2: punctuation.separator.mapping.pair.git.commit
+
+  comments:
+    - match: ^{{ "{{" }}comment_char{{ "}}" }}
+      scope: punctuation.definition.comment.git.commit
+      push:
+        - meta_include_prototype: false
+        - meta_scope: comment.line.git.commit
+        - match: $\n?
+          pop: true
+        - include: branch-line
+
+  branch-line:
+    - match: \b({{ "{{" }}on_branch{{ "}}" }})\s+(.*)
+      captures:
+        1: markup.heading.on-branch.git.commit
+        2: constant.language.branch-name.git.commit
+
+  dropped-content:
+    - match: '{{ "{{" }}comment_char{{ "}}" }} -{24} >8 -{24}\s*\n'
+      scope: comment.line.git.commit markup.bold.commit
+      set:
+        - meta_content_scope: meta.dropped.git.commit
+        - include: comments
+        - match: ^(?=diff --git)
+          set: [Packages/Diff/Diff.sublime-syntax]
+'@
+
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($targetFile, $syntaxContents, $utf8NoBom)
+} finally {
+  if (Test-Path -LiteralPath $tempRoot) {
+    Remove-Item -LiteralPath $tempRoot -Recurse -Force
+  }
+}
+{{- end -}}
