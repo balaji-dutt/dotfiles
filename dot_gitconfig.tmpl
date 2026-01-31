@@ -42,12 +42,21 @@
     fsmonitor = true
 {{ end }}
 
-{{- $hasOpSession := env "OP_SESSION_my" | ne "" }}
+{{- $opCmd := .chezmoi.config.onepassword.command -}}
+{{- $opPath := lookPath $opCmd -}}
+{{- $opEmail := "" -}}
+{{- if $opPath -}}
+  {{- if $isWindows -}}
+    {{- $opEmail = (output "powershell.exe" "-NoProfile" "-Command" (printf "$ErrorActionPreference='SilentlyContinue'; $v = & '%s' read --no-newline op://private/gitlab.com/email 2>$null; if ($LASTEXITCODE -eq 0) { $v }" $opPath)) | trim -}}
+  {{- else -}}
+    {{- $opEmail = (output "sh" "-lc" (printf "%q read --no-newline op://private/gitlab.com/email 2>/dev/null || true" $opPath)) | trim -}}
+  {{- end -}}
+{{- end }}
 
 [user]
     name = {{ .name }}
-{{- if $hasOpSession }}
-    email = {{ onepasswordRead "op://private/gitlab.com/email" }}
+{{- if $opEmail }}
+    email = {{ $opEmail }}
 {{- else }}
     email = {{ .email }}
 {{- end }}
