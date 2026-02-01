@@ -141,6 +141,49 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
   - If any findings appear related to your changes, fix them before moving on.
   - Errors relating to a `vault` command failure can be ignored.
 
+### Final step (required)
+
+After the audit and `chezmoi doctor` steps succeed, you must follow **Commit message workflow (required)** and include a proposed commit message in
+your final response. If the commit message proposal is missing, the task is incomplete. Do not conclude with ‘done’/‘complete’ until the commit message proposal is included.
+
+## Commit message workflow (required)
+
+After changes are complete and verification has passed (audit tool + `chezmoi doctor` as applicable), the agent must propose a commit message as part of the final response.
+
+- Do not wait to be asked.
+- Do not run commit commands unless explicitly instructed.
+- Exception: If the change includes `README.md`, follow **Documentation Workflow (README.md)** for committing.
+
+### Commit message format
+
+- Subject line: <= 50 characters, imperative mood, no trailing period.
+- Second line: blank.
+<!-- markdownlint-disable MD038 -->
+- Body (optional): bulleted lines starting with `- `, each < 80 characters.
+<!-- markdownlint-enable MD038 -->
+
+### Choosing short vs full message (small vs big)
+
+Use `git diff --stat` (and/or `git diff --numstat`) to classify the change.
+Prefer the full format if unsure.
+
+Small change → subject-only (no body):
+- No new files, and
+- Touches 1 file, and
+- Total changed lines (additions + deletions) <= 15, and
+- Low-risk (typos/comments/formatting/trivial docs/narrow tweak).
+
+Big change → full format (subject + blank line + bullets):
+- Any new file added, or
+- Touches 2+ files, or
+- Total changed lines (additions + deletions) >= 16, or
+- Higher-risk / behavior-affecting change (scripts/bootstrap/templates/tooling).
+
+### Final response requirement
+
+A task is not complete unless the final response includes a proposed commit message
+that follows the rules above.
+
 ## New files (not yet in chezmoi state)
 
 If you add a brand new file to the repo/source state, it may not appear in `chezmoi managed` yet on this machine (because it hasn’t been applied/recorded in state). In this case, do not assume it is unmanaged; instead, preview the computed target output.
@@ -171,51 +214,7 @@ chezmoi apply <target-path>
   - If any findings appear related to your changes, fix them before moving on.
   - Errors relating to a `vault` command failure can be ignored.
 
-### Commit message workflow (required)
+### Final step (required)
 
-- After changes are complete and verification has passed (audit tool + `chezmoi doctor` as applicable), the agent must propose a commit message before running any commit-related commands.
-- Exception: If the change includes `README.md`, follow Documentation Workflow (README.md) for committing.
-
-#### Commit message format
-
-- Subject line: max 50 characters, summary in imperative mood (e.g., “Add …”, “Fix …”, “Update …”), no trailing period.
-- Second line: blank
-- Body (optional):
-  - From the third line onward, use bulleted lines starting with ` - `.
-  - Each bullet line must be < 80 characters.
-  - Bullets should explain *what changed and why*, not a changelog of every tiny edit.
-
-#### Choosing short vs full message (small vs big)
-
-Use `git diff --stat` (and/or `git diff --numstat`) to classify the change. Prefer the full format if unsure.
-
-Small change → subject-only (no body):
-- No new files, and
-- Touches 1 file, and
-- Total changed lines (additions + deletions) is <= 15, and
-- Change is low-risk (typos, comments, formatting, trivial docs, narrow tweak).
-
-Big change → full format (subject + blank line + bullets):
-- Any new file added, or
-- Touches 2+ files, or
-- Total changed lines (additions + deletions) is >= 16, or
-- Change is higher-risk / behavior-affecting (scripts, bootstrap, chezmoi templates,
-  audit tooling, cross-platform logic), even if the diff is small.
-
-Body guidance for big changes (recommended 1–5 bullets):
-- Mention key behavior changes, cross-platform considerations, and any safety/rollback notes.
-- If the work naturally splits into unrelated changes, propose splitting into multiple commits.
-
-#### Examples
-
-**Small (subject-only):**
-- `Fix typo in zsh alias comment`
-- `Tweak git prompt spacing`
-
-**Big (subject + bullets):**
-
-Add WSL bootstrap step for package sync
-
-- Ensure apt packages are updated before applying dotfiles
-- Skip when running under native Windows PowerShell
-- Document expected env vars and failure modes
+After completing the new-file preview/apply steps and running `chezmoi doctor`, you must follow **Commit message workflow (required)** and include a proposed
+commit message in your final response. If the commit message proposal is missing, the task is incomplete.
