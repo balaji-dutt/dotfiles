@@ -1,0 +1,77 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+function global:git_pull_rebase_then_apply_stash {
+  $git = Get-Command git -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+  if (-not $git) {
+    Write-Error "git executable not found in PATH"
+    return
+  }
+
+  $insideRepo = & $git.Source rev-parse --is-inside-work-tree 2>$null
+  if ($LASTEXITCODE -ne 0 -or $insideRepo -ne "true") {
+    Write-Error "Not inside a git worktree"
+    return
+  }
+
+  $status = & $git.Source status --porcelain
+  if (-not $status) {
+    & $git.Source pull --rebase
+    return
+  }
+
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $stashName = "gpls-auto-stash-$stamp"
+
+  & $git.Source stash push -u -m $stashName
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "git stash failed"
+    return
+  }
+
+  $stashEntry = & $git.Source stash list --format="%gd:%s" | Select-Object -First 1
+  if (-not $stashEntry) {
+    Write-Error "stash reference not found"
+    return
+  }
+
+  $stashRef = $stashEntry.Split(":")[0]
+
+  & $git.Source pull --rebase
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "git pull --rebase failed"
+    return
+  }
+  $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gpls-" + [guid]::NewGuid().ToString("n"))
+  $preflightOk = $false
+
+  & $git.Source worktree add --detach $tempDir | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    Push-Location $tempDir
+    try {
+      & $git.Source stash apply $stashRef | Out-Null
+      if ($LASTEXITCODE -eq 0) { $preflightOk = $true }
+    } finally {
+      Pop-Location
+      & $git.Source worktree remove --force $tempDir | Out-Null
+    }
+  }
+
+  if (-not $preflightOk) {
+    Write-Warning "stash apply preflight failed; stash preserved"
+    return
+  }
+
+  & $git.Source stash apply $stashRef
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "stash apply failed; stash preserved"
+    return
+  }
+
+  & $git.Source stash drop $stashRef | Out-Null
+}
+
+Set-Alias -Name gpls -Value git_pull_rebase_then_apply_stash
+
+{{- end -}}

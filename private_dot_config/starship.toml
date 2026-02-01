@@ -1,0 +1,76 @@
+add_newline = true
+
+format = """$os$directory$git_branch$git_status[](fg:236)$fill$status$cmd_duration$jobs$username$hostname
+$character"""
+
+[fill]
+symbol = " "   # IMPORTANT: no style here, so it doesn't paint a full-width bar
+
+# ---- Left prompt (all bg 236, colored text) ----
+
+[os]
+disabled = false
+style = "fg:33 bg:236 bold"  # blue on grey
+format = "[ $symbol ]($style)[](fg:244 bg:236)"
+
+[os.symbols]
+Windows = "\uF17A"
+
+[directory]
+use_os_path_sep = false
+truncate_to_repo = false
+truncation_length = 8
+style = "fg:33 bg:236 bold"
+format = "[ $path ]($style)[](fg:244 bg:236)"
+
+[git_branch]
+style = "fg:76 bg:236 bold"
+format = "[ $branch ]($style)[](fg:244 bg:236)"
+
+[git_status]
+style = "fg:178 bg:236 bold"
+format = "[ $all_status$ahead_behind ]($style)"
+
+# file counts
+modified   = '!${count}'
+untracked  = '?${count}'
+staged     = '+${count}'
+renamed    = '»${count}'
+deleted    = '✘${count}'
+conflicted = '=${count}'
+stashed    = '\$${count}'   # \$ = literal dollar sign
+
+# ahead/behind counts (optional)
+ahead    = '⇡${count}'
+behind   = '⇣${count}'
+diverged = '⇡${ahead_count}⇣${behind_count}'
+
+# ---- Right-side info (no background) ----
+
+[status]
+disabled = false
+format = " [$status]($style)"
+
+[cmd_duration]
+min_time = 3000
+format = " [$duration]($style)"
+style = "fg:250"
+
+[jobs]
+format = " [$number]($style)"
+style = "fg:250"
+
+[username]
+show_always = false
+format = " [$user]($style)@"
+style_user = "bold white"
+
+[hostname]
+ssh_only = true
+format = "[$hostname]($style)"
+style = "bold white"
+
+# p10k-ish prompt char
+[character]
+success_symbol = "(fg:240) [❯](bold green) "
+error_symbol   = "(fg:240) [❯](bold red) "

@@ -1,0 +1,22 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+$czCmd = Get-Command chezmoi -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+if ($czCmd) {
+  Set-Alias -Name cz -Value $czCmd.Source
+}
+
+function global:czp {
+  param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
+
+  $cmd = Get-Command chezmoi -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    Write-Error "chezmoi executable not found in PATH"
+    return
+  }
+
+  & $cmd.Source --config "$env:USERPROFILE\.config\chezmoi-private\chezmoi.toml" --source "F:\Balaji\Development\private-dotfiles" @Args
+}
+
+{{- end -}}

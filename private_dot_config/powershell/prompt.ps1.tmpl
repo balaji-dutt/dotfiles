@@ -1,0 +1,10 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+$starship = Get-Command starship -CommandType Application -ErrorAction SilentlyContinue
+if ($starship) {
+  Invoke-Expression (& $starship.Source init powershell)
+}
+
+{{- end -}}

@@ -1,0 +1,182 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+$script:DotfilesRepoPath = if ($env:DOTFILES_REPO) { $env:DOTFILES_REPO } else { "F:\Balaji\Development\dotfiles" }
+$script:WingetExportPath = "H:\Clean Install\Clean Install Config\winget-packages.json"
+$script:ChocoExportPath = "H:\Clean Install\Clean Install Config\choco-packages.config"
+$script:WingetRepoPath = "configs\winget-packages.json"
+$script:ChocoRepoPath = "configs\choco-packages.config"
+
+function Sync-DotfilesManifest {
+  param(
+    [Parameter(Mandatory)][string]$Tool,
+    [Parameter(Mandatory)][string]$SourcePath,
+    [Parameter(Mandatory)][string]$RepoRelativePath
+  )
+
+  if (-not (Test-Path -LiteralPath $SourcePath)) { return }
+  if (-not $script:DotfilesRepoPath) { return }
+  if (-not (Test-Path -LiteralPath $script:DotfilesRepoPath)) { return }
+
+  $destPath = Join-Path $script:DotfilesRepoPath $RepoRelativePath
+  $destDir = Split-Path -Parent $destPath
+  if (-not (Test-Path -LiteralPath $destDir)) {
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+  }
+
+  Copy-Item -LiteralPath $SourcePath -Destination $destPath -Force
+  Write-Host ("{0} manifest updated: {1}" -f $Tool, $destPath)
+
+  $git = Get-Command git -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+  if (-not $git) { return }
+
+  Push-Location $script:DotfilesRepoPath
+  try {
+    $status = & $git.Source status --porcelain -- $RepoRelativePath
+    if (-not $status) {
+      Write-Host ("{0} manifest unchanged; no commit" -f $Tool)
+      return
+    }
+    & $git.Source add -- $RepoRelativePath | Out-Null
+    $message = "Automated {0} update: {1}" -f $Tool, (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    & $git.Source commit --only -m $message -- $RepoRelativePath | Out-Null
+    Write-Host ("{0} manifest committed to dotfiles" -f $Tool)
+  } finally {
+    Pop-Location
+  }
+}
+
+function Export-WingetPackages {
+  param([Parameter(Mandatory)][string]$OutputPath)
+
+  $winget = Get-Command winget -CommandType Application -ErrorAction SilentlyContinue
+  if (-not $winget) { return $false }
+
+  $dir = Split-Path -Parent $OutputPath
+  if (-not (Test-Path -LiteralPath $dir)) {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+  }
+
+  Write-Host "Exporting winget packages to $OutputPath"
+  & $winget.Source export --output $OutputPath
+  if ($LASTEXITCODE -ne 0) { return $false }
+
+  $pinned = Get-WingetPinnedIds
+  if ($pinned.Count -gt 0) {
+    try {
+      $json = Get-Content -Raw $OutputPath | ConvertFrom-Json
+      foreach ($source in $json.Sources) {
+        if ($source.Packages) {
+          $source.Packages = @($source.Packages | Where-Object { $pinned -notcontains $_.PackageIdentifier })
+        }
+      }
+      $json | ConvertTo-Json -Depth 6 | Set-Content -Path $OutputPath -Encoding utf8
+    } catch {
+      Write-Warning "Failed to filter pinned winget packages: $($_.Exception.Message)"
+    }
+  }
+
+  Write-Host "Winget export complete"
+  return $true
+}
+
+function Get-WingetPinnedIds {
+  $winget = Get-Command winget -CommandType Application -ErrorAction SilentlyContinue
+  if (-not $winget) { return @() }
+
+  $lines = & $winget.Source pin list 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $lines) { return @() }
+
+  $pins = @()
+  foreach ($line in $lines) {
+    if (-not $line) { continue }
+    if ($line -match "^\s*$") { continue }
+    if ($line -match "^[-\s]+$") { continue }
+    if ($line -match "^Name\s+Id\s+Version\s+Source") { continue }
+
+    $parts = $line -split "\s{2,}"
+    if ($parts.Count -lt 2) { continue }
+    $id = $parts[1].Trim()
+    if ($id) { $pins += $id }
+  }
+
+  return @($pins | Sort-Object -Unique)
+}
+
+function Export-ChocoPackages {
+  param([Parameter(Mandatory)][string]$OutputPath)
+
+  $choco = Get-Command choco -CommandType Application -ErrorAction SilentlyContinue
+  if (-not $choco) { return $false }
+
+  $dir = Split-Path -Parent $OutputPath
+  if (-not (Test-Path -LiteralPath $dir)) {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+  }
+
+  Write-Host "Exporting choco packages to $OutputPath"
+  $lines = & $choco.Source list --local-only --limit-output
+  if ($LASTEXITCODE -ne 0) { return $false }
+
+  $doc = New-Object System.Xml.XmlDocument
+  $decl = $doc.CreateXmlDeclaration("1.0", "utf-8", $null)
+  $doc.AppendChild($decl) | Out-Null
+  $packagesNode = $doc.CreateElement("packages")
+  $doc.AppendChild($packagesNode) | Out-Null
+
+  foreach ($line in $lines) {
+    if (-not $line) { continue }
+    $parts = $line -split "\|", 2
+    $name = $parts[0].Trim()
+    if (-not $name) { continue }
+
+    $pkg = $doc.CreateElement("package")
+    $pkg.SetAttribute("id", $name)
+    $packagesNode.AppendChild($pkg) | Out-Null
+  }
+
+  $doc.Save($OutputPath)
+  Write-Host "Choco export complete"
+  return $true
+}
+
+function global:winget {
+  param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
+
+  $cmd = Get-Command winget -CommandType Application -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    Write-Error "winget executable not found in PATH"
+    return
+  }
+
+  & $cmd.Source @Args
+  if ($LASTEXITCODE -ne 0) { return }
+
+  if ($Args.Count -gt 0 -and $Args[0] -in @("install","uninstall")) {
+    if (Export-WingetPackages -OutputPath $script:WingetExportPath) {
+      Sync-DotfilesManifest -Tool "winget" -SourcePath $script:WingetExportPath -RepoRelativePath $script:WingetRepoPath
+    }
+  }
+}
+
+function global:choco {
+  param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
+
+  $cmd = Get-Command choco -CommandType Application -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    Write-Error "choco executable not found in PATH"
+    return
+  }
+
+  & $cmd.Source @Args
+  if ($LASTEXITCODE -ne 0) { return }
+
+  if ($Args.Count -gt 0 -and $Args[0] -in @("install", "uninstall")) {
+    if (Export-ChocoPackages -OutputPath $script:ChocoExportPath) {
+      Sync-DotfilesManifest -Tool "choco" -SourcePath $script:ChocoExportPath -RepoRelativePath $script:ChocoRepoPath
+    }
+  }
+}
+
+{{- end -}}
