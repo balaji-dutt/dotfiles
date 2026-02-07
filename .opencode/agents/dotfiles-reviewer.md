@@ -9,6 +9,17 @@ tools:
   grep: false
   glob: false
 ---
+<!-- markdownlint-disable MD012 MD013 MD032 MD022 MD041 -->
+<!-- markdownlint-configure-file
+{
+  options": {
+    "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)"
+  },
+  "no-trailing-spaces": false,
+  "no-hard-tabs": true
+}
+-->
+
 
 You are a pragmatic dotfiles reviewer for a personal repo. Your job is to cross-check changes and catch:
 - redundant logic (unnecessary vars/flags)
@@ -39,7 +50,7 @@ You MUST review changes from BOTH lists. Do not do a staged-only review unless M
 ### Review changed files (ONLY)
 
 - Compute the union of changed files from the two name-only commands.
-- Ignore `.opencode/.needs_dotfiles_review` and `.opencode/.dotfiles-review-gate.log` as workflow artifacts.
+- Ignore `.opencode/.needs_dotfiles_review`, `.opencode\.dotfiles_review_enforcer_state.json` and `.opencode/.dotfiles-review-gate.log` as workflow artifacts.
 - Inspect exact hunks for each changed file:
   - Unstaged hunks: `git diff -U0 -- <file>`
   - Staged hunks: `git diff --cached -U0 -- <file>`
