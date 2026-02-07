@@ -3,7 +3,17 @@
 {{- else -}}
 $ErrorActionPreference = "Stop"
 
+{{ $data := (get . "data" | default dict) }}
+{{ $windows := (get $data "windows" | default dict) }}
+{{ $powershellDirOverride := (get $windows "powershell_dir" | default "") }}
+
 $SourceDir = "{{ .chezmoi.sourceDir }}"
+$documentsDir = [Environment]::GetFolderPath("MyDocuments")
+$powershellDir = Join-Path $documentsDir "PowerShell"
+
+if ("{{ $powershellDirOverride }}") {
+  $powershellDir = "{{ $powershellDirOverride }}"
+}
 
 $Mappings = @(
   @{
@@ -12,7 +22,7 @@ $Mappings = @(
   },
   @{
     Src = Join-Path $SourceDir "private_Documents\PowerShell"
-    Dst = "F:\Balaji\PowerShell"
+    Dst = $powershellDir
   }
 )
 

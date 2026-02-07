@@ -1,0 +1,196 @@
+{{- $data := (get . "data" | default dict) -}}
+{{- $windowsData := (get $data "windows" | default dict) -}}
+{{- $windowsTop := (get . "windows" | default dict) -}}
+{{- $defaultPuttyDir := "C:\\Program Files\\PuTTY" -}}
+{{- $defaultWslExe := "C:\\Program Files\\PuTTY\\wsl-ssh-pageant-amd64-gui.exe" -}}
+{{- $defaultAgentSock := (joinPath .chezmoi.homeDir ".wsl-ssh-pageant" "ssh-agent.sock") -}}
+{{- $puttyDir := (get $windowsData "putty_dir" | default (get $windowsTop "putty_dir" | default $defaultPuttyDir)) -}}
+{{- $wslSshPageantExe := (get $windowsData "wsl_ssh_pageant_exe" | default (get $windowsTop "wsl_ssh_pageant_exe" | default $defaultWslExe)) -}}
+{{- $agentSock := (get $windowsData "wsl_agent_sock" | default (get $windowsTop "wsl_agent_sock" | default $defaultAgentSock)) -}}
+{{- $keysDir := (get $windowsData "putty_keys_dir" | default (get $data "putty_keys_dir" | default (get $windowsTop "putty_keys_dir" | default ""))) -}}
+{{- $allowlist := (get $windowsData "pageant_keys_allowlist" | default (get $data "pageant_keys_allowlist" | default (get $windowsTop "pageant_keys_allowlist" | default ""))) -}}
+param(
+  [string]$PuttyDir = "{{ $puttyDir }}",
+  [string]$WslSshPageantExe = "{{ $wslSshPageantExe }}",
+  [string]$AgentSocket = "{{ $agentSock }}",
+  [string]$KeysDir = "{{ $keysDir }}",
+  [string]$AllowlistPath = "{{ $allowlist }}",
+  [switch]$RestartPageant,
+  [switch]$RestartBridge,
+  [switch]$AddKeysIndividually
+)
+
+$ErrorActionPreference = "Stop"
+
+function Write-Log([string]$Message) {
+  $stamp = (Get-Date).ToString("s")
+  $line = "[$stamp] $Message"
+
+  if ($env:LOCALAPPDATA) {
+    $logDir = Join-Path $env:LOCALAPPDATA "wsl-ssh-pageant"
+    if (-not (Test-Path -LiteralPath $logDir)) {
+      New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    }
+    $logFile = Join-Path $logDir "Start-WslSshPageant.log"
+    Add-Content -LiteralPath $logFile -Value $line
+  }
+}
+
+function Resolve-Exe([string]$Preferred, [string[]]$FallbackNames) {
+  if ($Preferred -and (Test-Path -LiteralPath $Preferred)) {
+    return $Preferred
+  }
+
+  foreach ($name in $FallbackNames) {
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if ($cmd) {
+      return $cmd.Source
+    }
+  }
+
+  return $null
+}
+
+function Test-ReadableFile([string]$Path) {
+  try {
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    $stream.Close()
+    return $true
+  } catch {
+    Write-Log "Key not readable: $Path ($($_.Exception.Message))"
+    return $false
+  }
+}
+
+function Get-FileInfo([string]$Path) {
+  try {
+    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    return "size=$($item.Length) attrs=$($item.Attributes)"
+  } catch {
+    return "info_error=$($_.Exception.Message)"
+  }
+}
+
+if (-not $AllowlistPath) {
+  throw "pageant allowlist path is not set."
+}
+
+if (-not (Test-Path -LiteralPath $AllowlistPath)) {
+  throw "Allowlist file not found: $AllowlistPath"
+}
+
+$keys = @()
+$missing = @()
+$lines = Get-Content -LiteralPath $AllowlistPath
+
+foreach ($raw in $lines) {
+  $line = $raw.Trim()
+  if (-not $line) { continue }
+  if ($line.StartsWith("#")) { continue }
+
+  if (($line.StartsWith('"') -and $line.EndsWith('"')) -or ($line.StartsWith("'") -and $line.EndsWith("'"))) {
+    $line = $line.Substring(1, $line.Length - 2)
+  }
+
+  if ([System.IO.Path]::IsPathRooted($line)) {
+    $path = $line
+  } else {
+    if (-not $KeysDir) {
+      throw "Allowlist entry '$line' is relative but KeysDir is empty."
+    }
+    $path = Join-Path $KeysDir $line
+  }
+
+  if (Test-Path -LiteralPath $path) {
+    if (Test-ReadableFile -Path $path) {
+      $keys += $path
+    } else {
+      $missing += $path
+    }
+  } else {
+    $missing += $path
+  }
+}
+
+if ($missing.Count -gt 0) {
+  $missingList = $missing -join "`n"
+  throw "Missing key files:`n$missingList"
+}
+
+if ($keys.Count -eq 0) {
+  throw "No keys found in allowlist."
+}
+
+if (-not $AgentSocket) {
+  throw "Agent socket path is not set."
+}
+
+$socketDir = Split-Path -Parent $AgentSocket
+if ($socketDir -and -not (Test-Path -LiteralPath $socketDir)) {
+  New-Item -ItemType Directory -Force -Path $socketDir | Out-Null
+}
+
+$pageantPreferred = if ($PuttyDir) { Join-Path $PuttyDir "PAGEANT.EXE" } else { $null }
+$pageantExe = Resolve-Exe $pageantPreferred @("pageant.exe", "PAGEANT.EXE")
+if (-not $pageantExe) {
+  throw "pageant.exe not found."
+}
+
+$wslPreferred = if ($WslSshPageantExe) { $WslSshPageantExe } elseif ($PuttyDir) { Join-Path $PuttyDir "wsl-ssh-pageant-amd64-gui.exe" } else { $null }
+$wslExe = Resolve-Exe $wslPreferred @("wsl-ssh-pageant-amd64-gui.exe")
+if (-not $wslExe) {
+  throw "wsl-ssh-pageant-amd64-gui.exe not found."
+}
+
+$pageantProc = Get-Process -Name "PAGEANT" -ErrorAction SilentlyContinue
+if ($pageantProc -and $RestartPageant) {
+  Write-Log "Stopping PAGEANT"
+  $pageantProc | Stop-Process -Force
+}
+
+if (-not $pageantProc -or $RestartPageant) {
+  Write-Log "Starting Pageant"
+  Start-Process -FilePath $pageantExe | Out-Null
+  Start-Sleep -Milliseconds 1000
+}
+
+Write-Log "Adding $($keys.Count) keys to Pageant"
+if ($AddKeysIndividually) {
+  foreach ($key in $keys) {
+    $info = Get-FileInfo -Path $key
+    Write-Log "Adding key: $key ($info)"
+    $escaped = $key.Replace('"', '`"')
+    $arg = "`"$escaped`""
+    $proc = Start-Process -FilePath $pageantExe -ArgumentList $arg -PassThru -Wait
+    if ($proc.ExitCode -ne 0) {
+      Write-Log "Pageant returned exit code $($proc.ExitCode) for key: $key"
+    }
+    Start-Sleep -Milliseconds 500
+  }
+} else {
+  $args = @()
+  foreach ($key in $keys) {
+    $info = Get-FileInfo -Path $key
+    Write-Log "Queueing key: $key ($info)"
+    $escaped = $key.Replace('"', '`"')
+    $args += "`"$escaped`""
+  }
+  $proc = Start-Process -FilePath $pageantExe -ArgumentList ($args -join " ") -PassThru -Wait
+  if ($proc.ExitCode -ne 0) {
+    Write-Log "Pageant returned exit code $($proc.ExitCode) when adding keys"
+  }
+}
+
+$bridgeProc = Get-Process -Name "wsl-ssh-pageant-amd64-gui" -ErrorAction SilentlyContinue
+if ($bridgeProc -and $RestartBridge) {
+  Write-Log "Stopping wsl-ssh-pageant"
+  $bridgeProc | Stop-Process -Force
+}
+
+if (-not $bridgeProc -or $RestartBridge) {
+  Write-Log "Starting wsl-ssh-pageant"
+  $args = @("--force", "--systray", "--winssh", "ssh-pageant", "--wsl", $AgentSocket)
+  Start-Process -FilePath $wslExe -ArgumentList $args | Out-Null
+}
+
+Write-Log "Start-WslSshPageant completed"

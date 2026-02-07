@@ -15,6 +15,9 @@
 {{- $npiperelayPath := "" -}}
 {{- $opEmail := "" -}}
 {{- $opURL := "" -}}
+{{- /* Windows specific prompts */ -}}
+{{- $windowsPuttyKeysDir := "" -}}
+{{- $windowsPageantKeysAllowlist := "" -}}
 
 {{- $isWSL := false -}}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
@@ -28,6 +31,11 @@
 {{-   $npiperelayPath = promptStringOnce . "homelab.npiperelay_path" "npiperelay.exe relative to C:\\Users\\<username> (default: Applications/npiperelay.exe)" "Applications/npiperelay.exe" -}}
 {{-   $opURL = promptStringOnce . "onepassword.url" "1Password account URL e.g. my.1password.com (leave empty to skip)" -}}
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
+{{- end -}}
+
+{{- if eq .chezmoi.os "windows" -}}
+{{-   $windowsPuttyKeysDir = promptStringOnce . "windows.putty_keys_dir" "Path to PuTTY keys directory (leave empty to skip)" "" -}}
+{{-   $windowsPageantKeysAllowlist = promptStringOnce . "windows.pageant_keys_allowlist" "Path to pageant-keys.txt allowlist (leave empty to skip)" "" -}}
 {{- end -}}
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
@@ -111,3 +119,14 @@ command = "op.exe"
     url = {{ $opURL | quote }}
     email = {{ $opEmail | quote }}
 {{- end}}
+
+{{- if eq .chezmoi.os "windows" }}
+[data.windows]
+    powershell_dir = ""
+    powershell_scripts_dir = ""
+    putty_dir = {{ "C:\\Program Files\\PuTTY" | toToml }}
+    wsl_ssh_pageant_exe = {{ "C:\\Program Files\\PuTTY\\wsl-ssh-pageant-amd64-gui.exe" | toToml }}
+    wsl_agent_sock = {{ (joinPath .chezmoi.homeDir ".wsl-ssh-pageant" "ssh-agent.sock") | toToml }}
+    putty_keys_dir = {{ $windowsPuttyKeysDir | toToml }}
+    pageant_keys_allowlist = {{ $windowsPageantKeysAllowlist | toToml }}
+{{- end }}

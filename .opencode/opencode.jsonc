@@ -19,6 +19,7 @@
       "./assets/commit-docs.sh*": "allow",
       "./assets/cz-audit.sh*": "allow",
       "pwsh ./assets/cz-audit.ps1*": "allow",
+      "pwsh -NoProfile -Command \"./assets/cz-audit.ps1*\"": "allow",
       // deny destructive chezmoi ops (keep these after allows)
       "chezmoi destroy*": "deny",
       "chezmoi purge*": "deny",

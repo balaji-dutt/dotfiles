@@ -1,0 +1,70 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+$ErrorActionPreference = "Stop"
+
+$taskName = "Start-WslSshPageant"
+{{ $data := (get . "data" | default dict) }}
+{{ $windows := (get $data "windows" | default dict) }}
+{{ $scriptsDirOverride := (get $windows "powershell_scripts_dir" | default (get $data "powershell_scripts_dir" | default "")) }}
+$documentsDir = [Environment]::GetFolderPath("MyDocuments")
+$scriptsDir = Join-Path $documentsDir "PowerShell\Scripts"
+
+if ("{{ $scriptsDirOverride }}") {
+  $scriptsDir = "{{ $scriptsDirOverride }}"
+}
+
+$scriptPath = Join-Path $scriptsDir "Start-WslSshPageant.ps1"
+
+if (-not (Test-Path -LiteralPath $scriptPath)) {
+  Write-Warning "Startup script not found: $scriptPath"
+  Write-Warning "Run 'chezmoi apply' after Windows sync completes."
+  exit 0
+}
+
+$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File `"$scriptPath`" -RestartPageant"
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+$task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+
+function Write-StartupCmd([string]$TargetScript) {
+  $startupDir = [Environment]::GetFolderPath("Startup")
+  if (-not (Test-Path -LiteralPath $startupDir)) {
+    New-Item -ItemType Directory -Force -Path $startupDir | Out-Null
+  }
+
+  $pwsh = (Get-Command "pwsh.exe" -ErrorAction SilentlyContinue)
+  $exe = if ($pwsh) { $pwsh.Source } else { "powershell.exe" }
+  $cmdLine = "`"$exe`" -NoProfile -File `"$TargetScript`" -RestartPageant"
+  $cmdPath = Join-Path $startupDir "Start-WslSshPageant.cmd"
+  Set-Content -LiteralPath $cmdPath -Value "@echo off`r`n$cmdLine`r`n" -Encoding ASCII
+  Write-Warning "Created Startup folder entry: $cmdPath"
+}
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+  Write-Warning "Not running elevated; creating Startup folder entry instead of Scheduled Task."
+  Write-StartupCmd -TargetScript $scriptPath
+  exit 0
+}
+
+$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+try {
+  if ($existing) {
+    Register-ScheduledTask -TaskName $taskName -InputObject $task -Force -ErrorAction Stop | Out-Null
+  } else {
+    Register-ScheduledTask -TaskName $taskName -InputObject $task -ErrorAction Stop | Out-Null
+  }
+} catch {
+  $message = $_.Exception.Message
+  $fqid = $_.FullyQualifiedErrorId
+  if ($message -match "Access is denied" -or $fqid -match "0x80070005") {
+    Write-Warning "Access denied registering Scheduled Task '$taskName'."
+    Write-Warning "Creating Startup folder entry as fallback."
+    Write-StartupCmd -TargetScript $scriptPath
+    exit 0
+  }
+  throw
+}
+{{- end -}}
