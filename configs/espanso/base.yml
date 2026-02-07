@@ -1,0 +1,220 @@
+# espanso match file
+
+# For a complete introduction, visit the official docs at: https://espanso.org/docs/
+
+# You can use this file to define the base matches (aka snippets)
+# that will be available in every application when using espanso.
+
+global_vars:
+  # Custom variable configuration starts from here.
+  - name: currmonth
+    type: date
+    params:
+      format: "%b. %Y"
+      # Outputs as "Mon. YYYY"
+
+# Matches are substitution rules: when you type the "trigger" string
+# it gets replaced by the "replace" string.
+matches:
+  # Simple text replacement
+  - trigger: ":espanso"
+    replace: "Hi there!"
+
+  # NOTE: espanso uses YAML to define matches, so pay attention to the indentation!
+
+  # But matches can also be dynamic:
+
+  # Print the current date
+  - trigger: ":date"
+    replace: "{{mydate}}"
+    vars:
+      - name: mydate
+        type: date
+        params:
+          format: "%d/%m/%Y"
+
+  # Print the output of a shell command
+  - trigger: ":shell"
+    replace: "{{output}}"
+    vars:
+      - name: output
+        type: shell
+        params:
+          cmd: "echo 'Hello from your shell'"
+
+  # And much more! For more information, visit the docs: https://espanso.org/docs/
+
+  # Custom match configuration starts from here.
+  # For YNAB
+  - trigger: ":bupa"
+    replace: "Reimbursement of expenses"
+
+  - trigger: ":trf"
+    replace: "Transfer of reimbursed expenses"
+
+  - trigger: ":ccp"
+    replace: "{{currmonth}} Statement"
+    # vars:
+    #   - name: mymonth
+    #     type: date
+    #     params:
+    #       format: "%b. %Y"
+
+  - trigger: ":hiof"
+    replace: "Helicap Income Oppurtunities Fund - Dividend"
+
+  # For Dex Personal CRM
+  - trigger: ":bvn"
+    replace: "BVN97"
+
+  - trigger: ":nw"
+    replace: "Part of Neverwinter Engineering team."
+
+  # For Obsidian
+  - trigger: ":quote"
+    replace: "[!quote]"
+
+  # For Excel Bank Statements
+  - trigger: ":sfm"
+    replace: "Savings for the month of {{currmonth}}"
+    # vars:
+    # - name: currmonth
+    #   type: date
+    #   params:
+    #     format: "%b. %Y"
+
+  # To enter details of Payments made through Banking/Payment websites.
+  - trigger: ":paidcc"
+    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})"
+    vars:
+      - name: paydate
+        type: date
+        params:
+          format: "%d/%m/%Y"
+      - name: txn_ref
+        type: clipboard
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Payment Amount: [[amount]]
+            Select Paying Bank: [[bank]]
+            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+          fields:
+            bank:
+              type: choice
+              values:
+                - StanChart Internet Banking
+                - OCBC Internet Banking
+                - CardUp Portal
+
+  # Variant with Salary and Spare pools (Diff. Eye included)
+  - trigger: ":dpaidcc"
+    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00 (0.00 Diff. Eye)\nSpare Pool\t: $ 0.00 (0.00 Diff. Eye)"
+    vars:
+      - name: paydate
+        type: date
+        params:
+          format: "%d/%m/%Y"
+      - name: txn_ref
+        type: clipboard
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Payment Amount: [[amount]]
+            Select Paying Bank: [[bank]]
+            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+          fields:
+            bank:
+              type: choice
+              values:
+                - StanChart Internet Banking
+                - OCBC Internet Banking
+                - CardUp Portal
+
+  # Variant with Salary and Spare pools
+  - trigger: ":spaidcc"
+    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nSpare Pool\t: $ 0.00"
+    vars:
+      - name: paydate
+        type: date
+        params:
+          format: "%d/%m/%Y"
+      - name: txn_ref
+        type: clipboard
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Payment Amount: [[amount]]
+            Select Paying Bank: [[bank]]
+            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+          fields:
+            bank:
+              type: choice
+              values:
+                - StanChart Internet Banking
+                - OCBC Internet Banking
+                - CardUp Portal
+
+  # Variant with Salary and Reimb. pools
+  - trigger: ":lpaidcc"
+    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nReimb. Pool\t: $ 0.00"
+    vars:
+      - name: paydate
+        type: date
+        params:
+          format: "%d/%m/%Y"
+      - name: txn_ref
+        type: clipboard
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Payment Amount: [[amount]]
+            Select Paying Bank: [[bank]]
+            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+          fields:
+            bank:
+              type: choice
+              values:
+                - StanChart Internet Banking
+                - OCBC Internet Banking
+                - CardUp Portal
+
+  # Since I'm forever typo'ing this word:
+  - trigger: ":res"
+    replace: "Restaurant"
+
+  # Prompt for resume tweaking
+  - trigger: ":tweakresume"
+    replace: "Which parts of this JD are boilerplate for {{formfields.jobtitle}} , and which hint at this company’s unique challenges or priorities?\n\n{{jd}}. Can you also provide your assessment of my fit for the role."
+    vars:
+      - name: jd
+        type: clipboard
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Job Posting Title: [[jobtitle]]
+
+
+  # Set system instructions for LLM's when used with programming tasks
+  - trigger: ":procoder"
+    replace: |
+      You are a professional coder, skilled in multiple programming languages and frameworks. You help the user with their coding projects, provide guidance, and share best practices
+      The user is also a professional. When the user asks you to write code, you only output the code without any explanation needed. Only add an explanation for non-obvious things about the code.
+      Always output production ready quality code, not code examples.
+      IMPORTANT: only output the code inside a code block. No explanation is needed unless the user asks you to explain/answer questions.
+  
+  # Workaround to "enter" password in crap websites like ICICI Bank Internet Banking.
+  - trigger: ":fpw"
+    replace: "{{formfields.pass_string}}"
+    vars:
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Enter Password String
+            Password String: [[pass_string]]

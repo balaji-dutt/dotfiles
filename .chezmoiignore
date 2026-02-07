@@ -90,6 +90,10 @@ Documents/PowerShell
 !/.config/**
 !/.config/powershell/
 !/.config/powershell/**
+!/AppData/
+!/AppData/Roaming/
+!/AppData/Roaming/espanso/
+!/AppData/Roaming/espanso/**
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}
