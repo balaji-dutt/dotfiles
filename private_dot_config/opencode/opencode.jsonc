@@ -352,28 +352,28 @@
     },
 
     // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
-    "code-manager": {
-      "mode": "primary",
-      "description": "Orchestrator: coder -> (coder DONE) audit -> reviewer -> loop (max 3) -> finalize.",
-      "model": "openai/gpt-5.2",
-      "temperature": 0.2,
-      "permission": {
-        "edit": "deny",
-        "webfetch": "allow",
-        "websearch_cited": "allow",
-        "codesearch": "allow",
-        "task": {
-          "*": "deny",
-          "coder": "allow"
-        }
-      }
-    },
+    // "code-manager": {
+    //   "mode": "primary",
+    //   "description": "Orchestrator: coder -> (coder DONE) audit -> reviewer -> loop (max 3) -> finalize.",
+    //   "model": "openai/gpt-5.2",
+    //   "temperature": 0.2,
+    //   "permission": {
+    //     "edit": "deny",
+    //     "webfetch": "allow",
+    //     "websearch_cited": "allow",
+    //     "codesearch": "allow",
+    //     "task": {
+    //       "*": "deny",
+    //       "coder": "allow"
+    //     }
+    //   }
+    // },
 
     // Subagent: implementation
     "coder": {
       "mode": "subagent",
       "description": "Implementation subagent (edits allowed).",
-      "model": "openai/gpt-5.2-codex",
+      "model": "openai/gpt-5.3-codex",
       "temperature": 0.2,
       "permission": {
         "edit": {

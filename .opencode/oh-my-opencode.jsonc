@@ -1,5 +1,5 @@
 {
-    "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+    "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/dev/assets/oh-my-opencode.schema.json",
     "claude_code": {
         "hooks": false,
         "agents": false,
@@ -9,7 +9,8 @@
         "plugins": false
     },
     "ralph_loop": {
-        "enabled": false
+        "enabled": false,
+        "default_max_iterations": 100
     },
     "sisyphus_agent": {
         "disabled": true
@@ -21,6 +22,7 @@
     "disabled_agents": [
         "sisyphus",
         "prometheus",
+        "hephaestus",
         "metis",
         "momus",
         "atlas",

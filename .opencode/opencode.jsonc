@@ -3,9 +3,9 @@
   // ----------------------------
   // Project specific plugins
   // ----------------------------
-  "plugin": [
-    "oh-my-opencode@3.5.3"
-  ],
+  // "plugin": [
+  //   "oh-my-opencode@3.5.2"
+  // ],
   // ----------------------------
   // Project specific permissions
   // ----------------------------
