@@ -71,6 +71,29 @@ function Get-FileInfo([string]$Path) {
   }
 }
 
+function Convert-ToCmdQuoted([string]$Value) {
+  if ($null -eq $Value) {
+    return '""'
+  }
+
+  $escaped = $Value.Replace('"', '""')
+  return '"' + $escaped + '"'
+}
+
+function Start-DetachedProcess([string]$ExePath, [string[]]$Arguments) {
+  if (-not (Test-Path -LiteralPath $ExePath)) {
+    throw "Executable not found: $ExePath"
+  }
+
+  $parts = @("start", '""', (Convert-ToCmdQuoted -Value $ExePath))
+  foreach ($arg in $Arguments) {
+    $parts += Convert-ToCmdQuoted -Value $arg
+  }
+
+  $command = $parts -join " "
+  Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $command | Out-Null
+}
+
 if (-not $AllowlistPath) {
   throw "pageant allowlist path is not set."
 }
@@ -150,7 +173,7 @@ if ($pageantProc -and $RestartPageant) {
 
 if (-not $pageantProc -or $RestartPageant) {
   Write-Log "Starting Pageant"
-  Start-Process -FilePath $pageantExe | Out-Null
+  Start-DetachedProcess -ExePath $pageantExe -Arguments @()
   Start-Sleep -Milliseconds 1000
 }
 
@@ -190,7 +213,7 @@ if ($bridgeProc -and $RestartBridge) {
 if (-not $bridgeProc -or $RestartBridge) {
   Write-Log "Starting wsl-ssh-pageant"
   $args = @("--force", "--systray", "--winssh", "ssh-pageant", "--wsl", $AgentSocket)
-  Start-Process -FilePath $wslExe -ArgumentList $args | Out-Null
+  Start-DetachedProcess -ExePath $wslExe -Arguments $args
 }
 
 Write-Log "Start-WslSshPageant completed"

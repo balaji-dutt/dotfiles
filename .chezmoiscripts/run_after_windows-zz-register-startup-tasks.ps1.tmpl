@@ -22,13 +22,28 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
   exit 0
 }
 
-$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File `"$scriptPath`" -RestartPageant"
+$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$scriptPath`" -RestartPageant"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+$principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
 
-function Write-StartupCmd([string]$TargetScript) {
+function Remove-StartupFallback() {
+  $startupDir = [Environment]::GetFolderPath("Startup")
+  $legacyCmdPath = Join-Path $startupDir "Start-WslSshPageant.cmd"
+  $vbsPath = Join-Path $startupDir "Start-WslSshPageant.vbs"
+
+  if (Test-Path -LiteralPath $legacyCmdPath) {
+    Remove-Item -LiteralPath $legacyCmdPath -Force -ErrorAction SilentlyContinue
+  }
+
+  if (Test-Path -LiteralPath $vbsPath) {
+    Remove-Item -LiteralPath $vbsPath -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Write-StartupVbs([string]$TargetScript) {
   $startupDir = [Environment]::GetFolderPath("Startup")
   if (-not (Test-Path -LiteralPath $startupDir)) {
     New-Item -ItemType Directory -Force -Path $startupDir | Out-Null
@@ -36,17 +51,23 @@ function Write-StartupCmd([string]$TargetScript) {
 
   $pwsh = (Get-Command "pwsh.exe" -ErrorAction SilentlyContinue)
   $exe = if ($pwsh) { $pwsh.Source } else { "powershell.exe" }
-  $cmdLine = "`"$exe`" -NoProfile -File `"$TargetScript`" -RestartPageant"
-  $cmdPath = Join-Path $startupDir "Start-WslSshPageant.cmd"
-  Set-Content -LiteralPath $cmdPath -Value "@echo off`r`n$cmdLine`r`n" -Encoding ASCII
-  Write-Warning "Created Startup folder entry: $cmdPath"
-}
+  $argLine = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$TargetScript`" -RestartPageant"
+  $commandLine = "`"$exe`" $argLine"
+  $commandLineVbs = $commandLine.Replace('"', '""')
+  $vbsPath = Join-Path $startupDir "Start-WslSshPageant.vbs"
+  $vbsContent = @(
+    'Set shell = CreateObject("WScript.Shell")'
+    "shell.Run ""$commandLineVbs"", 0, False"
+    'Set shell = Nothing'
+  )
+  Set-Content -LiteralPath $vbsPath -Value $vbsContent -Encoding ASCII
 
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-  Write-Warning "Not running elevated; creating Startup folder entry instead of Scheduled Task."
-  Write-StartupCmd -TargetScript $scriptPath
-  exit 0
+  $legacyCmdPath = Join-Path $startupDir "Start-WslSshPageant.cmd"
+  if (Test-Path -LiteralPath $legacyCmdPath) {
+    Remove-Item -LiteralPath $legacyCmdPath -Force -ErrorAction SilentlyContinue
+  }
+
+  Write-Warning "Created Startup folder entry: $vbsPath"
 }
 
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -56,13 +77,14 @@ try {
   } else {
     Register-ScheduledTask -TaskName $taskName -InputObject $task -ErrorAction Stop | Out-Null
   }
+  Remove-StartupFallback
 } catch {
   $message = $_.Exception.Message
   $fqid = $_.FullyQualifiedErrorId
   if ($message -match "Access is denied" -or $fqid -match "0x80070005") {
     Write-Warning "Access denied registering Scheduled Task '$taskName'."
     Write-Warning "Creating Startup folder entry as fallback."
-    Write-StartupCmd -TargetScript $scriptPath
+    Write-StartupVbs -TargetScript $scriptPath
     exit 0
   }
   throw
