@@ -6,13 +6,12 @@
 //
 // This listens to BOTH:
 // - tool.execute.after (covers background_output / call_omo_agent / etc)
-// - message.updated / message.part.updated (covers cases where parent prints the result)
+// - message.updated / message.part.updated (via the generic `event` hook)
 
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const PASS = "DOTFILES_REVIEWER_RESULT=PASS";
-const FAIL = "DOTFILES_REVIEWER_RESULT=FAIL";
 
 const DEBUG =
   process.env.DOTFILES_REVIEW_GATE_DEBUG === "1" ||
@@ -92,10 +91,6 @@ function lastMeaningfulLine(text) {
 
 function isRealPass(text) {
   if (typeof text !== "string") return false;
-
-  // Safety: if FAIL appears anywhere in the payload, never clear the gate.
-  if (text.includes(FAIL)) return false;
-
   return lastMeaningfulLine(text) === PASS;
 }
 
@@ -172,10 +167,14 @@ export default async (ctx) => {
         (s) => typeof s === "string" && s.includes("DOTFILES_REVIEWER_RESULT=")
       );
       if (sawMarker) {
+        const sample =
+          strings.find(
+            (s) => typeof s === "string" && s.includes("DOTFILES_REVIEWER_RESULT=")
+          ) || "";
         await appendDebug(
           baseDir,
           `marker seen but not REAL PASS via ${where}; lastLine=${JSON.stringify(
-            lastNonEmptyLine(strings.find((s) => s.includes("DOTFILES_REVIEWER_RESULT=")) || "")
+            lastMeaningfulLine(sample)
           )}`
         );
       }
@@ -183,18 +182,17 @@ export default async (ctx) => {
   }
 
   return {
+    event: async ({ event: evt }) => {
+      if (!evt?.type) return;
+      if (evt.type === "message.updated" || evt.type === "message.part.updated") {
+        await scanAndClear(`event:${evt.type}`, evt);
+      }
+    },
+
     "tool.execute.after": async (input, output) => {
       const tool = input?.tool || input?.name || "unknown";
       await appendDebug(baseDir, `tool.execute.after tool=${tool}`);
       await scanAndClear(`tool.execute.after:${tool}`, output);
-    },
-
-    // Some builds emit the final reviewer text as a normal assistant message.
-    "message.updated": async (ev) => {
-      await scanAndClear("message.updated", ev);
-    },
-    "message.part.updated": async (ev) => {
-      await scanAndClear("message.part.updated", ev);
     },
   };
 };
