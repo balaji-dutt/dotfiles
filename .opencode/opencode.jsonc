@@ -49,15 +49,15 @@
         }
       }
     },
-    "code-manager": {
-      "permission": {
-        "task": {
-          "*": "deny",
-          "dotfiles-reviewer": "allow",
-          "dotfiles-reviewer-deep": "allow"
-        }
-      }
-    },
+    // "code-manager": {
+    //   "permission": {
+    //     "task": {
+    //       "*": "deny",
+    //       "dotfiles-reviewer": "allow",
+    //       "dotfiles-reviewer-deep": "allow"
+    //     }
+    //   }
+    // },
     // Project specific agents
     "dotfiles-reviewer": {
       "mode": "subagent",
