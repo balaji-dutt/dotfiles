@@ -3,19 +3,22 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    {{- $sshAddKeyFiles := (index . "SSH_ADD_KEYFILES") | default (list) -}}
+    {{- $keyDir := joinPath .chezmoi.homeDir ".ssh" "keys" -}}
     <key>Label</key>
     <string>com.ssh-add-keychain</string>
 
     <key>ProgramArguments</key>
     <array>
+      {{- if gt (len $sshAddKeyFiles) 0 }}
       <string>/usr/bin/ssh-add</string>
       <string>--apple-use-keychain</string>
-      <string>/Users/balaji/.ssh/keys/public_averagegeek_2019-ed25519</string>
-      <string>/Users/balaji/.ssh/keys/godmode_primaryvps-id_rsa</string>
-      <string>/Users/balaji/.ssh/keys/godmode_torbox-id_rsa</string>
-      <string>/Users/balaji/.ssh/keys/avggeek_primaryvps-id_rsa</string>
-      <string>/Users/balaji/.ssh/keys/avggeek_torbox_2019-ed25519</string>
-      <string>/Users/balaji/.ssh/keys/superuser_ldap-ed25519</string>
+      {{- range $keyFile := $sshAddKeyFiles }}
+      <string>{{ joinPath $keyDir $keyFile }}</string>
+      {{- end }}
+      {{- else }}
+      <string>/usr/bin/true</string>
+      {{- end }}
     </array>
 
     <key>RunAtLoad</key>

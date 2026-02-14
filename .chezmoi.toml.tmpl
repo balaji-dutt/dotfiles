@@ -2,6 +2,7 @@
 {{- $email := promptStringOnce . "email" "Email address" -}}
 {{- $CERTPATH := promptStringOnce . "CERTPATH" "Path to Internal SSL Cert Directory" "" -}}
 {{- $CERTFILES_RAW := promptStringOnce . "CERTFILES_RAW" "Certificate filenames (comma-separated, e.g. root.pem, inter.crt)" "" -}}
+{{- $SSH_ADD_KEYFILES_RAW := "" -}}
 {{- $ansible_key := "" -}}
 {{- /* When required, replace the line above with:
       $ansible_key := promptStringOnce . "ansible_key" "Path to Ansible SSH Private Key" ""
@@ -36,6 +37,10 @@
 {{- if eq .chezmoi.os "windows" -}}
 {{-   $windowsPuttyKeysDir = promptStringOnce . "windows.putty_keys_dir" "Path to PuTTY keys directory (leave empty to skip)" "" -}}
 {{-   $windowsPageantKeysAllowlist = promptStringOnce . "windows.pageant_keys_allowlist" "Path to pageant-keys.txt allowlist (leave empty to skip)" "" -}}
+{{- end -}}
+
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   $SSH_ADD_KEYFILES_RAW = promptStringOnce . "SSH_ADD_KEYFILES_RAW" "SSH key filenames for ssh-add (comma-separated, e.g. id_ed25519, prod_rsa)" "" -}}
 {{- end -}}
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
@@ -87,6 +92,16 @@ args = [
 {{-   end -}}
 {{- end }}
 
+{{- $SSH_ADD_KEYFILES := list -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   range $f := splitList "," $SSH_ADD_KEYFILES_RAW -}}
+{{-     $f = $f | trim -}}
+{{-     if $f -}}
+{{-       $SSH_ADD_KEYFILES = append $SSH_ADD_KEYFILES $f -}}
+{{-     end -}}
+{{-   end -}}
+{{- end }}
+
 {{- if $isWSL }}
 [onepassword]
 command = "op.exe"
@@ -98,6 +113,8 @@ command = "op.exe"
     CERTPATH = {{ $CERTPATH | toJson }}
     CERTFILES_RAW = {{ $CERTFILES_RAW | quote }}
     CERTFILES = {{ $CERTFILES | toToml }}
+    SSH_ADD_KEYFILES_RAW = {{ $SSH_ADD_KEYFILES_RAW | quote }}
+    SSH_ADD_KEYFILES = {{ $SSH_ADD_KEYFILES | toToml }}
     org_dir = {{ $org_dir | quote }}
     isWSL = {{ $isWSL }}
     {{- if $ansible_key }}
