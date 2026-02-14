@@ -1,2 +1,2 @@
 [tools]
-"github:anomalyco/opencode" = "latest"
+opencode = "latest"
