@@ -8,7 +8,9 @@
     "ZOXIDE_VERSION": "0.9.8",
     "CERTPATH": "/home/vscode/development/keys",
     "NVM_VERSION": "0.40.3",
-    "NODE_VERSION": "lts/*"
+    "NODE_VERSION": "lts/*",
+    "CCR_PORT": "{{ .ccr_port }}",
+    "ANSIBLE_SSH_COMMON_ARGS": "-o IdentitiesOnly=yes -o IdentityFile=/home/vscode/.ssh/root_terraform_ansible.pub"
   },
 
   "mounts": [
@@ -50,11 +52,7 @@
 
   "postCreateCommand": ["bash", "/tmp/homelab-postCreate.sh"],
 
-  "postStartCommand": [
-    "bash",
-    "-lc",
-    "set -euo pipefail; mkdir -p /home/vscode/persistent-data \"$HOME/.claude-code-router/logs\" /home/vscode/persistent-data/opencode/{config,cache,share,state} \"$HOME/.config\" \"$HOME/.cache\" \"$HOME/.local/share\" \"$HOME/.local/state\"; ln -sfn /home/vscode/persistent-data/opencode/config \"$HOME/.config/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/cache \"$HOME/.cache/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/share \"$HOME/.local/share/opencode\"; ln -sfn /home/vscode/persistent-data/opencode/state \"$HOME/.local/state/opencode\"; ln -sf /tmp/opencode.jsonc \"$HOME/.config/opencode/opencode.jsonc\"; ln -sf /tmp/opencode.env \"$HOME/.config/opencode/opencode.env\"; CCR_BIN=\"$(command -v ccr || true)\"; echo \"postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH\" >>/home/vscode/persistent-data/poststart-debug.log; PORT={{ .ccr_port }}; if [ -n \"$CCR_BIN\" ] && ! ss -ltn | grep -q \":${PORT} \"; then setsid -f \"$CCR_BIN\" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1; fi"
-  ],
+  "postStartCommand": ["bash", "/tmp/homelab-postStart.sh"],
 
   "customizations": {
     "vscode": {
