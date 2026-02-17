@@ -189,7 +189,8 @@ matches:
 
   # Prompt for resume tweaking
   - trigger: ":tweakresume"
-    replace: "Which parts of this JD are boilerplate for {{formfields.jobtitle}} , and which hint at this company’s unique challenges or priorities?\n\n{{jd}}. Can you also provide your assessment of my fit for the role."
+    replace: "Please run Phase 1 only: ATS fit review for {{formfields.jobtitle}} + gaps + up to 5 clarifying questions (no resume yet).\n\nUse my uploaded resume variants as evidence.\n\nIf fit is at least Mixed, I’ll reply “Proceed” to generate the tailored resume in Phase 2.\n\nJob Description:\n\n{{jd}}"
+            # Which parts of this JD are boilerplate for {{formfields.jobtitle}} , and which hint at this company’s unique challenges or priorities?\n\n. 
     vars:
       - name: jd
         type: clipboard
