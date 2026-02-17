@@ -190,6 +190,72 @@ install_fzf_gh() {
 }
 install_fzf_gh || echo "!! fzf install failed; continuing"
 
+# lazygit: install latest/pinned Linux binary from GitHub releases (arch-agnostic)
+# Set LAZYGIT_VERSION as a container variable to a tag like "0.44.1" or "latest".
+install_lazygit_gh() {
+  local want_version="${LAZYGIT_VERSION:-latest}"
+  local arch norm_arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) norm_arch="x86_64" ;;
+    aarch64|arm64) norm_arch="arm64" ;;
+    *) echo "!! Unsupported arch for lazygit binary: $arch"; return 1 ;;
+  esac
+
+  # Resolve "latest" using GitHub API (requires jq)
+  if [ "$want_version" = "latest" ]; then
+    if ! need_cmd jq; then
+      echo "!! jq not available; cannot resolve latest lazygit. Install jq or set LAZYGIT_VERSION."
+      return 1
+    fi
+    echo "==> Resolving latest lazygit version from GitHub..."
+    local tag
+    tag="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest lazygit version."; return 1; }
+    want_version="$tag"
+  fi
+
+  # If already installed and version matches, skip
+  if need_cmd lazygit; then
+    local curr
+    curr="$(lazygit --version 2>/dev/null | sed -n 's/.*version=\([^, ]*\).*/\1/p')"
+    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
+      echo "==> lazygit $curr already installed; skipping."
+      return 0
+    elif [ -n "$curr" ]; then
+      echo "==> lazygit $curr found; upgrading to $want_version"
+    else
+      echo "==> lazygit found; upgrading to $want_version"
+    fi
+  fi
+
+  local tmpd asset url
+  tmpd="$(mktemp -d)"
+  asset="lazygit_${want_version}_Linux_${norm_arch}.tar.gz"
+  url="https://github.com/jesseduffield/lazygit/releases/download/v${want_version}/${asset}"
+
+  echo "==> Installing lazygit ${want_version} (${norm_arch})"
+  curl -fsSL "$url" -o "${tmpd}/lazygit.tgz"
+  tar -xzf "${tmpd}/lazygit.tgz" -C "$tmpd"
+
+  if [ ! -f "${tmpd}/lazygit" ]; then
+    echo "!! lazygit binary not found in archive."
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  as_root "install -m 0755 '${tmpd}/lazygit' /usr/local/bin/lazygit"
+  rm -rf "$tmpd"
+
+  # Verify
+  if ! need_cmd lazygit; then
+    echo "!! lazygit not found after install."
+    return 1
+  fi
+  echo "==> lazygit installed: $(lazygit --version | sed -n 's/.*version=\([^, ]*\).*/\1/p')"
+}
+install_lazygit_gh || echo "!! lazygit install failed; continuing"
+
 # git-mkver: install latest Linux binary from GitHub releases
 install_git_mkver_gh() {
   echo "==> Resolving latest git-mkver version from GitHub..."

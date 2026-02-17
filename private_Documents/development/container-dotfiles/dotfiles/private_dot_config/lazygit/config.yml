@@ -1,12 +1,14 @@
 gui:
   showRandomTip: false
-  # showIcons: false #breaks in VSCode terminal :-(
+  nerdFontsVersion: '3'
+  showFileTree: true
 git:
   parseEmoji: true
 os:
   editPreset: 'vscode'
   #editCommand: 'code -rg {{filename}}'
   #editCommandTemplate: '{{editor}} --goto -- {{filename}}:{{line}}'
+promptToReturnFromSubprocess: false
 customCommands:
   - key: '<c-n>'
     description: 'Show next Git tag version'
