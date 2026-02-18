@@ -1,10 +1,5 @@
 [
     {
-        "caption": "Cleanup Repo",
-        "command": "git",
-        "args": {"argv": ["gc"]}
-    },
-    {
         "caption": "Git: Arm GPT co-author for next commit",
         "command": "git",
         "args": {"argv": ["config", "--global", "coauthor.gptNext", "true"]}

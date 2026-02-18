@@ -96,6 +96,8 @@ Documents/PowerShell
 # !/Documents/PowerShell/**
 !/AppData/
 !/AppData/Roaming/
+!/AppData/Roaming/Sublime Merge/
+!/AppData/Roaming/Sublime Merge/**
 !/AppData/Roaming/espanso/
 !/AppData/Roaming/espanso/**
 {{ end }}

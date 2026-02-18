@@ -11,11 +11,24 @@ customCommands:
     description: 'Show next Git tag version'
     context: 'global'
     command: 'git mkver next'
-    subprocess: true
-    showOutput: true
+    output: terminal
   - key: '<c-t>'
     description: 'Tag next version'
     context: 'global'
     command: 'git mkver tag'
-    subprocess: true
-    showOutput: true
+    output: terminal
+  - key: '<c-a>'
+    description: 'Arm GPT co-author for next commit'
+    context: 'global'
+    command: 'git config --global coauthor.gptNext true'
+    output: terminal
+  - key: '<c-d>'
+    description: 'Disarm GPT co-author'
+    context: 'global'
+    command: 'git config --global --unset-all coauthor.gptNext'
+    output: terminal
+  - key: '<c-y>'
+    description: 'Set default GPT co-author trailer'
+    context: 'global'
+    command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"'
+    output: terminal

@@ -9,6 +9,8 @@
 
 # Shell scripts must remain LF to be valid on Linux/WSL
 *.sh text eol=lf
+private_dot_config/git/template/hooks/executable_prepare-commit-msg text eol=lf
+private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_prepare-commit-msg text eol=lf
 
 # But PowerShell scripts must remain CRLF to be valid on Windows.
 *.ps1.tmpl text eol=crlf
