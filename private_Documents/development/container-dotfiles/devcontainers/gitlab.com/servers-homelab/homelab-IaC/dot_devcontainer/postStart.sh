@@ -34,3 +34,19 @@ PORT="${CCR_PORT:-}"
 if [[ -n "$CCR_BIN" && -n "$PORT" ]] && ! ss -ltn | grep -q ":${PORT} "; then
   setsid -f "$CCR_BIN" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1
 fi
+
+SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"
+if command -v git >/dev/null 2>&1; then
+  mkdir -p "$(dirname "$SAFE_DIRS_FILE")"
+  : >"$SAFE_DIRS_FILE"
+
+  shopt -s nullglob
+  for workspace in /workspaces/*; do
+    [[ -d "$workspace" ]] || continue
+    git config --file "$SAFE_DIRS_FILE" --add safe.directory "$workspace"
+    if [[ -d "$workspace/.git" ]]; then
+      git config --file "$SAFE_DIRS_FILE" --add safe.directory "$workspace/.git"
+    fi
+  done
+  shopt -u nullglob
+fi
