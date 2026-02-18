@@ -6,10 +6,7 @@
     ],
     "settings": {
         "yaml.schemas": {
-                        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/inventory.json": [
-                                        "file:///workspaces/homelab-IaC/servers/pve-inventory.yml",
-                                        "file:///workspaces/homelab-IaC/servers/inventory.yml"
-                        ]
+          "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/inventory.json": "servers/*inventory.yml"
         },
         "files.associations": {
                         "**/homelab-IaC/**/*inventory.yml": "yaml",
