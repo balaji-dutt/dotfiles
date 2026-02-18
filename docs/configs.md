@@ -1,0 +1,48 @@
+<!-- markdownlint-disable MD007 MD013 MD023 MD031 MD032 MD034 MD040 MD041 MD051 -->
+<!-- markdownlint-configure-file
+{
+  options": {
+    "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)"
+  },
+  "no-trailing-spaces": false,
+  "no-hard-tabs": true
+}
+-->
+
+# Config Manifests
+
+`configs/` contains repo-managed inputs used by scripts and provisioning.
+
+## Core Files
+
+| File | Purpose |
+| :--- | :--- |
+| `configs/packages.yaml` | WSL2 package groups and external tool version pins |
+| `configs/mise.toml` | mise tool/plugin declarations |
+| `configs/mise_wsl2.toml` | WSL2-specific mise configuration |
+| `configs/uv_tools.txt` | `uv tool` package list |
+| `configs/npm_globals.txt` | npm global packages |
+| `configs/npm_globals_linux.txt` | npm globals for Linux/WSL2 |
+| `configs/npm_globals_linux_debian.txt` | npm globals for Debian WSL2 |
+| `configs/bun_globals.txt` | bun global packages |
+| `configs/winget-packages.json` | Windows winget package set |
+| `configs/choco-packages.config` | Windows Chocolatey package set |
+| `configs/espanso/base.yml` | shared espanso base config |
+
+## Package Categories in `configs/packages.yaml`
+
+- `base_apt_packages`: common apt packages for WSL2
+- `ubuntu_apt_packages`: Ubuntu-specific package additions
+- `versions`: externally fetched version pins (for example lazygit/lazydocker)
+
+## Related Top-Level Manifest
+
+- `brewfile.txt`: Homebrew bundle manifest for macOS.
+
+## Validation
+
+```sh
+./assets/cz-audit.sh check configs/packages.yaml
+./assets/cz-audit.sh check configs/mise.toml
+chezmoi doctor
+```
