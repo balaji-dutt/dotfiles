@@ -38,15 +38,27 @@ fi
 SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"
 if command -v git >/dev/null 2>&1; then
   mkdir -p "$(dirname "$SAFE_DIRS_FILE")"
-  : >"$SAFE_DIRS_FILE"
+  SAFE_DIRS_TMP="$(mktemp "$(dirname "$SAFE_DIRS_FILE")/safe-dirs.XXXXXX")"
+  trap 'rm -f "$SAFE_DIRS_TMP"' EXIT
 
+  safe_dirs_count=0
   shopt -s nullglob
   for workspace in /workspaces/*; do
     [[ -d "$workspace" ]] || continue
-    git config --file "$SAFE_DIRS_FILE" --add safe.directory "$workspace"
+    git config --file "$SAFE_DIRS_TMP" --add safe.directory "$workspace"
+    safe_dirs_count=$((safe_dirs_count + 1))
     if [[ -d "$workspace/.git" ]]; then
-      git config --file "$SAFE_DIRS_FILE" --add safe.directory "$workspace/.git"
+      git config --file "$SAFE_DIRS_TMP" --add safe.directory "$workspace/.git"
+      safe_dirs_count=$((safe_dirs_count + 1))
     fi
   done
   shopt -u nullglob
+
+  if [[ "$safe_dirs_count" -gt 0 ]]; then
+    mv -f "$SAFE_DIRS_TMP" "$SAFE_DIRS_FILE"
+  else
+    rm -f "$SAFE_DIRS_TMP"
+  fi
+
+  trap - EXIT
 fi
