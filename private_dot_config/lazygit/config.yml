@@ -13,7 +13,7 @@ customCommands:
     context: 'global'
     command: 'git mkver next'
     output: terminal
-  - key: '<c-t>'
+  - key: '<c-g>'
     description: 'Tag next version'
     context: 'global'
     command: 'git mkver tag'
@@ -32,4 +32,9 @@ customCommands:
     description: 'Set default GPT co-author trailer'
     context: 'global'
     command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"'
+    output: terminal
+  - key: '<c-e>'
+    description: 'Amend author to OpenCode (ocauth)'
+    context: 'global'
+    command: 'git ocauth'
     output: terminal

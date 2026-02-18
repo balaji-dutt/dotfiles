@@ -35,6 +35,11 @@
                 "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"
             ]
         }
+    },
+    {
+        "caption": "Git: Amend author to OpenCode (ocauth)",
+        "command": "git",
+        "args": {"argv": ["ocauth"]}
     }
 
 ]
