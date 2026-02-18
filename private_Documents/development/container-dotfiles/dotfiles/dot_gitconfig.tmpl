@@ -74,6 +74,17 @@
 
 [alias]
     plog = log --graph --decorate --pretty=oneline --abbrev-commit --all
+    co = checkout
+    sw = switch
+    br = branch -vv
+    ci = commit
+    amend = commit --amend --no-edit
+    clauth = commit --amend --author=\"Claude <claude@anthropic.com>\" --no-edit
+    ocauth = commit --amend --author=\"OpenCode <noreply@opencode.ai>\" --no-edit
+    unstage = restore --staged --
+    last = log -1 --stat
+    lg = log --graph --decorate --pretty=format:'%C(auto)%h%d %s %C(black)%C(bold)%cr'
+    done = push --follow-tags origin HEAD
 
 [diff]
     mnemonicPrefix = true

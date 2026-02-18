@@ -99,6 +99,7 @@
     unstage = restore --staged --
     last = log -1 --stat
     lg = log --graph --decorate --pretty=format:'%C(auto)%h%d %s %C(black)%C(bold)%cr'
+    done = push --follow-tags origin HEAD
 
 # ========= Platform-specific tools and safe dirs =========
 {{- if $isWSL }}
