@@ -70,7 +70,7 @@ fi
 
 ACTION=$1
 INPUT_TEXT=$2
-AUTHOR="Claude <claude@anthropic.com>"
+AUTHOR="OpenCode <noreply@opencode.ai>"
 NOW=$(date '+%Y-%m-%d %H:%M')
 TODO_FILE="$GIT_ROOT/TODO.md"
 TARGET=""
