@@ -54,6 +54,8 @@ Documents/development/container-dotfiles/**
 
 {{/* PowerShell should only exist on Windows */}}
 {{ if not $isWindows }}
+AppData
+AppData/**
 Documents/PowerShell
 .config/powershell
 {{ end }}

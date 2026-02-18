@@ -103,6 +103,11 @@ for p in "${REMOVE_IF_NOT_LINUX[@]}"; do rm_rel "$p"; done
 # Your specific policies
 # -----------------------
 
+# AppData should exist ONLY on Windows
+{{ if not $isWindows }}
+rm_rel "AppData"
+{{ end }}
+
 # bin/code should exist ONLY on WSL2
 {{ if not $isWSL2 }}
 rm_rel "bin/code"
