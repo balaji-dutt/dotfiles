@@ -22,6 +22,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-02-21
+
+- decision: Migrate Sublime Merge command palette entries to `Packages/User/Default.sublime-commands` for macOS, WSL/Linux, and Windows.
+- convention: Keep legacy `Packages/custom.sublime-commands` files as commented fallback during cross-platform validation.
+
 ## 2026-02-18
 
 - decision: Split stale root README details into focused docs under `docs/` and keep root `README.md` as concise front door.

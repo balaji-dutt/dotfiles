@@ -32,11 +32,11 @@ Using `prepare-commit-msg` reduces conflict risk with repos that already use
   - LazyGit (macOS):
     `private_Library/private_Application Support/lazygit/config.yml`
   - Sublime Merge (WSL2/Linux):
-    `private_dot_config/private_sublime-merge/private_Packages/custom.sublime-commands`
+    `private_dot_config/private_sublime-merge/private_Packages/private_User/Default.sublime-commands`
   - Sublime Merge (macOS):
-    `private_Library/private_Application Support/Sublime Merge/Packages/custom.sublime-commands`
+    `private_Library/private_Application Support/Sublime Merge/Packages/User/Default.sublime-commands`
   - Sublime Merge (Windows):
-    `AppData/Roaming/Sublime Merge/Packages/custom.sublime-commands`
+    `AppData/Roaming/Sublime Merge/Packages/User/Default.sublime-commands`
 
 ### Container dotfiles
 

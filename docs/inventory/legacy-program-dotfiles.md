@@ -49,10 +49,10 @@ Use curated inventories for current documentation:
 | Mise | `~/.config/mise/config.toml` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.p10k.zsh` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.local/config/.p10k.zsh` | No | ✅ | ✅ | ✅ | | | No |
-| Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/custom.sublime-commands` | No | ✅ | | | | | Yes |
+| Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/User/Default.sublime-commands` | No | ✅ | | | | | Yes |
 | Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/User/Commit Message.sublime-settings` | No | ✅ | | | | | Yes |
 | Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/User/Preferences.sublime-settings` | No | ✅ | | | | | Yes |
-| Sublime Merge | `~/.config/sublime-merge/Packages/custom.sublime-commands` | No | | ✅ | ✅ | | | Yes |
+| Sublime Merge | `~/.config/sublime-merge/Packages/User/Default.sublime-commands` | No | | ✅ | ✅ | | | Yes |
 | Sublime Merge | `~/.config/sublime-merge/Packages/User/Commit Message.sublime-settings` | No | | ✅ | ✅ | | | Yes |
 | Sublime Merge | `~/.config/sublime-merge/Packages/User/Preferences.sublime-settings` | Yes | | | ✅ | | | Yes |
 | Zsh | `~/.zshrc` | Yes | ✅ | ✅ | ✅ | | | No |
