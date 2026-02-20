@@ -256,7 +256,9 @@ install_lazygit_gh() {
 }
 install_lazygit_gh || echo "!! lazygit install failed; continuing"
 
-# git-mkver: install latest Linux binary from GitHub releases
+# git-mkver: install latest release from GitHub
+# - amd64: native Linux binary
+# - arm64: universal zip (JVM launcher + jars), requires java runtime
 install_git_mkver_gh() {
   echo "==> Resolving latest git-mkver version from GitHub..."
   if ! need_cmd jq; then
@@ -268,26 +270,75 @@ install_git_mkver_gh() {
   tag="$(curl -fsSL https://api.github.com/repos/idc101/git-mkver/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
   [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest git-mkver version."; return 1; }
 
-  # If already installed, skip
-  if need_cmd git-mkver; then
-    echo "==> git-mkver already installed; skipping."
+  # If already installed and executable, skip
+  if need_cmd git-mkver && git-mkver -help >/dev/null 2>&1; then
+    echo "==> git-mkver already installed and runnable; skipping."
+    if ! need_cmd mkver; then
+      as_root "ln -sfn /usr/local/bin/git-mkver /usr/local/bin/mkver"
+    fi
     return 0
   fi
 
-  local tmpd asset url
+  local arch tmpd asset url
+  arch="$(uname -m)"
   tmpd="$(mktemp -d)"
-  asset="git-mkver-linux-x86_64-${tag}.tar.gz"
-  url="https://github.com/idc101/git-mkver/releases/download/v${tag}/${asset}"
 
-  echo "==> Installing git-mkver ${tag}"
-  curl -fsSL "$url" -o "${tmpd}/mkver.tgz"
-  as_root "tar -xzf '${tmpd}/mkver.tgz' -C /usr/local/bin git-mkver"
-  as_root "chmod 0755 /usr/local/bin/git-mkver"
+  case "$arch" in
+    x86_64|amd64)
+      asset="git-mkver-linux-x86_64-${tag}.tar.gz"
+      url="https://github.com/idc101/git-mkver/releases/download/v${tag}/${asset}"
+      echo "==> Installing git-mkver ${tag} (linux-x86_64 native)"
+      curl -fsSL "$url" -o "${tmpd}/mkver.tgz"
+      as_root "tar -xzf '${tmpd}/mkver.tgz' -C /usr/local/bin git-mkver"
+      as_root "chmod 0755 /usr/local/bin/git-mkver"
+      ;;
+    aarch64|arm64)
+      asset="git-mkver-${tag}.zip"
+      url="https://github.com/idc101/git-mkver/releases/download/v${tag}/${asset}"
+      echo "==> Installing git-mkver ${tag} (universal zip for ${arch})"
+
+      if need_cmd apt-get; then
+        pkgs=()
+        need_cmd java  || pkgs+=("default-jre-headless")
+        need_cmd unzip || pkgs+=("unzip")
+        if [ "${#pkgs[@]}" -gt 0 ]; then
+          echo "==> Installing dependencies for git-mkver: ${pkgs[*]}"
+          apt_install "${pkgs[@]}"
+        fi
+      fi
+
+      need_cmd java  || { echo "!! java not found; install a headless JRE and retry."; rm -rf "$tmpd"; return 1; }
+      need_cmd unzip || { echo "!! unzip not found; install unzip and retry."; rm -rf "$tmpd"; return 1; }
+
+      curl -fsSL "$url" -o "${tmpd}/mkver.zip"
+      unzip -q "${tmpd}/mkver.zip" -d "${tmpd}"
+
+      local extracted_dir
+      extracted_dir="${tmpd}/git-mkver-${tag}"
+      [ -x "${extracted_dir}/bin/git-mkver" ] || { echo "!! git-mkver launcher not found in archive."; rm -rf "$tmpd"; return 1; }
+
+      as_root "rm -rf /usr/local/lib/git-mkver && mkdir -p /usr/local/lib && cp -R '${extracted_dir}' /usr/local/lib/git-mkver"
+      as_root "ln -sfn /usr/local/lib/git-mkver/bin/git-mkver /usr/local/bin/git-mkver"
+      as_root "chmod 0755 /usr/local/bin/git-mkver /usr/local/lib/git-mkver/bin/git-mkver"
+      ;;
+    *)
+      echo "!! Unsupported arch for git-mkver: ${arch}"
+      rm -rf "$tmpd"
+      return 1
+      ;;
+  esac
+
+  # Provide direct mkver command in addition to git subcommand form
+  as_root "ln -sfn /usr/local/bin/git-mkver /usr/local/bin/mkver"
   rm -rf "$tmpd"
 
   # Verify
-  if ! need_cmd git-mkver; then
-    echo "!! git-mkver not found after install."
+  if ! need_cmd git-mkver || ! git-mkver -help >/dev/null 2>&1; then
+    echo "!! git-mkver not runnable after install."
+    return 1
+  fi
+  if ! need_cmd mkver; then
+    echo "!! mkver symlink not found after install."
     return 1
   fi
   echo "==> git-mkver installed"
