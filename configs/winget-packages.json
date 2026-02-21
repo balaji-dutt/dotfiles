@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-02-21T22:41:08.789+08:00",
+  "CreationDate": "2026-02-21T22:41:49.232+08:00",
   "Sources": [
     {
       "Packages": [
@@ -231,9 +231,6 @@
         },
         {
           "PackageIdentifier": "Gyan.FFmpeg"
-        },
-        {
-          "PackageIdentifier": "Mikrotik.Winbox"
         },
         {
           "PackageIdentifier": "Microsoft.OneDrive"
