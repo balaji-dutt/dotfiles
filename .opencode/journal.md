@@ -26,6 +26,7 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 - decision: Migrate Sublime Merge command palette entries to `Packages/User/Default.sublime-commands` for macOS, WSL/Linux, and Windows.
 - convention: Keep legacy `Packages/custom.sublime-commands` files as commented fallback during cross-platform validation.
+- followup: Removed legacy `Packages/custom.sublime-commands` files after validating `Default.sublime-commands` on macOS, WSL/Linux, and Windows.
 
 ## 2026-02-18
 
