@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-02-01T19:59:48.437+08:00",
+  "CreationDate": "2026-02-21T22:41:08.789+08:00",
   "Sources": [
     {
       "Packages": [
@@ -98,9 +98,6 @@
           "PackageIdentifier": "Starship.Starship"
         },
         {
-          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
-        },
-        {
           "PackageIdentifier": "Adobe.Acrobat.Reader.64-bit"
         },
         {
@@ -129,6 +126,9 @@
         },
         {
           "PackageIdentifier": "PuTTY.PuTTY"
+        },
+        {
+          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
         },
         {
           "PackageIdentifier": "Windscribe.Windscribe"
@@ -170,19 +170,22 @@
           "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.6"
         },
         {
-          "PackageIdentifier": "Jabra.Direct"
-        },
-        {
           "PackageIdentifier": "Microsoft.VCRedist.2015+.x86"
         },
         {
           "PackageIdentifier": "BrianApps.Sizer.Dev"
         },
         {
+          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
+        },
+        {
           "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
         },
         {
           "PackageIdentifier": "ExpressVPN.ExpressVPN"
+        },
+        {
+          "PackageIdentifier": "Jabra.Direct"
         },
         {
           "PackageIdentifier": "DYMO.DYMOConnect"
@@ -194,16 +197,13 @@
           "PackageIdentifier": "Microsoft.VCRedist.2015+.x64"
         },
         {
-          "PackageIdentifier": "Python.Launcher"
-        },
-        {
           "PackageIdentifier": "Microsoft.VCRedist.2013.x86"
         },
         {
-          "PackageIdentifier": "Microsoft.VCRedist.2010.x86"
+          "PackageIdentifier": "Python.Launcher"
         },
         {
-          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
+          "PackageIdentifier": "Microsoft.VCRedist.2010.x86"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2012.x64"
@@ -231,6 +231,9 @@
         },
         {
           "PackageIdentifier": "Gyan.FFmpeg"
+        },
+        {
+          "PackageIdentifier": "Mikrotik.Winbox"
         },
         {
           "PackageIdentifier": "Microsoft.OneDrive"
@@ -273,6 +276,9 @@
         },
         {
           "PackageIdentifier": "Microsoft.WindowsTerminal"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WSL"
         }
       ],
       "SourceDetails": {
@@ -283,5 +289,5 @@
       }
     }
   ],
-  "WinGetVersion": "1.12.460"
+  "WinGetVersion": "1.12.470"
 }
