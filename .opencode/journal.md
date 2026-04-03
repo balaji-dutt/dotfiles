@@ -28,6 +28,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - convention: Keep `sset` and the `npiperelay` + `socat` bridge as fallback/debug recovery only.
 - context: Added explicit SSH agent socket mount and `SSH_AUTH_SOCK` env in `homelab-IaC` devcontainer overlay.
 - gotcha: Guard `homelab.*` lookups in cross-platform templates with `hasKey . "homelab"` to avoid macOS render failures.
+- gotcha: CopyQ GitHub releases now publish direct macOS `.dmg` assets; avoid `.dmg.zip` parsing in update script.
+- convention: Select CopyQ macOS release asset by architecture (`arm64` uses `-m*`, Intel uses plain macOS `.dmg`).
 
 ## 2026-02-21
 

@@ -29,6 +29,11 @@ fi
 echo "Checking for CopyQ updates..."
 
 # --- Fetch Latest Version from GitHub ---
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: jq is required to parse GitHub release info"
+    exit 1
+fi
+
 GITHUB_RESPONSE=$(curl -sL "https://api.github.com/repos/hluk/CopyQ/releases/latest")
 
 # Check for rate limit
@@ -37,10 +42,24 @@ if echo "$GITHUB_RESPONSE" | grep -q "API rate limit exceeded"; then
     exit 0
 fi
 
-LATEST_VERSION=$(echo "$GITHUB_RESPONSE" | grep -o '"tag_name": "[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
-DOWNLOAD_URL=$(echo "$GITHUB_RESPONSE" | grep -o '"browser_download_url": "[^"]*macos[^"]*\.dmg\.zip"' | head -1 | cut -d'"' -f4)
+LATEST_VERSION=$(echo "$GITHUB_RESPONSE" | jq -r '.tag_name | sub("^v"; "")')
 
-if [[ -z "$LATEST_VERSION" ]] || [[ -z "$DOWNLOAD_URL" ]]; then
+ARCH=$(uname -m)
+if [[ "$ARCH" == "arm64" ]]; then
+    DOWNLOAD_URL=$(echo "$GITHUB_RESPONSE" | jq -r '
+        .assets[]
+        | select(.name | test("macos-[0-9]+-m[^.]+\\.dmg$"))
+        | .browser_download_url
+    ' | head -1)
+else
+    DOWNLOAD_URL=$(echo "$GITHUB_RESPONSE" | jq -r '
+        .assets[]
+        | select(.name | test("macos-[0-9]+\\.dmg$"))
+        | .browser_download_url
+    ' | head -1)
+fi
+
+if [[ -z "$LATEST_VERSION" ]] || [[ "$LATEST_VERSION" == "null" ]] || [[ -z "$DOWNLOAD_URL" ]]; then
     echo "Error: Could not parse GitHub release info"
     exit 1
 fi
@@ -67,16 +86,12 @@ fi
 
 # --- Download and Install ---
 TEMP_DIR=$(mktemp -d /tmp/copyq.XXXXXX)
-TEMP_ZIP="$TEMP_DIR/copyq.dmg.zip"
+TEMP_DMG="$TEMP_DIR/copyq.dmg"
 
-curl -sL "$DOWNLOAD_URL" -o "$TEMP_ZIP"
+curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_DMG"
 
-# Unzip to get the DMG
-unzip -q "$TEMP_ZIP" -d "$TEMP_DIR"
-TEMP_DMG=$(find "$TEMP_DIR" -name "*.dmg" | head -1)
-
-if [[ -z "$TEMP_DMG" ]] || [[ ! -f "$TEMP_DMG" ]]; then
-    echo "Error: DMG not found after unzip"
+if [[ ! -f "$TEMP_DMG" ]]; then
+    echo "Error: DMG download failed"
     rm -rf "$TEMP_DIR"
     exit 1
 fi
