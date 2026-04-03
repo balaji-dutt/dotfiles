@@ -27,6 +27,7 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Standardize WSL and devcontainer SSH agent usage on Windows `wsl-ssh-pageant` socket path.
 - convention: Keep `sset` and the `npiperelay` + `socat` bridge as fallback/debug recovery only.
 - context: Added explicit SSH agent socket mount and `SSH_AUTH_SOCK` env in `homelab-IaC` devcontainer overlay.
+- gotcha: Guard `homelab.*` lookups in cross-platform templates with `hasKey . "homelab"` to avoid macOS render failures.
 
 ## 2026-02-21
 
