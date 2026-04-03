@@ -30,6 +30,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - gotcha: Guard `homelab.*` lookups in cross-platform templates with `hasKey . "homelab"` to avoid macOS render failures.
 - gotcha: CopyQ GitHub releases now publish direct macOS `.dmg` assets; avoid `.dmg.zip` parsing in update script.
 - convention: Select CopyQ macOS release asset by architecture (`arm64` uses `-m*`, Intel uses plain macOS `.dmg`).
+- decision: Devcontainer clipboard support for `homelab-IaC` now uses OSC52 shim mode via `DEVCONTAINER_CLIPBOARD_MODE=osc52`.
+- convention: Keep clipboard protocol parsing in dedicated helper `dot_local/bin/executable_devcontainer-clipboard-osc52`; keep `install.sh.tmpl` orchestration-only.
+- context: `install.sh.tmpl` now wires `xclip`/`xsel`/`wl-copy` symlinks to the helper in osc52 mode and removes shim links in off mode.
 
 ## 2026-02-21
 

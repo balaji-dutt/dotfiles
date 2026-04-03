@@ -400,6 +400,44 @@ install_change() {
   fi
 }
 
+configure_devcontainer_clipboard() {
+  local mode local_bin helper
+  mode="${DEVCONTAINER_CLIPBOARD_MODE:-off}"
+  local_bin="$HOME/.local/bin"
+  helper="$local_bin/devcontainer-clipboard-osc52"
+
+  mkdir -p "$local_bin"
+
+  remove_clipboard_shim_links() {
+    local link_name link_path
+    for link_name in xclip xsel wl-copy; do
+      link_path="$local_bin/$link_name"
+      if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$helper" ]; then
+        rm -f "$link_path"
+      fi
+    done
+  }
+
+  case "$mode" in
+    ""|off)
+      remove_clipboard_shim_links
+      ;;
+    osc52)
+      if [ ! -x "$helper" ]; then
+        echo "!! DEVCONTAINER_CLIPBOARD_MODE=osc52 but helper is missing: $helper"
+        return 0
+      fi
+      ln -sfn "$helper" "$local_bin/xclip"
+      ln -sfn "$helper" "$local_bin/xsel"
+      ln -sfn "$helper" "$local_bin/wl-copy"
+      echo "==> Enabled devcontainer clipboard shim (osc52)"
+      ;;
+    *)
+      echo "!! Unknown DEVCONTAINER_CLIPBOARD_MODE '$mode'; skipping clipboard shim setup"
+      ;;
+  esac
+}
+
 # Copy dotfiles from the mounted host folder if present
 SRC="/home/vscode/.host-dotfiles"
 if [ -d "$SRC" ]; then
@@ -417,6 +455,8 @@ if [ -d "$SRC" ]; then
   install_and_patch_terraform_py || echo "!! terraform.py setup failed; continuing"
   install_change || echo "!! change setup failed; continuing"
 fi
+
+configure_devcontainer_clipboard
 
 # Append environment variables for Claude Code and Router
 if [ "${DEVCONTAINER:-}" = "1" ]; then

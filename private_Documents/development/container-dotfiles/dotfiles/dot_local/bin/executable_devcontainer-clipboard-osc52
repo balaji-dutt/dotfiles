@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Compatibility shim for devcontainers where host clipboard access is provided
+# via OSC52 in the terminal.
+#
+# Supported entrypoints:
+# - devcontainer-clipboard-osc52
+# - xclip (copy-only subset)
+# - xsel (copy-only subset)
+# - wl-copy (copy-only subset)
+#
+# Unsupported operations (explicitly rejected):
+# - clipboard read/paste modes (for example xclip -out, xsel --output)
+# - file/path input arguments
+
+readonly PROG_NAME="${0##*/}"
+readonly UNSUPPORTED_MSG="devcontainer clipboard shim only supports copy-to-clipboard operations"
+
+die() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+unsupported() {
+  die "$UNSUPPORTED_MSG"
+}
+
+emit_osc52_from_stdin() {
+  if [ ! -e /dev/tty ]; then
+    die "${UNSUPPORTED_MSG}: /dev/tty is unavailable"
+  fi
+
+  local payload encoded
+  payload="$(cat)"
+  encoded="$(printf '%s' "$payload" | base64 | tr -d '\r\n')"
+
+  if ! printf '\033]52;c;%s\a' "$encoded" > /dev/tty; then
+    die "${UNSUPPORTED_MSG}: failed to write OSC52 sequence"
+  fi
+}
+
+handle_xclip() {
+  local expect_selection_value=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -i|-in)
+        ;;
+      -selection)
+        expect_selection_value=1
+        ;;
+      clipboard)
+        if [ "$expect_selection_value" -ne 1 ]; then
+          unsupported
+        fi
+        expect_selection_value=0
+        ;;
+      -o|-out)
+        unsupported
+        ;;
+      -*)
+        unsupported
+        ;;
+      *)
+        unsupported
+        ;;
+    esac
+    shift
+  done
+
+  if [ "$expect_selection_value" -ne 0 ]; then
+    unsupported
+  fi
+
+  emit_osc52_from_stdin
+}
+
+handle_xsel() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -i|--input|-b|--clipboard)
+        ;;
+      -o|--output)
+        unsupported
+        ;;
+      -*)
+        unsupported
+        ;;
+      *)
+        unsupported
+        ;;
+    esac
+    shift
+  done
+
+  emit_osc52_from_stdin
+}
+
+handle_wl_copy() {
+  if [ "$#" -ne 0 ]; then
+    unsupported
+  fi
+
+  emit_osc52_from_stdin
+}
+
+main() {
+  case "$PROG_NAME" in
+    xclip)
+      handle_xclip "$@"
+      ;;
+    xsel)
+      handle_xsel "$@"
+      ;;
+    wl-copy)
+      handle_wl_copy "$@"
+      ;;
+    devcontainer-clipboard-osc52)
+      if [ "$#" -ne 0 ]; then
+        unsupported
+      fi
+      emit_osc52_from_stdin
+      ;;
+    *)
+      unsupported
+      ;;
+  esac
+}
+
+main "$@"
