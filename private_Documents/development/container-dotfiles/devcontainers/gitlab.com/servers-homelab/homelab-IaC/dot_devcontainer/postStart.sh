@@ -21,15 +21,24 @@ ln -sf /tmp/opencode.env "$HOME/.config/opencode/opencode.env"
 ssh_key_comment="root_terraform_ansible"
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
-  key_line="$(ssh-add -L 2>/dev/null | grep -m1 "$ssh_key_comment" || true)"
+  key_lines="$(ssh-add -L 2>/dev/null || true)"
+  key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
+
+  if [[ -z "$key_line" ]]; then
+    key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
+  fi
+
   if [[ -n "$key_line" ]]; then
     printf '%s\n' "$key_line" >"$ssh_pub_key_file"
     chmod 600 "$ssh_pub_key_file"
+    if [[ "$key_line" != *"$ssh_key_comment"* ]]; then
+      echo "WARN: '$ssh_key_comment' not found; using first SSH agent key instead." >&2
+    fi
   else
-    >&2 echo "WARN: SSH agent available but key '$ssh_key_comment' is not loaded."
+    echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
   fi
 else
-  >&2 echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}"
+  echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}" >&2
 fi
 
 CCR_BIN="$(command -v ccr || true)"
