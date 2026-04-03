@@ -4,6 +4,9 @@ gui:
   showFileTree: true
 git:
   parseEmoji: true
+  ignoreWhitespaceInDiffView: true
+  pagers:
+    - pager: diff-so-fancy
 os:
   editPreset: 'vscode'
   #editCommand: 'code -rg {{filename}}'
@@ -35,7 +38,7 @@ customCommands:
   - key: '<c-y>'
     description: 'Set default GPT co-author trailer'
     context: 'global'
-    command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"'
+    command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.4 (High Reasoning mode) <noreply@openai.com>"'
     output: terminal
   - key: '<c-e>'
     description: 'Amend author to OpenCode (ocauth)'
