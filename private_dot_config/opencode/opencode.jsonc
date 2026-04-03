@@ -169,13 +169,13 @@
         // Required by opencode-websearch-cited:
         // This tells the plugin which OpenAI model to use when it runs the websearch_cited tool.
         "websearch_cited": {
-          "model": "gpt-5.2"
+          "model": "gpt-5.4"
         }
       },
 
       "models": {
         // Base model with UI-cyclable variants (optional but useful).
-        "gpt-5.2": {
+        "gpt-5.4": {
           "variants": {
             "low": {
               "reasoningEffort": "low",
@@ -304,8 +304,8 @@
     // Permissions support websearch/webfetch tools too, but your plan model itself is search-capable.
     "plan": {
       "mode": "primary",
-      "description": "Planning manager (GPT-5.2 high + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.2",
+      "description": "Planning manager (GPT-5.4 high + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.4",
       "reasoningEffort": "high",
       "temperature": 0.4,
       "permission": {
@@ -319,10 +319,10 @@
       }
     },
 
-    "plan-GPT5.2-xhigh": {
+    "plan-GPT5.4-xhigh": {
       "mode": "primary",
-      "description": "Planning manager (GPT-5.2 xhigh + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.2",
+      "description": "Planning manager (GPT-5.4 xhigh + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.4",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "permission": {
