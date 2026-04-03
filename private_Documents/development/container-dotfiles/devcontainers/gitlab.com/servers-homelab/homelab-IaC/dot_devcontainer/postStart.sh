@@ -18,11 +18,20 @@ ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode
 ln -sf /tmp/opencode.jsonc "$HOME/.config/opencode/opencode.jsonc"
 ln -sf /tmp/opencode.env "$HOME/.config/opencode/opencode.env"
 
-ssh_key_comment="root_terraform_ansible"
+ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
   key_lines="$(ssh-add -L 2>/dev/null || true)"
-  key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
+  key_line=""
+  matched_comment=""
+
+  for ssh_key_comment in "${ssh_key_comments[@]}"; do
+    key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
+    if [[ -n "$key_line" ]]; then
+      matched_comment="$ssh_key_comment"
+      break
+    fi
+  done
 
   if [[ -z "$key_line" ]]; then
     key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
@@ -31,8 +40,8 @@ if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
   if [[ -n "$key_line" ]]; then
     printf '%s\n' "$key_line" >"$ssh_pub_key_file"
     chmod 600 "$ssh_pub_key_file"
-    if [[ "$key_line" != *"$ssh_key_comment"* ]]; then
-      echo "WARN: '$ssh_key_comment' not found; using first SSH agent key instead." >&2
+    if [[ -z "$matched_comment" ]]; then
+      echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
     fi
   else
     echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
