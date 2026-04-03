@@ -9,6 +9,8 @@ os:
   #editCommand: 'code -rg {{filename}}'
   #editCommandTemplate: '{{editor}} --goto -- {{filename}}:{{line}}'
 promptToReturnFromSubprocess: false
+# If true, don't display introductory popups upon opening Lazygit.
+disableStartupPopups: false
 customCommands:
   - key: '<c-n>'
     description: 'Show next Git tag version'
