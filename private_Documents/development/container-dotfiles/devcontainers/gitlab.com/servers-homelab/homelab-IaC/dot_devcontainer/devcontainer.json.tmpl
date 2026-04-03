@@ -11,6 +11,7 @@
     "NVM_VERSION": "0.40.3",
     "NODE_VERSION": "lts/*",
     "CCR_PORT": "{{ .ccr_port }}",
+    "SSH_AUTH_SOCK": "/tmp/wsl-pageant-ssh-agent.sock",
     "ANSIBLE_SSH_COMMON_ARGS": "-o IdentitiesOnly=yes -o IdentityFile=/home/vscode/.ssh/root_terraform_ansible.pub"
   },
 
@@ -39,6 +40,7 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh,target=/tmp/homelab-postCreate.sh,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postStart.sh,target=/tmp/homelab-postStart.sh,type=bind,readonly",
     // --- Mount for Internal SSL Certs ---
+    "source=/mnt/c/Users/{{ .homelab.windows_user }}/.wsl-ssh-pageant/ssh-agent.sock,target=/tmp/wsl-pageant-ssh-agent.sock,type=bind",
     {
       "source": "{{ .CERTPATH }}",
       "target": "/home/vscode/development/keys",

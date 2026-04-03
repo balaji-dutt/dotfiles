@@ -25,7 +25,11 @@ if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
   if [[ -n "$key_line" ]]; then
     printf '%s\n' "$key_line" >"$ssh_pub_key_file"
     chmod 600 "$ssh_pub_key_file"
+  else
+    >&2 echo "WARN: SSH agent available but key '$ssh_key_comment' is not loaded."
   fi
+else
+  >&2 echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}"
 fi
 
 CCR_BIN="$(command -v ccr || true)"
