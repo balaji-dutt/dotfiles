@@ -412,7 +412,8 @@ function Check-ConfigsFileRel([string]$fileRel) {
 function Get-WslPath([string]$WindowsPath) {
   if (-not (HaveCmd 'wsl')) { return $null }
   try {
-    $out = & wsl wslpath -a $WindowsPath 2>$null
+    $wslInput = $WindowsPath -replace '\\', '/'
+    $out = & wsl wslpath -a $wslInput 2>$null
     return ($out | Out-String).Trim()
   } catch {
     return $null
@@ -446,30 +447,28 @@ function Get-BashPath([string]$WindowsPath) {
 }
 
 function Invoke-BashSyntaxCheckPath([string]$Path) {
+  $full = [IO.Path]::GetFullPath($Path)
+
   if (HaveCmd 'bash') {
-    $full = [IO.Path]::GetFullPath($Path)
     $bashPath = Get-BashPath $full
     if (-not [string]::IsNullOrEmpty($bashPath)) {
       bash -n $bashPath
-    } else {
-      bash -n $full
+      return
     }
+  }
+
+  if (HaveCmd 'wsl') {
+    $wslPath = Get-WslPath $full
+    if ([string]::IsNullOrEmpty($wslPath)) {
+      Write-Info 'WSL available but wslpath failed; bash -n skipped'
+      return
+    }
+
+    & wsl bash -n $wslPath
     return
   }
 
-  if (-not (HaveCmd 'wsl')) {
-    Write-Info 'bash not available; bash -n skipped'
-    return
-  }
-
-  $full = [IO.Path]::GetFullPath($Path)
-  $wslPath = Get-WslPath $full
-  if ([string]::IsNullOrEmpty($wslPath)) {
-    Write-Info 'WSL available but wslpath failed; bash -n skipped'
-    return
-  }
-
-  & wsl bash -n $wslPath
+  Write-Info 'bash not available; bash -n skipped'
 }
 
 function Check-ShellFileRel([string]$fileRel) {

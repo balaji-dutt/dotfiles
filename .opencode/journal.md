@@ -22,6 +22,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-04
+
+- gotcha: On Windows, `bash.exe` may resolve to WSL launcher, so `bash -n F:\...` fails with path escaping issues.
+- decision: In `assets/cz-audit.ps1`, convert Windows paths to forward-slash form for `wslpath` and fall back to `wsl bash -n <path>` when `Get-BashPath` cannot produce a POSIX path.
+
 ## 2026-04-03
 
 - decision: Standardize WSL and devcontainer SSH agent usage on Windows `wsl-ssh-pageant` socket path.
