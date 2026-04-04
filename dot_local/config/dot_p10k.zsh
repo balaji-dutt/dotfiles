@@ -32,7 +32,7 @@
   # The list of segments shown on the left. Fill it with the most important segments.
   typeset -g POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(
     # =========================[ Line #1 ]=========================
-    # os_icon               # os identifier
+    os_icon                 # os identifier
     dir                     # current directory
     vcs                     # git status
     # =========================[ Line #2 ]=========================
@@ -183,8 +183,25 @@
   #################################[ os_icon: os identifier ]##################################
   # OS identifier color.
   typeset -g POWERLEVEL9K_OS_ICON_FOREGROUND=255
-  # Custom icon.
-  # typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION='⭐'
+  # Runtime OS-specific icon selection.
+  local p10k_os_icon=
+  if [[ $OSTYPE == darwin* ]]; then
+    p10k_os_icon=$'\U000F0633'
+  elif [[ -r /etc/os-release ]]; then
+    local os_release_id line
+    while IFS='=' read -r key value; do
+      if [[ $key == ID ]]; then
+        os_release_id=${value//\"/}
+        break
+      fi
+    done </etc/os-release
+
+    case $os_release_id in
+      ubuntu) p10k_os_icon=$'\uF31B' ;;
+      debian) p10k_os_icon=$'\U000F08DA' ;;
+    esac
+  fi
+  typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION="$p10k_os_icon"
 
   ################################[ prompt_char: prompt symbol ]################################
   # Transparent background.

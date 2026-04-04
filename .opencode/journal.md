@@ -24,6 +24,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-04-04
 
+- decision: Use `os_icon` in `dot_local/config/dot_p10k.zsh` with runtime OS glyph mapping (`darwin` `\U000F0633`, Ubuntu `\uEF72`, Debian `\U000F08DA`) instead of adding a new custom prompt segment.
+- gotcha: `\uEF72` for Ubuntu rendered in VS Code terminal but not Windows Terminal with JetBrainsMonoNL Nerd Font; switched Ubuntu prompt icon to `\uF31B` (`nf-linux-ubuntu`) for broader compatibility.
 - gotcha: On Windows, `bash.exe` may resolve to WSL launcher, so `bash -n F:\...` fails with path escaping issues.
 - decision: In `assets/cz-audit.ps1`, convert Windows paths to forward-slash form for `wslpath` and fall back to `wsl bash -n <path>` when `Get-BashPath` cannot produce a POSIX path.
 - decision: Scoped `:physio` espanso expansion via app-specific configs: regular Firefox by `filter_exec` only, and FirefoxPWA by `filter_exec` + `filter_title` (`YNAB.*Mozilla Firefox$`).
