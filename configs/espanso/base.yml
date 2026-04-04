@@ -83,23 +83,117 @@ matches:
     #   params:
     #     format: "%b. %Y"
 
+  # Legacy fallback retained for easy rollback.
+  #
   # To enter details of Payments made through Banking/Payment websites.
+  # - trigger: ":paidcc"
+  #   replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})"
+  #   vars:
+  #     - name: paydate
+  #       type: date
+  #       params:
+  #         format: "%d/%m/%Y"
+  #     - name: txn_ref
+  #       type: clipboard
+  #     - name: formfields
+  #       type: form
+  #       params:
+  #         layout: |
+  #           Enter Payment Amount: [[amount]]
+  #           Select Paying Bank: [[bank]]
+  #           Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+  #         fields:
+  #           bank:
+  #             type: choice
+  #             values:
+  #               - StanChart Internet Banking
+  #               - OCBC Internet Banking
+  #               - CardUp Portal
+  #
+  # Variant with Salary and Spare pools (Diff. Eye included)
+  # - trigger: ":dpaidcc"
+  #   replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00 (0.00 Diff. Eye)\nSpare Pool\t: $ 0.00 (0.00 Diff. Eye)"
+  #   vars:
+  #     - name: paydate
+  #       type: date
+  #       params:
+  #         format: "%d/%m/%Y"
+  #     - name: txn_ref
+  #       type: clipboard
+  #     - name: formfields
+  #       type: form
+  #       params:
+  #         layout: |
+  #           Enter Payment Amount: [[amount]]
+  #           Select Paying Bank: [[bank]]
+  #           Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+  #         fields:
+  #           bank:
+  #             type: choice
+  #             values:
+  #               - StanChart Internet Banking
+  #               - OCBC Internet Banking
+  #               - CardUp Portal
+  #
+  # Variant with Salary and Spare pools
+  # - trigger: ":spaidcc"
+  #   replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nSpare Pool\t: $ 0.00"
+  #   vars:
+  #     - name: paydate
+  #       type: date
+  #       params:
+  #         format: "%d/%m/%Y"
+  #     - name: txn_ref
+  #       type: clipboard
+  #     - name: formfields
+  #       type: form
+  #       params:
+  #         layout: |
+  #           Enter Payment Amount: [[amount]]
+  #           Select Paying Bank: [[bank]]
+  #           Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+  #         fields:
+  #           bank:
+  #             type: choice
+  #             values:
+  #               - StanChart Internet Banking
+  #               - OCBC Internet Banking
+  #               - CardUp Portal
+  #
+  # Variant with Salary and Reimb. pools
+  # - trigger: ":lpaidcc"
+  #   replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nReimb. Pool\t: $ 0.00"
+  #   vars:
+  #     - name: paydate
+  #       type: date
+  #       params:
+  #         format: "%d/%m/%Y"
+  #     - name: txn_ref
+  #       type: clipboard
+  #     - name: formfields
+  #       type: form
+  #       params:
+  #         layout: |
+  #           Enter Payment Amount: [[amount]]
+  #           Select Paying Bank: [[bank]]
+  #           Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+  #         fields:
+  #           bank:
+  #             type: choice
+  #             values:
+  #               - StanChart Internet Banking
+  #               - OCBC Internet Banking
+  #               - CardUp Portal
+
+  # To enter details of payments made through banking/payment websites.
   - trigger: ":paidcc"
-    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})"
+    replace: "{{payment_text}}"
     vars:
-      - name: paydate
-        type: date
-        params:
-          format: "%d/%m/%Y"
-      - name: txn_ref
-        type: clipboard
       - name: formfields
         type: form
         params:
           layout: |
-            Enter Payment Amount: [[amount]]
-            Select Paying Bank: [[bank]]
-            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+            Select Bank Portal: [[bank]]
           fields:
             bank:
               type: choice
@@ -107,24 +201,26 @@ matches:
                 - StanChart Internet Banking
                 - OCBC Internet Banking
                 - CardUp Portal
+      - name: payment_text
+        type: script
+        params:
+          args:
+            - "{{payment_python}}"
+            - "%CONFIG%/scripts/payment-from-copyq.py"
+            - --variant
+            - paidcc
+            - --bank-portal
+            - "{{formfields.bank}}"
 
   # Variant with Salary and Spare pools (Diff. Eye included)
   - trigger: ":dpaidcc"
-    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00 (0.00 Diff. Eye)\nSpare Pool\t: $ 0.00 (0.00 Diff. Eye)"
+    replace: "{{payment_text}}"
     vars:
-      - name: paydate
-        type: date
-        params:
-          format: "%d/%m/%Y"
-      - name: txn_ref
-        type: clipboard
       - name: formfields
         type: form
         params:
           layout: |
-            Enter Payment Amount: [[amount]]
-            Select Paying Bank: [[bank]]
-            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+            Select Bank Portal: [[bank]]
           fields:
             bank:
               type: choice
@@ -132,24 +228,26 @@ matches:
                 - StanChart Internet Banking
                 - OCBC Internet Banking
                 - CardUp Portal
+      - name: payment_text
+        type: script
+        params:
+          args:
+            - "{{payment_python}}"
+            - "%CONFIG%/scripts/payment-from-copyq.py"
+            - --variant
+            - dpaidcc
+            - --bank-portal
+            - "{{formfields.bank}}"
 
   # Variant with Salary and Spare pools
   - trigger: ":spaidcc"
-    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nSpare Pool\t: $ 0.00"
+    replace: "{{payment_text}}"
     vars:
-      - name: paydate
-        type: date
-        params:
-          format: "%d/%m/%Y"
-      - name: txn_ref
-        type: clipboard
       - name: formfields
         type: form
         params:
           layout: |
-            Enter Payment Amount: [[amount]]
-            Select Paying Bank: [[bank]]
-            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+            Select Bank Portal: [[bank]]
           fields:
             bank:
               type: choice
@@ -157,24 +255,26 @@ matches:
                 - StanChart Internet Banking
                 - OCBC Internet Banking
                 - CardUp Portal
+      - name: payment_text
+        type: script
+        params:
+          args:
+            - "{{payment_python}}"
+            - "%CONFIG%/scripts/payment-from-copyq.py"
+            - --variant
+            - spaidcc
+            - --bank-portal
+            - "{{formfields.bank}}"
 
   # Variant with Salary and Reimb. pools
   - trigger: ":lpaidcc"
-    replace: "Paid ${{formfields.amount}} vide {{formfields.bank}} (Tx Ref: {{txn_ref}}) on {{formfields.tx_date}} (Tx Date: {{paydate}})\n\nSalary Pool\t: $ 0.00\nReimb. Pool\t: $ 0.00"
+    replace: "{{payment_text}}"
     vars:
-      - name: paydate
-        type: date
-        params:
-          format: "%d/%m/%Y"
-      - name: txn_ref
-        type: clipboard
       - name: formfields
         type: form
         params:
           layout: |
-            Enter Payment Amount: [[amount]]
-            Select Paying Bank: [[bank]]
-            Enter Payment Date (dd/mm/yyyy): [[tx_date]]
+            Select Bank Portal: [[bank]]
           fields:
             bank:
               type: choice
@@ -182,6 +282,16 @@ matches:
                 - StanChart Internet Banking
                 - OCBC Internet Banking
                 - CardUp Portal
+      - name: payment_text
+        type: script
+        params:
+          args:
+            - "{{payment_python}}"
+            - "%CONFIG%/scripts/payment-from-copyq.py"
+            - --variant
+            - lpaidcc
+            - --bank-portal
+            - "{{formfields.bank}}"
 
   # Since I'm forever typo'ing this word:
   - trigger: ":res"

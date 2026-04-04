@@ -30,6 +30,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: In `assets/cz-audit.ps1`, convert Windows paths to forward-slash form for `wslpath` and fall back to `wsl bash -n <path>` when `Get-BashPath` cannot produce a POSIX path.
 - decision: Scoped `:physio` espanso expansion via app-specific configs: regular Firefox by `filter_exec` only, and FirefoxPWA by `filter_exec` + `filter_title` (`YNAB.*Mozilla Firefox$`).
 - convention: Keep app-specific espanso snippets in underscored match files and include them via `extra_includes` from `espanso/config/*.yml`.
+- decision: Reworked `:paidcc`, `:dpaidcc`, `:spaidcc`, and `:lpaidcc` to parse CopyQ tab `AppAutomation` via a shared espanso script flow.
+- convention: Keep the new receipt parser in `configs/espanso/payment-from-copyq.py` and project it to OS targets through `.chezmoitemplates/espanso/payment-from-copyq.py.tmpl`.
+- gotcha: CopyQ CLI output may be blank on Windows terminals; parser now falls back to `pwsh` + `Write-Output` when direct `copyq tab <tab> read 0` returns empty.
 
 ## 2026-04-03
 

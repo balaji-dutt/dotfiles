@@ -1,1 +1,7 @@
+global_vars:
+  - name: payment_python
+    type: echo
+    params:
+      echo: "python3"
+
 matches: []
