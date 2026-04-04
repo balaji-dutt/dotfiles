@@ -1,0 +1,7 @@
+filter_exec: 'C:\\Users\\Balaji\\AppData\\Roaming\\FirefoxPWA\\runtime\\firefox\.exe$'
+filter_title: 'YNAB.*Mozilla Firefox$'
+apply_patch: false
+backend: inject
+key_delay: 12
+extra_includes:
+  - '../match/_physio-firefoxpwa.yml'

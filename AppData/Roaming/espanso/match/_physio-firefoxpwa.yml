@@ -1,0 +1,4 @@
+matches:
+  - trigger: ":physio"
+    replace: "Physio Down Under\t"
+    force_mode: keys
