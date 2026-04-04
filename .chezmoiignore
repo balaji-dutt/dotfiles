@@ -102,6 +102,8 @@ Documents/PowerShell
 !/AppData/Roaming/Sublime Merge/**
 !/AppData/Roaming/espanso/
 !/AppData/Roaming/espanso/**
+!/AppData/Roaming/yt-dlp/
+!/AppData/Roaming/yt-dlp/**
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}

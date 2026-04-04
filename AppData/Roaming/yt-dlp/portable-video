@@ -1,0 +1,20 @@
+# GENERAL OPTIONS
+# Location of the main configuration file
+--config-locations "C:/Users/Balaji/AppData/Roaming/yt-dlp/config"
+
+# VIDEO FORMAT OPTIONS
+# Prioritize best compatible H.264/MP4 for devices like iPad using native Video playback apps
+#--format "bv*[vcodec^=avc]+ba[ext=m4a]/b[ext=mp4]/b"
+# Prioritize best 4K for VLC, with a fallback to compatible MP4 for other uses.
+--format "bv[height=2160]+ba / bv[height=1080]+ba / bv*[vcodec^=avc]+ba[ext=m4a]/b[ext=mp4]/b"
+# Re-encode the video into another format
+# --recode-video mp4
+
+# FILESYSTEM OPTIONS:
+# The paths where the files should be downloaded
+--paths "J:/Videos/"
+# Output filename template
+--output "%(epoch>%Y%m%d)s - %(video_autonumber)03d - %(title).150B.%(ext)s"
+
+# EXAMPLE COMMAND
+# yt-dlp --config-location "C:\Users\Balaji\AppData\Roaming\yt-dlp\portable-video" --batch-file H:\Temp\yt-dlp_yyyymmdd.txt

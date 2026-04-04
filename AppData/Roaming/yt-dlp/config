@@ -1,0 +1,27 @@
+# GENERAL OPTIONS
+
+# FILESYSTEM OPTIONS
+# Force filenames to be Windows-compatible
+--windows-filenames
+# Do not retrieve video comments unless the extraction is known to be quick 
+--no-get-comments
+# The name of the browser to load cookies
+--cookies-from-browser "firefox::Google"
+
+# POST-PROCESSING OPTIONS
+# Give these arguments to the postprocessors
+# --postprocessor-args "ffmpeg:-threads 8"
+# Embed metadata to the video file
+--embed-metadata
+# Do not embed the infojson as an attachment to the video file
+--no-embed-info-json
+# Location of the ffmpeg binary
+--ffmpeg-location "C:/ProgramData/chocolatey/bin/ffmpeg.exe"
+# Additional options for ffmpeg
+--postprocessor-args "FFmpegVideoConvertor:-c:v h264_nvenc"
+# The (case sensitive) name of plugin postprocessors to be enabled, and
+# (optionally) arguments to be passed to it, separated by a colon ":".
+--use-postprocessor DeArrow:when=pre_process
+
+# SPONSORBLOCK OPTIONS
+--sponsorblock-mark all
