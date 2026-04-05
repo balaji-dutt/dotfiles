@@ -33,6 +33,7 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Reworked `:paidcc`, `:dpaidcc`, `:spaidcc`, and `:lpaidcc` to parse CopyQ tab `AppAutomation` via a shared espanso script flow.
 - convention: Keep the new receipt parser in `configs/espanso/payment-from-copyq.py` and project it to OS targets through `.chezmoitemplates/espanso/payment-from-copyq.py.tmpl`.
 - gotcha: CopyQ CLI output may be blank on Windows terminals; parser now falls back to `pwsh` + `Write-Output` when direct `copyq tab <tab> read 0` returns empty.
+- gotcha: Espanso on Windows may not inherit a PATH that includes CopyQ, so parser lookup must also probe standard install paths like `C:\Program Files\CopyQ\copyq.exe`.
 
 ## 2026-04-03
 

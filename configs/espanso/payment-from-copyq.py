@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
@@ -67,10 +68,49 @@ def run_command(command: list[str]) -> tuple[int, str, str]:
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
+def resolve_copyq_path() -> str:
+    candidates: list[str] = []
+
+    for executable in ("copyq", "copyq.exe"):
+        resolved = shutil.which(executable)
+        if resolved:
+            candidates.append(resolved)
+
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        candidates.extend(
+            [
+                r"C:\Program Files\CopyQ\copyq.exe",
+                r"C:\Program Files (x86)\CopyQ\copyq.exe",
+                os.path.join(local_app_data, "Microsoft", "WinGet", "Links", "copyq.exe"),
+            ]
+        )
+    elif sys.platform == "darwin":
+        candidates.extend(
+            [
+                "/Applications/CopyQ.app/Contents/MacOS/CopyQ",
+                os.path.expanduser("~/Applications/CopyQ.app/Contents/MacOS/CopyQ"),
+            ]
+        )
+
+    seen: set[str] = set()
+    normalized_candidates: list[str] = []
+    for candidate in candidates:
+        normalized = os.path.normpath(candidate) if candidate else ""
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            normalized_candidates.append(normalized)
+
+    for candidate in normalized_candidates:
+        if Path(candidate).is_file():
+            return candidate
+
+    checked = "; ".join(normalized_candidates) if normalized_candidates else "(none)"
+    raise RuntimeError(f"copyq is not available in PATH or standard locations. Checked: {checked}")
+
+
 def read_copyq_item(tab_name: str) -> str:
-    copyq = shutil.which("copyq") or shutil.which("copyq.exe")
-    if not copyq:
-        raise RuntimeError("copyq is not available in PATH.")
+    copyq = resolve_copyq_path()
 
     code, stdout, stderr = run_command([copyq, "tab", tab_name, "read", "0"])
     if code == 0 and stdout:
