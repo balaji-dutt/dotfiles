@@ -45,6 +45,10 @@ matches:
   # And much more! For more information, visit the docs: https://espanso.org/docs/
 
   # Custom match configuration starts from here.
+  # For use with Bupa website
+  - trigger: ":dvt"
+    replace: "Pulmonary Embolectomy / Deep Vein Thrombosis"
+
   # For YNAB
   - trigger: ":bupa"
     replace: "Reimbursement of expenses"
