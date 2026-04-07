@@ -44,6 +44,14 @@ should not, and how post-review docs refresh should behave.
 - Keep `.opencode/journal.md` as working memory; promote only durable guidance
   into `docs/agents/`.
 
+## Manual command wrapper
+
+- Use `/refresh-docs` as a manual wrapper around the `refresh-docs` skill.
+- Supported modes: `auto`, `human-only`, `agent-only`, `deep`.
+- Optional target docs can be passed after the mode.
+- If mode is omitted or unrecognized, the command defaults to `auto`.
+- If reviewed docs are changed, run one more `@dotfiles-reviewer` pass.
+
 ## Related files
 
 - OpenCode instructions:
@@ -58,3 +66,5 @@ should not, and how post-review docs refresh should behave.
   `.claude/hooks/enforce-review-on-stop.sh`
 - Skill:
   `.opencode/skills/refresh-docs/SKILL.md`
+- Command:
+  `.opencode/commands/refresh-docs.md`
