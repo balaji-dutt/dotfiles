@@ -22,6 +22,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-07
+
+- decision: Mount `~/.wsl-ssh-pageant` directory into `homelab-IaC` devcontainer instead of binding the socket file directly.
+- gotcha: File-level bind mount of `ssh-agent.sock` can become stale after container stop/start when host recreates socket inode.
+- decision: Hardened `dot_devcontainer/postStart.sh` SSH export flow to distinguish no-keys (`ssh-add -L` exit 1) from broken agent communication.
+
 ## 2026-04-04
 
 - decision: Use `os_icon` in `dot_local/config/dot_p10k.zsh` with runtime OS glyph mapping (`darwin` `\U000F0633`, Ubuntu `\uEF72`, Debian `\U000F08DA`) instead of adding a new custom prompt segment.

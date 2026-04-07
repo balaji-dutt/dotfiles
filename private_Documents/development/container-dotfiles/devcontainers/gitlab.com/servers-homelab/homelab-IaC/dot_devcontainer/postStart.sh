@@ -21,31 +21,49 @@ ln -sf /tmp/opencode.env "$HOME/.config/opencode/opencode.env"
 ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
-  key_lines="$(ssh-add -L 2>/dev/null || true)"
-  key_line=""
-  matched_comment=""
+  ssh_add_stdout="$(mktemp)"
+  ssh_add_stderr="$(mktemp)"
+  ssh_add_exit=0
+  ssh-add -L >"$ssh_add_stdout" 2>"$ssh_add_stderr" || ssh_add_exit=$?
+  if [[ "$ssh_add_exit" -eq 0 ]]; then
+    key_lines="$(cat "$ssh_add_stdout")"
+    key_line=""
+    matched_comment=""
 
-  for ssh_key_comment in "${ssh_key_comments[@]}"; do
-    key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
-    if [[ -n "$key_line" ]]; then
-      matched_comment="$ssh_key_comment"
-      break
+    for ssh_key_comment in "${ssh_key_comments[@]}"; do
+      key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
+      if [[ -n "$key_line" ]]; then
+        matched_comment="$ssh_key_comment"
+        break
+      fi
+    done
+
+    if [[ -z "$key_line" ]]; then
+      key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
     fi
-  done
 
-  if [[ -z "$key_line" ]]; then
-    key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
-  fi
-
-  if [[ -n "$key_line" ]]; then
-    printf '%s\n' "$key_line" >"$ssh_pub_key_file"
-    chmod 600 "$ssh_pub_key_file"
-    if [[ -z "$matched_comment" ]]; then
-      echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
+    if [[ -n "$key_line" ]]; then
+      printf '%s\n' "$key_line" >"$ssh_pub_key_file"
+      chmod 600 "$ssh_pub_key_file"
+      if [[ -z "$matched_comment" ]]; then
+        echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
+      fi
+    else
+      echo "WARN: SSH agent returned no usable public keys for Ansible." >&2
     fi
   else
-    echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
+    if [[ "$ssh_add_exit" -eq 1 ]]; then
+      echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
+    else
+      ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+      if [[ -n "$ssh_add_error" ]]; then
+        echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit): $ssh_add_error" >&2
+      else
+        echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
+      fi
+    fi
   fi
+  rm -f "$ssh_add_stdout" "$ssh_add_stderr"
 else
   echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}" >&2
 fi
