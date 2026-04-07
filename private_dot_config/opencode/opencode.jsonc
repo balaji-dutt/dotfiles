@@ -153,6 +153,7 @@
   "plugin": [
     "@franlol/opencode-md-table-formatter@0.0.3",
     "@tarquinen/opencode-dcp@latest",
+    "@plannotator/opencode@0.17.1",
     "opencode-websearch-cited@1.2.0"
   ],
 

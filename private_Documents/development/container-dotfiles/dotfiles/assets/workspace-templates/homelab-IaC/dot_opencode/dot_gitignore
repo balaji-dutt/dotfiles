@@ -1,5 +1,9 @@
 *
 !.gitignore
+!commands/
+!commands/plannotator-review.md
+!commands/plannotator-annotate.md
+!commands/plannotator-last.md
 !opencode.jsonc
 !tui.json
 !commit-docs.sh
