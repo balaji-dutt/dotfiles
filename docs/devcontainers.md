@@ -55,6 +55,19 @@ Use:
 
 Run the render step before rebuilding containers so runtime values are injected safely.
 
+## OpenCode in Devcontainers
+
+For the `homelab-IaC` template, OpenCode is configured for browser-based
+Plannotator plan review from inside the container.
+
+- `PLANNOTATOR_REMOTE=1`
+- `PLANNOTATOR_PORT=9999`
+- `forwardPorts: [9999]`
+
+If the browser does not open automatically when `submit_plan` runs, open:
+
+- `http://localhost:9999`
+
 ## WSL Overlay Publishing
 
 WSL-specific overlay publishing is handled by:
