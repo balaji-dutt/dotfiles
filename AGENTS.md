@@ -37,6 +37,7 @@ The following tools may be available, so check for their availability before exe
 ## Documentation References
 
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
+- For review-gate path policy and post-review docs updates, refer to: docs/agents/review-loop.md
 <!-- - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development. -->
 
 ## Post-review docs refresh workflow
