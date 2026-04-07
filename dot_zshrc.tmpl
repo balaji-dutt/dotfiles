@@ -373,8 +373,7 @@ fi
 
 {{- if .homelab.windows_user }}
 # Pageant/WSL2 inter-op (via npiperelay + socat)
-WSL2_PAGEANT_PRIMARY_SSH_AUTH_SOCK=${WSL2_PAGEANT_PRIMARY_SSH_AUTH_SOCK:-/mnt/c/Users/{{ .homelab.windows_user }}/.wsl-ssh-pageant/ssh-agent.sock}
-WSL2_PAGEANT_SSH_AUTH_SOCK=${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent.sock}
+WSL2_PAGEANT_SSH_AUTH_SOCK=${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent/ssh-agent.sock}
 
 _wsl2_pageant_pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
 
@@ -428,6 +427,8 @@ wsl2_pageant_ensure() {
     command -v socat >/dev/null 2>&1 || return 1
     [ -x "$npiperelay_exe" ] || return 1
 
+    mkdir -p "$(dirname "$SSH_AUTH_SOCK")"
+
     if _wsl2_pageant_agent_ok; then
         return 0
     fi
@@ -450,26 +451,6 @@ wsl2_pageant_ensure() {
     return 1
 }
 
-_wsl2_pageant_primary_agent_ok() {
-    if [ ! -S "$WSL2_PAGEANT_PRIMARY_SSH_AUTH_SOCK" ]; then
-        return 1
-    fi
-
-    local previous_ssh_auth_sock="${SSH_AUTH_SOCK:-}"
-    export SSH_AUTH_SOCK="$WSL2_PAGEANT_PRIMARY_SSH_AUTH_SOCK"
-    if _wsl2_pageant_agent_ok; then
-        return 0
-    fi
-
-    if [ -n "$previous_ssh_auth_sock" ]; then
-        export SSH_AUTH_SOCK="$previous_ssh_auth_sock"
-    else
-        unset SSH_AUTH_SOCK
-    fi
-
-    return 1
-}
-
 sset() {
     export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
 
@@ -488,10 +469,8 @@ sset() {
 alias sunset=' unset SSH_AUTH_SOCK'
 
 if [[ -o interactive ]]; then
-    if ! _wsl2_pageant_primary_agent_ok; then
-        export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
-        wsl2_pageant_ensure >/dev/null 2>&1
-    fi
+    export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
+    wsl2_pageant_ensure >/dev/null 2>&1
 
     autoload -Uz add-zsh-hook
 
@@ -506,11 +485,6 @@ if [[ -o interactive ]]; then
         fi
         _WSL2_PAGEANT_LAST_CHECK=$EPOCHSECONDS
 
-        if _wsl2_pageant_primary_agent_ok; then
-            return 0
-        fi
-
-        export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
         if ! _wsl2_pageant_agent_ok; then
             wsl2_pageant_ensure >/dev/null 2>&1
         fi

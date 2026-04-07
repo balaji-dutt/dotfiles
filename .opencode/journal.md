@@ -34,6 +34,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Override built-in `build` prompt in project config to explicitly load `refresh-docs` after review PASS when docs are stale.
 - decision: Switched from `agent.build.prompt` override to repo-level `instructions` file at `.opencode/instructions/post-review-docs.md` to avoid replacing built-in Build behavior.
 - convention: Rely on default discovery for `.opencode/skills/*/SKILL.md`; do not add `skills.paths` unless a non-standard location is needed.
+- decision: Reverted WSL/devcontainer SSH agent preference to WSL-local `npiperelay` + `socat` socket because Windows `.wsl-ssh-pageant/ssh-agent.sock` was not reliably usable from WSL (`ssh-add` connection errors).
+- context: Updated homelab devcontainer to mount `/tmp/wsl2-ssh-agent` directory and added `initializeCommand` to precreate/reconnect socket before container start.
 
 ## 2026-04-04
 

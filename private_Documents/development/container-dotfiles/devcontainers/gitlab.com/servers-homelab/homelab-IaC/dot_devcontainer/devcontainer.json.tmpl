@@ -47,7 +47,7 @@
     // --- Mount for Internal SSL Certs ---
     {{- if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
-    "source=/mnt/c/Users/{{ .homelab.windows_user }}/.wsl-ssh-pageant,target=/tmp/wsl-ssh-pageant,type=bind",
+    "source=/tmp/wsl2-ssh-agent,target=/tmp/wsl-ssh-pageant,type=bind",
     {{- end }}
     {{- end }}
     {
@@ -67,6 +67,12 @@
       "type": "volume"
     }
   ],
+
+  {{- if hasKey . "homelab" }}
+  {{- if .homelab.windows_user }}
+  "initializeCommand": ["bash", "-lc", "mkdir -p /tmp/wsl2-ssh-agent; zsh -lic 'sset >/dev/null 2>&1 || true' >/dev/null 2>&1 || true"],
+  {{- end }}
+  {{- end }}
 
   "postCreateCommand": ["bash", "/tmp/homelab-postCreate.sh"],
 
