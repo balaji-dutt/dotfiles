@@ -20,9 +20,60 @@ cd "$PROJECT_DIR"
 SENTINEL_OPENCODE=".opencode/.needs_dotfiles_review"
 SENTINEL_CLAUDE=".claude/.needs_dotfiles_review" # legacy / transitional
 
+classify_path() {
+  local p="${1//\\//}"
+  p="${p#./}"
+  p="${p,,}"
+
+  if [[ "$p" == "assets/readme.md" ]]; then
+    printf 'exempt-doc\n'
+    return
+  fi
+
+  if [[ "$p" == docs/* ]]; then
+    if [[ "$p" == docs/agents/* ]]; then
+      printf 'reviewed-doc\n'
+    else
+      printf 'exempt-doc\n'
+    fi
+    return
+  fi
+
+  if [[ "$p" == "readme.md" || "$p" == "agents.md" || "$p" == "dot_claude/agents.md" ]]; then
+    printf 'reviewed-doc\n'
+    return
+  fi
+
+  printf 'normal\n'
+}
+
 # Nothing to enforce
 if [[ ! -f "$SENTINEL_OPENCODE" && ! -f "$SENTINEL_CLAUDE" ]]; then
   exit 0
+fi
+
+# If all pending changes are exempt docs, do not block stopping.
+mapfile -t CHANGED_FILES < <(
+  {
+    git diff --name-only
+    git diff --name-only --cached
+    git ls-files --others --exclude-standard
+  } | tr -d '\r' | sed '/^$/d' | sort -u
+)
+
+if [[ "${#CHANGED_FILES[@]}" -gt 0 ]]; then
+  ALL_EXEMPT_DOCS=1
+  for p in "${CHANGED_FILES[@]}"; do
+    cls="$(classify_path "$p")"
+    if [[ "$cls" != "exempt-doc" ]]; then
+      ALL_EXEMPT_DOCS=0
+      break
+    fi
+  done
+
+  if [[ "$ALL_EXEMPT_DOCS" -eq 1 ]]; then
+    exit 0
+  fi
 fi
 
 # ---- Context detection ----

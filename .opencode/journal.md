@@ -27,6 +27,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Mount `~/.wsl-ssh-pageant` directory into `homelab-IaC` devcontainer instead of binding the socket file directly.
 - gotcha: File-level bind mount of `ssh-agent.sock` can become stale after container stop/start when host recreates socket inode.
 - decision: Hardened `dot_devcontainer/postStart.sh` SSH export flow to distinguish no-keys (`ssh-add -L` exit 1) from broken agent communication.
+- decision: Exempt review-gate marking for `docs/**` except `docs/agents/**`, and for `assets/README.md`.
+- convention: Keep review required for `README.md`, `AGENTS.md`, `dot_claude/AGENTS.md`, and `docs/agents/**`.
+- context: Added local skill scaffold at `.opencode/skills/refresh-docs/SKILL.md` and wired `skills.paths` in `.opencode/opencode.jsonc`.
+- gotcha: OpenCode skills require YAML frontmatter with `name` and `description`; body-only `SKILL.md` will not load.
+- decision: Override built-in `build` prompt in project config to explicitly load `refresh-docs` after review PASS when docs are stale.
+- decision: Switched from `agent.build.prompt` override to repo-level `instructions` file at `.opencode/instructions/post-review-docs.md` to avoid replacing built-in Build behavior.
+- convention: Rely on default discovery for `.opencode/skills/*/SKILL.md`; do not add `skills.paths` unless a non-standard location is needed.
 
 ## 2026-04-04
 

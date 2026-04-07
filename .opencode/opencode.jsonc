@@ -10,6 +10,10 @@
   // Project specific permissions
   // ----------------------------
   "permission": {
+    "skill": {
+      "*": "allow",
+      "refresh-docs": "allow"
+    },
     "bash": {
       // allow safe chezmoi ops
       "chezmoi doctor*": "allow",
@@ -29,6 +33,9 @@
       "chezmoi upgrade*": "deny",
     }
   },
+  "instructions": [
+    "./instructions/post-review-docs.md"
+  ],
   "agent": {
     // Customize global agents for this project
     "plan": {

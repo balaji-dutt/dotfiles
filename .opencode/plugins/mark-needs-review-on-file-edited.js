@@ -94,6 +94,31 @@ export default async (ctx) => {
     }
   }
 
+  function repoRelLower(p) {
+    const rel = relPath(p).replace(/^\.\//, "");
+    return normalizeLower(rel);
+  }
+
+  function classifyPath(p) {
+    const rel = repoRelLower(p);
+
+    if (rel === "assets/readme.md") return "exempt-doc";
+    if (rel.startsWith("docs/")) {
+      if (rel.startsWith("docs/agents/")) return "reviewed-doc";
+      return "exempt-doc";
+    }
+
+    if (
+      rel === "readme.md" ||
+      rel === "agents.md" ||
+      rel === "dot_claude/agents.md"
+    ) {
+      return "reviewed-doc";
+    }
+
+    return "normal";
+  }
+
   async function maybeToast(message) {
     if (!toastEnabled) return;
     const now = Date.now();
@@ -123,6 +148,7 @@ export default async (ctx) => {
         const file = extractFileFromEvent(event);
         if (!isInsideRepo(file)) return;
         if (isOpencodeArtifact(file)) return;
+        if (classifyPath(file) === "exempt-doc") return;
 
         if (await recentlyMarked()) return;
         await markAndToast(file, "file.edited");
@@ -133,8 +159,14 @@ export default async (ctx) => {
       if (event.type === "tool.execute.after") {
         const tool = String(event?.tool || event?.properties?.tool || "").toLowerCase();
         if (tool === "edit" || tool === "write" || tool === "multiedit" || tool === "apply_patch") {
+          const file = extractFileFromEvent(event);
+          if (file && isInsideRepo(file) && !isOpencodeArtifact(file) && classifyPath(file) === "exempt-doc") {
+            return;
+          }
+          if (!file) return;
+
           if (await recentlyMarked()) return;
-          await markAndToast("", `tool.execute.after:${tool}`);
+          await markAndToast(file, `tool.execute.after:${tool}`);
         }
       }
     },

@@ -39,6 +39,13 @@ The following tools may be available, so check for their availability before exe
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
 <!-- - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development. -->
 
+## Post-review docs refresh workflow
+
+- After a successful dotfiles review (`DOTFILES_REVIEWER_RESULT=PASS`), assess whether docs are stale.
+- If docs are stale, use the local skill at `.opencode/skills/refresh-docs/SKILL.md`.
+- Refresh docs only when impact exists; do not rewrite docs broadly.
+- If docs refresh changes reviewed docs (`README.md`, `AGENTS.md`, `dot_claude/AGENTS.md`, `docs/agents/**`), run the reviewer again.
+
 ## Documentation Workflow (README.md)
 
 - **Modifications:** When updating `README.md`, you are authorized to update/commit the changes, but follow this protocol:

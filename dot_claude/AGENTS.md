@@ -97,6 +97,12 @@ launch programs, send input, capture output, and manage interactive sessions. If
   3) verify with appropriate checks/tests
   4) summarize what changed + how to rollback
 
+- After `DOTFILES_REVIEWER_RESULT=PASS`, assess docs impact before finishing.
+- If docs are stale, use `.opencode/skills/refresh-docs/SKILL.md`.
+- Keep docs refresh minimal and idempotent; avoid broad rewrites.
+- If docs refresh changes reviewed docs (`README.md`, `AGENTS.md`,
+  `dot_claude/AGENTS.md`, `docs/agents/**`), rerun `@dotfiles-reviewer`.
+
 - When reviewing changes:
   - focus on correctness, safety, maintainability, and cross-platform behavior
   - call out risky diffs and edge cases

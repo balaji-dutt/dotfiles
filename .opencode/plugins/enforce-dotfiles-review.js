@@ -155,6 +155,36 @@ export default async (ctx = {}) => {
     return n.includes("/.opencode/") || n.startsWith(".opencode/");
   }
 
+  function repoRelLower(p) {
+    if (!p) return "";
+    try {
+      const rel = path.isAbsolute(p) ? path.relative(baseDir, p) : p;
+      return normalize(rel).replace(/^\.\//, "");
+    } catch {
+      return normalize(p).replace(/^\.\//, "");
+    }
+  }
+
+  function classifyPath(p) {
+    const rel = repoRelLower(p);
+
+    if (rel === "assets/readme.md") return "exempt-doc";
+    if (rel.startsWith("docs/")) {
+      if (rel.startsWith("docs/agents/")) return "reviewed-doc";
+      return "exempt-doc";
+    }
+
+    if (
+      rel === "readme.md" ||
+      rel === "agents.md" ||
+      rel === "dot_claude/agents.md"
+    ) {
+      return "reviewed-doc";
+    }
+
+    return "normal";
+  }
+
   function extractFilePath(evt) {
     return (
       evt?.path ||
@@ -182,6 +212,7 @@ export default async (ctx = {}) => {
         const p = extractFilePath(evt);
         // ignore .opencode artifacts except the sentinel itself (we actually WANT that one)
         if (p && isOpencodeArtifact(p) && !normalize(p).endsWith("/.needs_dotfiles_review")) return;
+        if (p && classifyPath(p) === "exempt-doc") return;
 
         // If no gate, nothing to do
         if (!(await getGatePath())) return;
