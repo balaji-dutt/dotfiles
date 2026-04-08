@@ -87,20 +87,20 @@ npm -v
 done_step "Install Node version: ${NODE_VERSION}"
 
 # --- 4) Global npm packages ---
-step "Install global npm packages from /tmp/container_packages/npm.txt"
-if [[ -f /tmp/container_packages/npm.txt ]]; then
+step "Install global npm packages from /tmp/host-homelab-configs/npm_packages.txt"
+if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
   # helpful visibility
   echo "--- npm packages file ---"
-  sed -n '1,200p' /tmp/container_packages/npm.txt || true
+  sed -n '1,200p' /tmp/host-homelab-configs/npm_packages.txt || true
   echo "-------------------------"
 
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
     echo "[npm] installing: $pkg"
     npm install -g "$pkg"
-  done < /tmp/container_packages/npm.txt
+  done < /tmp/host-homelab-configs/npm_packages.txt
 else
-  echo "No /tmp/container_packages/npm.txt found; skipping."
+  echo "No /tmp/host-homelab-configs/npm_packages.txt found; skipping."
 fi
 done_step "Install global npm packages"
 
@@ -111,19 +111,19 @@ hash -r
 done_step "Re-ensure PATH for user installs"
 
 # --- 5) uv tools ---
-step "Install uv tools from /tmp/container_packages/uv.txt"
-if [[ -f /tmp/container_packages/uv.txt ]]; then
+step "Install uv tools from /tmp/host-homelab-configs/uv_tools.txt"
+if [[ -f /tmp/host-homelab-configs/uv_tools.txt ]]; then
   echo "--- uv tools file ---"
-  sed -n '1,200p' /tmp/container_packages/uv.txt || true
+  sed -n '1,200p' /tmp/host-homelab-configs/uv_tools.txt || true
   echo "----------------------"
 
   while IFS= read -r tool || [[ -n "${tool:-}" ]]; do
     [[ -z "${tool// /}" ]] && continue
     echo "[uv] installing tool: $tool"
     uv tool install "$tool"
-  done < /tmp/container_packages/uv.txt
+  done < /tmp/host-homelab-configs/uv_tools.txt
 else
-  echo "No /tmp/container_packages/uv.txt found; skipping."
+  echo "No /tmp/host-homelab-configs/uv_tools.txt found; skipping."
 fi
 done_step "Install uv tools"
 
@@ -131,13 +131,13 @@ done_step "Install uv tools"
 step "Setup Claude config symlinks and permissions"
 mkdir -p /home/vscode/.claude/commands /home/vscode/.claude-code-router/auth
 
-ln -sf /tmp/claude-private-settings.json /home/vscode/.claude/settings.json || true
-ln -sf /tmp/claude-router-config.json /home/vscode/.claude-code-router/config.json || true
-ln -sf /tmp/claude-router-plugins /home/vscode/.claude-code-router/plugins || true
-ln -sf /tmp/claude-agents.md /home/vscode/.claude/AGENTS.md || true
+ln -sf /tmp/host-claude/private_settings.json /home/vscode/.claude/settings.json || true
+ln -sf /tmp/host-container-configs/config.json /home/vscode/.claude-code-router/config.json || true
+ln -sf /tmp/host-claude-code-router/plugins /home/vscode/.claude-code-router/plugins || true
+ln -sf /tmp/host-claude/AGENTS.md /home/vscode/.claude/AGENTS.md || true
 ln -sf /home/vscode/.claude/AGENTS.md /home/vscode/.claude/CLAUDE.md || true
-ln -sf /tmp/claude-todo-command.md /home/vscode/.claude/commands/todo.md || true
-ln -sf /tmp/claude-commit-docs.sh /home/vscode/.claude/commit-docs.sh || true
+ln -sf /tmp/host-claude/commands/todo.md /home/vscode/.claude/commands/todo.md || true
+ln -sf /tmp/host-claude/executable_commit-docs.sh /home/vscode/.claude/commit-docs.sh || true
 
 chmod +x /home/vscode/.claude/commit-docs.sh || true
 done_step "Setup Claude config symlinks and permissions"
@@ -153,14 +153,14 @@ fi
 done_step "superclaude install"
 
 # --- 8) Source container env + dotfiles ---
-step "Source /tmp/container_env (if present)"
-if [[ -f /tmp/container_env ]]; then
+step "Source /tmp/host-container-configs/container_env (if present)"
+if [[ -f /tmp/host-container-configs/container_env ]]; then
   # shellcheck disable=SC1091
-  source /tmp/container_env
+  source /tmp/host-container-configs/container_env
 else
-  echo "/tmp/container_env not found; skipping."
+  echo "/tmp/host-container-configs/container_env not found; skipping."
 fi
-done_step "Source /tmp/container_env (if present)"
+done_step "Source /tmp/host-container-configs/container_env (if present)"
 
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles

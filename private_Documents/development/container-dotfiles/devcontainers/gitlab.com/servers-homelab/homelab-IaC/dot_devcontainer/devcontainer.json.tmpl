@@ -26,26 +26,21 @@
     // String syntax used here as the object syntax does not support readonly mounting.
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/container-dotfiles/dotfiles,target=/home/vscode/.host-dotfiles,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_markdownlint-cli2.jsonc,target=/home/vscode/.markdownlint-cli2.jsonc,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles,target=/tmp/host-dotfiles,type=bind,readonly",
     // --- Mount for Claude Code configs and package lists ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/AGENTS.md,target=/tmp/claude-agents.md,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/commands/todo.md,target=/tmp/claude-todo-command.md,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/executable_commit-docs.sh,target=/tmp/claude-commit-docs.sh,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude/private_settings.json,target=/tmp/claude-private-settings.json,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude,target=/tmp/host-claude,type=bind,readonly",
     // --- Mount for Claude Code Router configs ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/config.json,target=/tmp/claude-router-config.json,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude-code-router/plugins,target=/tmp/claude-router-plugins,type=bind,readonly",
-    // --- Mount for Container Env Variables ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/container_env,target=/tmp/container_env,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude-code-router,target=/tmp/host-claude-code-router,type=bind,readonly",
+    // --- Mount for Container generated configs ---
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs,target=/tmp/host-container-configs,type=bind,readonly",
     // --- Mount for OpenCode config ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_dot_config/opencode/opencode.jsonc,target=/tmp/opencode.jsonc,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs/opencode.env,target=/tmp/opencode.env,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_dot_config/opencode,target=/tmp/host-opencode-config,type=bind,readonly",
     // --- Mount for package lists ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt,target=/tmp/container_packages/npm.txt,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt,target=/tmp/container_packages/uv.txt,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs,target=/tmp/host-homelab-configs,type=bind,readonly",
     // --- Mount for Container post(*)Command scripts ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh,target=/tmp/homelab-postCreate.sh,type=bind,readonly",
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postStart.sh,target=/tmp/homelab-postStart.sh,type=bind,readonly",
+    "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer,target=/tmp/host-homelab-devcontainer,type=bind,readonly",
+    // --- Mount for workspace files ---
+    "source=${localEnv:HOME}/Documents/development/vscode-workspace,target=/tmp/host-vscode-workspace,type=bind,readonly",
     // --- Mount for Internal SSL Certs ---
     {{- if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
@@ -55,11 +50,6 @@
     {
       "source": "{{ .CERTPATH }}",
       "target": "/home/vscode/development/keys",
-      "type": "bind"
-    },
-    {
-      "source": "${localEnv:HOME}/Documents/development/vscode-workspace/container-homelab-IaC.code-workspace",
-      "target": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
       "type": "bind"
     },
     // --- Mount for persistent data (using a named volume) ---
@@ -76,15 +66,15 @@
   {{- end }}
   {{- end }}
 
-  "postCreateCommand": ["bash", "/tmp/homelab-postCreate.sh"],
+  "postCreateCommand": ["bash", "/tmp/host-homelab-devcontainer/postCreate.sh"],
 
-  "postStartCommand": ["bash", "/tmp/homelab-postStart.sh"],
+  "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh"],
 
   "forwardPorts": [9999],
 
   "customizations": {
     "vscode": {
-      "workspaceFile": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
+      "workspaceFile": "/tmp/host-vscode-workspace/container-homelab-IaC.code-workspace",
       "settings": {
         "homelab.isHomelabWorkspace": true,  // Special parameter added to enable per workspace keybinding
         "terminal.integrated.profiles.linux": {
@@ -96,7 +86,7 @@
           }
         },
         "terminal.integrated.defaultProfile.linux": "Container zsh",
-        "markdownlint.configFile": "/home/vscode/.markdownlint-cli2.jsonc"
+        "markdownlint.configFile": "/tmp/host-dotfiles/dot_markdownlint-cli2.jsonc"
       },
       "extensions": [
         // --- Coding Agents ---

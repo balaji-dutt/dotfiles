@@ -15,8 +15,19 @@ ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
-ln -sf /tmp/opencode.jsonc "$HOME/.config/opencode/opencode.jsonc"
-ln -sf /tmp/opencode.env "$HOME/.config/opencode/opencode.env"
+if [[ -f /tmp/host-opencode-config/opencode.jsonc ]]; then
+  install -m 0644 /tmp/host-opencode-config/opencode.jsonc \
+    /home/vscode/persistent-data/opencode/config/opencode.jsonc
+else
+  echo "WARN: /tmp/host-opencode-config/opencode.jsonc not found; keeping existing config." >&2
+fi
+
+if [[ -f /tmp/host-container-configs/opencode.env ]]; then
+  install -m 0600 /tmp/host-container-configs/opencode.env \
+    /home/vscode/persistent-data/opencode/config/opencode.env
+else
+  echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
+fi
 
 ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
