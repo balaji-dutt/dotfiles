@@ -33,9 +33,6 @@
       "chezmoi upgrade*": "deny",
     }
   },
-  "instructions": [
-    "./instructions/post-review-docs.md"
-  ],
   "agent": {
     // Customize global agents for this project
     "plan": {
@@ -55,6 +52,9 @@
           "dotfiles-reviewer-deep": "allow"
         }
       }
+    },
+    "build": {
+      "prompt": "{file:./prompts/build.md}"
     },
     // "code-manager": {
     //   "permission": {

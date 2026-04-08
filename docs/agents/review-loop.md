@@ -43,6 +43,8 @@ should not, and how post-review docs refresh should behave.
 - Keep `README.md` concise; detailed operational content belongs under `docs/`.
 - Keep `.opencode/journal.md` as working memory; promote only durable guidance
   into `docs/agents/`.
+- Build completion requires a docs-impact assessment after review PASS before
+  the task is considered complete.
 
 ## Manual command wrapper
 
@@ -54,8 +56,8 @@ should not, and how post-review docs refresh should behave.
 
 ## Related files
 
-- OpenCode instructions:
-  `.opencode/instructions/post-review-docs.md`
+- OpenCode Build prompt:
+  `.opencode/prompts/build.md`
 - OpenCode marker plugin:
   `.opencode/plugins/mark-needs-review-on-file-edited.js`
 - OpenCode enforcer plugin:
