@@ -29,6 +29,13 @@ else
   echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
 fi
 
+if [[ -f /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc ]]; then
+  ln -sfn /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc \
+    "$HOME/.markdownlint-cli2.jsonc"
+else
+  echo "WARN: /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc not found; keeping existing markdownlint config." >&2
+fi
+
 ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
 if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then

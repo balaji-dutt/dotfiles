@@ -39,8 +39,8 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs,target=/tmp/host-homelab-configs,type=bind,readonly",
     // --- Mount for Container post(*)Command scripts ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer,target=/tmp/host-homelab-devcontainer,type=bind,readonly",
-    // --- Mount for workspace files ---
-    "source=${localEnv:HOME}/Documents/development/vscode-workspace,target=/tmp/host-vscode-workspace,type=bind,readonly",
+    // --- Mount for workspace file ---
+    "source=${localEnv:HOME}/Documents/development/vscode-workspace/container-homelab-IaC.code-workspace,target=${containerWorkspaceFolder}/container-homelab-IaC.code-workspace,type=bind,readonly",
     // --- Mount for Internal SSL Certs ---
     {{- if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
@@ -74,7 +74,7 @@
 
   "customizations": {
     "vscode": {
-      "workspaceFile": "/tmp/host-vscode-workspace/container-homelab-IaC.code-workspace",
+      "workspaceFile": "${containerWorkspaceFolder}/container-homelab-IaC.code-workspace",
       "settings": {
         "homelab.isHomelabWorkspace": true,  // Special parameter added to enable per workspace keybinding
         "terminal.integrated.profiles.linux": {
@@ -86,7 +86,7 @@
           }
         },
         "terminal.integrated.defaultProfile.linux": "Container zsh",
-        "markdownlint.configFile": "/tmp/host-dotfiles/dot_markdownlint-cli2.jsonc"
+        "markdownlint.configFile": "/home/vscode/.markdownlint-cli2.jsonc"
       },
       "extensions": [
         // --- Coding Agents ---
