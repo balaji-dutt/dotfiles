@@ -1,0 +1,64 @@
+{{- $os := .chezmoi.os -}}
+{{- $isLinux := eq $os "linux" -}}
+{{- $isWindows := eq $os "windows" -}}
+{{- $isDarwin := eq $os "darwin" -}}
+{{- $osrel := "" -}}
+{{- $isWSL2 := false -}}
+{{- if $isLinux -}}
+  {{- $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+  {{- $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
+{{- end -}}
+{{- $useWindowsWorkaround := or $isWindows $isWSL2 -}}
+{
+  "sound": false,
+  "notification": {{ if $useWindowsWorkaround }}false{{ else }}true{{ end }},
+  "bell": false,
+  "showProjectName": true,
+  "showSessionTitle": true,
+  "suppressWhenFocused": true,
+{{- if $isDarwin }}
+  "notificationSystem": "osascript",
+{{- end }}
+  "command": {
+    "enabled": {{ if $useWindowsWorkaround }}true{{ else }}false{{ end }},
+    "path": "powershell.exe",
+    "args": [
+      "-NoProfile",
+      "-Command",
+      "$wshell = New-Object -ComObject Wscript.Shell; $wshell.Popup('{message}', 5, 'OpenCode - {event}', 0+64)"
+    ],
+    "minDuration": 0
+  },
+  "events": {
+    "subagent_complete": {
+      "sound": false,
+      "notification": false,
+      "command": false,
+      "bell": false
+    },
+    "user_cancelled": {
+      "sound": false,
+      "notification": false,
+      "command": false,
+      "bell": false
+    },
+    "session_started": {
+      "sound": false,
+      "notification": false,
+      "command": false,
+      "bell": false
+    },
+    "user_message": {
+      "sound": false,
+      "notification": false,
+      "command": false,
+      "bell": false
+    },
+    "client_connected": {
+      "sound": false,
+      "notification": false,
+      "command": false,
+      "bell": false
+    }
+  }
+}
