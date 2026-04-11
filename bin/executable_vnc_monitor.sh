@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- CONFIGURATION ---
-RESTORE_TIMEOUT=1200
+RESTORE_TIMEOUT=600
 CHECK_INTERVAL=60
 # ---------------------
 
