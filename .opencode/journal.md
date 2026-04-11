@@ -22,6 +22,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-11
+
+- decision: `bin/executable_vnc_monitor.sh` now persists pre-VNC screensaver `idleTime` in `/tmp/com.user.vncmonitor.idleTime` and restores from that state on disconnect/cleanup.
+- gotcha: Relying on in-memory `STATE=connected` can strand `idleTime=0` when the LaunchAgent/script restarts during an active VNC session.
+- gotcha: Writing `com.apple.screensaver idleTime` without `-int` can store a string value that `defaults read` accepts but Lock Screen UI may treat as `Never`.
+- decision: Added startup normalization in `bin/executable_vnc_monitor.sh` to coerce numeric `idleTime` values to integer type on LaunchAgent start.
+
 ## 2026-04-07
 
 - decision: Mount `~/.wsl-ssh-pageant` directory into `homelab-IaC` devcontainer instead of binding the socket file directly.

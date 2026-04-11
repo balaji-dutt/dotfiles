@@ -8,7 +8,67 @@ CHECK_INTERVAL=60
 STATE="disconnected"
 CAFFEINATE_PID=""
 CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
+IDLETIME_STATE_FILE="/tmp/com.user.vncmonitor.idleTime"
 CLEANUP_DONE=""
+
+read_idle_time() {
+    defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null
+}
+
+write_idle_time() {
+    defaults -currentHost write com.apple.screensaver idleTime -int "$1"
+}
+
+normalize_idle_time_type_if_numeric() {
+    CURRENT_VAL="$(read_idle_time)"
+    case "$CURRENT_VAL" in
+        ''|*[!0-9]*)
+            return
+            ;;
+    esac
+
+    CURRENT_TYPE="$(defaults -currentHost read-type com.apple.screensaver idleTime 2>/dev/null)"
+    if [ "$CURRENT_TYPE" != "Type is integer" ]; then
+        write_idle_time "$CURRENT_VAL"
+        killall -HUP cfprefsd
+    fi
+}
+
+save_idle_time_state_if_missing() {
+    if [ -f "$IDLETIME_STATE_FILE" ]; then
+        return
+    fi
+
+    CURRENT_VAL="$(read_idle_time)"
+    case "$CURRENT_VAL" in
+        ''|*[!0-9]*)
+            CURRENT_VAL="$RESTORE_TIMEOUT"
+            ;;
+    esac
+
+    printf '%s\n' "$CURRENT_VAL" >"$IDLETIME_STATE_FILE"
+}
+
+restore_idle_time_state() {
+    if [ ! -f "$IDLETIME_STATE_FILE" ]; then
+        return
+    fi
+
+    TARGET_VAL="$(cat "$IDLETIME_STATE_FILE" 2>/dev/null)"
+    case "$TARGET_VAL" in
+        ''|*[!0-9]*)
+            TARGET_VAL="$RESTORE_TIMEOUT"
+            ;;
+    esac
+
+    CURRENT_VAL="$(read_idle_time)"
+    if [ "$CURRENT_VAL" != "$TARGET_VAL" ]; then
+        write_idle_time "$TARGET_VAL"
+        killall -HUP cfprefsd
+    fi
+
+    rm -f "$IDLETIME_STATE_FILE"
+}
 
 if [ "$1" == "--cleanup" ]; then
     CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
@@ -21,11 +81,7 @@ if [ "$1" == "--cleanup" ]; then
         rm -f "$CAFFEINATE_PID_FILE"
     fi
 
-    CURRENT_VAL=$(defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null)
-    if [ "$CURRENT_VAL" == "0" ]; then
-        defaults -currentHost write com.apple.screensaver idleTime $RESTORE_TIMEOUT
-        killall -HUP cfprefsd
-    fi
+    restore_idle_time_state
 
     exit 0
 fi
@@ -43,11 +99,7 @@ cleanup() {
 
     rm -f "$CAFFEINATE_PID_FILE"
 
-    CURRENT_VAL=$(defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null)
-    if [ "$CURRENT_VAL" == "0" ]; then
-        defaults -currentHost write com.apple.screensaver idleTime $RESTORE_TIMEOUT
-        killall -HUP cfprefsd
-    fi
+    restore_idle_time_state
 }
 
 trap 'cleanup; exit 0' SIGTERM SIGINT
@@ -64,13 +116,17 @@ if [ -f "$CAFFEINATE_PID_FILE" ]; then
     fi
 fi
 
+normalize_idle_time_type_if_numeric
+
 while true; do
     VNC_ACTIVE=$(netstat -an | grep "\.5900 " | grep "ESTABLISHED")
 
     if [ -n "$VNC_ACTIVE" ]; then
-        CURRENT_VAL=$(defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null)
+        save_idle_time_state_if_missing
+
+        CURRENT_VAL=$(read_idle_time)
         if [ "$CURRENT_VAL" != "0" ]; then
-            defaults -currentHost write com.apple.screensaver idleTime 0
+            write_idle_time 0
             killall -HUP cfprefsd
             # logger "VNC Active: Forced screensaver to Never."
         fi
@@ -89,11 +145,10 @@ while true; do
 
         STATE="connected"
     else
-        if [ "$STATE" == "connected" ]; then
-            defaults -currentHost write com.apple.screensaver idleTime $RESTORE_TIMEOUT
-            killall -HUP cfprefsd
+        if [ "$STATE" == "connected" ] || [ -f "$IDLETIME_STATE_FILE" ]; then
+            restore_idle_time_state
             STATE="disconnected"
-            # logger "VNC Disconnected: Restored screensaver to $RESTORE_TIMEOUT."
+            # logger "VNC Disconnected: Restored screensaver idleTime."
 
             # Allow display/system to sleep again
             if [ -n "$CAFFEINATE_PID" ]; then
