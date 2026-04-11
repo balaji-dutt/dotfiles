@@ -15,11 +15,24 @@ ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
-if [[ -f /tmp/host-opencode-config/opencode.jsonc ]]; then
+if [[ -f /tmp/host-homelab-devcontainer/opencode.jsonc ]]; then
+  install -m 0644 /tmp/host-homelab-devcontainer/opencode.jsonc \
+    /home/vscode/persistent-data/opencode/config/opencode.jsonc
+elif [[ -f /tmp/host-opencode-config/opencode.jsonc ]]; then
   install -m 0644 /tmp/host-opencode-config/opencode.jsonc \
     /home/vscode/persistent-data/opencode/config/opencode.jsonc
 else
-  echo "WARN: /tmp/host-opencode-config/opencode.jsonc not found; keeping existing config." >&2
+  echo "WARN: OpenCode config not found; keeping existing config." >&2
+fi
+
+if [[ -f /tmp/host-homelab-devcontainer/opencode-notifier.json ]]; then
+  install -m 0644 /tmp/host-homelab-devcontainer/opencode-notifier.json \
+    /home/vscode/persistent-data/opencode/config/opencode-notifier.json
+elif [[ -f /tmp/host-opencode-config/opencode-notifier.json ]]; then
+  install -m 0644 /tmp/host-opencode-config/opencode-notifier.json \
+    /home/vscode/persistent-data/opencode/config/opencode-notifier.json
+else
+  echo "WARN: OpenCode notifier config not found; keeping existing config." >&2
 fi
 
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then

@@ -1,0 +1,11 @@
+{
+  "sound": false,
+  "notification": false,
+  "bell": false,
+  "showProjectName": true,
+  "showSessionTitle": true,
+  "suppressWhenFocused": true,
+  "command": {
+    "enabled": false
+  }
+}

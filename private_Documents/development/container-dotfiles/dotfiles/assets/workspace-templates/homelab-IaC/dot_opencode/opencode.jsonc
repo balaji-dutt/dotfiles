@@ -1,9 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   // Repo-specific placeholder config (tune per homelab-IaC).
-  "plugin": [
-    "@plannotator/opencode@0.17.1"
-  ],
   "permission": {
     "bash": {
       "./.opencode/commit-docs.sh*": "allow",

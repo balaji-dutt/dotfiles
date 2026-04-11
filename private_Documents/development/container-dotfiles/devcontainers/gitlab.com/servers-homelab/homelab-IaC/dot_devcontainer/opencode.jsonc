@@ -1,4 +1,8 @@
 {
+  // TODO(dotfiles): This file intentionally mirrors
+  // private_dot_config/opencode/opencode.jsonc, but pins plugin versions for
+  // reproducible devcontainer builds. Keep in sync manually for now.
+  // Future: add render/sync automation to generate this file from host config.
   "$schema": "https://opencode.ai/config.json",
 
   // ----------------------------
@@ -54,18 +58,6 @@
       "git commit*": "allow",
       "git rev-parse*": "allow",
       "git push*": "ask",
-
-      // ---- docker (read-only-ish)
-      "docker ps*": "allow",
-      "docker images*": "allow",
-      "docker logs*": "allow",
-      "docker inspect*": "allow",
-      "docker version*": "allow",
-      "docker info*": "allow",
-      "docker compose ps*": "allow",
-      "docker compose logs*": "allow",
-      "docker-compose ps*": "allow",
-      "docker-compose logs*": "allow",
 
       // ---- filesystem + text inspection
       "ls*": "allow",
@@ -151,10 +143,10 @@
   // ----------------------------
 
   "plugin": [
-    "@franlol/opencode-md-table-formatter@latest",
-    "@tarquinen/opencode-dcp@latest",
-    "@mohak34/opencode-notifier@latest",
-    "@plannotator/opencode@latest",
+    "@franlol/opencode-md-table-formatter@0.0.6",
+    "@tarquinen/opencode-dcp@3.1.9",
+    "@mohak34/opencode-notifier@0.2.1",
+    "@plannotator/opencode@0.17.8",
     "opencode-websearch-cited@1.2.0"
   ],
 
@@ -341,39 +333,6 @@
     "build": {
       "mode": "primary",
       "description": "Manual interactive build agent (ad-hoc coding).",
-      "model": "openai/gpt-5.3-codex",
-      "temperature": 0.2,
-      "permission": {
-        "edit": {
-          "*": "allow",
-          "*.env": "deny",
-          "*.env.*": "deny"
-        }
-      }
-    },
-
-    // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
-    // "code-manager": {
-    //   "mode": "primary",
-    //   "description": "Orchestrator: coder -> (coder DONE) audit -> reviewer -> loop (max 3) -> finalize.",
-    //   "model": "openai/gpt-5.2",
-    //   "temperature": 0.2,
-    //   "permission": {
-    //     "edit": "deny",
-    //     "webfetch": "allow",
-    //     "websearch_cited": "allow",
-    //     "codesearch": "allow",
-    //     "task": {
-    //       "*": "deny",
-    //       "coder": "allow"
-    //     }
-    //   }
-    // },
-
-    // Subagent: implementation
-    "coder": {
-      "mode": "subagent",
-      "description": "Implementation subagent (edits allowed).",
       "model": "openai/gpt-5.3-codex",
       "temperature": 0.2,
       "permission": {
