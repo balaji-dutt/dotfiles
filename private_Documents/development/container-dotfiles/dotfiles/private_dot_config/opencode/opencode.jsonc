@@ -1,8 +1,5 @@
 {
-  // TODO(dotfiles): This file intentionally mirrors
-  // private_dot_config/opencode/opencode.jsonc, but pins plugin versions for
-  // reproducible devcontainer builds. Keep in sync manually for now.
-  // Future: add render/sync automation to generate this file from host config.
+  // Container-dotfiles OpenCode user config for homelab-IaC devcontainers.
   "$schema": "https://opencode.ai/config.json",
 
   // ----------------------------

@@ -162,6 +162,20 @@ else
 fi
 done_step "Source /tmp/host-container-configs/container_env (if present)"
 
+step "Prime OpenCode persistent-data symlinks before install"
+mkdir -p \
+  /home/vscode/persistent-data/opencode/{config,cache,share,state} \
+  "$HOME/.config" \
+  "$HOME/.cache" \
+  "$HOME/.local/share" \
+  "$HOME/.local/state"
+
+ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
+ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
+ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
+ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
+done_step "Prime OpenCode persistent-data symlinks before install"
+
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles
 if [[ -d "$SRC" ]]; then

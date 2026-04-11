@@ -444,6 +444,7 @@ if [ -d "$SRC" ]; then
   echo "==> Syncing dotfiles from $SRC"
   # Use rsync to be more efficient and exclude setup files from being copied to $HOME
   rsync -a \
+  --keep-dirlinks \
   --exclude='.git' \
   --exclude='install.sh' \
   --exclude='assets/' \
@@ -494,9 +495,32 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
   if [ -n "$repo_root" ]; then
     repo_name="$(basename "$repo_root")"
     seed_dir="$SRC/assets/workspace-templates/$repo_name/.opencode"
+    workspace_opencode="$repo_root/.opencode"
+    managed_manifest="$workspace_opencode/.template-managed-files"
     if [ -d "$seed_dir" ]; then
-      mkdir -p "$repo_root/.opencode"
-      rsync -a --ignore-existing "$seed_dir/." "$repo_root/.opencode/"
+      mkdir -p "$workspace_opencode"
+
+      current_managed="$(mktemp)"
+      (
+        cd "$seed_dir"
+        find . \( -type f -o -type l \) -print \
+          | sed 's#^\./##' \
+          | sort
+      ) > "$current_managed"
+
+      rsync -a "$seed_dir/." "$workspace_opencode/"
+
+      if [ -f "$managed_manifest" ]; then
+        while IFS= read -r relpath || [ -n "$relpath" ]; do
+          [ -z "$relpath" ] && continue
+          if ! grep -Fxq "$relpath" "$current_managed"; then
+            rm -f "$workspace_opencode/$relpath"
+          fi
+        done < "$managed_manifest"
+      fi
+
+      install -m 0644 "$current_managed" "$managed_manifest"
+      rm -f "$current_managed"
     else
       echo "!! .opencode seed directory not found for $repo_name; skipping"
     fi

@@ -60,6 +60,24 @@ Run the render step before rebuilding containers so runtime values are injected 
 For the `homelab-IaC` template, OpenCode is configured for browser-based
 Plannotator plan review from inside the container.
 
+Configuration ownership is split intentionally:
+
+- User-level OpenCode config in the container (`~/.config/opencode/**`) is sourced
+  from container-dotfiles under:
+  `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/**`
+- Repo-local OpenCode config in the workspace (`/workspaces/<repo>/.opencode/**`) is
+  sourced from:
+  `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/<repo>/.opencode/**`
+
+Workspace `.opencode` sync is template-whitelist based:
+
+- Any file present in the template path is treated as managed and synced into the
+  workspace `.opencode`.
+- Managed files are updated when templates change.
+- Previously managed files removed from the template are deleted from workspace
+  `.opencode`.
+- Files not present in the template-managed set are preserved.
+
 - `PLANNOTATOR_REMOTE=1`
 - `PLANNOTATOR_PORT=9999`
 - `forwardPorts: [9999]`

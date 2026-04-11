@@ -50,6 +50,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Install Plannotator for OpenCode declaratively via pinned plugin entry (`@plannotator/opencode@0.17.1`) in both user and homelab workspace configs; avoid upstream curl/ps1 installer.
 - convention: Manage OpenCode Plannotator slash-command stubs as tracked files (`~/.config/opencode/command` and workspace `.opencode/commands`) instead of installer side effects.
 - decision: For homelab devcontainer, set `PLANNOTATOR_REMOTE=1`, `PLANNOTATOR_PORT=9999`, and forward port `9999` to make browser review flow reliable from container sessions.
+- decision: Moved homelab devcontainer OpenCode user config source out of `dot_devcontainer/` and into container-dotfiles `private_dot_config/opencode/**`.
+- convention: Treat `assets/workspace-templates/<repo>/.opencode/**` as the authoritative managed set for workspace `.opencode` sync.
+- decision: Replaced `.opencode` bootstrap-only seeding (`--ignore-existing`) with managed-file sync plus manifest cleanup for removed managed files.
 
 ## 2026-04-04
 

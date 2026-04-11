@@ -33,8 +33,6 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude-code-router,target=/tmp/host-claude-code-router,type=bind,readonly",
     // --- Mount for Container generated configs ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs,target=/tmp/host-container-configs,type=bind,readonly",
-    // --- Mount for OpenCode config ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/private_dot_config/opencode,target=/tmp/host-opencode-config,type=bind,readonly",
     // --- Mount for package lists ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs,target=/tmp/host-homelab-configs,type=bind,readonly",
     // --- Mount for Container post(*)Command scripts ---
