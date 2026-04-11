@@ -9,5 +9,32 @@
   },
   "agent": {
     // Repo specific permissions & agents to be added here.
+
+    // Overwrite built-in Plan agent
+    "plan": {
+      "mode": "primary",
+      "description": "Planning manager (GPT-5.4 xhigh + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.4",
+      "reasoningEffort": "xhigh",
+      "temperature": 0.4,
+      "permission": {
+        "edit": "deny",
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "task": {
+          "*": "deny"
+        }
+      }
+    },
+
+    // Disable plan-GPT5.4-xhigh since Plan agent defaults to xhigh for this repo.
+    "plan-GPT5.4-xhigh": {
+      "disable": true
+    },
+
+    // Customizaition of the built-in build agent
+    // "build": {
+    // }
   }
 }
