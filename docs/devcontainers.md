@@ -65,9 +65,11 @@ Configuration ownership is split intentionally:
 - User-level OpenCode config in the container (`~/.config/opencode/**`) is sourced
   from container-dotfiles under:
   `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/**`
-- Repo-local OpenCode config in the workspace (`/workspaces/<repo>/.opencode/**`) is
-  sourced from:
+- Repo-owned OpenCode config in the workspace (`/workspaces/<repo>/.opencode/**`)
+  should live in the repo itself.
+- Workspace templates under
   `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/<repo>/.opencode/**`
+  are for local-only overlay files.
 
 Workspace `.opencode` sync is template-whitelist based:
 
@@ -75,8 +77,10 @@ Workspace `.opencode` sync is template-whitelist based:
   workspace `.opencode`.
 - Managed files are updated when templates change.
 - Previously managed files removed from the template are deleted from workspace
-  `.opencode`.
+  `.opencode` only when they are not tracked by the workspace repo.
 - Files not present in the template-managed set are preserved.
+- Template-managed local-only files are mirrored into a managed block in
+  `.git/info/exclude` so repo `.opencode/.gitignore` can stay repo-owned.
 
 - `PLANNOTATOR_REMOTE=1`
 - `PLANNOTATOR_PORT=9999`

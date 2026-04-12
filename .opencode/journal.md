@@ -22,6 +22,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-12
+
+- decision: For `homelab-IaC`, keep workspace template `.opencode` for local-only overlay files (for example `tui.json`) and treat repo-scoped `.opencode` files as repo-owned.
+- decision: Updated workspace `.opencode` cleanup to preserve files removed from template when they are tracked by the workspace git repo.
+- decision: Manage template-owned local-only `.opencode` ignore entries in a marked block in workspace `.git/info/exclude` instead of relying on template-controlled `.opencode/.gitignore`.
+
 ## 2026-04-11
 
 - decision: `bin/executable_vnc_monitor.sh` now persists pre-VNC screensaver `idleTime` in `/tmp/com.user.vncmonitor.idleTime` and restores from that state on disconnect/cleanup.
