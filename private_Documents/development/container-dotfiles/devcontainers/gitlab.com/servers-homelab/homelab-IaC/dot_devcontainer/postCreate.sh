@@ -46,9 +46,9 @@ fi
 sudo locale-gen
 done_step "Install locales + generate en_GB.UTF-8"
 
-step "Install python3-pip + python3-venv"
-sudo apt-get install -y python3-pip python3-venv
-done_step "Install python3-pip + python3-venv"
+step "Install python3-pip + python3-venv + ripgrep"
+sudo apt-get install -y python3-pip python3-venv ripgrep
+done_step "Install python3-pip + python3-venv + ripgrep"
 
 # --- 2) uv install ---
 step "Install uv (user) and ensure PATH"
