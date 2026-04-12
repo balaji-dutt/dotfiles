@@ -181,10 +181,11 @@ SRC=/home/vscode/.host-dotfiles
 if [[ -d "$SRC" ]]; then
   if [[ -f "$SRC/install.sh" ]]; then
     # If your install.sh can be interactive, pass whatever non-interactive flags it supports.
-    # We keep your TAVILY_API_KEY propagation behavior.
+    # Keep secret propagation behavior for installer-time env vars.
     TAVILY_API_KEY="${TAVILY_API_KEY:-}"
+    OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN:-}"
     echo "Running $SRC/install.sh"
-    TAVILY_API_KEY="$TAVILY_API_KEY" bash "$SRC/install.sh"
+    TAVILY_API_KEY="$TAVILY_API_KEY" OP_SERVICE_ACCOUNT_TOKEN="$OP_SERVICE_ACCOUNT_TOKEN" bash "$SRC/install.sh"
   else
     echo "Copying dotfiles from $SRC -> $HOME"
     cp -R "$SRC"/. "$HOME"/

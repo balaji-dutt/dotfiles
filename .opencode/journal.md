@@ -27,6 +27,7 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: For `homelab-IaC`, keep workspace template `.opencode` for local-only overlay files (for example `tui.json`) and treat repo-scoped `.opencode` files as repo-owned.
 - decision: Updated workspace `.opencode` cleanup to preserve files removed from template when they are tracked by the workspace git repo.
 - decision: Manage template-owned local-only `.opencode` ignore entries in a marked block in workspace `.git/info/exclude` instead of relying on template-controlled `.opencode/.gitignore`.
+- decision: Inject `OP_SERVICE_ACCOUNT_TOKEN` into homelab devcontainer via rendered `container_env` (1Password service account secret), pass it through `postCreate.sh`, and persist it in container shell rc exports alongside `TAVILY_API_KEY`.
 
 ## 2026-04-11
 

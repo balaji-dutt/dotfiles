@@ -37,9 +37,12 @@ mkdir -p private_Documents/development/container-dotfiles/dotfiles/configs
 echo "Rendering Claude Code Router config..."
 FOR_CONTAINER=true NON_INTERACTIVE_MODE=true chezmoi execute-template < dot_claude-code-router/config.json.tmpl > private_Documents/development/container-dotfiles/dotfiles/configs/config.json
 
-# Render TAVILY_API_KEY (reads 1Password)
+# Render container environment file (reads 1Password)
 echo "Rendering container environment file..."
-echo "TAVILY_API_KEY=$(chezmoi execute-template '{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef5y/credential" }}')" > private_Documents/development/container-dotfiles/dotfiles/configs/container_env
+{
+  echo "TAVILY_API_KEY=$(chezmoi execute-template '{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef5y/credential" }}')"
+  echo "OP_SERVICE_ACCOUNT_TOKEN=$(chezmoi execute-template '{{ onepasswordRead "op://App Automation Credentials/aifst6wxmvnaf2uraszcf73nlu/credential" }}')"
+} > private_Documents/development/container-dotfiles/dotfiles/configs/container_env
 
 # Render OpenCode environment file (reads 1Password)
 echo "Rendering OpenCode environment file..."
