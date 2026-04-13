@@ -10,6 +10,68 @@ timestamp() { date +"%Y-%m-%d %H:%M:%S%z"; }
 step() { echo; echo "==== [$(timestamp)] STEP: $* ===="; }
 done_step() { echo "==== [$(timestamp)] DONE: $* ===="; }
 
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+install_custom_ca_certificates() {
+  local cert_dir certfiles_raw cert_file src_file dest_file dest_name
+  local changed=0
+  local -a cert_files=()
+
+  cert_dir="${CERTPATH:-/home/vscode/development/keys}"
+  certfiles_raw="${CERTFILES_RAW:-}"
+
+  if [[ -z "$certfiles_raw" ]]; then
+    echo "No CERTFILES_RAW configured; skipping custom CA install."
+    return 0
+  fi
+
+  if [[ ! -d "$cert_dir" ]]; then
+    echo "ERROR: Custom CA directory does not exist: $cert_dir" >&2
+    return 1
+  fi
+
+  IFS=',' read -r -a cert_files <<< "$certfiles_raw"
+  for cert_file in "${cert_files[@]}"; do
+    cert_file="$(trim_whitespace "$cert_file")"
+    [[ -z "$cert_file" ]] && continue
+
+    src_file="$cert_dir/$cert_file"
+    if [[ ! -f "$src_file" ]]; then
+      echo "ERROR: Custom CA file not found: $src_file" >&2
+      return 1
+    fi
+
+    dest_name="$(basename "$cert_file")"
+    case "$dest_name" in
+      *.pem)
+        dest_name="${dest_name%.pem}.crt"
+        ;;
+      *.cert)
+        dest_name="${dest_name%.cert}.crt"
+        ;;
+    esac
+    dest_file="/usr/local/share/ca-certificates/$dest_name"
+
+    if [[ -f "$dest_file" ]] && cmp -s "$src_file" "$dest_file"; then
+      continue
+    fi
+
+    sudo install -m 0644 "$src_file" "$dest_file"
+    changed=1
+  done
+
+  if [[ "$changed" -eq 1 ]]; then
+    sudo update-ca-certificates
+  else
+    echo "Custom CAs already up to date; no trust-store changes."
+  fi
+}
+
 on_error() {
   local exit_code=$?
   echo
@@ -36,6 +98,10 @@ done_step "Fix ownership for persistent-data"
 step "apt-get update"
 sudo apt-get update
 done_step "apt-get update"
+
+step "Install custom CA certificates (if configured)"
+install_custom_ca_certificates
+done_step "Install custom CA certificates (if configured)"
 
 step "Install locales + generate en_GB.UTF-8"
 sudo apt-get install -y locales

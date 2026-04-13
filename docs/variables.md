@@ -20,6 +20,7 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 | `name` | user full name | git config |
 | `email` | user email | git config |
 | `CERTPATH` | certificate directory path | certificate install flows |
+| `CERTFILES_RAW` | certificate filenames CSV | prompts + devcontainer hooks |
 | `CERTFILES` | certificate filenames | certificate install flows |
 | `ansible_key` | ansible ssh private key path | reserved/future use |
 | `org_dir` | org-mode directory path | doom emacs config |
