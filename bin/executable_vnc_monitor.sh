@@ -8,7 +8,6 @@ CHECK_INTERVAL=60
 STATE="disconnected"
 CAFFEINATE_PID=""
 CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
-IDLETIME_STATE_FILE="/tmp/com.user.vncmonitor.idleTime"
 CLEANUP_DONE=""
 
 read_idle_time() {
@@ -34,40 +33,11 @@ normalize_idle_time_type_if_numeric() {
     fi
 }
 
-save_idle_time_state_if_missing() {
-    if [ -f "$IDLETIME_STATE_FILE" ]; then
-        return
-    fi
-
-    CURRENT_VAL="$(read_idle_time)"
-    case "$CURRENT_VAL" in
-        ''|*[!0-9]*)
-            CURRENT_VAL="$RESTORE_TIMEOUT"
-            ;;
-    esac
-
-    printf '%s\n' "$CURRENT_VAL" >"$IDLETIME_STATE_FILE"
-}
-
-restore_idle_time_state() {
-    if [ ! -f "$IDLETIME_STATE_FILE" ]; then
-        return
-    fi
-
-    TARGET_VAL="$(cat "$IDLETIME_STATE_FILE" 2>/dev/null)"
-    case "$TARGET_VAL" in
-        ''|*[!0-9]*)
-            TARGET_VAL="$RESTORE_TIMEOUT"
-            ;;
-    esac
-
-    CURRENT_VAL="$(read_idle_time)"
-    if [ "$CURRENT_VAL" != "$TARGET_VAL" ]; then
-        write_idle_time "$TARGET_VAL"
+ensure_disconnected_idle_time() {
+    if [ "$(read_idle_time)" != "$RESTORE_TIMEOUT" ]; then
+        write_idle_time "$RESTORE_TIMEOUT"
         killall -HUP cfprefsd
     fi
-
-    rm -f "$IDLETIME_STATE_FILE"
 }
 
 if [ "$1" == "--cleanup" ]; then
@@ -81,7 +51,7 @@ if [ "$1" == "--cleanup" ]; then
         rm -f "$CAFFEINATE_PID_FILE"
     fi
 
-    restore_idle_time_state
+    ensure_disconnected_idle_time
 
     exit 0
 fi
@@ -99,7 +69,7 @@ cleanup() {
 
     rm -f "$CAFFEINATE_PID_FILE"
 
-    restore_idle_time_state
+    ensure_disconnected_idle_time
 }
 
 trap 'cleanup; exit 0' SIGTERM SIGINT
@@ -122,8 +92,6 @@ while true; do
     VNC_ACTIVE=$(netstat -an | grep "\.5900 " | grep "ESTABLISHED")
 
     if [ -n "$VNC_ACTIVE" ]; then
-        save_idle_time_state_if_missing
-
         CURRENT_VAL=$(read_idle_time)
         if [ "$CURRENT_VAL" != "0" ]; then
             write_idle_time 0
@@ -145,18 +113,15 @@ while true; do
 
         STATE="connected"
     else
-        if [ "$STATE" == "connected" ] || [ -f "$IDLETIME_STATE_FILE" ]; then
-            restore_idle_time_state
-            STATE="disconnected"
-            # logger "VNC Disconnected: Restored screensaver idleTime."
+        ensure_disconnected_idle_time
+        STATE="disconnected"
 
-            # Allow display/system to sleep again
-            if [ -n "$CAFFEINATE_PID" ]; then
-                kill "$CAFFEINATE_PID" 2>/dev/null
-                CAFFEINATE_PID=""
-                rm -f "$CAFFEINATE_PID_FILE"
-                # logger "VNC Disconnected: Stopped caffeinate."
-            fi
+        # Allow display/system to sleep again
+        if [ -n "$CAFFEINATE_PID" ]; then
+            kill "$CAFFEINATE_PID" 2>/dev/null
+            CAFFEINATE_PID=""
+            rm -f "$CAFFEINATE_PID_FILE"
+            # logger "VNC Disconnected: Stopped caffeinate."
         fi
     fi
 

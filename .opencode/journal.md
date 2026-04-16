@@ -22,6 +22,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-16
+
+- decision: Updated `bin/executable_vnc_monitor.sh` disconnected behavior to enforce `RESTORE_TIMEOUT` directly instead of restoring a pre-VNC saved timeout from `/tmp` state.
+- gotcha: Preserve-previous-timeout semantics can keep `idleTime=0` (`Never`) after VNC sessions if the pre-connect value was already `0`; fixed-timeout policy is more predictable for this workflow.
+
 ## 2026-04-12
 
 - decision: For `homelab-IaC`, keep workspace template `.opencode` for local-only overlay files (for example `tui.json`) and treat repo-scoped `.opencode` files as repo-owned.
