@@ -22,6 +22,17 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-17
+
+- decision: Move devcontainer workspace `.opencode` managed-manifest state from
+  workspace path `.opencode/.template-managed-files` to local git metadata path
+  `.git/info/dotfiles-workspace-opencode-managed` in
+  `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`.
+- gotcha: Retrying manifest writes did not fix homelab devcontainer
+  `postCreateCommand` failures (`Too many open files in system`) when writing
+  under workspace `.opencode`; treating manifest as local bookkeeping avoids
+  that failure path.
+
 ## 2026-04-16
 
 - decision: Updated `bin/executable_vnc_monitor.sh` disconnected behavior to enforce `RESTORE_TIMEOUT` directly instead of restoring a pre-VNC saved timeout from `/tmp` state.

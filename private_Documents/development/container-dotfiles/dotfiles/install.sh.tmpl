@@ -497,8 +497,10 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
     repo_name="$(basename "$repo_root")"
     seed_dir="$SRC/assets/workspace-templates/$repo_name/.opencode"
     workspace_opencode="$repo_root/.opencode"
-    managed_manifest="$workspace_opencode/.template-managed-files"
+    legacy_managed_manifest="$workspace_opencode/.template-managed-files"
     git_exclude_file="$repo_root/.git/info/exclude"
+    # Keep local sync bookkeeping in git metadata, not in workspace content.
+    managed_manifest="$repo_root/.git/info/dotfiles-workspace-opencode-managed"
     local_exclude_begin="# BEGIN DOTFILES WORKSPACE OPENCODE"
     local_exclude_end="# END DOTFILES WORKSPACE OPENCODE"
     if [ -d "$seed_dir" ]; then
@@ -539,7 +541,12 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
 
       rm -f "$cleaned_exclude" "$current_excludes"
 
-      if [ -f "$managed_manifest" ]; then
+      previous_managed_manifest="$managed_manifest"
+      if [ ! -f "$previous_managed_manifest" ] && [ -f "$legacy_managed_manifest" ]; then
+        previous_managed_manifest="$legacy_managed_manifest"
+      fi
+
+      if [ -f "$previous_managed_manifest" ]; then
         while IFS= read -r relpath || [ -n "$relpath" ]; do
           [ -z "$relpath" ] && continue
           if ! grep -Fxq "$relpath" "$current_managed"; then
@@ -549,10 +556,12 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
               rm -f "$workspace_opencode/$relpath"
             fi
           fi
-        done < "$managed_manifest"
+        done < "$previous_managed_manifest"
       fi
 
       install -m 0644 "$current_managed" "$managed_manifest"
+      rm -f "$legacy_managed_manifest" >/dev/null 2>&1 || true
+
       rm -f "$current_managed"
     else
       echo "!! .opencode seed directory not found for $repo_name; skipping"
