@@ -147,6 +147,11 @@ elif [ -d "$HOME/.nvm" ]; then
 fi
 [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+# Shared Git helper aliases/functions.
+if [ -r "${HOME}/.local/share/git-helpers.zsh" ]; then
+    source "${HOME}/.local/share/git-helpers.zsh"
+fi
+
 # This is added at the end of the file to avoid potential conflicts
 if command -v smartcache >/dev/null 2>&1; then
     (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
