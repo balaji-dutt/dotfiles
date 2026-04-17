@@ -17,6 +17,52 @@ trim_whitespace() {
   printf '%s' "$value"
 }
 
+bootstrap_local_git_metadata() {
+  local workspace="$1"
+  local source_git_dir="/tmp/host-workspace-git"
+  local target_git_dir="$workspace/.git"
+
+  # macOS-only mount; no-op on other hosts.
+  if [[ ! -d "$source_git_dir" ]]; then
+    return 0
+  fi
+
+  if [[ ! -d "$workspace" ]]; then
+    echo "ERROR: Workspace path does not exist: $workspace" >&2
+    return 1
+  fi
+
+  mkdir -p "$target_git_dir"
+  if [[ ! -w "$target_git_dir" ]]; then
+    sudo chown -R "$USER:$USER" "$target_git_dir"
+  fi
+
+  if [[ -f "$target_git_dir/HEAD" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "$source_git_dir/HEAD" ]]; then
+    echo "ERROR: Source Git metadata is missing HEAD: $source_git_dir" >&2
+    return 1
+  fi
+
+  cp -a "$source_git_dir"/. "$target_git_dir"/
+
+  if [[ ! -f "$target_git_dir/HEAD" ]]; then
+    echo "ERROR: Seeded Git metadata is incomplete at: $target_git_dir" >&2
+    return 1
+  fi
+
+  if command -v git >/dev/null 2>&1; then
+    if ! git -C "$workspace" rev-parse --verify HEAD >/dev/null 2>&1; then
+      echo "ERROR: Seeded Git metadata failed HEAD verification in: $workspace" >&2
+      return 1
+    fi
+  fi
+
+  echo "Initialized local Git metadata volume for workspace: $workspace"
+}
+
 install_custom_ca_certificates() {
   local cert_dir certfiles_raw cert_file src_file dest_file dest_name
   local changed=0
@@ -87,6 +133,11 @@ trap on_error ERR
 # Make package installs non-interactive
 export DEBIAN_FRONTEND=noninteractive
 export CI=1
+
+WORKSPACE_PATH="${1:-$PWD}"
+step "Bootstrap local Git metadata volume (if mounted)"
+bootstrap_local_git_metadata "$WORKSPACE_PATH"
+done_step "Bootstrap local Git metadata volume (if mounted)"
 
 # --- 1) Permissions / base packages ---
 step "Fix ownership for persistent-data"

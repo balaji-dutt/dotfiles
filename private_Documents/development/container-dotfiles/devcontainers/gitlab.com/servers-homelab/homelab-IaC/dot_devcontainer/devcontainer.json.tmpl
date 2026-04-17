@@ -40,6 +40,12 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer,target=/tmp/host-homelab-devcontainer,type=bind,readonly",
     // --- Mount for workspace file ---
     "source=${localEnv:HOME}/Documents/development/vscode-workspace/container-homelab-IaC.code-workspace,target=${containerWorkspaceFolder}/container-homelab-IaC.code-workspace,type=bind,readonly",
+    {{- if eq .chezmoi.os "darwin" }}
+    // --- macOS-only: keep Git metadata on local Docker volume ---
+    "source=homelab-iac-gitmeta-macos,target=${containerWorkspaceFolder}/.git,type=volume",
+    // --- macOS-only: expose shared workspace Git metadata for one-time seed ---
+    "source=${localWorkspaceFolder}/.git,target=/tmp/host-workspace-git,type=bind,readonly",
+    {{- end }}
     // --- Mount for Internal SSL Certs ---
     {{- if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
@@ -65,9 +71,9 @@
   {{- end }}
   {{- end }}
 
-  "postCreateCommand": ["bash", "/tmp/host-homelab-devcontainer/postCreate.sh"],
+  "postCreateCommand": ["bash", "/tmp/host-homelab-devcontainer/postCreate.sh", "${containerWorkspaceFolder}"],
 
-  "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh"],
+  "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh", "${containerWorkspaceFolder}"],
 
   "forwardPorts": [9999],
 

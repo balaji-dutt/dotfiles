@@ -39,6 +39,19 @@ Based on `.chezmoiignore` rules:
 - Ubuntu WSL2: ignored
 - Generic Linux (non-WSL2): ignored
 
+## homelab-IaC: macOS Git metadata isolation
+
+For `homelab-IaC`, macOS uses a local Docker volume for `${containerWorkspaceFolder}/.git`.
+
+- Working-tree files still come from the shared workspace mount.
+- Git metadata (`.git/objects`, refs, index, stash, local branches) lives on
+  machine-local container storage.
+- On first start, container bootstrap seeds the local `.git` volume from the
+  shared workspace `.git` mount.
+
+This avoids NFS-backed Git metadata write issues on macOS while keeping file
+edits shared.
+
 ## Runtime-Generated Files
 
 Some files are generated at render time and should not be committed:
