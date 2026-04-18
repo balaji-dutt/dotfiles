@@ -321,11 +321,42 @@ else
 fi
 done_step "Load Antidote (if present)"
 
+load_opencode_env_file() {
+  local env_file restore_allexport
+  env_file="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+
+  case $- in
+    *a*)
+      set +a
+      restore_allexport=1
+      ;;
+    *)
+      restore_allexport=0
+      ;;
+  esac
+
+  if [[ -r "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$env_file"
+  fi
+
+  if [[ "$restore_allexport" -eq 0 ]]; then
+    set +a
+  else
+    set -a
+  fi
+}
+
+load_opencode_env_file
+
 step "Refresh OpenCode workspace model overrides"
 if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
   install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
     "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$WORKSPACE_PATH" || true
+  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$WORKSPACE_PATH"; then
+    echo "WARN: OpenCode workspace override sync failed."
+  fi
 else
   echo "OpenCode workspace override helper not found; skipping."
 fi

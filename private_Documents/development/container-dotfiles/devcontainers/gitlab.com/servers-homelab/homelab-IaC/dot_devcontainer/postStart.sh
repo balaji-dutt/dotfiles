@@ -7,6 +7,33 @@ if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
 fi
 workspace_root="${workspace_root:-$PWD}"
 
+load_opencode_env_file() {
+  local env_file restore_allexport
+  env_file="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+
+  case $- in
+    *a*)
+      set +a
+      restore_allexport=1
+      ;;
+    *)
+      restore_allexport=0
+      ;;
+  esac
+
+  if [[ -r "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$env_file"
+  fi
+
+  if [[ "$restore_allexport" -eq 0 ]]; then
+    set +a
+  else
+    set -a
+  fi
+}
+
 mkdir -p \
   /home/vscode/persistent-data \
   "$HOME/.claude-code-router/logs" \
@@ -52,10 +79,14 @@ else
   echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
 fi
 
+load_opencode_env_file
+
 if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
   install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
     "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root" || true
+  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root"; then
+    echo "WARN: OpenCode workspace override sync failed." >&2
+  fi
 else
   echo "WARN: OpenCode workspace override helper not found; skipping workspace override sync." >&2
 fi

@@ -38,12 +38,12 @@ _opencode_update_profile_in_env_file() {
           printf "OPENCODE_PROFILE=%s\n", profile
         }
       }
-    ' "$env_file" > "$tmp_file"; then
+    ' "$env_file" >| "$tmp_file"; then
       rm -f "$tmp_file"
       return 1
     fi
   else
-    printf 'OPENCODE_PROFILE=%s\n' "$next_profile" > "$tmp_file"
+    printf 'OPENCODE_PROFILE=%s\n' "$next_profile" >| "$tmp_file"
   fi
 
   if ! mv -f "$tmp_file" "$env_file"; then
@@ -71,7 +71,10 @@ opencode_profile() {
       printf 'OPENCODE_CONFIG_DIR=%s\n' "${OPENCODE_CONFIG_DIR:-<unset>}"
       ;;
     chatgpt|copilot)
-      _opencode_update_profile_in_env_file "$action"
+      if ! _opencode_update_profile_in_env_file "$action"; then
+        printf 'Failed to update %s\n' "$OPENCODE_ENV_FILE" >&2
+        return 1
+      fi
       export OPENCODE_PROFILE="$action"
       _opencode_apply_profile_dir
       _opencode_run_post_switch_hook

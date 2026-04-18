@@ -54,6 +54,7 @@ export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.4=gpt-5.4,gpt-5.3-codex=g
 python3 <<'PY'
 import json
 import os
+import sys
 from pathlib import Path
 
 
@@ -100,7 +101,47 @@ def strip_json_comments(payload: str) -> str:
 
 def parse_jsonc(path: Path) -> dict:
     raw = path.read_text(encoding="utf-8")
-    return json.loads(strip_json_comments(raw))
+    return json.loads(strip_jsonc_trailing_commas(strip_json_comments(raw)))
+
+
+def strip_jsonc_trailing_commas(payload: str) -> str:
+    out = []
+    in_string = False
+    string_char = ""
+    escape = False
+    i = 0
+    while i < len(payload):
+        ch = payload[i]
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            i += 1
+            continue
+
+        if ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == ",":
+            j = i + 1
+            while j < len(payload) and payload[j] in " \t\r\n":
+                j += 1
+            if j < len(payload) and payload[j] in "]}":
+                i += 1
+                continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
 
 
 base_path = Path(os.environ["OPENCODE_BASE_PROFILE_CONFIG"])
@@ -118,8 +159,12 @@ for pair in os.environ.get("OPENCODE_MODEL_MAP", "").split(","):
     if src and dst:
         mapping[src] = dst
 
-base_cfg = parse_jsonc(base_path)
-workspace_cfg = parse_jsonc(workspace_path)
+try:
+    base_cfg = parse_jsonc(base_path)
+    workspace_cfg = parse_jsonc(workspace_path)
+except Exception as exc:  # noqa: BLE001
+    print(f"ERROR: Failed to parse OpenCode JSONC: {exc}", file=sys.stderr)
+    raise SystemExit(1)
 
 generated_agent_overrides = {}
 for name, cfg in workspace_cfg.get("agent", {}).items():
