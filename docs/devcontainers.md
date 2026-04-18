@@ -84,6 +84,17 @@ Configuration ownership is split intentionally:
   `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/<repo>/.opencode/**`
   are for local-only overlay files.
 
+OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
+
+- Container user profiles are sourced from
+  `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/{chatgpt,copilot}/opencode.jsonc`.
+- `dot_zshrc` loads `~/.config/opencode/opencode-profile.sh`, which provides
+  `opencode-profile {show|chatgpt|copilot}` and exports `OPENCODE_CONFIG_DIR`
+  based on `OPENCODE_PROFILE`.
+- `postStart.sh`, `postCreate.sh`, and the profile switch hook run
+  `opencode-sync-workspace-overrides` to regenerate Copilot-specific model
+  overrides from workspace `.opencode/opencode.json|jsonc` when possible.
+
 Workspace `.opencode` sync is template-whitelist based:
 
 - Any file present in the template path is treated as managed and synced into the

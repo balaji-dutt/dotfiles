@@ -35,4 +35,14 @@ if (Test-Path -LiteralPath $env:OPENCODE_ENV_FILE) {
   }
 }
 
+$profileName = if ($env:OPENCODE_PROFILE) { $env:OPENCODE_PROFILE } else { "chatgpt" }
+$profileDir = Join-Path (Join-Path (Join-Path $configHome "opencode") "profiles") $profileName
+
+if (Test-Path -LiteralPath $profileDir -PathType Container) {
+  $env:OPENCODE_PROFILE = $profileName
+  $env:OPENCODE_CONFIG_DIR = $profileDir
+} else {
+  Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
+}
+
 {{- end -}}

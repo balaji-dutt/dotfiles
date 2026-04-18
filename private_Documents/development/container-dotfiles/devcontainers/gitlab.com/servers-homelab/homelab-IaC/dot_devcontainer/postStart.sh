@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+workspace_root="${1:-}"
+if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
+  workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+workspace_root="${workspace_root:-$PWD}"
+
 mkdir -p \
   /home/vscode/persistent-data \
   "$HOME/.claude-code-router/logs" \
@@ -9,6 +15,7 @@ mkdir -p \
   "$HOME/.cache" \
   "$HOME/.local/share" \
   "$HOME/.local/state" \
+  "$HOME/.local/bin" \
   "$HOME/.ssh"
 
 ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
@@ -29,11 +36,28 @@ else
   echo "WARN: OpenCode notifier config not found; keeping existing config." >&2
 fi
 
+if [[ -d "$HOME/.host-dotfiles/.config/opencode/profiles" ]]; then
+  mkdir -p "$HOME/persistent-data/opencode/config/profiles"
+  rm -rf "$HOME/persistent-data/opencode/config/profiles/"*
+  cp -R "$HOME/.host-dotfiles/.config/opencode/profiles/." \
+    "$HOME/persistent-data/opencode/config/profiles/"
+else
+  echo "WARN: OpenCode profile config directory not found; keeping existing profile configs." >&2
+fi
+
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then
   install -m 0600 /tmp/host-container-configs/opencode.env \
     /home/vscode/persistent-data/opencode/config/opencode.env
 else
   echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
+fi
+
+if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
+  install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
+    "$HOME/.local/bin/opencode-sync-workspace-overrides"
+  "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root" || true
+else
+  echo "WARN: OpenCode workspace override helper not found; skipping workspace override sync." >&2
 fi
 
 if [[ -f /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc ]]; then

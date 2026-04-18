@@ -296,6 +296,12 @@ elif [ -n "${_opencode_restore_allexport:-}" ]; then
   set -a
 fi
 
+_opencode_profile_helpers="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-profile.sh"
+if [ -r "$_opencode_profile_helpers" ]; then
+  . "$_opencode_profile_helpers"
+fi
+unset _opencode_profile_helpers
+
 unset _opencode_restore_allexport
 
 {{- end }}

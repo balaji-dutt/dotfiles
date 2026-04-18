@@ -59,6 +59,24 @@ elif [ -n "${_opencode_restore_allexport:-}" ]; then
   set -a
 fi
 
+_opencode_profile_post_switch() {
+  local workspace_root
+  workspace_root="$PWD"
+  if command -v git >/dev/null 2>&1; then
+    workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$workspace_root")"
+  fi
+
+  if command -v opencode-sync-workspace-overrides >/dev/null 2>&1; then
+    opencode-sync-workspace-overrides "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root" || true
+  fi
+}
+
+_opencode_profile_helpers="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-profile.sh"
+if [ -r "$_opencode_profile_helpers" ]; then
+  . "$_opencode_profile_helpers"
+fi
+unset _opencode_profile_helpers
+
 unset _opencode_restore_allexport
 
 # Enable Powerlevel10k instant prompt.

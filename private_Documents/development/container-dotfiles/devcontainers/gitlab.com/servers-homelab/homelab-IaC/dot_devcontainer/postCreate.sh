@@ -321,6 +321,16 @@ else
 fi
 done_step "Load Antidote (if present)"
 
+step "Refresh OpenCode workspace model overrides"
+if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
+  install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
+    "$HOME/.local/bin/opencode-sync-workspace-overrides"
+  "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$WORKSPACE_PATH" || true
+else
+  echo "OpenCode workspace override helper not found; skipping."
+fi
+done_step "Refresh OpenCode workspace model overrides"
+
 step "postCreate complete"
 echo "Log saved to: $LOG_FILE"
 done_step "postCreate complete"
