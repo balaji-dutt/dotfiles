@@ -22,6 +22,18 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-19
+
+- decision: Added warning-only chezmoi `run_onchange` reminder script
+  `.chezmoiscripts/run_onchange_after_render_container_configs_reminder.sh.tmpl`
+  to prompt rerunning `./assets/render-container-configs.sh` when its tracked
+  template/script inputs change.
+- decision: Split drift reminders by concern with dedicated OpenCode reminder
+  script `.chezmoiscripts/run_onchange_after_opencode_profiles_reminder.sh.tmpl`
+  for static profile overlay drift checks.
+- convention: Treat `assets/render-container-configs.sh` rerender reminder as
+  drift detection only; secret rotation in 1Password remains a manual trigger.
+
 ## 2026-04-17
 
 - decision: Move devcontainer workspace `.opencode` managed-manifest state from

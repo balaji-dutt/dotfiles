@@ -1,0 +1,11 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# private_dot_config/opencode/opencode.jsonc hash: {{ include "private_dot_config/opencode/opencode.jsonc" | sha256sum }}
+# private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc hash: {{ include "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc" | sha256sum }}
+# private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
+# private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
+
+echo "INFO: OpenCode profile inputs changed; review/update Copilot profile overlays if needed."
+{{- end -}}
