@@ -31,6 +31,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Split drift reminders by concern with dedicated OpenCode reminder
   script `.chezmoiscripts/run_onchange_after_opencode_profiles_reminder.sh.tmpl`
   for static profile overlay drift checks.
+- decision: Added manual repo-maintenance script
+  `assets/sync-opencode-copilot-profiles.sh` to regenerate committed host and
+  container Copilot profile overlays from canonical OpenCode user config.
 - convention: Treat `assets/render-container-configs.sh` rerender reminder as
   drift detection only; secret rotation in 1Password remains a manual trigger.
 

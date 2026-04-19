@@ -7,5 +7,5 @@ set -euo pipefail
 # private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
 # private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
 
-echo "INFO: OpenCode profile inputs changed; review/update Copilot profile overlays if needed."
+echo "INFO: OpenCode profile inputs changed; run ./assets/sync-opencode-copilot-profiles.sh and review the diff."
 {{- end -}}
