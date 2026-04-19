@@ -155,6 +155,7 @@
     "@tarquinen/opencode-dcp@latest",
     "@mohak34/opencode-notifier@latest",
     "@plannotator/opencode@latest",
+    "opencode-mystatus@latest",
     "opencode-websearch-cited@1.2.0"
   ],
 
