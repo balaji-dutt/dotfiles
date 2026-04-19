@@ -69,7 +69,8 @@
     "dotfiles-reviewer": {
       "mode": "subagent",
       "description": "Fast read-only review for dotfiles/chezmoi changes.",
-      "model": "anthropic/claude-opus-4-6",
+      // "model": "anthropic/claude-opus-4-6",
+      "model": "github-copilot/claude-sonnet-4.6",
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
       // Anthropic extended thinking (medium-ish)
@@ -99,7 +100,7 @@
         "edit": false,
         "bash": false
       }
-    }
+    },
     // Alternative full agent pair: adaptive thinking + effort
     // Uncomment these two agents and comment out the active pair
     // above if you want to compare behavior side-by-side.
