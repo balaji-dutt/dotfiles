@@ -34,6 +34,66 @@ load_opencode_env_file() {
   fi
 }
 
+read_opencode_profile_from_env_file() {
+  local env_file
+  env_file="$1"
+
+  [[ -r "$env_file" ]] || return 0
+
+  awk '
+    /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ {
+      sub(/^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/, "", $0)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+      if ($0 ~ /^".*"$/ || $0 ~ /^\047.*\047$/) {
+        $0 = substr($0, 2, length($0) - 2)
+      }
+      print $0
+      exit
+    }
+  ' "$env_file"
+}
+
+write_opencode_profile_to_env_file() {
+  local env_file profile tmp_file
+  env_file="$1"
+  profile="$2"
+
+  [[ -n "$profile" ]] || return 0
+
+  tmp_file="$(mktemp "${env_file}.XXXXXX")"
+
+  if [[ -r "$env_file" ]]; then
+    if ! awk -v profile="$profile" '
+      BEGIN { updated = 0 }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ {
+        if (!updated) {
+          printf "OPENCODE_PROFILE=%s\n", profile
+          updated = 1
+        }
+        next
+      }
+      { print }
+      END {
+        if (!updated) {
+          printf "OPENCODE_PROFILE=%s\n", profile
+        }
+      }
+    ' "$env_file" > "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
+  else
+    printf 'OPENCODE_PROFILE=%s\n' "$profile" > "$tmp_file"
+  fi
+
+  if ! mv -f "$tmp_file" "$env_file"; then
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  chmod 600 "$env_file" 2>/dev/null || true
+}
+
 mkdir -p \
   /home/vscode/persistent-data \
   "$HOME/.claude-code-router/logs" \
@@ -73,8 +133,15 @@ else
 fi
 
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then
+  persisted_opencode_profile="$(read_opencode_profile_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"
   install -m 0600 /tmp/host-container-configs/opencode.env \
     /home/vscode/persistent-data/opencode/config/opencode.env
+
+  if [[ -n "${persisted_opencode_profile:-}" ]]; then
+    if ! write_opencode_profile_to_env_file /home/vscode/persistent-data/opencode/config/opencode.env "$persisted_opencode_profile"; then
+      echo "WARN: Failed preserving OPENCODE_PROFILE in refreshed opencode.env." >&2
+    fi
+  fi
 else
   echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
 fi
