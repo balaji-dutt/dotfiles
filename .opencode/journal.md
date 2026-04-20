@@ -42,6 +42,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Added host `private_dot_config/direnv/direnv.toml.tmpl`
   whitelist entry scoped to `~/Documents/development/dotfiles` for
   auto-loading without prompt in this repo.
+- decision: Updated `dot_zshrc.tmpl` direnv initialization to use direct
+  `eval "$(direnv export zsh)"` and `eval "$(direnv hook zsh)"` instead of
+  `emulate zsh -c`, fixing missing `_direnv_hook` in interactive shells.
 
 ## 2026-04-19
 

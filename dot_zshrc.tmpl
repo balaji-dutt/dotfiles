@@ -40,7 +40,7 @@ alias ops=' eval $(op signin)'
 # Direnv initialization (export part) - MUST be before P10k instant prompt
 {{- if lookPath "direnv" }}
 # This line is for direnv export, run if direnv command exists
-(( ${+commands[direnv]} )) && emulate zsh -c "$(direnv export zsh)"
+(( ${+commands[direnv]} )) && eval "$(direnv export zsh)"
 {{- end }}
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
@@ -813,11 +813,7 @@ fi
 {{-   $hasDirenv = true -}}
 {{- end -}}
 {{- if $hasDirenv }}
-if command -v smartcache >/dev/null 2>&1; then
-    (( ${+commands[direnv]} && ${+commands[smartcache]} )) && emulate zsh -c "$(smartcache direnv hook zsh)"
-else
-    (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
-fi
+(( ${+commands[direnv]} )) && eval "$(direnv hook zsh)"
 {{- end }}
 
 # 1. Bind the Up Arrow to the fzf_history_search widget
