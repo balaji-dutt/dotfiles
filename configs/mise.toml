@@ -2,5 +2,7 @@
 bun = "latest"
 jq = "latest"
 node = "lts"
+"npm:@opencode-ai/sdk" = "latest"
+"npm:promptfoo" = "latest"
 python = "3.14"
 uv = "latest"
