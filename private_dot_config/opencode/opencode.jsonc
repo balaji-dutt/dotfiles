@@ -318,6 +318,7 @@
       "mode": "primary",
       "description": "Planning manager (GPT-5.4 high + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-5.4",
+      "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "temperature": 0.4,
       "permission": {
@@ -335,6 +336,7 @@
       "mode": "primary",
       "description": "Planning manager (GPT-5.4 xhigh + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-5.4",
+      "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "permission": {
@@ -354,6 +356,7 @@
       "description": "Manual interactive build agent (ad-hoc coding).",
       "model": "openai/gpt-5.3-codex",
       "temperature": 0.2,
+      "prompt": "You are the default interactive build agent. Repo-level instructions (AGENTS.md or equivalent) take precedence over any global defaults. When no repo-specific guidance exists, apply good judgment for correctness, safety, and maintainability.",
       "permission": {
         "edit": {
           "*": "allow",
@@ -365,7 +368,7 @@
 
     "special-builder": {
       "mode": "primary",
-      "description": "One off agent to develop Agent Engineer",
+      "description": "Agent for meta-level and infrastructural work ",
       "model": "github-copilot/claude-opus-4.6",
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
@@ -374,6 +377,7 @@
         "type": "enabled",
         "budgetTokens": 20000
       },
+      "prompt": "{file:./prompts/special-builder.md}",
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",
@@ -386,15 +390,28 @@
       }
     },
 
-    // Agent Engineer: meta-agent for designing/building/evaluating agent prompts
     "agent-engineer": {
+      "mode": "primary",
+      "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
       "model": "github-copilot/claude-sonnet-4.6",
       "thinking": {
         "type": "enabled",
         "budgetTokens": 10000
       },
-      "prompt": "{file:./skills/agent-engineer/agent-engineer-prompt.md}"
-    },
+      "prompt": "{file:./skills/agent-engineer/agent-engineer-prompt.md}",
+      "permission": {
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "edit": {
+          "*": "ask",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        }
+      }
+    }
+
+    // Reference implementation examples
 
     // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
     // "code-manager": {
