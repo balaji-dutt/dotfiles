@@ -392,18 +392,18 @@
     // },
 
     // Subagent: implementation
-    "coder": {
-      "mode": "subagent",
-      "description": "Implementation subagent (edits allowed).",
-      "model": "openai/gpt-5.3-codex",
-      "temperature": 0.2,
-      "permission": {
-        "edit": {
-          "*": "allow",
-          "*.env": "deny",
-          "*.env.*": "deny"
-        }
-      }
-    }
+    // "coder": {
+    //   "mode": "subagent",
+    //   "description": "Implementation subagent (edits allowed).",
+    //   "model": "openai/gpt-5.3-codex",
+    //   "temperature": 0.2,
+    //   "permission": {
+    //     "edit": {
+    //       "*": "allow",
+    //       "*.env": "deny",
+    //       "*.env.*": "deny"
+    //     }
+    //   }
+    // }
   }
 }
