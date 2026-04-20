@@ -36,6 +36,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `.chezmoiscripts/run_onchange_after_devcontainer_sync_reminder.sh.tmpl`
   to prompt rerunning `./assets/sync-devcontainer-assets.sh` when key inputs
   change.
+- decision: Added repo-local direnv integration with `.envrc` +
+  `assets/sync-devcontainer-all.sh` to run the three-step
+  sync/profile/render workflow via one command.
+- decision: Added host `private_dot_config/direnv/direnv.toml.tmpl`
+  whitelist entry scoped to `~/Documents/development/dotfiles` for
+  auto-loading without prompt in this repo.
 
 ## 2026-04-19
 
