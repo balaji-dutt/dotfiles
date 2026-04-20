@@ -363,6 +363,29 @@
       }
     },
 
+    "special-builder": {
+      "mode": "primary",
+      "description": "One off agent to develop Agent Engineer",
+      "model": "github-copilot/claude-opus-4.6",
+      // Anthropic does not support temperature modification with thinking budgets
+      // "temperature": 0.1,
+      // Anthropic extended thinking (high-ish)
+      "thinking": {
+        "type": "enabled",
+        "budgetTokens": 20000
+      },
+      "permission": {
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "edit": {
+          "*": "ask",
+          "*.env": "deny",
+          "*.env.*": "deny"
+        }
+      }
+    },
+
     // Agent Engineer: meta-agent for designing/building/evaluating agent prompts
     "agent-engineer": {
       "model": "github-copilot/claude-sonnet-4.6",
