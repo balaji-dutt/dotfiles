@@ -19,7 +19,8 @@
           "plugins/**",
           "skills/**",
           "tools/**",
-          "themes/**"
+          "themes/**",
+          "prompts/**"
         ],
         "exclude": [
           "opencode.jsonc",
