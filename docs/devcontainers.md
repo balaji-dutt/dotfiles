@@ -30,6 +30,14 @@ Typical synced files:
 - `dotfiles/configs/*.txt`
 - `dotfiles/.config/**` and shell dotfiles used by the container build
 
+Manifest-driven source mirroring for shared container-dotfiles is handled by:
+
+- `configs/devcontainer-sync.jsonc`
+- `./assets/sync-devcontainer-assets.sh`
+
+Run the sync script after changing canonical host-side sources that are mirrored
+into `private_Documents/development/container-dotfiles/dotfiles/**`.
+
 ## Platform Behavior
 
 Based on `.chezmoiignore` rules:
@@ -67,6 +75,12 @@ Use:
 ```
 
 Run the render step before rebuilding containers so runtime values are injected safely.
+
+The current recommended order when updating container inputs is:
+
+1. `./assets/sync-devcontainer-assets.sh`
+2. `./assets/sync-opencode-copilot-profiles.sh`
+3. `./assets/render-container-configs.sh`
 
 ## OpenCode in Devcontainers
 

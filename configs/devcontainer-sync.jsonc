@@ -1,0 +1,85 @@
+{
+  // Declarative source of truth for host->container-dotfiles synchronization.
+  //
+  // Categories:
+  // - mirrors: deterministic file/directory copying
+  // - derived: deterministic generated artifacts
+  // - renders: runtime/secret materialization (future wiring)
+  "shared": {
+    "mirrors": [
+      {
+        "name": "opencode-user-config",
+        "source_root": "private_dot_config/opencode",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode",
+        "cleanup_managed": true,
+        "include": [
+          "agents/**",
+          "commands/**",
+          "modes/**",
+          "plugins/**",
+          "skills/**",
+          "tools/**",
+          "themes/**"
+        ],
+        "exclude": [
+          "opencode.jsonc",
+          "opencode-profile.sh",
+          "opencode-sync-workspace-overrides.sh",
+          "tui.json",
+          "private_opencode.env.tmpl",
+          "profiles/**",
+          "opencode-notifier.json.tmpl"
+        ]
+      }
+    ],
+    "derived": [
+      {
+        "name": "opencode-copilot-host",
+        "type": "opencode-copilot-profile",
+        "label": "host",
+        "source": "private_dot_config/opencode/opencode.jsonc",
+        "target": "private_dot_config/opencode/profiles/copilot/opencode.jsonc",
+        "keep_agents": [
+          "plan",
+          "plan-GPT5.4-xhigh",
+          "build",
+          "coder"
+        ]
+      },
+      {
+        "name": "opencode-copilot-container",
+        "type": "opencode-copilot-profile",
+        "label": "container",
+        "source": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "target": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc",
+        "keep_agents": [
+          "plan",
+          "plan-GPT5.4-xhigh",
+          "build"
+        ]
+      }
+    ],
+    "renders": [
+      {
+        "name": "claude-code-router-config",
+        "description": "Reserved for manifest-driven render refactor"
+      },
+      {
+        "name": "container-env",
+        "description": "Reserved for manifest-driven render refactor"
+      },
+      {
+        "name": "opencode-env",
+        "description": "Reserved for manifest-driven render refactor"
+      }
+    ]
+  },
+  "devcontainers": {
+    "homelab-IaC": {
+      "overlay_root": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer",
+      "mirrors": [],
+      "derived": [],
+      "renders": []
+    }
+  }
+}

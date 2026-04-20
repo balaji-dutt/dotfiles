@@ -2,8 +2,9 @@
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+manifest_path="$repo_root/configs/devcontainer-sync.jsonc"
 
-python3 - "$repo_root" <<'PY'
+python3 - "$repo_root" "$manifest_path" <<'PY'
 import json
 import os
 import sys
@@ -170,22 +171,20 @@ def sync_profile(source_path: Path, target_path: Path, keep_agents: list[str], m
 
 
 repo_root = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
 mapping = parse_mapping()
 
+manifest = parse_jsonc(manifest_path)
 specs = [
-    {
-        "source": "private_dot_config/opencode/opencode.jsonc",
-        "target": "private_dot_config/opencode/profiles/copilot/opencode.jsonc",
-        "keep_agents": ["plan", "plan-GPT5.4-xhigh", "build", "coder"],
-        "label": "host",
-    },
-    {
-        "source": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
-        "target": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc",
-        "keep_agents": ["plan", "plan-GPT5.4-xhigh", "build"],
-        "label": "container",
-    },
+    spec
+    for spec in manifest.get("shared", {}).get("derived", [])
+    if spec.get("type") == "opencode-copilot-profile"
 ]
+
+if not specs:
+    raise SystemExit(
+        "No opencode-copilot-profile derived entries found in configs/devcontainer-sync.jsonc"
+    )
 
 changed = False
 for spec in specs:

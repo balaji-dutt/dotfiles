@@ -22,6 +22,21 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-20
+
+- decision: Added manifest-driven container sync source of truth at
+  `configs/devcontainer-sync.jsonc` and maintenance script
+  `assets/sync-devcontainer-assets.sh` for host-to-container-dotfiles mirroring.
+- decision: Refactored `assets/sync-opencode-copilot-profiles.sh` to read
+  profile derivation specs from `configs/devcontainer-sync.jsonc`.
+- decision: Standardized OpenCode slash-command folder naming from singular
+  `private_dot_config/opencode/command/` to plural
+  `private_dot_config/opencode/commands/`.
+- decision: Added non-Windows reminder script
+  `.chezmoiscripts/run_onchange_after_devcontainer_sync_reminder.sh.tmpl`
+  to prompt rerunning `./assets/sync-devcontainer-assets.sh` when key inputs
+  change.
+
 ## 2026-04-19
 
 - decision: Added warning-only chezmoi `run_onchange` reminder script

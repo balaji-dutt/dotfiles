@@ -56,10 +56,8 @@ _opencode_on_directory_change() {
 _opencode_install_shell_hooks() {
   if [ -n "${ZSH_VERSION:-}" ]; then
     if [ -z "${_OPENCODE_ZSH_CHPWD_HOOK_SET:-}" ]; then
-      autoload -Uz add-zsh-hook >/dev/null 2>&1 || true
-      if command -v add-zsh-hook >/dev/null 2>&1; then
-        add-zsh-hook chpwd _opencode_on_directory_change 2>/dev/null || true
-      fi
+      autoload -Uz add-zsh-hook 2>/dev/null || true
+      add-zsh-hook chpwd _opencode_on_directory_change 2>/dev/null || true
       export _OPENCODE_ZSH_CHPWD_HOOK_SET=1
     fi
   elif [ -n "${BASH_VERSION:-}" ]; then

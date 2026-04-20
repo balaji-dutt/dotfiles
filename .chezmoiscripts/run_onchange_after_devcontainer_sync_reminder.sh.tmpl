@@ -1,0 +1,11 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# assets/sync-devcontainer-assets.sh hash: {{ include "assets/sync-devcontainer-assets.sh" | sha256sum }}
+# configs/devcontainer-sync.jsonc hash: {{ include "configs/devcontainer-sync.jsonc" | sha256sum }}
+# private_dot_config/opencode/opencode.jsonc hash: {{ include "private_dot_config/opencode/opencode.jsonc" | sha256sum }}
+# private_dot_config/opencode/opencode-profile.sh hash: {{ include "private_dot_config/opencode/opencode-profile.sh" | sha256sum }}
+
+echo "INFO: Devcontainer sync inputs changed; run ./assets/sync-devcontainer-assets.sh and review the diff."
+{{- end -}}

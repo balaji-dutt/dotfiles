@@ -147,6 +147,17 @@ tf() {
   command "$cmd" "$@"
 }
 
+# macOS Dev Containers do not work well with .git directories on shared NFS hosts
+# hence the Dev Container is configured to use a directory in the host filesystem for Git metadata.
+# This implies that git commits made from the macOS Dev Container will not be visible to other
+# Dev Containers which do work off the .git directories on the NFS hosts. While the `gpls`
+# alias defined in git-helpers.zsh is available in all Dev Containers,
+# we need to do standard "git pull" and "git push" instead since the "dirty worktree" that is
+# detected by `gpls` is functionally meaningless. There are likely changes backed by git commits
+# that are not visible to the Dev Container and thus the "dirty worktree" warning is not useful.
+alias gp="git pull --rebase"
+alias gu="git push --follow-tags"
+
 # Set $EDITOR & $VISUAL to VSCode (this works great in devcontainers)
 export VISUAL="$(command -v code) --wait"
 EDITOR="$VISUAL"
