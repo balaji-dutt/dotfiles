@@ -363,6 +363,16 @@
       }
     },
 
+    // Agent Engineer: meta-agent for designing/building/evaluating agent prompts
+    "agent-engineer": {
+      "model": "github-copilot/claude-sonnet-4.6",
+      "thinking": {
+        "type": "enabled",
+        "budgetTokens": 10000
+      },
+      "prompt": "{file:./skills/agent-engineer/agent-engineer-prompt.md}"
+    },
+
     // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
     // "code-manager": {
     //   "mode": "primary",
