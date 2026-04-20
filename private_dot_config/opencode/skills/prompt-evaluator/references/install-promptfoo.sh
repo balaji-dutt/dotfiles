@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
-# install-promptfoo.sh — Cross-platform promptfoo installer (macOS / Linux / WSL2)
+# install-promptfoo.sh — Cross-platform prerequisite installer
 #
-# Checks for promptfoo presence, installs via brew (macOS) or npm fallback.
+# Ensures promptfoo and @opencode-ai/sdk are available for prompt evaluation.
+# macOS: promptfoo via brew (if available), otherwise npm fallback.
+# opencode SDK: npm install in current working directory.
 # Exit codes: 0 = installed/already present, 1 = install failed.
 
 set -euo pipefail
 
 PROMPTFOO_CMD="promptfoo"
+PROMPTFOO_READY=false
+SDK_READY=false
+
+check_sdk() {
+    if command -v node &>/dev/null; then
+        node -e "require.resolve('@opencode-ai/sdk')" &>/dev/null
+    else
+        return 1
+    fi
+}
 
 # -------------------------------------------------------------------
 # Check if promptfoo is already installed
@@ -14,16 +26,23 @@ PROMPTFOO_CMD="promptfoo"
 if command -v "$PROMPTFOO_CMD" &>/dev/null; then
     echo "promptfoo is already installed: $(command -v "$PROMPTFOO_CMD")"
     "$PROMPTFOO_CMD" --version 2>/dev/null || true
-    exit 0
+    PROMPTFOO_READY=true
 fi
 
 # Also check npx availability (promptfoo can run via npx without global install)
-if command -v npx &>/dev/null && npx promptfoo@latest --version &>/dev/null 2>&1; then
+if [[ "$PROMPTFOO_READY" == "false" ]] && command -v npx &>/dev/null && npx promptfoo@latest --version &>/dev/null 2>&1; then
     echo "promptfoo is available via npx"
-    exit 0
+    PROMPTFOO_READY=true
 fi
 
-echo "promptfoo not found. Attempting installation..."
+if check_sdk; then
+    echo "@opencode-ai/sdk is already available in current project"
+    SDK_READY=true
+fi
+
+if [[ "$PROMPTFOO_READY" == "false" ]]; then
+    echo "promptfoo not found. Attempting installation..."
+fi
 
 # -------------------------------------------------------------------
 # Detect platform
@@ -34,11 +53,12 @@ INSTALLED=false
 # -------------------------------------------------------------------
 # macOS: try brew first, fallback to npm
 # -------------------------------------------------------------------
-if [[ "$OS" == "Darwin" ]]; then
+if [[ "$PROMPTFOO_READY" == "false" ]] && [[ "$OS" == "Darwin" ]]; then
     if command -v brew &>/dev/null; then
         echo "Installing promptfoo via Homebrew..."
         if brew install promptfoo 2>/dev/null; then
             INSTALLED=true
+            PROMPTFOO_READY=true
         else
             echo "Homebrew install failed, falling back to npm..."
         fi
@@ -48,11 +68,12 @@ fi
 # -------------------------------------------------------------------
 # npm fallback (all platforms)
 # -------------------------------------------------------------------
-if [[ "$INSTALLED" == "false" ]]; then
+if [[ "$PROMPTFOO_READY" == "false" ]] && [[ "$INSTALLED" == "false" ]]; then
     if command -v npm &>/dev/null; then
         echo "Installing promptfoo via npm (global)..."
         npm install -g promptfoo
         INSTALLED=true
+        PROMPTFOO_READY=true
     else
         echo "ERROR: Neither brew nor npm found. Install Node.js/npm first."
         echo "  macOS:     brew install node"
@@ -63,12 +84,42 @@ if [[ "$INSTALLED" == "false" ]]; then
 fi
 
 # -------------------------------------------------------------------
+# Ensure OpenCode SDK is installed in current project
+# -------------------------------------------------------------------
+if [[ "$SDK_READY" == "false" ]]; then
+    if command -v npm &>/dev/null; then
+        echo "Installing @opencode-ai/sdk via npm (project local)..."
+        npm install -g @opencode-ai/sdk
+        if check_sdk; then
+            SDK_READY=true
+        fi
+    else
+        echo "ERROR: npm not found. Cannot install @opencode-ai/sdk."
+        exit 1
+    fi
+fi
+
+# -------------------------------------------------------------------
 # Verify installation
 # -------------------------------------------------------------------
-if command -v "$PROMPTFOO_CMD" &>/dev/null; then
-    echo "promptfoo installed successfully: $(promptfoo --version)"
+if [[ "$PROMPTFOO_READY" == "false" ]] && command -v "$PROMPTFOO_CMD" &>/dev/null; then
+    PROMPTFOO_READY=true
+fi
+
+if [[ "$PROMPTFOO_READY" == "true" ]] && [[ "$SDK_READY" == "true" ]]; then
+    if command -v "$PROMPTFOO_CMD" &>/dev/null; then
+        echo "promptfoo ready: $(promptfoo --version)"
+    else
+        echo "promptfoo ready via npx"
+    fi
+    echo "@opencode-ai/sdk is installed"
     exit 0
 else
-    echo "ERROR: Installation completed but promptfoo not found in PATH."
+    if [[ "$PROMPTFOO_READY" == "false" ]]; then
+        echo "ERROR: promptfoo is not available after installation attempt."
+    fi
+    if [[ "$SDK_READY" == "false" ]]; then
+        echo "ERROR: @opencode-ai/sdk is not available after installation attempt."
+    fi
     exit 1
 fi

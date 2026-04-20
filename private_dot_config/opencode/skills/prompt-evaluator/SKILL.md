@@ -53,7 +53,8 @@ reviewer using a structured rubric.
 
 Uses promptfoo for automated, reproducible evaluation with assertions.
 
-**Prerequisite**: promptfoo must be installed. Run the install script if needed:
+**Prerequisite**: promptfoo and `@opencode-ai/sdk` must be available. Run the
+install script if needed:
 - macOS/Linux/WSL2: `bash references/install-promptfoo.sh`
 - Windows: `pwsh references/install-promptfoo.ps1`
 

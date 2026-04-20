@@ -13,17 +13,19 @@ prompts:
   - file://path/to/prompt.md
 
 providers:
-  # Use the same model the agent will run on
-  - id: anthropic:messages:claude-sonnet-4-20250514
+  # Use OpenCode SDK to route through your configured providers
+  - id: opencode:sdk
     config:
-      max_tokens: 4096
-      temperature: 0
+      provider_id: anthropic
+      model: claude-sonnet-4-20250514
 
-  # Or for OpenAI
-  - id: openai:chat:gpt-4o
+  # Or for OpenAI via OpenCode SDK
+  - id: opencode:sdk
     config:
-      max_tokens: 4096
-      temperature: 0
+      provider_id: openai
+      model: gpt-4o
+
+  # Requires: npm install @opencode-ai/sdk
 
 tests:
   - vars:
@@ -68,7 +70,7 @@ assert:
       1. Address the user's question directly
       2. Provide actionable steps
       3. Not include unnecessary preamble
-    provider: anthropic:messages:claude-sonnet-4-20250514
+    provider: opencode:sdk
 ```
 
 ### Python assertions

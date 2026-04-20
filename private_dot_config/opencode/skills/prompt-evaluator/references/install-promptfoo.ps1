@@ -4,7 +4,9 @@
     Cross-platform promptfoo installer for Windows (PowerShell 7).
 
 .DESCRIPTION
-    Checks for promptfoo presence and installs via npm if not found.
+    Ensures promptfoo and @opencode-ai/sdk are available.
+    promptfoo is installed globally via npm if missing.
+    @opencode-ai/sdk is installed in the current project via npm if missing.
     Exit codes: 0 = installed/already present, 1 = install failed.
 #>
 
@@ -13,6 +15,22 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+function Test-OpenCodeSdk {
+    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCmd) { return $false }
+
+    try {
+        & node -e "require.resolve('@opencode-ai/sdk')" 2>$null | Out-Null
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+$promptfooReady = $false
+$sdkReady = $false
+
 # -------------------------------------------------------------------
 # Check if promptfoo is already installed
 # -------------------------------------------------------------------
@@ -20,23 +38,30 @@ $existing = Get-Command promptfoo -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Host "promptfoo is already installed: $($existing.Source)"
     & promptfoo --version 2>$null
-    exit 0
+    $promptfooReady = $true
 }
 
 # Check npx availability
 $npxCmd = Get-Command npx -ErrorAction SilentlyContinue
-if ($npxCmd) {
+if (-not $promptfooReady -and $npxCmd) {
     try {
         $null = & npx promptfoo@latest --version 2>$null
         Write-Host "promptfoo is available via npx"
-        exit 0
+        $promptfooReady = $true
     }
     catch {
         # npx check failed, continue to install
     }
 }
 
-Write-Host "promptfoo not found. Attempting installation..."
+if (Test-OpenCodeSdk) {
+    Write-Host "@opencode-ai/sdk is already available in current project"
+    $sdkReady = $true
+}
+
+if (-not $promptfooReady) {
+    Write-Host "promptfoo not found. Attempting installation..."
+}
 
 # -------------------------------------------------------------------
 # Install via npm
@@ -51,8 +76,19 @@ ERROR: npm not found. Install Node.js first:
     exit 1
 }
 
-Write-Host "Installing promptfoo via npm (global)..."
-& npm install -g promptfoo
+if (-not $promptfooReady) {
+    Write-Host "Installing promptfoo via npm (global)..."
+    & npm install -g promptfoo
+    $promptfooReady = $true
+}
+
+if (-not $sdkReady) {
+    Write-Host "Installing @opencode-ai/sdk via npm (project local)..."
+    & npm install @opencode-ai/sdk
+    if (Test-OpenCodeSdk) {
+        $sdkReady = $true
+    }
+}
 
 # -------------------------------------------------------------------
 # Verify installation
@@ -62,11 +98,26 @@ $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';
             [System.Environment]::GetEnvironmentVariable('Path', 'User')
 
 $installed = Get-Command promptfoo -ErrorAction SilentlyContinue
-if ($installed) {
-    Write-Host "promptfoo installed successfully: $(& promptfoo --version)"
+if (-not $promptfooReady -and $installed) {
+    $promptfooReady = $true
+}
+
+if ($promptfooReady -and $sdkReady) {
+    if ($installed) {
+        Write-Host "promptfoo ready: $(& promptfoo --version)"
+    }
+    else {
+        Write-Host "promptfoo ready via npx"
+    }
+    Write-Host "@opencode-ai/sdk is installed"
     exit 0
 }
 else {
-    Write-Error "ERROR: Installation completed but promptfoo not found in PATH."
+    if (-not $promptfooReady) {
+        Write-Error "ERROR: promptfoo is not available after installation attempt."
+    }
+    if (-not $sdkReady) {
+        Write-Error "ERROR: @opencode-ai/sdk is not available after installation attempt."
+    }
     exit 1
 }
