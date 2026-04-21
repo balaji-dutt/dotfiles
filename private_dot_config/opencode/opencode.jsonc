@@ -369,7 +369,7 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "github-copilot/claude-opus-4.6",
+      "model": "github-copilot/claude-sonnet-4.6",
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
       // Anthropic extended thinking (high-ish)
