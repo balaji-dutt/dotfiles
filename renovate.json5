@@ -1,0 +1,155 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["custom.regex"],
+  "labels": ["dependencies", "renovate"],
+  "dependencyDashboard": true,
+  "rangeStrategy": "replace",
+  "automerge": false,
+  "prConcurrentLimit": 5,
+  "branchConcurrentLimit": 5,
+  "commitMessagePrefix": "chore(deps): ",
+
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^configs\\/packages\\.yaml$/"],
+      "matchStrings": [
+        "(?m)^\\s*\\w+:\\s*\\\"(?<currentValue>[^\\\"]+)\\\"\\s+#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*$"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/dot_devcontainer\\/devcontainer\\.json\\.tmpl$/"
+      ],
+      "matchStrings": [
+        "(?m)^\\s*\\\"[A-Z_]+\\\":\\s*\\\"(?<currentValue>[^\\\"]+)\\\",\\s*\\/\\/\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*$"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/dot_devcontainer\\/postCreate\\.sh$/"
+      ],
+      "matchStrings": [
+        "(?m)^\\s*python3\\s+-m\\s+pip\\s+install\\s+--user\\s+\\\"[^\\\"=]+==(?<currentValue>[^\\\"]+)\\\"\\s+#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*$"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/configs\\/uv_tools\\.txt$/"
+      ],
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+      "matchStrings": [
+        "(?m)^(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[0-9][^\\s#]*)$"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/configs\\/npm_packages\\.txt$/"
+      ],
+      "datasourceTemplate": "npm",
+      "matchStrings": [
+        "(?m)^(?<depName>(?:@[^\\/\\s]+\\/)?[^@\\s]+)@(?<currentValue>[0-9][^\\s#]*)$"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^private_dot_config\\/opencode\\/opencode\\.jsonc$/",
+        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/opencode\\.jsonc$/"
+      ],
+      "datasourceTemplate": "npm",
+      "matchStrings": [
+        "(?m)^\\s*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\",?\\s*$"
+      ]
+    }
+  ],
+
+  "packageRules": [
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "opencode plugins"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "opencode plugins (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "container npm tools"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "container npm tools (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt",
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "container python tools"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt",
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "container python tools (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
+      ],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "container bootstrap tools"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "container bootstrap tools (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["configs/packages.yaml"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "wsl tool versions"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["configs/packages.yaml"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "wsl tool versions (major)"
+    }
+  ]
+}

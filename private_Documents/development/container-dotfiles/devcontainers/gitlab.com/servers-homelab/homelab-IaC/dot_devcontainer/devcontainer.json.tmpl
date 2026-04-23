@@ -4,13 +4,13 @@
 
   "containerEnv": {
     "DEVCONTAINER": "1", // Additional environment variable for use with chezmoi
-    "FZF_VERSION": "0.66.0",
-    "ZOXIDE_VERSION": "0.9.8",
+    "FZF_VERSION": "0.66.0", // renovate: datasource=github-releases depName=junegunn/fzf extractVersion=^v(?<version>.*)$
+    "ZOXIDE_VERSION": "0.9.8", // renovate: datasource=github-releases depName=ajeetdsouza/zoxide extractVersion=^v(?<version>.*)$
     "LAZYGIT_VERSION": "latest",
     "DEVCONTAINER_CLIPBOARD_MODE": "osc52",
     "CERTPATH": "/home/vscode/development/keys",
     "CERTFILES_RAW": {{ .CERTFILES_RAW | toJson }},
-    "NVM_VERSION": "0.40.3",
+    "NVM_VERSION": "0.40.3", // renovate: datasource=github-tags depName=nvm-sh/nvm extractVersion=^v(?<version>.*)$
     "NODE_VERSION": "lts/*",
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "9999",

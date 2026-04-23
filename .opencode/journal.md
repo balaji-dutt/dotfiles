@@ -22,6 +22,20 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-23
+
+- decision: Added Renovate MVP repo config at `renovate.json5` scoped to
+  `custom.regex` managers only for pinned-version updates.
+- decision: Added inline `renovate:` metadata comments for scalar pins in
+  `configs/packages.yaml`, homelab
+  `dot_devcontainer/devcontainer.json.tmpl`, and
+  `dot_devcontainer/postCreate.sh` to keep non-standard version fields
+  updatable.
+- decision: Added operator runbook
+  `docs/automation/renovate-gitlab-runner-setup.md` with GitLab v19-based
+  service-account setup, include-ref `v26.0.0` gotcha, and first manual run
+  steps.
+
 ## 2026-04-20
 
 - decision: Added manifest-driven container sync source of truth at
