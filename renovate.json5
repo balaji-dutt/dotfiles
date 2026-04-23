@@ -73,12 +73,33 @@
   "packageRules": [
     {
       "matchManagers": ["custom.regex"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchUpdateTypes": ["minor", "major"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
       ],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "opencode plugins"
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "opencode plugins (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "opencode plugins (minor)"
     },
     {
       "matchManagers": ["custom.regex"],
@@ -94,8 +115,16 @@
       "matchFileNames": [
         "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
       ],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "container npm tools"
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "container npm tools (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "container npm tools (minor)"
     },
     {
       "matchManagers": ["custom.regex"],
@@ -111,8 +140,17 @@
         "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt",
         "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh"
       ],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "container python tools"
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "container python tools (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/uv_tools.txt",
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "container python tools (minor)"
     },
     {
       "matchManagers": ["custom.regex"],
@@ -128,8 +166,16 @@
       "matchFileNames": [
         "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
       ],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "container bootstrap tools"
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "container bootstrap tools (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "container bootstrap tools (minor)"
     },
     {
       "matchManagers": ["custom.regex"],
@@ -142,8 +188,14 @@
     {
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["configs/packages.yaml"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "wsl tool versions"
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "wsl tool versions (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["configs/packages.yaml"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "wsl tool versions (minor)"
     },
     {
       "matchManagers": ["custom.regex"],
