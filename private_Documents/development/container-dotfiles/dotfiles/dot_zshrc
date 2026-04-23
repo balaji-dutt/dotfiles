@@ -176,6 +176,33 @@ elif [ -d "$HOME/.nvm" ]; then
 fi
 [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+# ==========================================
+# BUNX WRAPPER (Audit Log)
+# ==========================================
+
+bunx() {
+    local args="$*"
+    local exit_code
+    local bunx_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/bunx"
+    local log_file="${bunx_state_dir}/commands.log"
+
+    # 1. Run the actual command
+    command bunx "$@"
+    exit_code=$?
+
+    # Stop if the command failed
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # 2. Capture successful command usage in user state directory.
+    #    This avoids writing logs into arbitrary git repositories.
+    mkdir -p "$bunx_state_dir"
+    printf '[%s] bunx %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$args" >> "$log_file"
+
+    return $exit_code
+}
+
 # Shared Git helper aliases/functions.
 if [ -r "${HOME}/.local/share/git-helpers.zsh" ]; then
     source "${HOME}/.local/share/git-helpers.zsh"

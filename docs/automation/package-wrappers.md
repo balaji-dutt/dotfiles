@@ -22,7 +22,7 @@ Shell wrappers in dotfiles can update package manifests and create git commits a
 | uv | `uv` | `configs/uv_tools.txt` | Updates uv tool list and commits tool operations. |
 | npm | `npm` | `configs/npm_globals*.txt` | Updates npm global package lists and commits changes. |
 | bun | `bun` | `configs/bun_globals.txt` | Tracks bun global package operations and commits updates. |
-| bunx | `bunx` | `.claude/bunx_commands.txt` or `.bunx/` | Audits command usage and may commit artifacts in git repos. |
+| bunx | `bunx` | `$XDG_STATE_HOME/bunx/commands.log` (or `~/.local/state/bunx/commands.log`) | Audits successful command usage only (no auto-commit behavior). |
 
 ## Docs Commit Helper
 
