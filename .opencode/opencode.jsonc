@@ -64,15 +64,16 @@
     "dotfiles-reviewer": {
       "mode": "subagent",
       "description": "Fast read-only review for dotfiles/chezmoi changes.",
+      "model": "github-copilot/gpt-5.4",
+      "reasoningEffort": "high",
       // "model": "anthropic/claude-opus-4-6",
-      "model": "github-copilot/claude-sonnet-4.6",
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
       // Anthropic extended thinking (medium-ish)
-      "thinking": {
-        "type": "enabled",
-        "budgetTokens": 10000
-      },
+      // "thinking": {
+      //   "type": "enabled",
+      //   "budgetTokens": 10000
+      // },
       "tools": {
         "write": false,
         "edit": false,
