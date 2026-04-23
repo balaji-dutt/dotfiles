@@ -262,6 +262,16 @@
           "options": {
             "reasoning": true
           }
+        },
+        "kimi-k2.5": {
+          "options": {
+            "reasoning": true
+          }
+        },
+        "kimi-k2.6": {
+          "options": {
+            "reasoning": true
+          }
         }
       }
     },
