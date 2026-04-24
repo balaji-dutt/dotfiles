@@ -90,6 +90,7 @@ Documents/PowerShell
 
 # Windows specific paths
 !/.config/
+/.config/*
 !/.config/powershell/
 !/.config/powershell/**
 !/.config/opencode/
@@ -97,8 +98,12 @@ Documents/PowerShell
 # Keep non-Windows Linux/macOS config trees ignored.
 .config/doom
 .config/doom/**
+.config/direnv
+.config/direnv/**
 .config/lazygit
 .config/lazygit/**
+.config/mise
+.config/mise/**
 .config/sublime-merge
 .config/sublime-merge/**
 # !/Documents/
