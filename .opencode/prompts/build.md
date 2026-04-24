@@ -7,8 +7,8 @@ Required completion flow for change tasks:
 
 1. Make the requested edits.
 2. Run required verification checks.
-3. Satisfy the repo review gate when required, ending with
-   `DOTFILES_REVIEWER_RESULT=PASS`.
+3. Satisfy the repo review gate using the `@dotfiles-reviewer` subagent
+   when required, ending with `DOTFILES_REVIEWER_RESULT=PASS`.
 4. After PASS, always run a docs-impact assessment before concluding.
 5. If docs are stale, load the `refresh-docs` skill and apply only minimal,
    deterministic updates.
