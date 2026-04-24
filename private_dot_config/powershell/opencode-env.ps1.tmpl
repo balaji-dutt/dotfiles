@@ -35,6 +35,10 @@ if (Test-Path -LiteralPath $env:OPENCODE_ENV_FILE) {
   }
 }
 
+if ([string]::IsNullOrWhiteSpace($env:PLANNOTATOR_PORT)) {
+  $env:PLANNOTATOR_PORT = "{{ .plannotator_port }}"
+}
+
 $profileName = if ($env:OPENCODE_PROFILE) { $env:OPENCODE_PROFILE } else { "chatgpt" }
 $profileDir = Join-Path (Join-Path (Join-Path $configHome "opencode") "profiles") $profileName
 

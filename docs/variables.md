@@ -35,6 +35,7 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 | `onepassword.url` | 1Password account URL | 1Password setup |
 | `onepassword.email` | 1Password account email | 1Password setup |
 | `ccr_port` | Claude Code Router port | router config and devcontainer hooks |
+| `plannotator_port` | Plannotator review port | host shell env defaults |
 
 ## Safety
 
