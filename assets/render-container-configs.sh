@@ -33,14 +33,9 @@ echo "✓ Checking prerequisites..."
 # Create directory if it doesn't exist
 mkdir -p private_Documents/development/container-dotfiles/dotfiles/configs
 
-# Render Claude Code Router config (reads 1Password, generates config with API keys)
-echo "Rendering Claude Code Router config..."
-FOR_CONTAINER=true NON_INTERACTIVE_MODE=true chezmoi execute-template < dot_claude-code-router/config.json.tmpl > private_Documents/development/container-dotfiles/dotfiles/configs/config.json
-
 # Render container environment file (reads 1Password)
 echo "Rendering container environment file..."
 {
-  echo "TAVILY_API_KEY=$(chezmoi execute-template '{{ onepasswordRead "op://Private/67syrnfba3dcbdx2zsydp6ef5y/credential" }}')"
   echo "OP_SERVICE_ACCOUNT_TOKEN=$(chezmoi execute-template '{{ onepasswordRead "op://App Automation Credentials/aifst6wxmvnaf2uraszcf73nlu/credential" }}')"
 } > private_Documents/development/container-dotfiles/dotfiles/configs/container_env
 
@@ -53,7 +48,6 @@ FOR_CONTAINER=true NON_INTERACTIVE_MODE=true \
 echo "✓ Done!"
 echo ""
 echo "Generated files:"
-echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/config.json"
 echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/container_env"
 echo "  - private_Documents/development/container-dotfiles/dotfiles/configs/opencode.env"
 echo ""
@@ -64,4 +58,3 @@ echo "  3. Verify installation"
 echo ""
 echo "Remember to regenerate these files whenever:"
 echo "  - API keys are rotated in 1Password"
-echo "  - Claude Code Router config template changes"

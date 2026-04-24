@@ -62,10 +62,6 @@
     ],
     "renders": [
       {
-        "name": "claude-code-router-config",
-        "description": "Reserved for manifest-driven render refactor"
-      },
-      {
         "name": "container-env",
         "description": "Reserved for manifest-driven render refactor"
       },

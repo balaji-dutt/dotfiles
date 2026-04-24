@@ -215,14 +215,6 @@ else
     (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 fi
 
-# Initialize claude-code-router integration if available.
-if (( ${+commands[ccr]} && ${+commands[claude]} )); then
-    claude() {
-        eval "$(ccr activate)"
-        command claude "$@"
-    }
-fi
-
 # 1. Bind the Up Arrow to the fzf_history_search widget
 #    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
 #    current command line buffer and uses it as the FZF query.

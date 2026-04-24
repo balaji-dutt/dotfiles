@@ -30,7 +30,6 @@ This page lists the main managed targets expected on macOS.
 | Tool | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | Claude | `~/.claude/**` | `dot_claude/**` |
-| Claude Code Router | `~/.claude-code-router/**` | `dot_claude-code-router/**` |
 | OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
 | Doom Emacs | `~/.config/doom/**` | `private_dot_config/doom/**` |
 | LazyGit | `~/Library/Application Support/lazygit/config.yml` | `private_Library/private_Application Support/lazygit/config.yml` |
@@ -42,7 +41,7 @@ This page lists the main managed targets expected on macOS.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | LaunchAgents | `~/Library/LaunchAgents/*.plist` | `private_Library/LaunchAgents/*.plist.tmpl` |
-| User bin scripts | `~/bin/ccr_launcher.sh`, `~/bin/vnc_monitor.sh` | `bin/executable_ccr_launcher.sh.tmpl`, `bin/executable_vnc_monitor.sh` |
+| User bin scripts | `~/bin/vnc_monitor.sh` | `bin/executable_vnc_monitor.sh` |
 
 ## Container Build Sync (macOS)
 

@@ -96,7 +96,6 @@ write_opencode_profile_to_env_file() {
 
 mkdir -p \
   /home/vscode/persistent-data \
-  "$HOME/.claude-code-router/logs" \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
   "$HOME/.config" \
   "$HOME/.cache" \
@@ -218,13 +217,6 @@ if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
   rm -f "$ssh_add_stdout" "$ssh_add_stderr"
 else
   echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}" >&2
-fi
-
-CCR_BIN="$(command -v ccr || true)"
-echo "postStart $(date -Is) HOME=$HOME CCR_BIN=$CCR_BIN PATH=$PATH" >>/home/vscode/persistent-data/poststart-debug.log
-PORT="${CCR_PORT:-}"
-if [[ -n "$CCR_BIN" && -n "$PORT" ]] && ! ss -ltn | grep -q ":${PORT} "; then
-  setsid -f "$CCR_BIN" start </dev/null >>/home/vscode/persistent-data/ccr.log 2>&1
 fi
 
 SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"

@@ -30,7 +30,6 @@ This page lists the main managed targets expected on WSL2.
 | Tool | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | Claude | `~/.claude/**` | `dot_claude/**` |
-| Claude Code Router | `~/.claude-code-router/**` | `dot_claude-code-router/**` |
 | OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
 | LazyGit | `~/.config/lazygit/config.yml` | `private_dot_config/lazygit/config.yml` |
 | Sublime Merge | `~/.config/sublime-merge/Packages/**` | `private_dot_config/private_sublime-merge/private_Packages/**` |

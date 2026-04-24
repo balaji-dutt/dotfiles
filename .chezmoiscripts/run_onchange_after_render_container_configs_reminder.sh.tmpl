@@ -3,7 +3,6 @@
 set -euo pipefail
 
 # assets/render-container-configs.sh hash: {{ include "assets/render-container-configs.sh" | sha256sum }}
-# dot_claude-code-router/config.json.tmpl hash: {{ include "dot_claude-code-router/config.json.tmpl" | sha256sum }}
 # private_dot_config/opencode/private_opencode.env.tmpl hash: {{ include "private_dot_config/opencode/private_opencode.env.tmpl" | sha256sum }}
 
 echo "INFO: Container render inputs changed; run ./assets/render-container-configs.sh before rebuilding devcontainers."

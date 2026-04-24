@@ -246,11 +246,9 @@ done_step "Install uv tools"
 
 # --- 6) Claude symlinks / setup ---
 step "Setup Claude config symlinks and permissions"
-mkdir -p /home/vscode/.claude/commands /home/vscode/.claude-code-router/auth
+mkdir -p /home/vscode/.claude/commands
 
 ln -sf /tmp/host-claude/private_settings.json /home/vscode/.claude/settings.json || true
-ln -sf /tmp/host-container-configs/config.json /home/vscode/.claude-code-router/config.json || true
-ln -sf /tmp/host-claude-code-router/plugins /home/vscode/.claude-code-router/plugins || true
 ln -sf /tmp/host-claude/AGENTS.md /home/vscode/.claude/AGENTS.md || true
 ln -sf /home/vscode/.claude/AGENTS.md /home/vscode/.claude/CLAUDE.md || true
 ln -sf /tmp/host-claude/commands/todo.md /home/vscode/.claude/commands/todo.md || true
@@ -259,17 +257,7 @@ ln -sf /tmp/host-claude/executable_commit-docs.sh /home/vscode/.claude/commit-do
 chmod +x /home/vscode/.claude/commit-docs.sh || true
 done_step "Setup Claude config symlinks and permissions"
 
-# --- 7) superclaude (non-interactive) ---
-step "superclaude install (non-interactive if present)"
-if command -v superclaude >/dev/null 2>&1; then
-  # Common hang source: interactive installer. Force non-interactive.
-  superclaude install --force
-else
-  echo "superclaude not found; skipping."
-fi
-done_step "superclaude install"
-
-# --- 8) Source container env + dotfiles ---
+# --- 7) Source container env + dotfiles ---
 step "Source /tmp/host-container-configs/container_env (if present)"
 if [[ -f /tmp/host-container-configs/container_env ]]; then
   # shellcheck disable=SC1091
@@ -299,10 +287,9 @@ if [[ -d "$SRC" ]]; then
   if [[ -f "$SRC/install.sh" ]]; then
     # If your install.sh can be interactive, pass whatever non-interactive flags it supports.
     # Keep secret propagation behavior for installer-time env vars.
-    TAVILY_API_KEY="${TAVILY_API_KEY:-}"
     OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN:-}"
     echo "Running $SRC/install.sh"
-    TAVILY_API_KEY="$TAVILY_API_KEY" OP_SERVICE_ACCOUNT_TOKEN="$OP_SERVICE_ACCOUNT_TOKEN" bash "$SRC/install.sh"
+    OP_SERVICE_ACCOUNT_TOKEN="$OP_SERVICE_ACCOUNT_TOKEN" bash "$SRC/install.sh"
   else
     echo "Copying dotfiles from $SRC -> $HOME"
     cp -R "$SRC"/. "$HOME"/

@@ -29,8 +29,6 @@ Use curated inventories for current documentation:
 | Claude | `~/.claude/settings.json` | No | ✅ | ✅ | ✅ | | | No |
 | Claude | `~/.claude/AGENTS.md` | No | ✅ | ✅ | ✅ | | | No |
 | Claude | `~/.claude/CLAUDE.md` | No | ✅ | ✅ | ✅ | | | No |
-| Claude Code Router | `~/.claude-code-router/config.json` | Yes | ✅ | ✅ | ✅ | | | No |
-| Claude Code Router | `~/.claude-code-router/plugins/` | No | ✅ | ✅ | ✅ | | | No |
 | Emacs | `~/.config/doom/config.el` | Yes | ✅ | | | ✅ | | Yes |
 | Emacs | `~/.config/doom/custom.el` | No | ✅ | | | ✅ | | Yes |
 | Emacs | `~/.config/doom/init.el` | No | ✅ | | | ✅ | | Yes |
@@ -43,8 +41,6 @@ Use curated inventories for current documentation:
 | macOS | `~/Library/LaunchAgents/com.ssh-add-keychain.plist` | No | ✅ | | | | | No |
 | macOS | `~/Library/LaunchAgents/com.user.vncmonitor.plist` | Yes | ✅ | | | | | No |
 | macOS | `~/bin/vnc_monitor.sh` | No | ✅ | | | | | No |
-| macOS | `~/Library/LaunchAgents/com.user.ccr.plist` | Yes | ✅ | | | | | No |
-| macOS | `~/bin/ccr_launcher.sh` | Yes | ✅ | | | | | No |
 | Markdownlint | `~/.markdownlint-cli2.jsonc` | No | ✅ | ✅ | ✅ | | | No |
 | Mise | `~/.config/mise/config.toml` | Yes | ✅ | ✅ | ✅ | | | No |
 | Powerlevel10k | `~/.p10k.zsh` | Yes | ✅ | ✅ | ✅ | | | No |

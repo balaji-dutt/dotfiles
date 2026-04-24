@@ -117,6 +117,10 @@ configs/
 configs/**
 docs/
 docs/**
+.claude-code-router/
+.claude-code-router/**
+bin/ccr_launcher.sh
+Library/LaunchAgents/com.user.ccr.plist
 # Exclude rendered container configs
 Documents/development/container-dotfiles/dotfiles/configs/
 Documents/development/container-dotfiles/dotfiles/configs/**

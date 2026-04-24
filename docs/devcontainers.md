@@ -65,7 +65,6 @@ edits shared.
 Some files are generated at render time and should not be committed:
 
 - `~/.claude/private_settings.json`
-- `~/.claude-code-router/config.json`
 - environment exports injected during container setup (for example in shell rc files)
 
 Use:

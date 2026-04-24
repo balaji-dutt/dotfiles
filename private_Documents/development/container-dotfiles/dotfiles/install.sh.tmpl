@@ -459,14 +459,13 @@ fi
 
 configure_devcontainer_clipboard
 
-# Append environment variables for Claude Code and Router
+# Append environment variables needed during devcontainer sessions
 if [ "${DEVCONTAINER:-}" = "1" ]; then
-  echo "==> Configuring Claude Code and Router environment"
+  echo "==> Configuring devcontainer environment"
   for f in "$HOME/.bashrc" "$HOME/.zshrc"; do
     [ -f "$f" ] || continue
     sed -i -e '$a\' "$f"
     {
-      [ -n "${TAVILY_API_KEY:-}" ] && echo "export TAVILY_API_KEY=\"$TAVILY_API_KEY\""
       [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ] && echo "export OP_SERVICE_ACCOUNT_TOKEN=\"$OP_SERVICE_ACCOUNT_TOKEN\""
     } >> "$f"
   done

@@ -14,7 +14,6 @@
     "NODE_VERSION": "lts/*",
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "9999",
-    "CCR_PORT": "{{ .ccr_port }}",
     {{- if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
     "SSH_AUTH_SOCK": "/tmp/wsl-ssh-pageant/ssh-agent.sock",
@@ -30,8 +29,6 @@
     "source=${localEnv:HOME}/Documents/development/dotfiles,target=/tmp/host-dotfiles,type=bind,readonly",
     // --- Mount for Claude Code configs and package lists ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude,target=/tmp/host-claude,type=bind,readonly",
-    // --- Mount for Claude Code Router configs ---
-    "source=${localEnv:HOME}/Documents/development/dotfiles/dot_claude-code-router,target=/tmp/host-claude-code-router,type=bind,readonly",
     // --- Mount for Container generated configs ---
     "source=${localEnv:HOME}/Documents/development/dotfiles/private_Documents/development/container-dotfiles/dotfiles/configs,target=/tmp/host-container-configs,type=bind,readonly",
     // --- Mount for package lists ---

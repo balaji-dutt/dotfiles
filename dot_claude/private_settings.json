@@ -115,10 +115,5 @@
       "Bash(exec > /dev/tcp/:*)"
     ]
   },
-  "alwaysThinkingEnabled": true,
-    "statusLine": {
-      "type": "command",
-      "command": "ccr statusline",
-      "padding": 0
-    }
+  "alwaysThinkingEnabled": true
 }
