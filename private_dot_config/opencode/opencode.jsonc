@@ -11,7 +11,7 @@
 
   // Default model (agents override this).
   // OpenCode selects models as `provider_id/model_id`.
-  "model": "openai/gpt-5.4",
+  "model": "openai/gpt-5.5",
   "small_model": "google/gemini-3-flash-preview",
 
   // ----------------------------
@@ -181,7 +181,7 @@
         // Required by opencode-websearch-cited:
         // This tells the plugin which OpenAI model to use when it runs the websearch_cited tool.
         "websearch_cited": {
-          "model": "gpt-5.4"
+          "model": "gpt-5.5"
         }
       },
 
@@ -206,16 +206,25 @@
             }
           }
         },
-
-        // Older models
-        "gpt-4.1-nano": {},
-        "gpt-4o-mini": {},
-
-        // (Optional) handy deep-research models present in your list
-        "o3": {},
-        "o3-mini": {},
-        "o3-deep-research": {},
-      }
+        "gpt-5.5": {
+          "variants": {
+            "low": {
+              "reasoningEffort": "low",
+              "textVerbosity": "low",
+              "reasoningSummary": "auto"
+            },
+            "medium": {
+              "reasoningEffort": "medium",
+              "textVerbosity": "low",
+              "reasoningSummary": "auto"
+            },
+            "high": {
+              "reasoningEffort": "high",
+              "textVerbosity": "high",
+              "reasoningSummary": "auto"
+            }
+          }
+        },      }
     },
 
     // Anthropic: API key from env
@@ -225,9 +234,9 @@
         "timeout": 600000
       },
       "models": {
-        "claude-haiku-4-5": {},
-        "claude-sonnet-4-5": {},
-        "claude-opus-4-5": {}
+        "claude-haiku-4-6": {},
+        "claude-sonnet-4-6": {},
+        "claude-opus-4-6": {}
       }
     },
 
@@ -254,10 +263,7 @@
         "timeout": 600000
       },
       "models": {
-        "kimi-k2-0905-preview": {},
-
         // NOTE: provider-specific reasoning flags are not standardized in OpenCode docs.
-        // This is a stub matching your router intent. Verify behavior by testing the model. (See note below.)
         "kimi-k2-thinking": {
           "options": {
             "reasoning": true
@@ -297,7 +303,6 @@
         "timeout": 600000
       },
       "models": {
-        // NOTE: the following "reasoning" options are stubs copied from your router approach.
         // OpenCode will pass "options" to the provider, but vendor-specific keys may or may not be honored.
         // Validate by testing the model and checking if "thinking" behavior changes.
         "deepseek/deepseek-v3.1-terminus:exacto": {
@@ -313,7 +318,15 @@
               "enabled": true
             }
           }
-        }
+        },
+        "z-ai/glm-5.1:exacto": {
+          "options": {
+            "reasoning": {
+              "effort": "high",
+              "enabled": true
+            }
+          }
+        },
       }
     }
   },
@@ -326,7 +339,7 @@
     // Permissions support websearch/webfetch tools too, but your plan model itself is search-capable.
     "plan": {
       "mode": "primary",
-      "description": "Planning manager (GPT-5.4 high + websearch). Read/grep/list OK; no edits.",
+      "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-5.4",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
@@ -342,10 +355,10 @@
       }
     },
 
-    "plan-GPT5.4-xhigh": {
+    "plan-GPT-xhigh": {
       "mode": "primary",
-      "description": "Planning manager (GPT-5.4 xhigh + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.4",
+      "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
+      "model": "openai/gpt-5.5",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
