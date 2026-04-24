@@ -93,6 +93,13 @@ Documents/PowerShell
 !/.config/**
 !/.config/powershell/
 !/.config/powershell/**
+# Re-ignore non-Windows Linux/macOS config trees.
+/.config/doom
+/.config/doom/**
+/.config/lazygit
+/.config/lazygit/**
+/.config/sublime-merge
+/.config/sublime-merge/**
 # !/Documents/
 # !/Documents/PowerShell/
 # !/Documents/PowerShell/**
