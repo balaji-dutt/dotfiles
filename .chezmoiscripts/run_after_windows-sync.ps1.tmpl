@@ -97,4 +97,27 @@ foreach ($m in $Mappings) {
     Render-Or-CopyFile $_.FullName $dstPath
   }
 }
+
+# Remove stale non-Windows config trees if they were applied previously.
+$cleanupPaths = @(
+  ".config\doom",
+  ".config\lazygit",
+  ".config\sublime-merge"
+)
+
+foreach ($rel in $cleanupPaths) {
+  $abs = Join-Path $HOME $rel
+  if (Test-Path -LiteralPath $abs -PathType Container) {
+    try {
+      Remove-Item -LiteralPath $abs -Recurse -Force -ErrorAction Stop
+      if (-not (Test-Path -LiteralPath $abs)) {
+        Write-Host "chezmoi windows-sync: removed stale path $abs"
+      } else {
+        Write-Warning "chezmoi windows-sync: stale path still exists after cleanup: $abs"
+      }
+    } catch {
+      Write-Warning "chezmoi windows-sync: failed to remove stale path $abs : $($_.Exception.Message)"
+    }
+  }
+}
 {{- end -}}
