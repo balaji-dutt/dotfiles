@@ -5,6 +5,7 @@
   "labels": ["dependencies", "renovate"],
   "dependencyDashboard": true,
   "rangeStrategy": "replace",
+  "minimumReleaseAge": "7 days",
   "automerge": false,
   "prConcurrentLimit": 5,
   "branchConcurrentLimit": 5,

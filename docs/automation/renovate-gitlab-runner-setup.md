@@ -111,4 +111,5 @@ Verify:
 - Keep explicit single-repo targeting first.
 - Keep automerge off initially.
 - Keep major updates grouped but separate from minor/patch groups.
+- Require a 7-day release age (`minimumReleaseAge`) before updates are eligible.
 - After first successful run, enable weekends-only schedule.
