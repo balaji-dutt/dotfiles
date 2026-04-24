@@ -1,3 +1,3 @@
-@anthropic-ai/claude-code@2.1.101
+@anthropic-ai/claude-code@2.1.119
 @musistudio/claude-code-router@2.0.0
 opencode-ai@latest
