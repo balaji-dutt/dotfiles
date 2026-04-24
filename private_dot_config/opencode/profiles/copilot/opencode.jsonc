@@ -13,6 +13,9 @@
     },
     "coder": {
       "model": "github-copilot/gpt-5.3-codex"
+    },
+    "plan-GPT-xhigh": {
+      "model": "github-copilot/gpt-5.4"
     }
   }
 }

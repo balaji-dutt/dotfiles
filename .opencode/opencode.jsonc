@@ -43,7 +43,7 @@
         }
       }
     },
-    "plan-GPT5.4-xhigh": {
+    "plan-GPT-xhigh": {
       "permission": {
         "task": {
           "*": "deny",

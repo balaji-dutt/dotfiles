@@ -358,7 +358,7 @@
     "plan-GPT-xhigh": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-5.4",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
