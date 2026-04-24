@@ -82,6 +82,14 @@ The current recommended order when updating container inputs is:
 2. `./assets/sync-opencode-copilot-profiles.sh`
 3. `./assets/render-container-configs.sh`
 
+For routine use, a managed user-bin wrapper is also available:
+
+- `sync-devcontainer-all.sh`
+
+This wrapper runs the same three-step workflow from the canonical dotfiles repo
+path and avoids relying on repo-local `direnv` PATH injection in editor
+terminals.
+
 ## OpenCode in Devcontainers
 
 For the `homelab-IaC` template, OpenCode is configured for browser-based
