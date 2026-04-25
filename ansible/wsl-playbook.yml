@@ -213,6 +213,41 @@
       ansible.builtin.include_tasks: tasks/debian-dev-tools.yml
       when: is_debian | bool
 
+    - name: Check installed snip version
+      ansible.builtin.command: "{{ local_bin }}/snip --version"
+      register: snip_version_cmd
+      changed_when: false
+      failed_when: false
+      when: is_debian | bool
+
+    - name: Parse installed snip version
+      ansible.builtin.set_fact:
+        snip_installed_version: >-
+          {{
+            (snip_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+      when: is_debian | bool
+
+    - name: Install or upgrade snip
+      when:
+        - is_debian | bool
+        - (snip_installed_version | default('')) != versions.snip
+      block:
+        - name: Download snip release archive
+          ansible.builtin.unarchive:
+            src: "https://github.com/edouard-claude/snip/releases/download/v{{ versions.snip }}/snip_{{ versions.snip }}_linux_{{ deb_arch }}.tar.gz"
+            dest: "{{ local_bin }}"
+            remote_src: true
+            include:
+              - snip
+
+        - name: Ensure snip binary permissions
+          ansible.builtin.file:
+            path: "{{ local_bin }}/snip"
+            mode: "0755"
+
     - name: Include Ubuntu extras
       ansible.builtin.include_tasks: tasks/ubuntu-extras.yml
       when: is_ubuntu | bool

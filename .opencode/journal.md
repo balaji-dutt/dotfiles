@@ -33,6 +33,19 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Enabled quota TUI plugin in host `private_dot_config/opencode/tui.json`
   and devcontainer workspace template
   `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/homelab-IaC/dot_opencode/tui.json`.
+- decision: Added `opencode-snip` plugin to devcontainer OpenCode config
+  (pinned in container); deferred host config enablement because native
+  Windows `snip` provisioning remains out of scope.
+- decision: Added `snip` GitHub-release version pin to
+  `configs/packages.yaml` (Renovate-managed) and WSL install/upgrade flow in
+  `ansible/wsl-playbook.yml` for Debian hosts.
+- decision: Added devcontainer `SNIP_VERSION` pin (Renovate-managed) in
+  `private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl`
+  and `install_snip_gh` installer logic in
+  `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`.
+- decision: Added Homebrew `snip` provisioning via
+  `brew "edouard-claude/tap/snip"` in `brewfile.txt`; native Windows `snip`
+  provisioning remains deferred.
 
 ## 2026-04-23
 
