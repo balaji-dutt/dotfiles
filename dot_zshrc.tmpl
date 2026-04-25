@@ -352,18 +352,11 @@ brew() {
 
 {{- end }}
 
-# Initialize mise with smartcache if available, or directly if only mise is available
-{{- $hasmise := false -}}
-{{- if lookPath "mise" -}}
-{{-   $hasmise = true -}}
-{{- end -}}
-{{- if $hasmise }}
-if command -v smartcache >/dev/null 2>&1; then
-    smartcache eval mise activate zsh
-else
+# Initialize mise
+if command -v mise >/dev/null 2>&1; then
     eval "$(mise activate zsh)"
 fi
-{{- end }}
+
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # Ensure npm global bin is on PATH (WSL2)
