@@ -154,7 +154,15 @@
     "@franlol/opencode-md-table-formatter@latest",
     "@tarquinen/opencode-dcp@latest",
     "@mohak34/opencode-notifier@latest",
-    "@plannotator/opencode@latest",
+    ["@plannotator/opencode@latest", {
+      "workflow": "plan-agent",
+      "planningAgents": [
+        "plan",
+        "plan-GPT-xhigh",
+        "special-builder",
+        "agent-engineer"
+      ]
+    }],
     "@gotgenes/opencode-agent-identity@latest",
     "cc-safety-net@latest",
     "envsitter-guard@latest",

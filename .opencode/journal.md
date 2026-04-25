@@ -46,6 +46,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Added Homebrew `snip` provisioning via
   `brew "edouard-claude/tap/snip"` in `brewfile.txt`; native Windows `snip`
   provisioning remains deferred.
+- decision: Re-applied Plannotator `workflow: plan-agent` +
+  `planningAgents` allowlist in host and container OpenCode user configs after
+  merge conflict clobbered those entries; also re-normalized container planner
+  key to `plan-GPT-xhigh`.
 
 ## 2026-04-23
 
