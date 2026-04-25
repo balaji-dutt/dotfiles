@@ -73,7 +73,8 @@ export OPENCODE_ACTIVE_PROFILE_CONFIG="$active_profile_config"
 export OPENCODE_WORKSPACE_CONFIG="$workspace_opencode_json"
 export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.4=gpt-5.4,gpt-5.3-codex=gpt-5.3-codex,gpt-5.2=gpt-5.2,gpt-5.2-high=gpt-5.2-high,gpt-5.2-xhigh=gpt-5.2-xhigh}"
 
-if python3 <<'PY'
+python_exit=0
+python3 <<'PY' || python_exit=$?
 import json
 import os
 import sys
@@ -208,12 +209,12 @@ merged_cfg = base_cfg
 merged_cfg.setdefault("agent", {}).update(generated_agent_overrides)
 active_path.write_text(json.dumps(merged_cfg, indent=2) + "\n", encoding="utf-8")
 PY
-then
+
+if [[ "$python_exit" -eq 0 ]]; then
   printf '%s\n' "$runtime_dir"
   exit 0
 fi
 
-python_exit=$?
 if [[ "$python_exit" -eq 42 ]]; then
   printf '%s\n' "$profile_dir"
   exit 0
