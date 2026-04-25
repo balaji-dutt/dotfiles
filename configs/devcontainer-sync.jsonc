@@ -42,7 +42,7 @@
         "target": "private_dot_config/opencode/profiles/copilot/opencode.jsonc",
         "keep_agents": [
           "plan",
-          "plan-GPT5.4-xhigh",
+          "plan-GPT-xhigh",
           "build",
           "coder"
         ]
@@ -55,7 +55,7 @@
         "target": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc",
         "keep_agents": [
           "plan",
-          "plan-GPT5.4-xhigh",
+          "plan-GPT-xhigh",
           "build"
         ]
       }
