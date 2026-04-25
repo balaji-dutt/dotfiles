@@ -5,11 +5,11 @@
     "plan": {
       "model": "github-copilot/gpt-5.4"
     },
-    "build": {
-      "model": "github-copilot/gpt-5.3-codex"
-    },
     "plan-GPT-xhigh": {
       "model": "github-copilot/gpt-5.4"
+    },
+    "build": {
+      "model": "github-copilot/gpt-5.3-codex"
     }
   }
 }
