@@ -54,9 +54,29 @@
     "build": {
       "prompt": "{file:./prompts/build.md}",
       "permission": {
+        "bash": {
+          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
+          "./assets/sync-devcontainer-assets.sh*": "allow",
+        },
         "task": {
           "*": "deny",
           "dotfiles-reviewer": "allow"
+        }
+      }
+    },
+    "agent-engineer": {
+      "permission": {
+        "bash": {
+          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
+          "./assets/sync-devcontainer-assets.sh*": "allow",
+        }
+      }
+    },
+    "special-builder": {
+      "permission": {
+        "bash": {
+          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
+          "./assets/sync-devcontainer-assets.sh*": "allow",
         }
       }
     },
