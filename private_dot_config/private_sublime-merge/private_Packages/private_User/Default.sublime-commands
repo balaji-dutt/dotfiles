@@ -32,7 +32,7 @@
                 "config",
                 "--global",
                 "coauthor.gptTrailer",
-                "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"
+                "Co-authored-by: GPT-5.5 (High Reasoning mode) <noreply@openai.com>"
             ]
         }
     },

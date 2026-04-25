@@ -82,7 +82,7 @@ Copy-Item $hookSrc $hookDst -Force
 Set global default trailer once (optional):
 <!-- markdownlint-disable MD013 -->
 ```bash
-git config --global coauthor.gptTrailer 'Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>'
+git config --global coauthor.gptTrailer 'Co-authored-by: GPT-5.5 (High Reasoning mode) <noreply@openai.com>'
 ```
 <!-- markdownlint-enable MD013 -->
 Arm next commit:

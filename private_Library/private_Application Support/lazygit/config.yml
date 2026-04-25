@@ -30,7 +30,7 @@ customCommands:
   - key: '<c-y>'
     description: 'Set default GPT co-author trailer'
     context: 'global'
-    command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>"'
+    command: 'git config --global coauthor.gptTrailer "Co-authored-by: GPT-5.5 (High Reasoning mode) <noreply@openai.com>"'
     output: terminal
   - key: '<f9>'
     description: 'Amend author to OpenCode (ocauth)'

@@ -15,7 +15,7 @@ co="$(git config --local --get coauthor.gptTrailer 2>/dev/null || true)"
 if [ -z "$co" ]; then
   co="$(git config --global --get coauthor.gptTrailer 2>/dev/null || true)"
 fi
-[ -n "$co" ] || co='Co-authored-by: GPT-5.2 (High Reasoning mode) <noreply@openai.com>'
+[ -n "$co" ] || co='Co-authored-by: GPT-5.5 (High Reasoning mode) <noreply@openai.com>'
 
 # Avoid duplicates (handle CRLF too)
 if tr -d '\r' <"$msgfile" | grep -F -q "$co"; then
