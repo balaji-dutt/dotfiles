@@ -22,6 +22,18 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-25
+
+- decision: Replaced `opencode-mystatus` with `@slkiser/opencode-quota` in
+  host and devcontainer OpenCode user configs.
+- decision: Removed custom `/mystatus` command blocks; quota workflows now use
+  plugin-native `/quota*` commands.
+- decision: Added `@gotgenes/opencode-agent-identity`, `cc-safety-net`, and
+  `envsitter-guard` to both host/devcontainer OpenCode plugin lists.
+- decision: Enabled quota TUI plugin in host `private_dot_config/opencode/tui.json`
+  and devcontainer workspace template
+  `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/homelab-IaC/dot_opencode/tui.json`.
+
 ## 2026-04-23
 
 - decision: Added Renovate MVP repo config at `renovate.json5` scoped to

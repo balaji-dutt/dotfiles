@@ -144,19 +144,12 @@
     "@tarquinen/opencode-dcp@3.1.9",
     "@mohak34/opencode-notifier@0.2.3",
     "@plannotator/opencode@0.19.0",
-    "opencode-mystatus@1.2.4",
+    "@gotgenes/opencode-agent-identity@3.1.1",
+    "cc-safety-net@0.8.2",
+    "envsitter-guard@0.0.4",
+    "@slkiser/opencode-quota@3.2.0",
     "opencode-websearch-cited@1.2.0"
   ],
-
-  // ----------------------------
-  // Slash commands
-  // ----------------------------
-  "command": {
-    "mystatus": {
-      "description": "Query quota usage for all AI accounts",
-      "template": "Use the mystatus tool to query quota usage. Return the result as-is without modification."
-    }
-  },
 
   // ----------------------------
   // Providers
