@@ -10,9 +10,6 @@
     },
     "build": {
       "model": "github-copilot/gpt-5.3-codex"
-    },
-    "coder": {
-      "model": "github-copilot/gpt-5.3-codex"
     }
   }
 }
