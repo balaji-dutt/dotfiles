@@ -9,25 +9,64 @@ export default async (ctx = {}) => {
     ctx?.directory ||
     process.cwd();
 
-  const gateOpenCode = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
-  const gateClaude = path.join(baseDir, ".claude", ".needs_dotfiles_review"); // optional transitional
-  const stateFile = path.join(baseDir, ".opencode", ".dotfiles_review_enforcer_state.json");
-
+  const sentinelDir = path.join(baseDir, ".opencode");
+  const sentinelBase = ".needs_dotfiles_review";
+  const gateOpenCode = path.join(sentinelDir, sentinelBase);
+  const gateClaude = path.join(baseDir, ".claude", sentinelBase); // optional transitional
   // Disable with: OPENCODE_ENFORCE_REVIEW=0
   const env = String(process.env.OPENCODE_ENFORCE_REVIEW || "").toLowerCase();
   if (env === "0" || env === "false" || env === "off") return { event: async () => {} };
 
-  const reviewerPrompt = [
+  const reviewerPromptBase = [
     "Dotfiles review required.",
     "",
     "@dotfiles-reviewer",
-    "Review ONLY the latest git changes (use git diff) and end with EXACTLY ONE of the following as the FINAL LINE ONLY:",
-    "DOTFILES_REVIEWER_RESULT=PASS",
-    "DOTFILES_REVIEWER_RESULT=FAIL",
-    "",
-    "If FAIL: fix Must-fix issues and rerun the agent.",
-    "",
-  ].join("\n");
+  ];
+
+  // Shell-safe single-quote escaping for use in git diff / git status args.
+  // Any single quote in the path is replaced with '\'' (close-quote, literal
+  // single quote, reopen-quote), which is the standard POSIX approach.
+  function shellQuote(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  }
+
+  function buildReviewerPrompt(files) {
+    const diffLines =
+      files?.length
+        ? [
+            "Scope the diff to only the files this session edited. Run both:",
+            `  git diff -- ${files.map(shellQuote).join(" ")}`,
+            `  git diff --cached -- ${files.map(shellQuote).join(" ")}`,
+            "Also check for untracked new files:",
+            `  git status --short -- ${files.map(shellQuote).join(" ")}`,
+          ]
+        : ["Review ONLY the latest git changes (use git diff and git diff --cached)."];
+
+    return [
+      ...reviewerPromptBase,
+      ...diffLines,
+      "End with EXACTLY ONE of the following as the FINAL LINE ONLY:",
+      "DOTFILES_REVIEWER_RESULT=PASS",
+      "DOTFILES_REVIEWER_RESULT=FAIL",
+      "",
+      "If FAIL: fix Must-fix issues and rerun the agent.",
+      "",
+    ].join("\n");
+  }
+
+  // Read the file list from a JSON-format sentinel, if present.
+  // Returns an array of repo-relative paths, or null if unavailable
+  // (plain-text sentinel, parse error, or empty list).
+  async function readSentinelFiles(gatePath) {
+    try {
+      const raw = await readFile(gatePath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.files) && parsed.files.length > 0) {
+        return parsed.files;
+      }
+    } catch {}
+    return null;
+  }
 
   async function toast(message, variant = "warning") {
     try {
@@ -44,12 +83,6 @@ export default async (ctx = {}) => {
     }
   }
 
-  async function getGatePath() {
-    if (await exists(gateOpenCode)) return gateOpenCode;
-    if (await exists(gateClaude)) return gateClaude;
-    return null;
-  }
-
   async function gateMtimeMs(p) {
     const s = await stat(p);
     return s.mtimeMs;
@@ -57,15 +90,16 @@ export default async (ctx = {}) => {
 
   async function loadState() {
     try {
-      return JSON.parse(await readFile(stateFile, "utf8"));
+      return JSON.parse(await readFile(stateFilePath(), "utf8"));
     } catch {
       return {};
     }
   }
 
   async function saveState(next) {
-    await mkdir(path.dirname(stateFile), { recursive: true });
-    await writeFile(stateFile, JSON.stringify(next, null, 2) + "\n", "utf8");
+    const sf = stateFilePath();
+    await mkdir(path.dirname(sf), { recursive: true });
+    await writeFile(sf, JSON.stringify(next, null, 2) + "\n", "utf8");
   }
 
   // ---- SessionID cache (from your FULL_DUMP) ----
@@ -79,6 +113,38 @@ export default async (ctx = {}) => {
       evt?.properties?.info?.sessionId ||
       null
     );
+  }
+
+  function sanitizeSessionID(sessionID) {
+    const sid = String(sessionID || "").trim();
+    return sid.replace(/[^A-Za-z0-9._-]/g, "_");
+  }
+
+  // Return the state file path, scoped to the current session when known.
+  function stateFilePath() {
+    const base = ".dotfiles_review_enforcer_state";
+    const sid = sanitizeSessionID(lastSessionID);
+    if (sid) {
+      return path.join(sentinelDir, `${base}.${sid}.json`);
+    }
+    return path.join(sentinelDir, `${base}.json`);
+  }
+
+  async function getGatePath() {
+    // Once session ID is known, ONLY the session-scoped sentinel is checked.
+    // The unsuffixed sentinel is never a fallback at this point — it belongs
+    // to a cold-start write or a different session and must not be consumed here.
+    if (lastSessionID) {
+      const sid = sanitizeSessionID(lastSessionID);
+      if (!sid) return null;
+      const scoped = path.join(sentinelDir, `${sentinelBase}.${sid}`);
+      if (await exists(scoped)) return scoped;
+      return null;
+    }
+    // No session ID yet — cold-start / backward compat only.
+    if (await exists(gateOpenCode)) return gateOpenCode;
+    if (await exists(gateClaude)) return gateClaude;
+    return null;
   }
 
   // ---- Debounced enforcement (so we run after edits settle) ----
@@ -125,21 +191,23 @@ export default async (ctx = {}) => {
 
     inFlight = true;
     try {
+      const files = await readSentinelFiles(gatePath);
+      const prompt = buildReviewerPrompt(files);
       if (lastSessionID && ctx.client?.session?.prompt) {
         await toast("Dotfiles review required — running dotfiles-reviewer…", "warning");
         await ctx.client.session.prompt({
           path: { id: lastSessionID },
-          body: { parts: [{ type: "text", text: reviewerPrompt }] },
+          body: { parts: [{ type: "text", text: prompt }] },
         });
       } else {
         // Fallback: insert prompt for manual enter
         await toast(
-          "Dotfiles review required — couldn’t detect session id. Prompt inserted; press Enter.",
+          "Dotfiles review required — couldn't detect session id. Prompt inserted; press Enter.",
           "warning"
         );
         try {
           await ctx.client?.tui?.clearPrompt?.();
-          await ctx.client?.tui?.appendPrompt?.({ body: { text: reviewerPrompt } });
+          await ctx.client?.tui?.appendPrompt?.({ body: { text: prompt } });
         } catch {}
       }
     } finally {
@@ -210,8 +278,12 @@ export default async (ctx = {}) => {
       // Main trigger: edits
       if (evt.type === "file.edited") {
         const p = extractFilePath(evt);
-        // ignore .opencode artifacts except the sentinel itself (we actually WANT that one)
-        if (p && isOpencodeArtifact(p) && !normalize(p).endsWith("/.needs_dotfiles_review")) return;
+        // Allow the sentinel file(s) through; block other .opencode artifacts.
+        const pNorm = normalize(p);
+        const isSentinel =
+          pNorm.endsWith(`/.needs_dotfiles_review`) ||
+          pNorm.includes(`/.needs_dotfiles_review.`);
+        if (p && isOpencodeArtifact(p) && !isSentinel) return;
         if (p && classifyPath(p) === "exempt-doc") return;
 
         // If no gate, nothing to do

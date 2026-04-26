@@ -32,6 +32,14 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`
   from prebuilt GitHub-release Linux binary to pinned source build with
   `serve` feature to avoid glibc mismatch on bookworm-based containers.
+- decision: Made dotfiles review sentinel files session-scoped in
+  `.opencode/plugins/mark-needs-review-on-file-edited.js` and
+  `.opencode/plugins/enforce-dotfiles-review.js`. Each plugin instance now
+  tracks `lastSessionID` via `message.updated` events and writes/reads
+  `.needs_dotfiles_review.<sessionID>` — preventing cross-session reviewer
+  prompt injection when running multiple OpenCode sessions (e.g., via AoE).
+  Unsuffixed sentinel is retained as cold-start / backward-compat fallback.
+  State file is also session-scoped: `.dotfiles_review_enforcer_state.<sessionID>.json`.
 
 ## 2026-04-25
 

@@ -1,5 +1,5 @@
 // .opencode/plugins/mark-needs-review-on-file-edited.js
-import { mkdir, writeFile, stat } from "node:fs/promises";
+import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export default async (ctx) => {
@@ -9,7 +9,44 @@ export default async (ctx) => {
     ctx?.directory ||
     process.cwd();
 
-  const sentinel = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
+  const sentinelDir = path.join(baseDir, ".opencode");
+  const sentinelBase = ".needs_dotfiles_review";
+
+  // Session ID tracking — populated from message.updated events.
+  // When known, we write a session-scoped sentinel so only the session
+  // that triggered the edit gets the review prompt injected.
+  let lastSessionID = null;
+
+  // Accumulates repo-relative paths of files edited this session.
+  // Written into the sentinel so the enforcer can scope git diff.
+  const editedFiles = new Set();
+
+  // True when we wrote an unsuffixed sentinel before learning the session ID.
+  // On the next message.updated that provides a session ID, we re-write as a
+  // scoped sentinel so the enforcer picks it up correctly.
+  let pendingMarkWithoutSession = false;
+
+  function extractSessionID(evt) {
+    return (
+      evt?.properties?.sessionID ||
+      evt?.properties?.info?.sessionID ||
+      evt?.properties?.info?.sessionId ||
+      null
+    );
+  }
+
+  function sanitizeSessionID(sessionID) {
+    const sid = String(sessionID || "").trim();
+    return sid.replace(/[^A-Za-z0-9._-]/g, "_");
+  }
+
+  function sentinelPath(sessionID) {
+    const sid = sanitizeSessionID(sessionID);
+    if (sid) {
+      return path.join(sentinelDir, `${sentinelBase}.${sid}`);
+    }
+    return path.join(sentinelDir, sentinelBase);
+  }
 
   // Universal by default.
   // - OPENCODE_MARK_REVIEW=0 disables
@@ -24,25 +61,30 @@ export default async (ctx) => {
   const toastDisabled = toastEnv === "0" || toastEnv === "false" || toastEnv === "off";
   const toastEnabled = !toastDisabled;
 
-  // Dedupe (avoid double-marking)
-  const DEDUPE_MS = 2000;
-
   // Toast throttle (avoid spam)
   const TOAST_THROTTLE_MS = 10_000;
   let lastToastAtMs = 0;
 
-  async function recentlyMarked() {
-    try {
-      const s = await stat(sentinel);
-      return Date.now() - s.mtimeMs < DEDUPE_MS;
-    } catch {
-      return false;
+  async function mark(file) {
+    if (file) {
+      const rel = relPath(file);
+      if (rel && rel !== "unknown file") editedFiles.add(rel);
     }
-  }
-
-  async function mark() {
-    await mkdir(path.dirname(sentinel), { recursive: true });
-    await writeFile(sentinel, `${Math.floor(Date.now() / 1000)}\n`, "utf8");
+    const sid = sanitizeSessionID(lastSessionID);
+    const p = sentinelPath(lastSessionID);
+    pendingMarkWithoutSession = !sid;
+    await mkdir(path.dirname(p), { recursive: true });
+    const payload = {
+      timestamp: Math.floor(Date.now() / 1000),
+      sessionID: lastSessionID || null,
+      files: [...editedFiles],
+    };
+    await writeFile(p, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    // If we just wrote a scoped sentinel, remove the unsuffixed fallback so
+    // cold-start sessions in other windows cannot accidentally consume it.
+    if (sid) {
+      try { await unlink(path.join(sentinelDir, sentinelBase)); } catch {}
+    }
   }
 
   function normalize(p) {
@@ -134,8 +176,8 @@ export default async (ctx) => {
     }
   }
 
-  async function markAndToast(file, reasonLabel) {
-    await mark();
+  async function markAndToast(file) {
+    await mark(file);
     const fileDisplay = relPath(file);
     await maybeToast(`Marked for review: ${fileDisplay}`);
   }
@@ -144,14 +186,27 @@ export default async (ctx) => {
     event: async ({ event }) => {
       if (!event?.type) return;
 
+      // Track session ID so sentinel files are session-scoped.
+      if (event.type === "message.updated") {
+        const sid = extractSessionID(event);
+        if (sid) {
+          lastSessionID = sid;
+          if (pendingMarkWithoutSession) {
+            pendingMarkWithoutSession = false;
+            await mark();
+            await maybeToast("Marked for review: pending edit in current session");
+          }
+        }
+        return;
+      }
+
       if (event.type === "file.edited") {
         const file = extractFileFromEvent(event);
         if (!isInsideRepo(file)) return;
         if (isOpencodeArtifact(file)) return;
         if (classifyPath(file) === "exempt-doc") return;
 
-        if (await recentlyMarked()) return;
-        await markAndToast(file, "file.edited");
+        await markAndToast(file);
         return;
       }
 
@@ -165,8 +220,7 @@ export default async (ctx) => {
           }
           if (!file) return;
 
-          if (await recentlyMarked()) return;
-          await markAndToast(file, `tool.execute.after:${tool}`);
+          await markAndToast(file);
         }
       }
     },
