@@ -267,19 +267,44 @@ else
 fi
 done_step "Source /tmp/host-container-configs/container_env (if present)"
 
-step "Prime OpenCode persistent-data symlinks before install"
+ensure_agent_of_empires_persistence_link() {
+  local aoe_persist_dir aoe_config_dir
+  aoe_persist_dir="/home/vscode/persistent-data/agent-of-empires"
+  aoe_config_dir="$HOME/.config/agent-of-empires"
+
+  mkdir -p "$aoe_persist_dir" "$HOME/.config"
+
+  if [[ -L "$aoe_config_dir" ]]; then
+    ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+    return 0
+  fi
+
+  if [[ -d "$aoe_config_dir" ]]; then
+    if ! cp -a "$aoe_config_dir"/. "$aoe_persist_dir"/; then
+      echo "ERROR: Failed migrating existing AoE config directory to persistent storage." >&2
+      return 1
+    fi
+    rm -rf "$aoe_config_dir"
+  elif [[ -e "$aoe_config_dir" ]]; then
+    rm -f "$aoe_config_dir"
+  fi
+
+  ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+}
+
+step "Prime OpenCode/AoE persistent-data symlinks before install"
 mkdir -p \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
-  "$HOME/.config" \
   "$HOME/.cache" \
   "$HOME/.local/share" \
   "$HOME/.local/state"
 
+ensure_agent_of_empires_persistence_link
 ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
-done_step "Prime OpenCode persistent-data symlinks before install"
+done_step "Prime OpenCode/AoE persistent-data symlinks before install"
 
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles

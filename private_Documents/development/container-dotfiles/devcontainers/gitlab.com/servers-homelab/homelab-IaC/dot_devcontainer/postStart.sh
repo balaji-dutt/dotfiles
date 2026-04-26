@@ -94,15 +94,48 @@ write_opencode_profile_to_env_file() {
   chmod 600 "$env_file" 2>/dev/null || true
 }
 
+ensure_agent_of_empires_persistence_link() {
+  local aoe_persist_dir aoe_config_dir
+  aoe_persist_dir="/home/vscode/persistent-data/agent-of-empires"
+  aoe_config_dir="$HOME/.config/agent-of-empires"
+
+  mkdir -p "$aoe_persist_dir" "$HOME/.config"
+
+  if [[ -L "$aoe_config_dir" ]]; then
+    ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+    return 0
+  fi
+
+  if [[ -d "$aoe_config_dir" ]]; then
+    if ! cp -a "$aoe_config_dir"/. "$aoe_persist_dir"/; then
+      echo "ERROR: Failed migrating existing AoE config directory to persistent storage." >&2
+      return 1
+    fi
+    rm -rf "$aoe_config_dir"
+  elif [[ -e "$aoe_config_dir" ]]; then
+    rm -f "$aoe_config_dir"
+  fi
+
+  ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+}
+
 mkdir -p \
   /home/vscode/persistent-data \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
-  "$HOME/.config" \
   "$HOME/.cache" \
   "$HOME/.local/share" \
   "$HOME/.local/state" \
   "$HOME/.local/bin" \
   "$HOME/.ssh"
+
+ensure_agent_of_empires_persistence_link
+
+if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
+  install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
+    /home/vscode/persistent-data/agent-of-empires/config.toml
+else
+  echo "WARN: Agent of Empires config not found; keeping existing config." >&2
+fi
 
 ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"

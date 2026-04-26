@@ -135,6 +135,27 @@ If the browser does not open automatically when `submit_plan` runs, open:
 
 - `http://localhost:9999`
 
+## Agent of Empires in Devcontainers
+
+For the `homelab-IaC` template, AoE state is persisted under:
+
+- `/home/vscode/persistent-data/agent-of-empires`
+
+`postCreate.sh` and `postStart.sh` link `~/.config/agent-of-empires` to this
+location so profile/session metadata survives container rebuild/recreate
+cycles.
+
+If `~/.config/agent-of-empires` already exists as a real directory, startup
+scripts migrate its current contents into persistent storage before replacing it
+with the symlink.
+
+Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
+Runtime-managed files (for example `profiles/*/sessions.json`,
+`trusted_repos.toml`, and logs) are left intact.
+
+Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
+destroyed container.
+
 ## WSL Overlay Publishing
 
 WSL-specific overlay publishing is handled by:
