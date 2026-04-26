@@ -330,18 +330,21 @@ install_snip_gh() {
 }
 install_snip_gh || echo "!! snip install failed; continuing"
 
-# aoe: install latest/pinned Linux binary from GitHub releases
-# Supports amd64 and arm64 container architectures.
+# Helper: semantic version greater-or-equal check using sort -V.
+version_ge() {
+  local a b
+  a="$1"
+  b="$2"
+  [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | sed -n '1p')" = "$b" ]
+}
+
+# aoe: build latest/pinned version from source for devcontainers.
+# This avoids glibc mismatch with upstream prebuilt Linux release binaries.
 # Set AOE_VERSION as a container variable to a tag like "1.4.6" or "latest".
-install_aoe_gh() {
+install_aoe_from_source() {
   local want_version="${AOE_VERSION:-latest}"
-  local arch norm_arch
-  arch="$(uname -m)"
-  case "$arch" in
-    x86_64|amd64) norm_arch="amd64" ;;
-    aarch64|arm64) norm_arch="arm64" ;;
-    *) echo "!! Unsupported arch for aoe binary: $arch"; return 1 ;;
-  esac
+  local min_rust="1.85.0"
+  local cargo_home rust_ver curr installed tmpd srcdir
 
   # Resolve "latest" using GitHub API (requires jq)
   if [ "$want_version" = "latest" ]; then
@@ -356,9 +359,8 @@ install_aoe_gh() {
     want_version="$tag"
   fi
 
-  # If already installed and version matches, skip
+  # If already installed and version matches, skip.
   if need_cmd aoe; then
-    local curr
     curr="$(aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
     if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
       echo "==> aoe $curr already installed; skipping."
@@ -370,22 +372,82 @@ install_aoe_gh() {
     fi
   fi
 
-  local tmpd asset url
+  need_cmd npm  || { echo "!! npm is required for aoe web build."; return 1; }
+  need_cmd curl || { echo "!! curl is required for aoe source install."; return 1; }
+  need_cmd tar  || { echo "!! tar is required for aoe source install."; return 1; }
+
+  cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+  export CARGO_HOME="$cargo_home"
+  export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+  export PATH="$CARGO_HOME/bin:$PATH"
+
+  rust_ver=""
+  if need_cmd rustc; then
+    rust_ver="$(rustc --version 2>/dev/null | sed -n 's/^rustc \([0-9][0-9.]*\).*/\1/p')"
+  fi
+
+  if [ -z "$rust_ver" ] || ! version_ge "$rust_ver" "$min_rust"; then
+    echo "==> Installing/updating Rust toolchain for aoe build (min ${min_rust})"
+    if ! need_cmd rustup; then
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+    fi
+
+    # shellcheck disable=SC1091
+    [ -f "$CARGO_HOME/env" ] && . "$CARGO_HOME/env"
+    export PATH="$CARGO_HOME/bin:$PATH"
+
+    rustup toolchain install stable --profile minimal --no-self-update
+    rustup default stable
+
+    rust_ver="$(rustc --version 2>/dev/null | sed -n 's/^rustc \([0-9][0-9.]*\).*/\1/p')"
+    if [ -z "$rust_ver" ] || ! version_ge "$rust_ver" "$min_rust"; then
+      echo "!! Rust toolchain too old for aoe build (found: ${rust_ver:-unknown}, need: ${min_rust}+)."
+      return 1
+    fi
+  fi
+
   tmpd="$(mktemp -d)"
-  asset="aoe-linux-${norm_arch}.tar.gz"
-  url="https://github.com/njbrake/agent-of-empires/releases/download/v${want_version}/${asset}"
+  srcdir="${tmpd}/agent-of-empires-${want_version}"
 
-  echo "==> Installing aoe ${want_version} (${norm_arch})"
-  curl -fsSL "$url" -o "${tmpd}/aoe.tgz"
-  tar -xzf "${tmpd}/aoe.tgz" -C "$tmpd"
-
-  if [ ! -f "${tmpd}/aoe-linux-${norm_arch}" ]; then
-    echo "!! aoe binary not found in archive."
+  echo "==> Building aoe ${want_version} from source"
+  if ! curl -fsSL "https://github.com/njbrake/agent-of-empires/archive/refs/tags/v${want_version}.tar.gz" -o "${tmpd}/aoe-src.tgz"; then
     rm -rf "$tmpd"
+    echo "!! Failed to download aoe source tarball for v${want_version}."
     return 1
   fi
 
-  as_root "install -m 0755 '${tmpd}/aoe-linux-${norm_arch}' /usr/local/bin/aoe"
+  if ! tar -xzf "${tmpd}/aoe-src.tgz" -C "$tmpd"; then
+    rm -rf "$tmpd"
+    echo "!! Failed to extract aoe source tarball."
+    return 1
+  fi
+
+  if [ ! -d "$srcdir" ]; then
+    rm -rf "$tmpd"
+    echo "!! aoe source directory not found after extract: $srcdir"
+    return 1
+  fi
+
+  if ! (
+    set -e
+    cd "$srcdir/web"
+    npm install
+    npm run build
+    cd "$srcdir"
+    cargo build --release --features serve
+  ); then
+    rm -rf "$tmpd"
+    echo "!! aoe source build failed."
+    return 1
+  fi
+
+  if [ ! -f "$srcdir/target/release/aoe" ]; then
+    rm -rf "$tmpd"
+    echo "!! aoe binary missing after source build."
+    return 1
+  fi
+
+  as_root "install -m 0755 '$srcdir/target/release/aoe' /usr/local/bin/aoe"
   rm -rf "$tmpd"
 
   # Verify
@@ -401,7 +463,7 @@ install_aoe_gh() {
   fi
   echo "==> aoe installed: ${installed}"
 }
-install_aoe_gh || echo "!! aoe install failed; continuing"
+install_aoe_from_source || echo "!! aoe install failed; continuing"
 
 # git-mkver: install latest release from GitHub
 # - amd64: native Linux binary

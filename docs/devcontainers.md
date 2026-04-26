@@ -153,6 +153,13 @@ Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
 Runtime-managed files (for example `profiles/*/sessions.json`,
 `trusted_repos.toml`, and logs) are left intact.
 
+AoE is built from source in this bookworm-based devcontainer instead of using
+upstream prebuilt Linux release binaries. This avoids glibc version mismatches
+from newer upstream build environments.
+
+This choice affects bootstrap time and container-local disk usage (toolchain and
+build artifacts), but does not require changing the external base image.
+
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
 

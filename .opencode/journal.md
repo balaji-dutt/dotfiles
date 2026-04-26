@@ -28,6 +28,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `.chezmoiscripts/run_once_after_99-cleanup-wrong-apply.sh.tmpl`
   `REMOVE_ALWAYS` cleanup list to prevent/clean accidental `$HOME` apply on
   non-repo targets.
+- decision: Switched devcontainer AoE install in
+  `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`
+  from prebuilt GitHub-release Linux binary to pinned source build with
+  `serve` feature to avoid glibc mismatch on bookworm-based containers.
 
 ## 2026-04-25
 
