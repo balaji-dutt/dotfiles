@@ -148,7 +148,12 @@ export default async (ctx = {}) => {
   }
 
   // ---- Debounced enforcement (so we run after edits settle) ----
-  const DEBOUNCE_MS = 1500;
+  // session.idle is the primary trigger. file.edited uses this debounce
+  // only as a fallback for sessions where session.idle never fires.
+  // Keep this long enough to clear any slow mid-turn tool calls (ansible,
+  // chezmoi apply, docker, etc.) to avoid injecting the review prompt
+  // while the agent is still actively editing.
+  const DEBOUNCE_MS = 15_000;
 
   let debounceTimer = null;
   let inFlight = false;

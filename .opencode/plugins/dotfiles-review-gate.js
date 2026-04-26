@@ -131,6 +131,20 @@ function collectStrings(x, out = [], depth = 0, key = "") {
   return out;
 }
 
+function sanitizeSessionID(sessionID) {
+  const sid = String(sessionID || "").trim();
+  return sid.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function extractSessionID(evt) {
+  return (
+    evt?.properties?.sessionID ||
+    evt?.properties?.info?.sessionID ||
+    evt?.properties?.info?.sessionId ||
+    null
+  );
+}
+
 export default async (ctx) => {
   const baseDir =
     ctx?.worktree ||
@@ -138,21 +152,48 @@ export default async (ctx) => {
     ctx?.directory ||
     process.cwd();
 
-  const gateOpenCode = path.join(baseDir, ".opencode", ".needs_dotfiles_review");
+  const sentinelDir = path.join(baseDir, ".opencode");
+  const gateOpenCode = path.join(sentinelDir, ".needs_dotfiles_review");
   const gateClaude = path.join(baseDir, ".claude", ".needs_dotfiles_review"); // transitional
+
+  // Track session ID so we can clean up session-scoped files on PASS.
+  let lastSessionID = null;
 
   await appendDebug(baseDir, `initialized baseDir=${baseDir}`);
 
   async function clearGate(where) {
-    if (!(await exists(gateOpenCode)) && !(await exists(gateClaude))) return;
-
     await appendDebug(baseDir, `PASS detected via ${where} -> clearing gate`);
+
+    // Clear unsuffixed sentinels (legacy / cold-start)
     await fs.rm(gateOpenCode, { force: true });
     await fs.rm(gateClaude, { force: true });
+
+    // Clear session-scoped sentinel and enforcer state file
+    const sid = sanitizeSessionID(lastSessionID);
+    if (sid) {
+      await fs.rm(
+        path.join(sentinelDir, `.needs_dotfiles_review.${sid}`),
+        { force: true }
+      );
+      await fs.rm(
+        path.join(sentinelDir, `.dotfiles_review_enforcer_state.${sid}.json`),
+        { force: true }
+      );
+    }
+  }
+
+  async function anyGateExists() {
+    if (await exists(gateOpenCode)) return true;
+    if (await exists(gateClaude)) return true;
+    const sid = sanitizeSessionID(lastSessionID);
+    if (sid) {
+      if (await exists(path.join(sentinelDir, `.needs_dotfiles_review.${sid}`))) return true;
+    }
+    return false;
   }
 
   async function scanAndClear(where, obj) {
-    if (!(await exists(gateOpenCode)) && !(await exists(gateClaude))) return;
+    if (!(await anyGateExists())) return;
 
     const strings = collectStrings(obj, []);
     for (const s of strings) {
@@ -185,6 +226,8 @@ export default async (ctx) => {
     event: async ({ event: evt }) => {
       if (!evt?.type) return;
       if (evt.type === "message.updated" || evt.type === "message.part.updated") {
+        const sid = extractSessionID(evt);
+        if (sid) lastSessionID = sid;
         await scanAndClear(`event:${evt.type}`, evt);
       }
     },

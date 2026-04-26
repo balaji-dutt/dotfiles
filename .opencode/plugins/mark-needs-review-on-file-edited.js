@@ -202,6 +202,11 @@ export default async (ctx) => {
       if (event.type === "message.updated") {
         const sid = extractSessionID(event);
         if (sid) {
+          if (lastSessionID && sid !== lastSessionID) {
+            // New session started — discard file list accumulated in prior
+            // session so it doesn't bleed into this session's sentinel.
+            editedFiles.clear();
+          }
           lastSessionID = sid;
           if (pendingMarkWithoutSession) {
             pendingMarkWithoutSession = false;
