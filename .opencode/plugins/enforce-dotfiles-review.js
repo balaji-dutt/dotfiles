@@ -286,10 +286,10 @@ export default async (ctx = {}) => {
         if (p && isOpencodeArtifact(p) && !isSentinel) return;
         if (p && classifyPath(p) === "exempt-doc") return;
 
-        // If no gate, nothing to do
-        if (!(await getGatePath())) return;
-
-        // Debounced: run reviewer after edits settle
+        // Always schedule — the marker plugin may not have written the sentinel
+        // yet at this point (parallel handler execution creates a race if we
+        // pre-check getGatePath() here). enforceNow() re-checks after the
+        // debounce by which time the sentinel will exist.
         scheduleEnforce("file.edited");
         return;
       }

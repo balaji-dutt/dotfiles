@@ -107,9 +107,21 @@ export default async (ctx) => {
     return true;
   }
 
-  function isOpencodeArtifact(p) {
+  function isOpencodeRuntimeArtifact(p) {
     const n = normalizeLower(p);
-    return n.includes("/.opencode/") || n.startsWith(".opencode/");
+    if (!n.includes("/.opencode/") && !n.startsWith(".opencode/")) return false;
+    // Only exclude runtime artifacts that should never trigger a review mark:
+    // sentinel files, enforcer state files, node_modules, and OS cruft.
+    // Source files under .opencode/ (plugins/, skills/, commands/, etc.) are
+    // committed dotfiles and should be tracked and reviewed normally.
+    const basename = path.basename(p).toLowerCase();
+    return (
+      basename.startsWith(".needs_dotfiles_review") ||
+      basename.startsWith(".dotfiles_review_enforcer_state") ||
+      basename === ".ds_store" ||
+      n.startsWith(".opencode/node_modules/") ||
+      n.includes("/.opencode/node_modules/")
+    );
   }
 
   function extractFileFromEvent(event) {
@@ -203,7 +215,7 @@ export default async (ctx) => {
       if (event.type === "file.edited") {
         const file = extractFileFromEvent(event);
         if (!isInsideRepo(file)) return;
-        if (isOpencodeArtifact(file)) return;
+        if (isOpencodeRuntimeArtifact(file)) return;
         if (classifyPath(file) === "exempt-doc") return;
 
         await markAndToast(file);
@@ -215,7 +227,7 @@ export default async (ctx) => {
         const tool = String(event?.tool || event?.properties?.tool || "").toLowerCase();
         if (tool === "edit" || tool === "write" || tool === "multiedit" || tool === "apply_patch") {
           const file = extractFileFromEvent(event);
-          if (file && isInsideRepo(file) && !isOpencodeArtifact(file) && classifyPath(file) === "exempt-doc") {
+          if (file && isInsideRepo(file) && !isOpencodeRuntimeArtifact(file) && classifyPath(file) === "exempt-doc") {
             return;
           }
           if (!file) return;
