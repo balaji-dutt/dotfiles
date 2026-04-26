@@ -14,6 +14,7 @@
     "CERTFILES_RAW": {{ .CERTFILES_RAW | toJson }},
     "NVM_VERSION": "0.40.4", // renovate: datasource=github-tags depName=nvm-sh/nvm extractVersion=^v(?<version>.*)$
     "NODE_VERSION": "lts/*",
+    "TF_DATA_ROOT": "/home/vscode/persistent-data/terraform-data",
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "9999",
     {{- if hasKey . "homelab" }}

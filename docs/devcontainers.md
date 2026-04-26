@@ -60,6 +60,23 @@ For `homelab-IaC`, macOS uses a local Docker volume for `${containerWorkspaceFol
 This avoids NFS-backed Git metadata write issues on macOS while keeping file
 edits shared.
 
+## homelab-IaC: Terraform/OpenTofu local working data
+
+For `homelab-IaC`, Terraform/OpenTofu working data is intentionally kept off the
+shared workspace mount.
+
+- `TF_DATA_ROOT` is set in the devcontainer to:
+  `/home/vscode/persistent-data/terraform-data`
+- the `tf` shell function derives a module-specific `TF_DATA_DIR` beneath that
+  root (based on the nearest `.terraform.lock.hcl`)
+
+This keeps provider/cache/backend metadata in persistent container storage and
+prevents cross-host or cross-architecture `.terraform` reuse on shared NFS
+paths.
+
+`tf` remains the supported command for switching between OpenTofu and
+Terraform (`TF_CMD=tofu|opentofu|terraform`).
+
 ## Runtime-Generated Files
 
 Some files are generated at render time and should not be committed:

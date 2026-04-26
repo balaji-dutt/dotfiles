@@ -136,15 +136,62 @@ alias tree="eza --tree"
 
 # Alias OpenTofu to tf command by default unless specified otherwise
 export TF_CMD=tofu
+
+tf_find_module_root() {
+  local current_dir repo_root search_dir
+  current_dir="$(pwd -P)"
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  search_dir="$current_dir"
+
+  while [[ -n "$search_dir" && "$search_dir" != "/" ]]; do
+    if [[ -f "$search_dir/.terraform.lock.hcl" ]]; then
+      printf '%s\n' "$search_dir"
+      return 0
+    fi
+
+    if [[ -n "$repo_root" && "$search_dir" == "$repo_root" ]]; then
+      break
+    fi
+
+    search_dir="${search_dir:h}"
+  done
+
+  printf '%s\n' "$current_dir"
+}
+
+tf_compute_data_dir() {
+  local module_root repo_root repo_scope module_id_raw module_id tf_data_root
+  module_root="$(tf_find_module_root)"
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  tf_data_root="${TF_DATA_ROOT:-$HOME/persistent-data/terraform-data}"
+  repo_scope="${repo_root:-no-repo}"
+
+  if [[ -n "$repo_root" && "$module_root" == "$repo_root" ]]; then
+    module_id_raw="${repo_scope}::repo-root"
+  elif [[ -n "$repo_root" && "$module_root" == "$repo_root"/* ]]; then
+    module_id_raw="${repo_scope}::${module_root#$repo_root/}"
+  else
+    module_id_raw="${repo_scope}::${module_root#/}"
+  fi
+
+  module_id="$(printf '%s' "$module_id_raw" | base64 | tr -d '\n=' | tr '/+' '_-')"
+  printf '%s/%s\n' "$tf_data_root" "$module_id"
+}
+
 tf() {
   # Accept values: tofu, opentofu, terraform
   local cmd="${TF_CMD:-tofu}"
+  local tf_data_dir
   case "$cmd" in
     terraform) cmd="terraform" ;;
     tofu|opentofu) cmd="tofu" ;;  # package usually installs 'tofu' binary
     *) cmd="tofu" ;;
   esac
-  command "$cmd" "$@"
+
+  tf_data_dir="$(tf_compute_data_dir)"
+  mkdir -p "$tf_data_dir"
+
+  TF_DATA_DIR="$tf_data_dir" command "$cmd" "$@"
 }
 
 # macOS Dev Containers do not work well with .git directories on shared NFS hosts
