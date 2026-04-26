@@ -32,6 +32,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`
   from prebuilt GitHub-release Linux binary to pinned source build with
   `serve` feature to avoid glibc mismatch on bookworm-based containers.
+- decision: Isolated devcontainer AoE source-build toolchains/caches to
+  temporary `mktemp` paths (`CARGO_HOME`, `RUSTUP_HOME`, npm cache) in
+  `private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl`
+  so AoE bootstrap does not leave persistent `~/.cargo` / `~/.rustup` residue.
 - decision: Made dotfiles review sentinel files session-scoped in
   `.opencode/plugins/mark-needs-review-on-file-edited.js` and
   `.opencode/plugins/enforce-dotfiles-review.js`. Each plugin instance now

@@ -177,6 +177,10 @@ from newer upstream build environments.
 This choice affects bootstrap time and container-local disk usage (toolchain and
 build artifacts), but does not require changing the external base image.
 
+AoE build toolchain/cache directories are isolated to a temporary build root and
+removed after successful install. This keeps long-lived `$HOME` paths (for
+example `~/.cargo` and `~/.rustup`) from accumulating AoE bootstrap residue.
+
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
 

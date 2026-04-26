@@ -344,7 +344,8 @@ version_ge() {
 install_aoe_from_source() {
   local want_version="${AOE_VERSION:-latest}"
   local min_rust="1.85.0"
-  local cargo_home rust_ver curr installed tmpd srcdir
+  local rust_ver curr installed tmpd srcdir
+  local build_cargo_home build_rustup_home build_npm_cache rustup_init
 
   # Resolve "latest" using GitHub API (requires jq)
   if [ "$want_version" = "latest" ]; then
@@ -376,38 +377,13 @@ install_aoe_from_source() {
   need_cmd curl || { echo "!! curl is required for aoe source install."; return 1; }
   need_cmd tar  || { echo "!! tar is required for aoe source install."; return 1; }
 
-  cargo_home="${CARGO_HOME:-$HOME/.cargo}"
-  export CARGO_HOME="$cargo_home"
-  export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
-  export PATH="$CARGO_HOME/bin:$PATH"
-
-  rust_ver=""
-  if need_cmd rustc; then
-    rust_ver="$(rustc --version 2>/dev/null | sed -n 's/^rustc \([0-9][0-9.]*\).*/\1/p')"
-  fi
-
-  if [ -z "$rust_ver" ] || ! version_ge "$rust_ver" "$min_rust"; then
-    echo "==> Installing/updating Rust toolchain for aoe build (min ${min_rust})"
-    if ! need_cmd rustup; then
-      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
-    fi
-
-    # shellcheck disable=SC1091
-    [ -f "$CARGO_HOME/env" ] && . "$CARGO_HOME/env"
-    export PATH="$CARGO_HOME/bin:$PATH"
-
-    rustup toolchain install stable --profile minimal --no-self-update
-    rustup default stable
-
-    rust_ver="$(rustc --version 2>/dev/null | sed -n 's/^rustc \([0-9][0-9.]*\).*/\1/p')"
-    if [ -z "$rust_ver" ] || ! version_ge "$rust_ver" "$min_rust"; then
-      echo "!! Rust toolchain too old for aoe build (found: ${rust_ver:-unknown}, need: ${min_rust}+)."
-      return 1
-    fi
-  fi
-
   tmpd="$(mktemp -d)"
   srcdir="${tmpd}/agent-of-empires-${want_version}"
+  build_cargo_home="${tmpd}/cargo-home"
+  build_rustup_home="${tmpd}/rustup-home"
+  build_npm_cache="${tmpd}/npm-cache"
+  rustup_init="${tmpd}/rustup-init"
+  mkdir -p "$build_cargo_home" "$build_rustup_home" "$build_npm_cache"
 
   echo "==> Building aoe ${want_version} from source"
   if ! curl -fsSL "https://github.com/njbrake/agent-of-empires/archive/refs/tags/v${want_version}.tar.gz" -o "${tmpd}/aoe-src.tgz"; then
@@ -430,6 +406,20 @@ install_aoe_from_source() {
 
   if ! (
     set -e
+    export CARGO_HOME="$build_cargo_home"
+    export RUSTUP_HOME="$build_rustup_home"
+    export npm_config_cache="$build_npm_cache"
+    export PATH="$CARGO_HOME/bin:$PATH"
+
+    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$rustup_init"
+    sh "$rustup_init" -y --profile minimal --default-toolchain stable --no-modify-path
+
+    rust_ver="$(rustc --version 2>/dev/null | sed -n 's/^rustc \([0-9][0-9.]*\).*/\1/p')"
+    if [ -z "$rust_ver" ] || ! version_ge "$rust_ver" "$min_rust"; then
+      echo "!! Rust toolchain too old for aoe build (found: ${rust_ver:-unknown}, need: ${min_rust}+)."
+      exit 1
+    fi
+
     cd "$srcdir/web"
     npm install
     npm run build
