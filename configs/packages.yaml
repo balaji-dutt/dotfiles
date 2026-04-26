@@ -12,6 +12,7 @@ versions:
   lazygit: "0.61.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
   lazydocker: "0.25.2" # renovate: datasource=github-releases depName=jesseduffield/lazydocker extractVersion=^v(?<version>.*)$
   snip: "0.15.0" # renovate: datasource=github-releases depName=edouard-claude/snip extractVersion=^v(?<version>.*)$
+  openusage: "0.9.5" # renovate: datasource=github-releases depName=janekbaraniewski/openusage extractVersion=^v(?<version>.*)$
   
 # -----------------------------------------------------------------------------
 # Apt packages - All WSL instances

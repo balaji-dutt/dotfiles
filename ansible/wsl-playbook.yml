@@ -213,6 +213,37 @@
       ansible.builtin.include_tasks: tasks/debian-dev-tools.yml
       when: is_debian | bool
 
+    - name: Check installed openusage version
+      ansible.builtin.command: "{{ local_bin }}/openusage version"
+      register: openusage_version_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Parse installed openusage version
+      ansible.builtin.set_fact:
+        openusage_installed_version: >-
+          {{
+            (openusage_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+
+    - name: Install or upgrade openusage
+      when: (openusage_installed_version | default('')) != versions.openusage
+      block:
+        - name: Download openusage release archive
+          ansible.builtin.unarchive:
+            src: "https://github.com/janekbaraniewski/openusage/releases/download/v{{ versions.openusage }}/openusage_{{ versions.openusage }}_linux_{{ deb_arch }}.tar.gz"
+            dest: "{{ local_bin }}"
+            remote_src: true
+            include:
+              - openusage
+
+        - name: Ensure openusage binary permissions
+          ansible.builtin.file:
+            path: "{{ local_bin }}/openusage"
+            mode: "0755"
+
     - name: Check installed snip version
       ansible.builtin.command: "{{ local_bin }}/snip --version"
       register: snip_version_cmd

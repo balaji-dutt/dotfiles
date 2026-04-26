@@ -50,6 +50,14 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `planningAgents` allowlist in host and container OpenCode user configs after
   merge conflict clobbered those entries; also re-normalized container planner
   key to `plan-GPT-xhigh`.
+- decision: Kept `@slkiser/opencode-quota` for OpenCode-native sidebar and
+  `/quota*` commands, but restricted `experimental.quotaToast.enabledProviders`
+  to `copilot` + `openai` in host and container OpenCode user configs to
+  suppress dormant Claude auth/quota noise.
+- decision: Added standalone OpenUsage provisioning on host macOS via
+  `brewfile.txt` and on WSL2 via pinned GitHub release
+  (`configs/packages.yaml` + `ansible/wsl-playbook.yml`); deferred devcontainer
+  installation and OpenUsage telemetry integration automation.
 
 ## 2026-04-23
 
