@@ -22,6 +22,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-26
+
+- decision: Added `renovate.json5` to global `.chezmoiignore` excludes and
+  `.chezmoiscripts/run_once_after_99-cleanup-wrong-apply.sh.tmpl`
+  `REMOVE_ALWAYS` cleanup list to prevent/clean accidental `$HOME` apply on
+  non-repo targets.
+
 ## 2026-04-25
 
 - decision: Replaced `opencode-mystatus` with `@slkiser/opencode-quota` in
