@@ -58,6 +58,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `brewfile.txt` and on WSL2 via pinned GitHub release
   (`configs/packages.yaml` + `ansible/wsl-playbook.yml`); deferred devcontainer
   installation and OpenUsage telemetry integration automation.
+- decision: Added Agent of Empires provisioning on macOS (`brewfile.txt`),
+  WSL2 (`configs/packages.yaml` + `ansible/wsl-playbook.yml`), and devcontainer
+  (`dot_devcontainer/devcontainer.json.tmpl` + `dotfiles/install.sh.tmpl`), plus
+  global config defaults at `dot_agent-of-empires/config.toml` (Linux via
+  symlink template and explicit container copy).
 
 ## 2026-04-23
 

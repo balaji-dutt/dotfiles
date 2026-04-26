@@ -23,6 +23,7 @@ if need_cmd apt-get; then
   need_cmd gpg    || pkgs+=("gpg")
   need_cmd jq     || pkgs+=("jq")
   need_cmd tar    || pkgs+=("tar")
+  need_cmd tmux   || pkgs+=("tmux")
   if [ "${#pkgs[@]}" -gt 0 ]; then
     echo "==> Installing via apt: ${pkgs[*]}"
     apt_install "${pkgs[@]}"
@@ -328,6 +329,79 @@ install_snip_gh() {
   echo "==> snip installed: ${installed}"
 }
 install_snip_gh || echo "!! snip install failed; continuing"
+
+# aoe: install latest/pinned Linux binary from GitHub releases
+# Supports amd64 and arm64 container architectures.
+# Set AOE_VERSION as a container variable to a tag like "1.4.6" or "latest".
+install_aoe_gh() {
+  local want_version="${AOE_VERSION:-latest}"
+  local arch norm_arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) norm_arch="amd64" ;;
+    aarch64|arm64) norm_arch="arm64" ;;
+    *) echo "!! Unsupported arch for aoe binary: $arch"; return 1 ;;
+  esac
+
+  # Resolve "latest" using GitHub API (requires jq)
+  if [ "$want_version" = "latest" ]; then
+    if ! need_cmd jq; then
+      echo "!! jq not available; cannot resolve latest aoe. Install jq or set AOE_VERSION."
+      return 1
+    fi
+    echo "==> Resolving latest aoe version from GitHub..."
+    local tag
+    tag="$(curl -fsSL https://api.github.com/repos/njbrake/agent-of-empires/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest aoe version."; return 1; }
+    want_version="$tag"
+  fi
+
+  # If already installed and version matches, skip
+  if need_cmd aoe; then
+    local curr
+    curr="$(aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
+      echo "==> aoe $curr already installed; skipping."
+      return 0
+    elif [ -n "$curr" ]; then
+      echo "==> aoe $curr found; upgrading to $want_version"
+    else
+      echo "==> aoe found; upgrading to $want_version"
+    fi
+  fi
+
+  local tmpd asset url
+  tmpd="$(mktemp -d)"
+  asset="aoe-linux-${norm_arch}.tar.gz"
+  url="https://github.com/njbrake/agent-of-empires/releases/download/v${want_version}/${asset}"
+
+  echo "==> Installing aoe ${want_version} (${norm_arch})"
+  curl -fsSL "$url" -o "${tmpd}/aoe.tgz"
+  tar -xzf "${tmpd}/aoe.tgz" -C "$tmpd"
+
+  if [ ! -f "${tmpd}/aoe-linux-${norm_arch}" ]; then
+    echo "!! aoe binary not found in archive."
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  as_root "install -m 0755 '${tmpd}/aoe-linux-${norm_arch}' /usr/local/bin/aoe"
+  rm -rf "$tmpd"
+
+  # Verify
+  if ! need_cmd aoe; then
+    echo "!! aoe not found after install."
+    return 1
+  fi
+  local installed
+  installed="$(aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+  if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
+    echo "!! aoe version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
+    return 1
+  fi
+  echo "==> aoe installed: ${installed}"
+}
+install_aoe_gh || echo "!! aoe install failed; continuing"
 
 # git-mkver: install latest release from GitHub
 # - amd64: native Linux binary

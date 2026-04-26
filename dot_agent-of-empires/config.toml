@@ -1,0 +1,9 @@
+[session]
+default_tool = "opencode"
+
+[worktree]
+enabled = true
+path_template = "./worktrees/{branch}-{session-id}"
+
+[updates]
+check_enabled = false

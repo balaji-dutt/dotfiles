@@ -20,6 +20,14 @@
 {{ if not $isDarwin }}
 Library
 bin/vnc_monitor.sh
+.agent-of-empires
+.agent-of-empires/**
+{{ end }}
+
+{{/* Keep Linux/XDG AoE config off macOS */}}
+{{ if $isDarwin }}
+.config/agent-of-empires
+.config/agent-of-empires/**
 {{ end }}
 
 {{/*  Placeholder for Linux */}}

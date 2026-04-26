@@ -279,6 +279,50 @@
             path: "{{ local_bin }}/snip"
             mode: "0755"
 
+    - name: Check installed aoe version
+      ansible.builtin.command: "{{ local_bin }}/aoe --version"
+      register: aoe_version_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Parse installed aoe version
+      ansible.builtin.set_fact:
+        aoe_installed_version: >-
+          {{
+            (aoe_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+
+    - name: Install or upgrade aoe
+      when: (aoe_installed_version | default('')) != versions.aoe
+      block:
+        - name: Create temporary directory for aoe archive extraction
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: aoe
+          register: aoe_extract_dir
+
+        - name: Download and extract aoe release archive
+          ansible.builtin.unarchive:
+            src: "https://github.com/njbrake/agent-of-empires/releases/download/v{{ versions.aoe }}/aoe-linux-{{ deb_arch }}.tar.gz"
+            dest: "{{ aoe_extract_dir.path }}"
+            remote_src: true
+
+        - name: Install aoe binary to local bin
+          ansible.builtin.copy:
+            src: "{{ aoe_extract_dir.path }}/aoe-linux-{{ deb_arch }}"
+            dest: "{{ local_bin }}/aoe"
+            mode: "0755"
+            remote_src: true
+
+      always:
+        - name: Remove temporary aoe extraction directory
+          ansible.builtin.file:
+            path: "{{ aoe_extract_dir.path | default('') }}"
+            state: absent
+          when: (aoe_extract_dir.path | default('')) | length > 0
+
     - name: Include Ubuntu extras
       ansible.builtin.include_tasks: tasks/ubuntu-extras.yml
       when: is_ubuntu | bool
