@@ -170,6 +170,7 @@ done
 
 if [[ "$agent_ready" -ne 1 ]]; then
   echo "WARN: SSH agent did not become ready; keeping existing key file." >&2
+  echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
   exit 1
 fi
 
@@ -213,6 +214,7 @@ else
     echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
   elif [[ "$ssh_add_exit" -eq 124 ]]; then
     echo "WARN: ssh-add -L timed out; SSH agent appears unhealthy." >&2
+    echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
   else
     ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
     if [[ -n "$ssh_add_error" ]]; then
@@ -220,6 +222,7 @@ else
     else
       echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
     fi
+    echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
   fi
   rm -f "$ssh_add_stdout" "$ssh_add_stderr"
   exit 1
@@ -318,6 +321,7 @@ install_sset_helper
 
 if ! "$HOME/.local/bin/sset"; then
   echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
+  echo "WARN: If this persists, rebuild/reopen the container to rerun initializeCommand." >&2
 fi
 
 SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"

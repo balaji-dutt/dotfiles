@@ -21,6 +21,7 @@
     {{- if .homelab.windows_user }}
     "SSH_AUTH_SOCK": "/tmp/wsl-ssh-pageant/ssh-agent.sock",
     "WSL_NPIPERELAY_PATH": "/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}",
+    "ANSIBLE_FORKS": "1",
     {{- end }}
     {{- end }}
     "ANSIBLE_SSH_COMMON_ARGS": "-o IdentitiesOnly=yes -o IdentityFile=/home/vscode/.ssh/root_terraform_ansible.pub"
