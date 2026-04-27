@@ -69,6 +69,10 @@
         "bash": {
           "./assets/sync-opencode-copilot-profiles.sh*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
+        },
+        "task": {
+          "*": "deny",
+          "dotfiles-reviewer": "allow"
         }
       }
     },
@@ -77,6 +81,10 @@
         "bash": {
           "./assets/sync-opencode-copilot-profiles.sh*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
+        },
+        "task": {
+          "*": "deny",
+          "dotfiles-reviewer": "allow"
         }
       }
     },
@@ -84,7 +92,7 @@
     "dotfiles-reviewer": {
       "mode": "subagent",
       "description": "Fast read-only review for dotfiles/chezmoi changes.",
-      "model": "github-copilot/gpt-5.4",
+      "model": "github-copilot/gpt-5.5",
       "reasoningEffort": "high",
       // "model": "anthropic/claude-opus-4-6",
       // Anthropic does not support temperature modification with thinking budgets
