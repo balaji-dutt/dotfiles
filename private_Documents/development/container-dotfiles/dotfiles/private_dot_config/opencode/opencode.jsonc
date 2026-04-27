@@ -169,6 +169,7 @@
     "envsitter-guard@0.0.4",
     "@slkiser/opencode-quota@3.2.0",
     "opencode-snip@1.6.1",
+    "opencode-pty@0.3.4",
     "opencode-websearch-cited@1.2.0"
   ],
 

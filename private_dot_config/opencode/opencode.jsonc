@@ -179,6 +179,7 @@
     "cc-safety-net@latest",
     "envsitter-guard@latest",
     "@slkiser/opencode-quota@latest",
+    "opencode-pty@latest",
     "opencode-websearch-cited@1.2.0"
   ],
 
