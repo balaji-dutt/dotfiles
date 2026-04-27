@@ -102,8 +102,7 @@ export default async (ctx = {}) => {
     await writeFile(sf, JSON.stringify(next, null, 2) + "\n", "utf8");
   }
 
-  // ---- SessionID cache (from your FULL_DUMP) ----
-  // message.updated → properties.info.sessionID
+  // ---- SessionID cache ----
   let lastSessionID = null;
 
   function extractSessionID(evt) {
@@ -147,6 +146,60 @@ export default async (ctx = {}) => {
     return null;
   }
 
+  // ---- Session metadata cache (for parentID check) ----
+  const sessionCache = new Map();
+
+  function rememberSession(cache, session) {
+    if (!session?.id) return;
+    const current = cache.get(session.id) || {};
+    cache.set(session.id, {
+      ...current,
+      id: session.id,
+      parentID: session.parentID || null,
+      title: session.title || current.title || "",
+    });
+  }
+
+  function rememberMessage(cache, message) {
+    const sessionID = message?.sessionID;
+    if (!sessionID) return;
+    // NOTE: do NOT seed parentID here — that would trick sessionMeta() into
+    // short-circuiting before session.get() confirms the real parentID.
+    // Only rememberSession() (called from session.created/session.updated or
+    // a successful session.get response) is allowed to write parentID.
+    const current = cache.get(sessionID) || { id: sessionID, title: "" };
+    if (message?.role === "user" && typeof message?.agent === "string") {
+      current.agent = message.agent;
+    }
+    cache.set(sessionID, current);
+  }
+
+  async function sessionMeta(sessionID) {
+    if (!sessionID) return null;
+    const cached = sessionCache.get(sessionID);
+    if (cached && Object.prototype.hasOwnProperty.call(cached, "parentID")) {
+      return cached;
+    }
+    try {
+      const response = await ctx.client?.session?.get?.({ path: { id: sessionID } });
+      const session = response?.data || response;
+      rememberSession(sessionCache, session);
+      return sessionCache.get(sessionID) || null;
+    } catch {
+      return cached || null;
+    }
+  }
+
+  // Returns false for sub-sessions (parentID set) or when the dotfiles-reviewer
+  // agent itself is running — avoids injecting the review prompt into the reviewer.
+  async function shouldPromptSession(sessionID) {
+    const info = await sessionMeta(sessionID);
+    if (!info) return false;
+    if (info.parentID) return false;
+    if (info.agent === "dotfiles-reviewer") return false;
+    return true;
+  }
+
   // ---- Debounced enforcement ----
   // session.idle is the sole trigger. The debounce here only absorbs
   // rapid idle/un-idle flaps — it does NOT need to span tool-call gaps.
@@ -163,7 +216,7 @@ export default async (ctx = {}) => {
       void enforceNow(trigger);
     }, DEBOUNCE_MS);
 
-    // Don’t keep the process alive just because of our timer
+    // Don't keep the process alive just because of our timer
     debounceTimer.unref?.();
   }
 
@@ -173,11 +226,13 @@ export default async (ctx = {}) => {
     const gatePath = await getGatePath();
     if (!gatePath) return;
 
+    if (!(await shouldPromptSession(lastSessionID))) return;
+
     const mtime = await gateMtimeMs(gatePath);
     const state = await loadState();
     const lastDisk = Number(state.lastHandledGateMtimeMs || 0);
 
-    // Only run once per “gate instance” (mtime)
+    // Only run once per "gate instance" (mtime)
     if (mtime <= lastHandledGateMtimeMsMem || mtime <= lastDisk) return;
 
     // Mark handled BEFORE running to avoid repeats from rapid file.edited events
@@ -270,10 +325,16 @@ export default async (ctx = {}) => {
     event: async ({ event: evt }) => {
       if (!evt?.type) return;
 
-      // Keep sessionID fresh from normal chat flow
+      // Keep sessionID and session metadata fresh from normal chat flow
       if (evt.type === "message.updated") {
         const sid = extractSessionID(evt);
         if (sid) lastSessionID = sid;
+        rememberMessage(sessionCache, evt.properties?.info);
+        return;
+      }
+
+      if (evt.type === "session.created" || evt.type === "session.updated") {
+        rememberSession(sessionCache, evt.properties?.info);
         return;
       }
 
