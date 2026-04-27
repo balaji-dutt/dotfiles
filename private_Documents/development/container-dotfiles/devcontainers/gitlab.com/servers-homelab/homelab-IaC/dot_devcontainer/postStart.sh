@@ -119,6 +119,118 @@ ensure_agent_of_empires_persistence_link() {
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
 }
 
+install_sset_helper() {
+  local helper_path
+  mkdir -p "$HOME/.local/bin"
+  helper_path="$HOME/.local/bin/sset"
+
+  cat >"$helper_path" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+sock="${SSH_AUTH_SOCK:-/tmp/wsl-ssh-pageant/ssh-agent.sock}"
+sock_dir="$(dirname "$sock")"
+npiperelay_path="${WSL_NPIPERELAY_PATH:-}"
+ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
+ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
+
+if [[ -z "$npiperelay_path" ]]; then
+  for candidate in /mnt/c/Users/*/Applications/npiperelay.exe; do
+    if [[ -x "$candidate" ]]; then
+      npiperelay_path="$candidate"
+      break
+    fi
+  done
+fi
+
+mkdir -p "$HOME/.ssh" "$sock_dir"
+chmod 700 "$sock_dir" >/dev/null 2>&1 || true
+
+if [[ -n "$npiperelay_path" ]] && command -v socat >/dev/null 2>&1 && [[ -x "$npiperelay_path" ]]; then
+  pkill -f 'socat.*npiperelay\.exe.*ssh-pageant' >/dev/null 2>&1 || true
+  rm -f "$sock" >/dev/null 2>&1 || true
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid -f socat EXEC:"\"$npiperelay_path\" -ei -s //./pipe/ssh-pageant" UNIX-LISTEN:"$sock",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1
+  else
+    nohup socat EXEC:"\"$npiperelay_path\" -ei -s //./pipe/ssh-pageant" UNIX-LISTEN:"$sock",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1 &
+  fi
+fi
+
+agent_ready=0
+for ((i=0; i<50; i++)); do
+  rc=0
+  timeout 2 ssh-add -l >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 || "$rc" -eq 1 ]]; then
+    agent_ready=1
+    break
+  fi
+  sleep 0.1
+done
+
+if [[ "$agent_ready" -ne 1 ]]; then
+  echo "WARN: SSH agent did not become ready; keeping existing key file." >&2
+  exit 1
+fi
+
+ssh_add_stdout="$(mktemp)"
+ssh_add_stderr="$(mktemp)"
+ssh_add_exit=0
+
+timeout 5 ssh-add -L >"$ssh_add_stdout" 2>"$ssh_add_stderr" || ssh_add_exit=$?
+
+if [[ "$ssh_add_exit" -eq 0 ]]; then
+  key_lines="$(<"$ssh_add_stdout")"
+  key_line=""
+  matched_comment=""
+
+  for ssh_key_comment in "${ssh_key_comments[@]}"; do
+    key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
+    if [[ -n "$key_line" ]]; then
+      matched_comment="$ssh_key_comment"
+      break
+    fi
+  done
+
+  if [[ -z "$key_line" ]]; then
+    key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
+  fi
+
+  if [[ -n "$key_line" ]]; then
+    printf '%s\n' "$key_line" >"$ssh_pub_key_file"
+    chmod 600 "$ssh_pub_key_file"
+    if [[ -z "$matched_comment" ]]; then
+      echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
+    fi
+    echo "INFO: refreshed $ssh_pub_key_file from SSH agent." >&2
+  else
+    echo "WARN: SSH agent returned no usable public keys for Ansible." >&2
+    rm -f "$ssh_add_stdout" "$ssh_add_stderr"
+    exit 1
+  fi
+else
+  if [[ "$ssh_add_exit" -eq 1 ]]; then
+    echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
+  elif [[ "$ssh_add_exit" -eq 124 ]]; then
+    echo "WARN: ssh-add -L timed out; SSH agent appears unhealthy." >&2
+  else
+    ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    if [[ -n "$ssh_add_error" ]]; then
+      echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit): $ssh_add_error" >&2
+    else
+      echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
+    fi
+  fi
+  rm -f "$ssh_add_stdout" "$ssh_add_stderr"
+  exit 1
+fi
+
+rm -f "$ssh_add_stdout" "$ssh_add_stderr"
+EOF
+
+  chmod 700 "$helper_path"
+}
+
 mkdir -p \
   /home/vscode/persistent-data \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
@@ -202,54 +314,10 @@ if [[ -f /tmp/host-dotfiles/dot_local/share/git-helpers.zsh ]]; then
     "$HOME/.local/share/git-helpers.zsh"
 fi
 
-ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
-ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
-if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
-  ssh_add_stdout="$(mktemp)"
-  ssh_add_stderr="$(mktemp)"
-  ssh_add_exit=0
-  ssh-add -L >"$ssh_add_stdout" 2>"$ssh_add_stderr" || ssh_add_exit=$?
-  if [[ "$ssh_add_exit" -eq 0 ]]; then
-    key_lines="$(cat "$ssh_add_stdout")"
-    key_line=""
-    matched_comment=""
+install_sset_helper
 
-    for ssh_key_comment in "${ssh_key_comments[@]}"; do
-      key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
-      if [[ -n "$key_line" ]]; then
-        matched_comment="$ssh_key_comment"
-        break
-      fi
-    done
-
-    if [[ -z "$key_line" ]]; then
-      key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
-    fi
-
-    if [[ -n "$key_line" ]]; then
-      printf '%s\n' "$key_line" >"$ssh_pub_key_file"
-      chmod 600 "$ssh_pub_key_file"
-      if [[ -z "$matched_comment" ]]; then
-        echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
-      fi
-    else
-      echo "WARN: SSH agent returned no usable public keys for Ansible." >&2
-    fi
-  else
-    if [[ "$ssh_add_exit" -eq 1 ]]; then
-      echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
-    else
-      ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-      if [[ -n "$ssh_add_error" ]]; then
-        echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit): $ssh_add_error" >&2
-      else
-        echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
-      fi
-    fi
-  fi
-  rm -f "$ssh_add_stdout" "$ssh_add_stderr"
-else
-  echo "WARN: SSH_AUTH_SOCK is missing or not a socket: ${SSH_AUTH_SOCK:-<unset>}" >&2
+if ! "$HOME/.local/bin/sset"; then
+  echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
 fi
 
 SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"
