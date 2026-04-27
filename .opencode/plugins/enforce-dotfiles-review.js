@@ -147,13 +147,10 @@ export default async (ctx = {}) => {
     return null;
   }
 
-  // ---- Debounced enforcement (so we run after edits settle) ----
-  // session.idle is the primary trigger. file.edited uses this debounce
-  // only as a fallback for sessions where session.idle never fires.
-  // Keep this long enough to clear any slow mid-turn tool calls (ansible,
-  // chezmoi apply, docker, etc.) to avoid injecting the review prompt
-  // while the agent is still actively editing.
-  const DEBOUNCE_MS = 15_000;
+  // ---- Debounced enforcement ----
+  // session.idle is the sole trigger. The debounce here only absorbs
+  // rapid idle/un-idle flaps — it does NOT need to span tool-call gaps.
+  const DEBOUNCE_MS = 500;
 
   let debounceTimer = null;
   let inFlight = false;
@@ -280,22 +277,11 @@ export default async (ctx = {}) => {
         return;
       }
 
-      // Main trigger: edits
+      // file.edited: sentinel is written by mark-needs-review-on-file-edited.js.
+      // Enforcement is triggered by session.idle only — do not schedule here.
+      // Triggering on file.edited races against mid-turn tool calls (cz-audit,
+      // chezmoi apply, etc.) which consume any debounce window.
       if (evt.type === "file.edited") {
-        const p = extractFilePath(evt);
-        // Allow the sentinel file(s) through; block other .opencode artifacts.
-        const pNorm = normalize(p);
-        const isSentinel =
-          pNorm.endsWith(`/.needs_dotfiles_review`) ||
-          pNorm.includes(`/.needs_dotfiles_review.`);
-        if (p && isOpencodeArtifact(p) && !isSentinel) return;
-        if (p && classifyPath(p) === "exempt-doc") return;
-
-        // Always schedule — the marker plugin may not have written the sentinel
-        // yet at this point (parallel handler execution creates a race if we
-        // pre-check getGatePath() here). enforceNow() re-checks after the
-        // debounce by which time the sentinel will exist.
-        scheduleEnforce("file.edited");
         return;
       }
 
