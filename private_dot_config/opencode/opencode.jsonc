@@ -238,7 +238,8 @@
               "reasoningSummary": "auto"
             }
           }
-        },      }
+        },
+      }
     },
 
     // Anthropic: API key from env
@@ -354,7 +355,7 @@
     "plan": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "temperature": 0.4,
@@ -372,7 +373,7 @@
     "plan-GPT-xhigh": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
@@ -390,8 +391,9 @@
     // Keep Build as a “manual interactive” agent.
     "build": {
       "mode": "primary",
-      "description": "Manual interactive build agent (ad-hoc coding).",
+      "description": "Default editing agent",
       "model": "openai/gpt-5.3-codex",
+      "reasoningEffort": "high",
       "temperature": 0.2,
       "prompt": "You are the default interactive build agent. Repo-level instructions (AGENTS.md or equivalent) take precedence over any global defaults. When no repo-specific guidance exists, apply good judgment for correctness, safety, and maintainability.",
       "permission": {
