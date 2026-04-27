@@ -34,12 +34,29 @@ git_pull_rebase_then_apply_stash() {
     local before after
     local tmpdir=""
     local preflight_log=""
+    local repo_root=""
+    local git_common_dir=""
 
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "Not inside a git repository."
         return 1
     fi
+
+    if ! repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+        echo "Failed to determine repository root."
+        return 1
+    fi
+
+    git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+
+    _gpls_temp_git() {
+        if [[ -n "$git_common_dir" ]]; then
+            git -c "safe.directory=$repo_root" -c "safe.directory=$tmpdir" -c "safe.directory=$git_common_dir" "$@"
+        else
+            git -c "safe.directory=$repo_root" -c "safe.directory=$tmpdir" "$@"
+        fi
+    }
 
     # If clean, just pull.
     if [[ -z "$(git status --porcelain)" ]]; then
@@ -86,7 +103,7 @@ git_pull_rebase_then_apply_stash() {
     _gpls_cleanup() {
         # Best-effort cleanup.
         if [[ -n "$tmpdir" ]]; then
-            git worktree remove --force "$tmpdir" >/dev/null 2>&1 || true
+            _gpls_temp_git worktree remove --force "$tmpdir" >/dev/null 2>&1 || true
             rm -rf "$tmpdir" >/dev/null 2>&1 || true
         fi
         if [[ -n "$preflight_log" ]]; then
@@ -109,11 +126,12 @@ git_pull_rebase_then_apply_stash() {
     if [[ $debug == true ]]; then
         print -r -- "[gpls $(date '+%H:%M:%S')] preflight stash apply" >&2
     fi
-    ( cd "$tmpdir" && git stash apply --index "$stash_ref" ) >"$preflight_log" 2>&1
+    ( cd "$tmpdir" && _gpls_temp_git stash apply --index "$stash_ref" ) >"$preflight_log" 2>&1
     local preflight_exit=$?
 
     local conflicts
-    conflicts=$(cd "$tmpdir" && git diff --name-only --diff-filter=U)
+    conflicts=$(cd "$tmpdir" && _gpls_temp_git diff --name-only --diff-filter=U 2>>"$preflight_log")
+    local diff_exit=$?
 
     local parsed_conflicts
     parsed_conflicts=$(awk '
@@ -129,7 +147,7 @@ git_pull_rebase_then_apply_stash() {
 
     conflicts=$( { echo "$conflicts"; echo "$parsed_conflicts"; } | sed '/^$/d' | LC_ALL=C sort -u )
 
-    if [[ -n "$conflicts" || $preflight_exit -ne 0 ]]; then
+    if [[ -n "$conflicts" || $preflight_exit -ne 0 || $diff_exit -ne 0 ]]; then
         echo "Stash apply would conflict; leaving stash intact: $stash_ref"
         if [[ -n "$conflicts" ]]; then
             echo "Conflicted files:"
@@ -137,6 +155,13 @@ git_pull_rebase_then_apply_stash() {
             if [[ $debug == true ]]; then
                 echo "Preflight output (first 300 lines):" >&2
                 sed -n '1,300p' "$preflight_log" >&2
+            fi
+        elif [[ $diff_exit -ne 0 ]]; then
+            echo "Could not determine conflicted files (git diff failed). Output:"
+            if [[ $debug == true ]]; then
+                sed -n '1,300p' "$preflight_log" >&2
+            else
+                sed -n '1,120p' "$preflight_log"
             fi
         else
             echo "Could not determine conflicted files. Output:"
