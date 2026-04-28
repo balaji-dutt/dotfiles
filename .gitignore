@@ -13,4 +13,5 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 .claude/.needs_dotfiles_review
 .cz-audit
 .opencode/*dotfiles*
+.opencode/review-loop.seed.json
 

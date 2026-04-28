@@ -1,0 +1,42 @@
+{
+  // Agent key in .opencode/config.json that performs the dotfiles review.
+  "reviewerAgent": "dotfiles-reviewer",
+
+  // The reviewer must end with exactly one of:
+  //   DOTFILES_REVIEWER_RESULT=PASS
+  //   DOTFILES_REVIEWER_RESULT=FAIL
+  "resultMarkerPrefix": "DOTFILES_REVIEWER_RESULT",
+
+  // Base filename for the session-scoped sentinel under .opencode/.
+  "sentinelBase": ".needs_dotfiles_review",
+
+  // Base filename for enforcer state JSON under .opencode/.
+  "enforcerStateBase": ".dotfiles_review_enforcer_state",
+
+  // Label used in toast messages and log output.
+  "reviewLabel": "Dotfiles",
+
+  // Files that should NOT trigger a review mark.
+  // docs/** is exempt (generated/informational docs), except docs/agents/
+  // which contains agent-facing docs that ARE reviewed.
+  "exemptPaths": [
+    "docs/**",
+    "!docs/agents/**",
+    "assets/README.md"
+  ],
+
+  // Only file.edited events trigger a review mark (default).
+  "watchEvents": [
+    "file.edited"
+  ],
+
+  // Legacy sentinel path written by the old Claude Code plugin.
+  // Cleared on PASS during migration period.
+  "legacyGatePaths": [
+    ".claude/.needs_dotfiles_review"
+  ],
+
+  // Set to "DOTFILES_REVIEW_GATE_DEBUG" and export it as "1" to enable
+  // debug logging in the gate plugin.
+  "debugEnvVar": "DOTFILES_REVIEW_GATE_DEBUG"
+}
