@@ -125,10 +125,12 @@ Configuration ownership is split intentionally:
 OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
 
 - Container user profiles are sourced from
-  `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/{chatgpt,copilot}/opencode.jsonc`.
+  `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/**/opencode.jsonc`
+  (for example `defaults`, `copilot`, `anthropic-api`, `api-fallback`).
 - `dot_zshrc` loads `~/.config/opencode/opencode-profile.sh`, which provides
-  `opencode-profile {show|chatgpt|copilot}` and exports `OPENCODE_CONFIG_DIR`
-  based on `OPENCODE_PROFILE`.
+  `opencode-profile {show|set <profiles...>|defaults|copilot|anthropic-api|api-fallback}`
+  and exports `OPENCODE_CONFIG_DIR` based on `OPENCODE_PROFILES` (legacy
+  `OPENCODE_PROFILE` remains supported for compatibility).
 - `postStart.sh`, `postCreate.sh`, and the profile switch hook run
   `opencode-sync-workspace-overrides` to regenerate Copilot-specific model
   overrides from workspace `.opencode/opencode.json|jsonc` when possible.

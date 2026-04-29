@@ -67,7 +67,7 @@ _opencode_profile_post_switch() {
   fi
 
   if command -v opencode-sync-workspace-overrides >/dev/null 2>&1; then
-    opencode-sync-workspace-overrides "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root" || true
+    opencode-sync-workspace-overrides "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$workspace_root" || true
   fi
 }
 

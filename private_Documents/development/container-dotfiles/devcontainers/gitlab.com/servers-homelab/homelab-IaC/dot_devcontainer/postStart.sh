@@ -34,13 +34,22 @@ load_opencode_env_file() {
   fi
 }
 
-read_opencode_profile_from_env_file() {
+read_opencode_profiles_from_env_file() {
   local env_file
   env_file="$1"
 
   [[ -r "$env_file" ]] || return 0
 
   awk '
+    /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ {
+      sub(/^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/, "", $0)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+      if ($0 ~ /^".*"$/ || $0 ~ /^\047.*\047$/) {
+        $0 = substr($0, 2, length($0) - 2)
+      }
+      print $0
+      exit
+    }
     /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ {
       sub(/^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/, "", $0)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
@@ -53,28 +62,94 @@ read_opencode_profile_from_env_file() {
   ' "$env_file"
 }
 
-write_opencode_profile_to_env_file() {
-  local env_file profile tmp_file
-  env_file="$1"
-  profile="$2"
+normalize_opencode_profiles() {
+  local raw token normalized joined restore_noglob invalid
+  raw="$1"
+  joined=""
+  invalid=0
 
-  [[ -n "$profile" ]] || return 0
+  if [[ -z "$raw" ]]; then
+    printf 'defaults\n'
+    return 0
+  fi
+
+  case $- in
+    *f*) restore_noglob=0 ;;
+    *)
+      restore_noglob=1
+      set -f
+      ;;
+  esac
+
+  for token in $raw; do
+    case "$token" in
+      ""|chatgpt)
+        normalized="defaults"
+        ;;
+      "."|".."|*[!A-Za-z0-9._-]*)
+        echo "WARN: Invalid OpenCode profile token in persisted settings: $token" >&2
+        invalid=1
+        break
+        ;;
+      *)
+        normalized="$token"
+        ;;
+    esac
+
+    case " $joined " in
+      *" $normalized "*) ;;
+      *) joined="${joined:+$joined }$normalized" ;;
+    esac
+  done
+
+  if [[ "$restore_noglob" -eq 1 ]]; then
+    set +f
+  fi
+
+  if [[ "$invalid" -eq 1 ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "${joined:-defaults}"
+}
+
+write_opencode_profiles_to_env_file() {
+  local env_file profiles profile tmp_file
+  env_file="$1"
+  profiles="$2"
+
+  if ! profiles="$(normalize_opencode_profiles "$profiles")"; then
+    return 1
+  fi
+  profile="${profiles%% *}"
+
+  [[ -n "$profiles" ]] || return 0
 
   tmp_file="$(mktemp "${env_file}.XXXXXX")"
 
   if [[ -r "$env_file" ]]; then
-    if ! awk -v profile="$profile" '
-      BEGIN { updated = 0 }
+    if ! awk -v profiles="$profiles" -v profile="$profile" '
+      BEGIN { updated_profiles = 0; updated_profile = 0 }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ {
+        if (!updated_profiles) {
+          printf "OPENCODE_PROFILES=\"%s\"\n", profiles
+          updated_profiles = 1
+        }
+        next
+      }
       /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ {
-        if (!updated) {
+        if (!updated_profile) {
           printf "OPENCODE_PROFILE=%s\n", profile
-          updated = 1
+          updated_profile = 1
         }
         next
       }
       { print }
       END {
-        if (!updated) {
+        if (!updated_profiles) {
+          printf "OPENCODE_PROFILES=\"%s\"\n", profiles
+        }
+        if (!updated_profile) {
           printf "OPENCODE_PROFILE=%s\n", profile
         }
       }
@@ -83,7 +158,10 @@ write_opencode_profile_to_env_file() {
       return 1
     fi
   else
-    printf 'OPENCODE_PROFILE=%s\n' "$profile" > "$tmp_file"
+    {
+      printf 'OPENCODE_PROFILES="%s"\n' "$profiles"
+      printf 'OPENCODE_PROFILE=%s\n' "$profile"
+    } > "$tmp_file"
   fi
 
   if ! mv -f "$tmp_file" "$env_file"; then
@@ -280,13 +358,17 @@ else
 fi
 
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then
-  persisted_opencode_profile="$(read_opencode_profile_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"
+  persisted_opencode_profiles="$(read_opencode_profiles_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"
   install -m 0600 /tmp/host-container-configs/opencode.env \
     /home/vscode/persistent-data/opencode/config/opencode.env
 
-  if [[ -n "${persisted_opencode_profile:-}" ]]; then
-    if ! write_opencode_profile_to_env_file /home/vscode/persistent-data/opencode/config/opencode.env "$persisted_opencode_profile"; then
-      echo "WARN: Failed preserving OPENCODE_PROFILE in refreshed opencode.env." >&2
+  if [[ -n "${persisted_opencode_profiles:-}" ]]; then
+    if normalized_persisted_profiles="$(normalize_opencode_profiles "$persisted_opencode_profiles")"; then
+      if ! write_opencode_profiles_to_env_file /home/vscode/persistent-data/opencode/config/opencode.env "$normalized_persisted_profiles"; then
+        echo "WARN: Failed preserving OpenCode profile settings in refreshed opencode.env." >&2
+      fi
+    else
+      echo "WARN: Skipping invalid persisted OpenCode profile settings." >&2
     fi
   fi
 else
@@ -298,7 +380,7 @@ load_opencode_env_file
 if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
   install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
     "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$workspace_root"; then
+  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$workspace_root"; then
     echo "WARN: OpenCode workspace override sync failed." >&2
   fi
 else

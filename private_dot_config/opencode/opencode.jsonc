@@ -153,7 +153,9 @@
     "quotaToast": {
       "enabledProviders": [
         "copilot",
-        "openai"
+        "openai",
+        "anthropic",
+        "opencode-go"
       ]
     }
   },
@@ -178,6 +180,7 @@
     "@gotgenes/opencode-agent-identity@latest",
     "cc-safety-net@latest",
     "envsitter-guard@latest",
+    "opencode-claude-bridge@latest",
     "@slkiser/opencode-quota@latest",
     "opencode-pty@latest",
     "opencode-websearch-cited@1.2.0"
@@ -252,6 +255,34 @@
         "claude-haiku-4-6": {},
         "claude-sonnet-4-6": {},
         "claude-opus-4-6": {}
+      }
+    },
+
+    "anthropic-api": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "Anthropic API",
+      "options": {
+        "apiKey": "{env:ANTHROPIC_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "claude-haiku-4-6": {},
+        "claude-sonnet-4-6": {},
+        "claude-opus-4-6": {}
+      }
+    },
+
+    "opencode-go": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenCode Go",
+      "options": {
+        "baseURL": "https://opencode.ai/zen/go/v1",
+        "apiKey": "{env:OPENCODE_API_KEY}",
+        "timeout": 600000
+      },
+      "models": {
+        "kimi-k2.6": {},
+        "kimi-k2.5": {}
       }
     },
 
@@ -338,6 +369,20 @@
           "options": {
             "reasoning": {
               "effort": "high",
+              "enabled": true
+            }
+          }
+        },
+        "moonshotai/kimi-k2.6": {
+          "options": {
+            "reasoning": {
+              "enabled": true
+            }
+          }
+        },
+        "moonshotai/kimi-k2.5": {
+          "options": {
+            "reasoning": {
               "enabled": true
             }
           }
@@ -432,7 +477,7 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "github-copilot/claude-sonnet-4.6",
+      "model": "anthropic/claude-opus-4-6",
       "thinking": {
         "type": "enabled",
         "budgetTokens": 10000

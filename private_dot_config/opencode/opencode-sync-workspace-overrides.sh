@@ -1,80 +1,133 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-profile="${1:-${OPENCODE_PROFILE:-chatgpt}}"
+normalize_profile() {
+  local name
+  name="$1"
+  case "$name" in
+    ""|chatgpt)
+      printf 'defaults\n'
+      ;;
+    "."|".."|*[!A-Za-z0-9._-]*)
+      printf 'ERROR: Invalid OpenCode profile: %s\n' "$name" >&2
+      return 1
+      ;;
+    *)
+      printf '%s\n' "$name"
+      ;;
+  esac
+}
+
+resolve_profile_stack() {
+  local raw token normalized restore_noglob invalid
+  local -a stack=()
+  invalid=0
+
+  raw="${1:-${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}}"
+
+  case $- in
+    *f*) restore_noglob=0 ;;
+    *)
+      restore_noglob=1
+      set -f
+      ;;
+  esac
+
+  for token in $raw; do
+    if ! normalized="$(normalize_profile "$token")"; then
+      invalid=1
+      break
+    fi
+    [[ -n "$normalized" ]] || continue
+    case " ${stack[*]} " in
+      *" $normalized "*) ;;
+      *) stack+=("$normalized") ;;
+    esac
+  done
+
+  if [[ "$restore_noglob" -eq 1 ]]; then
+    set +f
+  fi
+
+  if [[ "$invalid" -eq 1 ]]; then
+    return 1
+  fi
+
+  if [[ "${#stack[@]}" -eq 0 ]]; then
+    stack=("defaults")
+  fi
+
+  printf '%s\n' "${stack[*]}"
+}
+
+profile_arg="${1:-${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}}"
 workspace_root="${2:-}"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-profile_dir="$config_home/opencode/profiles/$profile"
 
-if [[ ! -d "$profile_dir" ]]; then
-  exit 0
+if ! profiles_joined="$(resolve_profile_stack "$profile_arg")"; then
+  exit 1
 fi
-
-if [[ "$profile" != "copilot" ]]; then
-  printf '%s\n' "$profile_dir"
-  exit 0
-fi
+read -r -a profiles <<< "$profiles_joined"
 
 if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
   workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 fi
 
-if [[ -z "$workspace_root" ]]; then
-  printf '%s\n' "$profile_dir"
-  exit 0
-fi
-
 workspace_opencode_json=""
-if [[ -f "$workspace_root/.opencode/opencode.json" ]]; then
-  workspace_opencode_json="$workspace_root/.opencode/opencode.json"
-elif [[ -f "$workspace_root/.opencode/opencode.jsonc" ]]; then
-  workspace_opencode_json="$workspace_root/.opencode/opencode.jsonc"
+if [[ -n "$workspace_root" ]]; then
+  if [[ -f "$workspace_root/.opencode/opencode.json" ]]; then
+    workspace_opencode_json="$workspace_root/.opencode/opencode.json"
+  elif [[ -f "$workspace_root/.opencode/opencode.jsonc" ]]; then
+    workspace_opencode_json="$workspace_root/.opencode/opencode.jsonc"
+  fi
 fi
 
-if [[ -z "$workspace_opencode_json" ]]; then
-  printf '%s\n' "$profile_dir"
+global_opencode_json=""
+if [[ -f "$config_home/opencode/opencode.json" ]]; then
+  global_opencode_json="$config_home/opencode/opencode.json"
+elif [[ -f "$config_home/opencode/opencode.jsonc" ]]; then
+  global_opencode_json="$config_home/opencode/opencode.jsonc"
+fi
+
+defaults_profile_config="$config_home/opencode/profiles/defaults/opencode.jsonc"
+if [[ ! -f "$defaults_profile_config" ]]; then
+  defaults_profile_config="$config_home/opencode/profiles/${profiles[0]}/opencode.jsonc"
+fi
+
+if [[ ! -f "$defaults_profile_config" ]]; then
+  printf '%s\n' "$config_home/opencode/profiles/${profiles[0]}"
   exit 0
 fi
 
-base_profile_config="$profile_dir/opencode.jsonc"
-if [[ ! -f "$base_profile_config" ]]; then
-  printf '%s\n' "$profile_dir"
-  exit 0
-fi
+profiles_key="${profiles_joined// /--}"
+profiles_key="${profiles_key//\//_}"
+profiles_key="${profiles_key//:/_}"
 
-workspace_hash="$({
-  printf '%s' "$workspace_root" | shasum -a 256 2>/dev/null | awk '{print substr($1,1,16)}'
-} || true)"
-
-if [[ -z "$workspace_hash" ]]; then
-  export WORKSPACE_ROOT="$workspace_root"
-  workspace_hash="$(python3 - <<'PY'
+workspace_scope="${workspace_root:-$PWD}"
+workspace_hash="$(
+  WORKSPACE_ROOT="$workspace_scope" python3 - <<'PY'
 import hashlib
 import os
 
 workspace = os.environ.get("WORKSPACE_ROOT", "")
 print(hashlib.sha256(workspace.encode("utf-8")).hexdigest()[:16])
 PY
-  )"
-fi
+)"
 
-if [[ -z "$workspace_hash" ]]; then
-  printf '%s\n' "$profile_dir"
-  exit 0
-fi
-
-runtime_dir="$config_home/opencode/runtime/$profile/$workspace_hash"
+runtime_dir="$config_home/opencode/runtime/$profiles_key/$workspace_hash"
 mkdir -p "$runtime_dir"
 
 active_profile_config="$runtime_dir/opencode.jsonc"
 
-export OPENCODE_BASE_PROFILE_CONFIG="$base_profile_config"
+export OPENCODE_BASE_PROFILE_CONFIG="$defaults_profile_config"
 export OPENCODE_ACTIVE_PROFILE_CONFIG="$active_profile_config"
 export OPENCODE_WORKSPACE_CONFIG="$workspace_opencode_json"
-export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.4=gpt-5.4,gpt-5.3-codex=gpt-5.3-codex,gpt-5.2=gpt-5.2,gpt-5.2-high=gpt-5.2-high,gpt-5.2-xhigh=gpt-5.2-xhigh}"
+export OPENCODE_GLOBAL_CONFIG="$global_opencode_json"
+export OPENCODE_PROFILES_STACK="$profiles_joined"
+export OPENCODE_CONFIG_HOME="$config_home"
+export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.5=gpt-5.4,gpt-5.4=gpt-5.4,gpt-5.3-codex=gpt-5.3-codex,gpt-5.2=gpt-5.2,gpt-5.2-high=gpt-5.2-high,gpt-5.2-xhigh=gpt-5.2-xhigh}"
 
-python_exit=0
-python3 <<'PY' || python_exit=$?
+python3 <<'PY'
 import json
 import os
 import sys
@@ -167,9 +220,63 @@ def parse_jsonc(path: Path) -> dict:
     return json.loads(strip_jsonc_trailing_commas(stripped))
 
 
+def deep_merge(dst: dict, src: dict) -> dict:
+    for key, value in src.items():
+        if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
+            deep_merge(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
+
+
+def remap_openai_to_copilot(agent_cfg: dict, mapping: dict) -> None:
+    for _name, cfg in agent_cfg.items():
+        if not isinstance(cfg, dict):
+            continue
+        model = cfg.get("model")
+        if not isinstance(model, str) or not model.startswith("openai/"):
+            continue
+        model_id = model.split("/", 1)[1]
+        mapped = mapping.get(model_id)
+        if mapped:
+            cfg["model"] = f"github-copilot/{mapped}"
+
+
+def remap_anthropic_to_api(agent_cfg: dict) -> None:
+    for _name, cfg in agent_cfg.items():
+        if not isinstance(cfg, dict):
+            continue
+        model = cfg.get("model")
+        if isinstance(model, str) and model.startswith("anthropic/"):
+            cfg["model"] = f"anthropic-api/{model.split('/', 1)[1]}"
+
+
+def apply_api_fallback(agent_cfg: dict) -> None:
+    fallback_map = {
+        "moonshot/kimi-k2.6": "openrouter/moonshotai/kimi-k2.6",
+        "moonshot/kimi-k2.5": "openrouter/moonshotai/kimi-k2.5",
+        "moonshot/kimi-k2-thinking": "openrouter/moonshotai/kimi-k2.6",
+        "opencode-go/kimi-k2.6": "openrouter/moonshotai/kimi-k2.6",
+        "opencode-go/kimi-k2.5": "openrouter/moonshotai/kimi-k2.5",
+        "google/gemini-3-pro-preview": "openrouter/z-ai/glm-5.1:exacto",
+    }
+    for _name, cfg in agent_cfg.items():
+        if not isinstance(cfg, dict):
+            continue
+        model = cfg.get("model")
+        if isinstance(model, str) and model in fallback_map:
+            cfg["model"] = fallback_map[model]
+
+
 base_path = Path(os.environ["OPENCODE_BASE_PROFILE_CONFIG"])
 active_path = Path(os.environ["OPENCODE_ACTIVE_PROFILE_CONFIG"])
-workspace_path = Path(os.environ["OPENCODE_WORKSPACE_CONFIG"])
+workspace_raw = os.environ.get("OPENCODE_WORKSPACE_CONFIG", "").strip()
+global_raw = os.environ.get("OPENCODE_GLOBAL_CONFIG", "").strip()
+profiles = [p for p in os.environ.get("OPENCODE_PROFILES_STACK", "defaults").split() if p]
+config_home = Path(os.environ["OPENCODE_CONFIG_HOME"])
+
+global_path = Path(global_raw) if global_raw else None
+base_source = global_path if global_path and global_path.is_file() else base_path
 
 mapping = {}
 for pair in os.environ.get("OPENCODE_MODEL_MAP", "").split(","):
@@ -183,42 +290,83 @@ for pair in os.environ.get("OPENCODE_MODEL_MAP", "").split(","):
         mapping[src] = dst
 
 try:
-    base_cfg = parse_jsonc(base_path)
-    workspace_cfg = parse_jsonc(workspace_path)
+    merged = parse_jsonc(base_source)
 except Exception as exc:  # noqa: BLE001
-    print(f"ERROR: Failed to parse OpenCode JSONC: {exc}", file=sys.stderr)
+    print(f"ERROR: Failed to parse base OpenCode JSONC: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
-generated_agent_overrides = {}
-for name, cfg in workspace_cfg.get("agent", {}).items():
+if not isinstance(merged, dict):
+    merged = {}
+
+if base_source != base_path and base_path.is_file():
+    try:
+        base_overlay = parse_jsonc(base_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERROR: Failed to parse defaults profile JSONC: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    if isinstance(base_overlay, dict):
+        deep_merge(merged, base_overlay)
+
+for profile in profiles:
+    profile = "defaults" if profile == "chatgpt" else profile
+    if profile == "defaults":
+        continue
+    profile_cfg = config_home / "opencode" / "profiles" / profile / "opencode.jsonc"
+    if profile_cfg.is_file():
+        try:
+            profile_data = parse_jsonc(profile_cfg)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR: Failed to parse profile JSONC ({profile}): {exc}", file=sys.stderr)
+            raise SystemExit(1)
+        if isinstance(profile_data, dict):
+            deep_merge(merged, profile_data)
+
+for cfg_path_raw in [workspace_raw]:
+    if not cfg_path_raw:
+        continue
+    cfg_path = Path(cfg_path_raw)
+    if not cfg_path.is_file():
+        continue
+    try:
+        cfg = parse_jsonc(cfg_path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERROR: Failed to parse OpenCode JSONC ({cfg_path}): {exc}", file=sys.stderr)
+        raise SystemExit(1)
     if not isinstance(cfg, dict):
         continue
-    model = cfg.get("model")
-    if not isinstance(model, str) or not model.startswith("openai/"):
+    agents = cfg.get("agent", {})
+    if not isinstance(agents, dict):
         continue
-    model_id = model.split("/", 1)[1]
-    mapped = mapping.get(model_id)
-    if not mapped:
-        continue
-    generated_agent_overrides[name] = {"model": f"github-copilot/{mapped}"}
+    merged_agents = merged.setdefault("agent", {})
+    if not isinstance(merged_agents, dict):
+        merged["agent"] = {}
+        merged_agents = merged["agent"]
+    for name, agent_cfg in agents.items():
+        if not isinstance(agent_cfg, dict):
+            continue
+        model = agent_cfg.get("model")
+        if not isinstance(model, str):
+            continue
+        if isinstance(merged_agents.get(name), dict):
+            merged_agents[name]["model"] = model
+        else:
+            merged_agents[name] = {"model": model}
 
-if not generated_agent_overrides:
-    raise SystemExit(42)
+agents_cfg = merged.setdefault("agent", {})
+if not isinstance(agents_cfg, dict):
+    merged["agent"] = {}
+    agents_cfg = merged["agent"]
 
-merged_cfg = base_cfg
-merged_cfg.setdefault("agent", {}).update(generated_agent_overrides)
-active_path.write_text(json.dumps(merged_cfg, indent=2) + "\n", encoding="utf-8")
+if "copilot" in profiles:
+    remap_openai_to_copilot(agents_cfg, mapping)
+
+if "anthropic-api" in profiles:
+    remap_anthropic_to_api(agents_cfg)
+
+if "api-fallback" in profiles:
+    apply_api_fallback(agents_cfg)
+
+active_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
 PY
 
-if [[ "$python_exit" -eq 0 ]]; then
-  printf '%s\n' "$runtime_dir"
-  exit 0
-fi
-
-if [[ "$python_exit" -eq 42 ]]; then
-  printf '%s\n' "$profile_dir"
-  exit 0
-fi
-
-echo "WARN: OpenCode workspace override generation failed; falling back to static profile." >&2
-printf '%s\n' "$profile_dir"
+printf '%s\n' "$runtime_dir"

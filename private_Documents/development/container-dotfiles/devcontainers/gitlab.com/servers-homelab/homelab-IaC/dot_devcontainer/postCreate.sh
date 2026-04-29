@@ -366,7 +366,7 @@ step "Refresh OpenCode workspace model overrides"
 if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
   install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
     "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILE:-chatgpt}" "$WORKSPACE_PATH"; then
+  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$WORKSPACE_PATH"; then
     echo "WARN: OpenCode workspace override sync failed."
   fi
 else
