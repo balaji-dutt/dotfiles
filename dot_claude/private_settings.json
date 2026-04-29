@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "plan",
     "allow": [
       "Bash(docker ps:*)",
       "Bash(docker images:*)",
@@ -113,7 +112,10 @@
       "Bash(git reset --hard:*)",
       "Bash(exec < /dev/tcp/:*)",
       "Bash(exec > /dev/tcp/:*)"
-    ]
+    ],
+    "defaultMode": "plan"
   },
-  "alwaysThinkingEnabled": true
+  "model": "claude-opus-4-6",
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high"
 }
