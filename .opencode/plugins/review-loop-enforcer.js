@@ -1,6 +1,6 @@
 // review-loop-enforcer.js
 // On session.idle, checks for a review sentinel and injects a prompt to run
-// the configured reviewer agent. Configured via .opencode/review-loop.config.jsonc.
+// the configured reviewer agent. Configured via .opencode/opencode-tooling.config.jsonc.
 import { stat, readFile, writeFile, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -40,9 +40,12 @@ function parseJsonc(src) {
 
 // ── Config loader ─────────────────────────────────────────────────────────────
 async function loadConfig(baseDir) {
-  const cfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
+  const cfgPath = path.join(baseDir, ".opencode", "opencode-tooling.config.jsonc");
+  const legacyCfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
   try {
-    const raw = await readFile(cfgPath, "utf8");
+    let raw;
+    try { raw = await readFile(cfgPath, "utf8"); }
+    catch { raw = await readFile(legacyCfgPath, "utf8"); }
     const cfg = parseJsonc(raw);
     const required = [
       "reviewerAgent",

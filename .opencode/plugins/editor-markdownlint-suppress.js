@@ -10,7 +10,7 @@
 // no corresponding tool or lifecycle event.
 //
 // Configuration (optional):
-//   Add "editorSuppressHeader" to .opencode/review-loop.config.jsonc.
+//   Add "editorSuppressHeader" to .opencode/opencode-tooling.config.jsonc.
 //   Falls back to <!-- markdownlint-disable --> if absent or unreadable.
 //
 // Opt-out:
@@ -62,9 +62,12 @@ function parseJsonc(src) {
 
 // ── Config loader ─────────────────────────────────────────────────────────────
 async function loadHeader(baseDir) {
-  const cfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
+  const cfgPath = path.join(baseDir, ".opencode", "opencode-tooling.config.jsonc");
+  const legacyCfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
   try {
-    const raw = await readFile(cfgPath, "utf8");
+    let raw;
+    try { raw = await readFile(cfgPath, "utf8"); }
+    catch { raw = await readFile(legacyCfgPath, "utf8"); }
     const cfg = parseJsonc(raw);
     if (typeof cfg.editorSuppressHeader === "string" && cfg.editorSuppressHeader.trim()) {
       const h = cfg.editorSuppressHeader;

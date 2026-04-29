@@ -1,6 +1,6 @@
 // review-loop-marker.js
 // Watches for file edits and writes a session-scoped sentinel file to signal
-// that a review is required. Configured via .opencode/review-loop.config.jsonc.
+// that a review is required. Configured via .opencode/opencode-tooling.config.jsonc.
 import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -48,9 +48,12 @@ function parseJsonc(src) {
 
 // ── Config loader ─────────────────────────────────────────────────────────────
 async function loadConfig(baseDir) {
-  const cfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
+  const cfgPath = path.join(baseDir, ".opencode", "opencode-tooling.config.jsonc");
+  const legacyCfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
   try {
-    const raw = await readFile(cfgPath, "utf8");
+    let raw;
+    try { raw = await readFile(cfgPath, "utf8"); }
+    catch { raw = await readFile(legacyCfgPath, "utf8"); }
     const cfg = parseJsonc(raw);
     const required = [
       "reviewerAgent",

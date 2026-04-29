@@ -8,7 +8,7 @@
 //   - tool.execute.after  (covers task/agent calls)
 //   - message.updated / message.part.updated  (covers inline assistant output)
 //
-// Configured via .opencode/review-loop.config.jsonc.
+// Configured via .opencode/opencode-tooling.config.jsonc.
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -48,9 +48,12 @@ function parseJsonc(src) {
 
 // ── Config loader ─────────────────────────────────────────────────────────────
 async function loadConfig(baseDir) {
-  const cfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
+  const cfgPath = path.join(baseDir, ".opencode", "opencode-tooling.config.jsonc");
+  const legacyCfgPath = path.join(baseDir, ".opencode", "review-loop.config.jsonc");
   try {
-    const raw = await fs.readFile(cfgPath, "utf8");
+    let raw;
+    try { raw = await fs.readFile(cfgPath, "utf8"); }
+    catch { raw = await fs.readFile(legacyCfgPath, "utf8"); }
     const cfg = parseJsonc(raw);
     const required = [
       "reviewerAgent",

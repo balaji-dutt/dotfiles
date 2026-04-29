@@ -25,9 +25,12 @@
     "assets/README.md"
   ],
 
-  // Only file.edited events trigger a review mark (default).
+  // Changes can also arise from deletions, renames, and moves.
   "watchEvents": [
-    "file.edited"
+    "file.edited",
+    "file.deleted",
+    "file.renamed",
+    "file.moved"
   ],
 
   // Legacy sentinel path written by the old Claude Code plugin.
@@ -38,5 +41,9 @@
 
   // Set to "DOTFILES_REVIEW_GATE_DEBUG" and export it as "1" to enable
   // debug logging in the gate plugin.
-  "debugEnvVar": "DOTFILES_REVIEW_GATE_DEBUG"
+  "debugEnvVar": "DOTFILES_REVIEW_GATE_DEBUG",
+
+  // Comment injected at the top of temp .md files opened by the /editor command.
+  // Prevents the VSCode markdownlint extension from firing spurious warnings.
+  "editorSuppressHeader": "<!-- markdownlint-disable MD041 MD013 MD034 MD009 MD047 -->"
 }
