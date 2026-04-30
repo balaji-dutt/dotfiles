@@ -22,6 +22,18 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-04-30
+
+- gotcha: A stale `~/.config/opencode/opencode.json` with `"plugin": []`
+  shadowed the real `opencode.jsonc` during runtime profile merge, causing
+  `/status` to show no loaded plugins.
+- decision: Updated both host and homelab devcontainer
+  `opencode-sync-workspace-overrides.sh` flows to prefer JSONC as the global
+  base config, remove legacy `opencode.json`, and keep merged runtime output as
+  `opencode.jsonc`.
+- decision: Updated homelab devcontainer `postStart.sh` to delete persisted
+  legacy `opencode.json` so startup converges on JSONC-only config state.
+
 ## 2026-04-26
 
 - decision: Added `renovate.json5` to global `.chezmoiignore` excludes and

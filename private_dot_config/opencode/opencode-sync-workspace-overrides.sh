@@ -75,18 +75,26 @@ fi
 
 workspace_opencode_json=""
 if [[ -n "$workspace_root" ]]; then
-  if [[ -f "$workspace_root/.opencode/opencode.json" ]]; then
-    workspace_opencode_json="$workspace_root/.opencode/opencode.json"
-  elif [[ -f "$workspace_root/.opencode/opencode.jsonc" ]]; then
+  if [[ -f "$workspace_root/.opencode/opencode.jsonc" ]]; then
     workspace_opencode_json="$workspace_root/.opencode/opencode.jsonc"
+  elif [[ -f "$workspace_root/.opencode/opencode.json" ]]; then
+    workspace_opencode_json="$workspace_root/.opencode/opencode.json"
   fi
 fi
 
 global_opencode_json=""
-if [[ -f "$config_home/opencode/opencode.json" ]]; then
-  global_opencode_json="$config_home/opencode/opencode.json"
-elif [[ -f "$config_home/opencode/opencode.jsonc" ]]; then
+if [[ -f "$config_home/opencode/opencode.jsonc" ]]; then
   global_opencode_json="$config_home/opencode/opencode.jsonc"
+fi
+
+if [[ -f "$config_home/opencode/opencode.json" ]]; then
+  if [[ -f "$config_home/opencode/opencode.jsonc" ]]; then
+    rm -f "$config_home/opencode/opencode.json"
+    echo "WARN: Removed legacy $config_home/opencode/opencode.json; using opencode.jsonc." >&2
+  else
+    global_opencode_json="$config_home/opencode/opencode.json"
+    echo "WARN: Keeping legacy $config_home/opencode/opencode.json because opencode.jsonc is missing." >&2
+  fi
 fi
 
 defaults_profile_config="$config_home/opencode/profiles/defaults/opencode.jsonc"
@@ -116,6 +124,11 @@ PY
 
 runtime_dir="$config_home/opencode/runtime/$profiles_key/$workspace_hash"
 mkdir -p "$runtime_dir"
+
+if [[ -f "$runtime_dir/opencode.json" ]]; then
+  rm -f "$runtime_dir/opencode.json"
+  echo "WARN: Removed legacy $runtime_dir/opencode.json; using opencode.jsonc." >&2
+fi
 
 active_profile_config="$runtime_dir/opencode.jsonc"
 

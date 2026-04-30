@@ -341,6 +341,15 @@ else
   echo "WARN: OpenCode config not found; keeping existing config." >&2
 fi
 
+if [[ -f /home/vscode/persistent-data/opencode/config/opencode.json ]]; then
+  if [[ -f /home/vscode/persistent-data/opencode/config/opencode.jsonc ]]; then
+    rm -f /home/vscode/persistent-data/opencode/config/opencode.json
+    echo "WARN: Removed legacy /home/vscode/persistent-data/opencode/config/opencode.json; using opencode.jsonc." >&2
+  else
+    echo "WARN: Keeping legacy /home/vscode/persistent-data/opencode/config/opencode.json because opencode.jsonc is missing." >&2
+  fi
+fi
+
 if [[ -f /home/vscode/.host-dotfiles/.config/opencode/opencode-notifier.json ]]; then
   install -m 0644 /home/vscode/.host-dotfiles/.config/opencode/opencode-notifier.json \
     /home/vscode/persistent-data/opencode/config/opencode-notifier.json
