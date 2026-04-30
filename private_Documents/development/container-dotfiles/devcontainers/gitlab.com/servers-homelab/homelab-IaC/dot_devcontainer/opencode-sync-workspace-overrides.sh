@@ -382,13 +382,10 @@ for cfg_path_raw in [workspace_raw]:
     for name, agent_cfg in agents.items():
         if not isinstance(agent_cfg, dict):
             continue
-        model = agent_cfg.get("model")
-        if not isinstance(model, str):
-            continue
         if isinstance(merged_agents.get(name), dict):
-            merged_agents[name]["model"] = model
+            deep_merge(merged_agents[name], agent_cfg)
         else:
-            merged_agents[name] = {"model": model}
+            merged_agents[name] = dict(agent_cfg)
 
 agents_cfg = merged.setdefault("agent", {})
 if not isinstance(agents_cfg, dict):

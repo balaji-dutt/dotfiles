@@ -132,8 +132,9 @@ OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
   and exports `OPENCODE_CONFIG_DIR` based on `OPENCODE_PROFILES` (legacy
   `OPENCODE_PROFILE` remains supported for compatibility).
 - `postStart.sh`, `postCreate.sh`, and the profile switch hook run
-  `opencode-sync-workspace-overrides` to regenerate Copilot-specific model
-  overrides from workspace `.opencode/opencode.json|jsonc` when possible.
+  `opencode-sync-workspace-overrides` to regenerate profile-specific and
+  workspace agent overrides (model, prompt, and other agent fields) from
+  workspace `.opencode/opencode.json|jsonc` when possible.
 
 Workspace `.opencode` sync is template-whitelist based:
 
