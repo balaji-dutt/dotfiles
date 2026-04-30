@@ -31,11 +31,27 @@ function Invoke-WithScopedEnv {
   }
 }
 
+function Resolve-ExternalCommandSource {
+  param([Parameter(Mandatory)][string]$Name)
+
+  $commands = @(Get-Command $Name -CommandType Application,ExternalScript -All -ErrorAction SilentlyContinue)
+  if (-not $commands -or $commands.Count -eq 0) {
+    return $null
+  }
+
+  $preferred = $commands | Where-Object { $_.Source -match '\.exe$' } | Select-Object -First 1
+  if ($preferred) {
+    return $preferred.Source
+  }
+
+  return ($commands | Select-Object -First 1).Source
+}
+
 function global:claude {
   param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
 
-  $cmd = Get-Command claude -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
-  if (-not $cmd) {
+  $cmdSource = Resolve-ExternalCommandSource -Name 'claude'
+  if (-not $cmdSource) {
     Write-Error "claude executable not found in PATH"
     return
   }
@@ -43,25 +59,22 @@ function global:claude {
   $cliArgs = $Args
 
   Invoke-WithScopedEnv -Env @{
-    ANTHROPIC_BASE_URL    = 'http://127.0.0.1:3456'
-    ANTHROPIC_AUTH_TOKEN  = 'test'
     ANTHROPIC_API_KEY     = ''
-    NO_PROXY              = '127.0.0.1'
     DISABLE_TELEMETRY     = 'true'
     DISABLE_COST_WARNINGS = 'true'
     API_TIMEOUT_MS        = '600000'
-  } -ScriptBlock { & $cmd.Source @cliArgs }
+  } -ScriptBlock { & $cmdSource @cliArgs }
 }
 
 function global:claude_raw {
   param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Args)
 
-  $cmd = Get-Command claude -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
-  if (-not $cmd) {
+  $cmdSource = Resolve-ExternalCommandSource -Name 'claude'
+  if (-not $cmdSource) {
     Write-Error "claude executable not found in PATH"
     return
   }
 
-  & $cmd.Source @Args
+  & $cmdSource @Args
 }
 {{- end -}}
