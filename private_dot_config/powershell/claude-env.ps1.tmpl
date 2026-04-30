@@ -15,7 +15,12 @@ function Invoke-WithScopedEnv {
   foreach ($k in $Env.Keys) {
     $had[$k] = Test-Path "Env:$k"
     $prev[$k] = if ($had[$k]) { (Get-Item "Env:$k").Value } else { $null }
-    Set-Item -Path "Env:$k" -Value $Env[$k]
+
+    if ($null -eq $Env[$k]) {
+      Remove-Item -Path "Env:$k" -ErrorAction SilentlyContinue
+    } else {
+      Set-Item -Path "Env:$k" -Value $Env[$k]
+    }
   }
 
   try {
@@ -59,7 +64,7 @@ function global:claude {
   $cliArgs = $Args
 
   Invoke-WithScopedEnv -Env @{
-    ANTHROPIC_API_KEY     = ''
+    ANTHROPIC_API_KEY     = $null
     DISABLE_TELEMETRY     = 'true'
     DISABLE_COST_WARNINGS = 'true'
     API_TIMEOUT_MS        = '600000'
