@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-02-21T22:41:49.232+08:00",
+  "CreationDate": "2026-05-01T01:50:22.585+08:00",
   "Sources": [
     {
       "Packages": [
@@ -41,9 +41,6 @@
           "PackageIdentifier": "Notepad++.Notepad++"
         },
         {
-          "PackageIdentifier": "Parsec.ParsecVUD"
-        },
-        {
           "PackageIdentifier": "SublimeHQ.SublimeMerge"
         },
         {
@@ -68,13 +65,7 @@
           "PackageIdentifier": "Microsoft.VCRedist.2010.x64"
         },
         {
-          "PackageIdentifier": "Maximus5.ConEmu"
-        },
-        {
           "PackageIdentifier": "RoyalApps.RoyalTS.7"
-        },
-        {
-          "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
           "PackageIdentifier": "Apple.Bonjour"
@@ -92,13 +83,19 @@
           "PackageIdentifier": "Apple.AppleApplicationSupport.x64"
         },
         {
-          "PackageIdentifier": "GlavSoft.TightVNC"
+          "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
           "PackageIdentifier": "Starship.Starship"
         },
         {
-          "PackageIdentifier": "Adobe.Acrobat.Reader.64-bit"
+          "PackageIdentifier": "filips.FirefoxPWA"
+        },
+        {
+          "PackageIdentifier": "Adobe.Acrobat.Pro"
+        },
+        {
+          "PackageIdentifier": "GlavSoft.TightVNC"
         },
         {
           "PackageIdentifier": "SiberSystems.GoodSync"
@@ -107,16 +104,13 @@
           "PackageIdentifier": "Nvidia.PhysX"
         },
         {
-          "PackageIdentifier": "Apple.AppleMobileDeviceSupport"
-        },
-        {
-          "PackageIdentifier": "Zoom.ZoomVDIUniversalPlugin"
-        },
-        {
           "PackageIdentifier": "Insta360.Link.Controller"
         },
         {
-          "PackageIdentifier": "Microsoft.PowerShell"
+          "PackageIdentifier": "Maximus5.ConEmu"
+        },
+        {
+          "PackageIdentifier": "Zoom.ZoomVDIUniversalPlugin"
         },
         {
           "PackageIdentifier": "Microsoft.VisualStudioCode"
@@ -125,10 +119,10 @@
           "PackageIdentifier": "ownCloud.ownCloudDesktop"
         },
         {
-          "PackageIdentifier": "PuTTY.PuTTY"
+          "PackageIdentifier": "Apple.AppleMobileDeviceSupport"
         },
         {
-          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
+          "PackageIdentifier": "PuTTY.PuTTY"
         },
         {
           "PackageIdentifier": "Windscribe.Windscribe"
@@ -176,13 +170,7 @@
           "PackageIdentifier": "BrianApps.Sizer.Dev"
         },
         {
-          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
-        },
-        {
           "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
-        },
-        {
-          "PackageIdentifier": "ExpressVPN.ExpressVPN"
         },
         {
           "PackageIdentifier": "Jabra.Direct"
@@ -209,13 +197,10 @@
           "PackageIdentifier": "Microsoft.VCRedist.2012.x64"
         },
         {
-          "PackageIdentifier": "Notion.Notion"
+          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
         },
         {
           "PackageIdentifier": "AgileBits.1Password.CLI"
-        },
-        {
-          "PackageIdentifier": "Amazon.Kindle"
         },
         {
           "PackageIdentifier": "Anthropic.ClaudeCode"
@@ -269,6 +254,27 @@
           "PackageIdentifier": "Microsoft.VCLibs.Desktop.14"
         },
         {
+          "PackageIdentifier": "Microsoft.VCLibs.14"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.2"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.3"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.5"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.6"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.7"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.8"
+        },
+        {
           "PackageIdentifier": "Microsoft.WindowsTerminal.Preview"
         },
         {
@@ -286,5 +292,5 @@
       }
     }
   ],
-  "WinGetVersion": "1.12.470"
+  "WinGetVersion": "1.28.240"
 }
