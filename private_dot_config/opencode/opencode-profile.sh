@@ -113,7 +113,16 @@ _opencode_apply_profile_dir() {
     fi
   fi
 
-  signature="$joined|$workspace_root|$workspace_config"
+  local global_cfg="$config_home/opencode/opencode.jsonc"
+  local sync_script="$config_home/opencode/opencode-sync-workspace-overrides.sh"
+  local _cfg_mtime="" _sync_mtime=""
+  if [ -f "$global_cfg" ]; then
+    _cfg_mtime="$(stat -c %Y "$global_cfg" 2>/dev/null || stat -f %m "$global_cfg" 2>/dev/null || true)"
+  fi
+  if [ -f "$sync_script" ]; then
+    _sync_mtime="$(stat -c %Y "$sync_script" 2>/dev/null || stat -f %m "$sync_script" 2>/dev/null || true)"
+  fi
+  signature="$joined|$workspace_root|$workspace_config|$_cfg_mtime|$_sync_mtime"
   if [ "${_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}" = "$signature" ] && [ -n "${OPENCODE_CONFIG_DIR:-}" ]; then
     _opencode_apply_anthropic_api_export
     return
