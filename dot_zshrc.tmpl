@@ -373,6 +373,42 @@ if command -v npm >/dev/null 2>&1; then
     fi
 fi
 
+# WSL2: enforce Linux-first PATH precedence for developer tools after
+# every prompt (catches direnv or other hooks that reorder PATH).
+# Windows tools remain accessible; call them explicitly with .exe when needed.
+if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    autoload -Uz add-zsh-hook
+
+    _wsl2_linux_path_precedence() {
+        # Mise shims (covers node, npm, python, jq, bun, uv, opencode, etc.)
+        local mise_shims="${HOME}/.local/share/mise/shims"
+        # Linux npm global bin (covers npm-installed globals like claude)
+        local npm_global_bin=""
+        if (( ${+commands[npm]} )); then
+            local _npm_prefix
+            _npm_prefix="$(command npm prefix -g 2>/dev/null)"
+            # Only use prefix if it resolves to a Linux path (not /mnt/c/...)
+            if [[ -n "$_npm_prefix" && "$_npm_prefix" != /mnt/* ]]; then
+                npm_global_bin="${_npm_prefix}/bin"
+            fi
+        fi
+
+        local entry
+        for entry in "$npm_global_bin" "$mise_shims"; do
+            [[ -z "$entry" || ! -d "$entry" ]] && continue
+            # Move entry to front if not already there
+            if [[ ":${PATH}:" != *":${entry}:"* ]]; then
+                export PATH="${entry}:${PATH}"
+            elif [[ "${PATH%%:*}" != "$entry" ]]; then
+                # Already in PATH but not at front — move it to front
+                path=("$entry" ${path:#$entry})
+            fi
+        done
+    }
+
+    add-zsh-hook precmd _wsl2_linux_path_precedence
+fi
+
 {{- if .homelab.windows_user }}
 # Pageant/WSL2 inter-op (via npiperelay + socat)
 WSL2_PAGEANT_SSH_AUTH_SOCK=${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent/ssh-agent.sock}
