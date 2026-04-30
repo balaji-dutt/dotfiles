@@ -17,7 +17,31 @@ import path from "node:path";
 // In the shared opencode-tooling repo: resolves to <repo-root>/node_modules/picomatch/.
 // In a seeded target repo:            resolves to .opencode/node_modules/picomatch/.
 const _require = createRequire(import.meta.url);
-const picomatch = _require("../node_modules/picomatch/index.js");
+
+function loadPicomatch() {
+  const candidates = [
+    // Seeded target repo path (preferred)
+    "../node_modules/picomatch/index.js",
+    // Node module resolution fallback (useful during local dev or drift)
+    "picomatch",
+  ];
+
+  const errors = [];
+  for (const spec of candidates) {
+    try {
+      const mod = _require(spec);
+      return mod?.default ?? mod;
+    } catch (err) {
+      errors.push(`${spec}: ${err?.message || String(err)}`);
+    }
+  }
+
+  throw new Error(
+    `Cannot load picomatch. Tried ${candidates.join(", ")}. ${errors.join(" | ")}`
+  );
+}
+
+const picomatch = loadPicomatch();
 
 // ── JSONC parser (comments + trailing commas) ─────────────────────────────────
 function parseJsonc(src) {
