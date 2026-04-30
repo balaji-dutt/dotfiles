@@ -33,6 +33,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `opencode.jsonc`.
 - decision: Updated homelab devcontainer `postStart.sh` to delete persisted
   legacy `opencode.json` so startup converges on JSONC-only config state.
+- gotcha: Runtime merged OpenCode config under
+  `~/.config/opencode/runtime/**/opencode.jsonc` resolves `{file:./...}`
+  relative to runtime dir, which breaks prompt/skill file references authored
+  relative to source configs.
+- decision: In both OpenCode overlay sync scripts, rebase JSONC
+  `{file:./...}` and `{file:../...}` references to runtime-relative paths
+  while generating merged runtime config so source configs stay portable.
 
 ## 2026-04-26
 

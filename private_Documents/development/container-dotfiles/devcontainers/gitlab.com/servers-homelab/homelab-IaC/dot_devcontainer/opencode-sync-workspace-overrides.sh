@@ -143,6 +143,7 @@ export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.5=gpt-5.4,gpt-5.4=gpt-5.4
 python3 <<'PY'
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -233,6 +234,29 @@ def parse_jsonc(path: Path) -> dict:
     return json.loads(strip_jsonc_trailing_commas(stripped))
 
 
+def rebase_file_refs(node, source_dir: Path, runtime_dir: Path):
+    if isinstance(node, dict):
+        return {key: rebase_file_refs(value, source_dir, runtime_dir) for key, value in node.items()}
+    if isinstance(node, list):
+        return [rebase_file_refs(item, source_dir, runtime_dir) for item in node]
+    if isinstance(node, str):
+        match = re.fullmatch(r"\{file:([^}]+)\}", node.strip())
+        if not match:
+            return node
+        ref_path = match.group(1).strip()
+        if not (ref_path.startswith("./") or ref_path.startswith("../")):
+            return node
+        rebased_abs = (source_dir / ref_path).resolve(strict=False)
+        rebased_rel = os.path.relpath(rebased_abs, runtime_dir)
+        return f"{{file:{Path(rebased_rel).as_posix()}}}"
+    return node
+
+
+def parse_jsonc_rebased(path: Path, runtime_dir: Path) -> dict:
+    parsed = parse_jsonc(path)
+    return rebase_file_refs(parsed, path.parent.resolve(strict=False), runtime_dir)
+
+
 def deep_merge(dst: dict, src: dict) -> dict:
     for key, value in src.items():
         if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
@@ -287,6 +311,7 @@ workspace_raw = os.environ.get("OPENCODE_WORKSPACE_CONFIG", "").strip()
 global_raw = os.environ.get("OPENCODE_GLOBAL_CONFIG", "").strip()
 profiles = [p for p in os.environ.get("OPENCODE_PROFILES_STACK", "defaults").split() if p]
 config_home = Path(os.environ["OPENCODE_CONFIG_HOME"])
+runtime_dir = active_path.parent.resolve(strict=False)
 
 global_path = Path(global_raw) if global_raw else None
 base_source = global_path if global_path and global_path.is_file() else base_path
@@ -303,7 +328,7 @@ for pair in os.environ.get("OPENCODE_MODEL_MAP", "").split(","):
         mapping[src] = dst
 
 try:
-    merged = parse_jsonc(base_source)
+    merged = parse_jsonc_rebased(base_source, runtime_dir)
 except Exception as exc:  # noqa: BLE001
     print(f"ERROR: Failed to parse base OpenCode JSONC: {exc}", file=sys.stderr)
     raise SystemExit(1)
@@ -313,7 +338,7 @@ if not isinstance(merged, dict):
 
 if base_source != base_path and base_path.is_file():
     try:
-        base_overlay = parse_jsonc(base_path)
+        base_overlay = parse_jsonc_rebased(base_path, runtime_dir)
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: Failed to parse defaults profile JSONC: {exc}", file=sys.stderr)
         raise SystemExit(1)
@@ -327,7 +352,7 @@ for profile in profiles:
     profile_cfg = config_home / "opencode" / "profiles" / profile / "opencode.jsonc"
     if profile_cfg.is_file():
         try:
-            profile_data = parse_jsonc(profile_cfg)
+            profile_data = parse_jsonc_rebased(profile_cfg, runtime_dir)
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: Failed to parse profile JSONC ({profile}): {exc}", file=sys.stderr)
             raise SystemExit(1)
@@ -341,7 +366,7 @@ for cfg_path_raw in [workspace_raw]:
     if not cfg_path.is_file():
         continue
     try:
-        cfg = parse_jsonc(cfg_path)
+        cfg = parse_jsonc_rebased(cfg_path, runtime_dir)
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: Failed to parse OpenCode JSONC ({cfg_path}): {exc}", file=sys.stderr)
         raise SystemExit(1)
