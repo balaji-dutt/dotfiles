@@ -117,5 +117,6 @@
   },
   "model": "claude-opus-4-6",
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high"
+  "effortLevel": "high",
+  "theme": "dark"
 }
