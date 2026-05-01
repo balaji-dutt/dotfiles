@@ -61,6 +61,7 @@ has_seen_welcome = true
 last_seen_version = "1.4.6"
 has_seen_custom_instruction_warning = false
 has_acknowledged_agent_hooks = false
+group_by = "manual"
 
 [web]
 notifications_enabled = true
