@@ -1,2 +1,2 @@
-@anthropic-ai/claude-code@2.1.119
+@anthropic-ai/claude-code@2.1.120
 opencode-ai@latest
