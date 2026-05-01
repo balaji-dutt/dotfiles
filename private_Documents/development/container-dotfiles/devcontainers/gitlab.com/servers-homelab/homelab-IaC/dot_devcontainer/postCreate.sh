@@ -301,9 +301,13 @@ ln -sf /tmp/host-claude/private_settings.json /home/vscode/.claude/settings.json
 ln -sf /tmp/host-claude/AGENTS.md /home/vscode/.claude/AGENTS.md || true
 ln -sf /home/vscode/.claude/AGENTS.md /home/vscode/.claude/CLAUDE.md || true
 ln -sf /tmp/host-claude/commands/todo.md /home/vscode/.claude/commands/todo.md || true
-ln -sf /tmp/host-claude/executable_commit-docs.sh /home/vscode/.claude/commit-docs.sh || true
 
-chmod +x /home/vscode/.claude/commit-docs.sh || true
+if [[ -f /tmp/host-claude/executable_commit-docs.sh ]]; then
+  rm -f /home/vscode/.claude/commit-docs.sh
+  install -m 0755 /tmp/host-claude/executable_commit-docs.sh /home/vscode/.claude/commit-docs.sh
+else
+  echo "WARN: Claude commit-docs helper not found; keeping existing helper." >&2
+fi
 done_step "Setup Claude config symlinks and permissions"
 
 # --- 7) Source container env + dotfiles ---

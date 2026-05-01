@@ -377,8 +377,12 @@ ln -sf /tmp/host-claude/private_settings.json "$HOME/.claude/settings.json" || t
 ln -sf /tmp/host-claude/AGENTS.md "$HOME/.claude/AGENTS.md" || true
 ln -sf "$HOME/.claude/AGENTS.md" "$HOME/.claude/CLAUDE.md" || true
 ln -sf /tmp/host-claude/commands/todo.md "$HOME/.claude/commands/todo.md" || true
-ln -sf /tmp/host-claude/executable_commit-docs.sh "$HOME/.claude/commit-docs.sh" || true
-chmod +x "$HOME/.claude/commit-docs.sh" || true
+if [[ -f /tmp/host-claude/executable_commit-docs.sh ]]; then
+  rm -f "$HOME/.claude/commit-docs.sh"
+  install -m 0755 /tmp/host-claude/executable_commit-docs.sh "$HOME/.claude/commit-docs.sh"
+else
+  echo "WARN: Claude commit-docs helper not found; keeping existing helper." >&2
+fi
 
 if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
   install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \

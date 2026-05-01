@@ -37,6 +37,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   the repo under user state (`$XDG_STATE_HOME/opencode-tooling` or
   `~/.local/state/opencode-tooling`) and avoid absolute repo paths in log
   entries.
+- gotcha: Devcontainer `/tmp/host-claude` is mounted read-only; do not `chmod`
+  linked files there. Copy `executable_commit-docs.sh` into persisted
+  `~/.claude/commit-docs.sh` with mode `0755` instead.
 
 ## 2026-04-30
 
