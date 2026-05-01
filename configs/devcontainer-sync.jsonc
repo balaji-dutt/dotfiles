@@ -74,6 +74,23 @@
   "devcontainers": {
     "homelab-IaC": {
       "overlay_root": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer",
+      "launcher": {
+        "enabled": true,
+        "display_name": "Homelab IaC Devcontainer",
+        "aliases": ["homelab"],
+        "env_prefix": "HOMELAB_IAC",
+        "shell": ["zsh", "-l"],
+        "platforms": {
+          "darwin": {
+            "workspace_folder": "/Volumes/devdrive/homelab-IaC",
+            "config": "{home}/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json"
+          },
+          "wsl2-debian": {
+            "workspace_folder": "/mnt/devdrive/homelab-IaC",
+            "config": "{workspace}/.devcontainer/personal-wsl/devcontainer.json"
+          }
+        }
+      },
       "mirrors": [],
       "derived": [],
       "renders": []

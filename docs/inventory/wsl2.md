@@ -41,6 +41,7 @@ This page lists the main managed targets expected on WSL2.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | VS Code wrapper | `~/bin/code` | `bin/executable_code` |
+| Devcontainer launcher (Debian only) | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Git ignore (WSL2 off) | `~/.gitignore_global` (not applied on WSL2 by ignore rules) | `dot_gitignore_global.tmpl` |
 
 ## Container Build Sync

@@ -43,6 +43,7 @@ This page lists the main managed targets expected on macOS.
 | :--- | :--- | :--- |
 | LaunchAgents | `~/Library/LaunchAgents/*.plist` | `private_Library/LaunchAgents/*.plist.tmpl` |
 | User bin scripts | `~/bin/vnc_monitor.sh` | `bin/executable_vnc_monitor.sh` |
+| Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 
 ## Container Build Sync (macOS)
 

@@ -35,7 +35,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Windows commit template helper |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
-| `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | WSL devcontainer overlays |
+| `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | package installs |

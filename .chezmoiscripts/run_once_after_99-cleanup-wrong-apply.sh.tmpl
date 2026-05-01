@@ -119,6 +119,11 @@ rm_rel "AppData"
 rm_rel "bin/code"
 {{ end }}
 
+# bin/devcontainer-launch should exist ONLY on macOS or Debian WSL2
+{{ if not (or $isDarwin (and $isWSL2 (eq $osID "debian"))) }}
+rm_rel "bin/devcontainer-launch"
+{{ end }}
+
 # Doom should exist ONLY on macOS OR Ubuntu WSL2
 {{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
 rm_rel ".config/doom"

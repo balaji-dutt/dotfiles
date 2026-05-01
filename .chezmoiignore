@@ -54,6 +54,11 @@ bin/code
 .gitignore_global
 {{ end }}
 
+{{/* devcontainer-launch should exist ONLY on macOS or Debian WSL2 */}}
+{{ if not (or $isDarwin (and $isWSL2 (eq $osID "debian"))) }}
+bin/devcontainer-launch
+{{ end }}
+
 {{/* container-dotfiles should NOT exist on WSL2 excluding Debian */}}
 {{ if and $isWSL2 (ne $osID "debian") }}
 Documents/development/container-dotfiles/

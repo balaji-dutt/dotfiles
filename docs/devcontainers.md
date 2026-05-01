@@ -238,10 +238,91 @@ devcontainer exec \
 Do not clone the bridge or store `node_modules` inside the mounted workspace
 repo. The persistent volume path keeps all bridge state separate.
 
+## Terminal-Launched Devcontainers
+
+A generic host launcher is managed at:
+
+- `~/bin/devcontainer-launch`
+
+The launcher reads devcontainer entries from `configs/devcontainer-sync.jsonc` and
+is generated only on macOS and Debian WSL2. Ubuntu WSL2 and generic Linux are
+intentionally unsupported.
+
+Common commands:
+
+```sh
+devcontainer-launch --list
+devcontainer-launch homelab-IaC
+devcontainer-launch homelab-IaC shell
+devcontainer-launch homelab-IaC up
+devcontainer-launch homelab-IaC rebuild
+devcontainer-launch homelab-IaC rebuild-no-cache
+devcontainer-launch homelab-IaC exec -- opencode
+devcontainer-launch homelab exec -- claude
+```
+
+The default action is `shell`, which runs `devcontainer up` and then execs the
+configured login shell in the running container. Rebuild actions are explicit so
+terminal profiles do not recreate containers accidentally.
+
+For `homelab-IaC`, the platform defaults are:
+
+- macOS workspace: `/Volumes/devdrive/homelab-IaC`
+- macOS config:
+  `~/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json`
+- Debian WSL2 workspace: `/mnt/devdrive/homelab-IaC`
+- Debian WSL2 config:
+  `/mnt/devdrive/homelab-IaC/.devcontainer/personal-wsl/devcontainer.json`
+
+Per-machine overrides use the manifest `env_prefix`:
+
+```sh
+HOMELAB_IAC_WORKSPACE=/path/to/workspace devcontainer-launch homelab-IaC
+HOMELAB_IAC_CONFIG=/path/to/devcontainer.json devcontainer-launch homelab-IaC
+HOMELAB_IAC_SHELL='zsh -l' devcontainer-launch homelab-IaC
+```
+
+### Windows Terminal profile
+
+Add a Windows Terminal profile that launches Debian WSL2 and runs the launcher:
+
+```jsonc
+{
+  "guid": "{REPLACE-WITH-A-STABLE-GUID}",
+  "name": "Homelab IaC Devcontainer",
+  "commandline": "wsl.exe -d Debian --cd ~ --exec bash -lc \"exec \\\"$HOME/bin/devcontainer-launch\\\" homelab-IaC\"",
+  "startingDirectory": null
+}
+```
+
+### iTerm profile
+
+For iTerm, create a profile with **Command** set to **Custom Command**:
+
+```sh
+/Users/<user>/bin/devcontainer-launch homelab-IaC
+```
+
+If using an iTerm Dynamic Profile manually, use a JSON property list such as:
+
+```json
+{
+  "Profiles": [
+    {
+      "Name": "Homelab IaC Devcontainer",
+      "Guid": "REPLACE-WITH-A-STABLE-UUID",
+      "Custom Command": "Yes",
+      "Command": "/Users/<user>/bin/devcontainer-launch homelab-IaC"
+    }
+  ]
+}
+```
+
 ## WSL Overlay Publishing
 
-WSL-specific overlay publishing is handled by:
+Debian WSL2-specific overlay publishing is handled by:
 
 - `.chezmoiscripts/run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl`
 
-This keeps WSL-friendly devcontainer overlays available for local workflows.
+This keeps WSL-friendly devcontainer overlays available for local workflows
+without publishing them on Ubuntu WSL2.

@@ -24,6 +24,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-01
 
+- decision: Added manifest-backed `devcontainer-launch` user-bin wrapper for
+  terminal-launched devcontainer shells/actions; `homelab-IaC` is the first
+  launcher entry in `configs/devcontainer-sync.jsonc`.
+- decision: Scoped `devcontainer-launch` and WSL devcontainer overlay publishing
+  to macOS + Debian WSL2; Ubuntu WSL2 remains unsupported for container-dotfiles.
+- convention: Windows Terminal and iTerm devcontainer profiles are documented in
+  `docs/devcontainers.md`, not managed by chezmoi.
 - decision: Persisted homelab-IaC devcontainer Claude Code runtime state under
   `/home/vscode/persistent-data/claude`; `postCreate.sh` and `postStart.sh`
   now link `~/.claude` and `~/.claude.json` there while refreshing managed

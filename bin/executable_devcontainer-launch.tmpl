@@ -1,0 +1,403 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MANIFEST_PATH="${DEVCONTAINER_LAUNCH_MANIFEST:-{{ .chezmoi.homeDir }}/Documents/development/dotfiles/configs/devcontainer-sync.jsonc}"
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  devcontainer-launch --list
+  devcontainer-launch <name-or-alias> [shell|up|rebuild|rebuild-no-cache]
+  devcontainer-launch <name-or-alias> exec -- <command> [args...]
+
+Environment overrides use each launcher's env_prefix, for example:
+  HOMELAB_IAC_WORKSPACE=/path/to/workspace
+  HOMELAB_IAC_CONFIG=/path/to/devcontainer.json
+  HOMELAB_IAC_SHELL='zsh -l'
+USAGE
+}
+
+die() {
+  printf 'devcontainer-launch: %s\n' "$*" >&2
+  exit 1
+}
+
+detect_platform() {
+  local uname_s osrelease os_id
+  uname_s="$(uname -s 2>/dev/null || true)"
+
+  if [[ "$uname_s" == "Darwin" ]]; then
+    printf 'darwin\n'
+    return 0
+  fi
+
+  if [[ "$uname_s" == "Linux" ]]; then
+    osrelease="$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/osrelease 2>/dev/null || true)"
+    os_id=""
+    if [[ -r /etc/os-release ]]; then
+      os_id="$(. /etc/os-release && printf '%s' "${ID:-}")"
+    fi
+
+    if [[ "$osrelease" == *microsoft* && "$osrelease" == *wsl2* && "$os_id" == "debian" ]]; then
+      printf 'wsl2-debian\n'
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+require_file() {
+  local path label
+  path="$1"
+  label="$2"
+  [[ -f "$path" ]] || die "$label not found: $path"
+}
+
+require_dir() {
+  local path label
+  path="$1"
+  label="$2"
+  [[ -d "$path" ]] || die "$label not found: $path"
+}
+
+list_launchers() {
+  local platform
+  platform="$1"
+
+  python3 - "$MANIFEST_PATH" "$platform" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+
+def strip_json_comments(payload: str) -> str:
+    out = []
+    in_string = False
+    string_char = ""
+    escape = False
+    i = 0
+    while i < len(payload):
+        ch = payload[i]
+        nxt = payload[i + 1] if i + 1 < len(payload) else ""
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            i += 2
+            while i < len(payload) and payload[i] not in "\r\n":
+                i += 1
+            continue
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < len(payload) and not (payload[i] == "*" and payload[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def strip_jsonc_trailing_commas(payload: str) -> str:
+    out = []
+    in_string = False
+    string_char = ""
+    escape = False
+    i = 0
+    while i < len(payload):
+        ch = payload[i]
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < len(payload) and payload[j] in " \t\r\n":
+                j += 1
+            if j < len(payload) and payload[j] in "]}":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def parse_jsonc(path: Path) -> dict:
+    raw = path.read_text(encoding="utf-8")
+    return json.loads(strip_jsonc_trailing_commas(strip_json_comments(raw)))
+
+
+manifest = parse_jsonc(Path(sys.argv[1]))
+platform = sys.argv[2]
+
+found = False
+for name, spec in sorted(manifest.get("devcontainers", {}).items()):
+    launcher = spec.get("launcher", {})
+    if not launcher.get("enabled"):
+        continue
+    if platform not in launcher.get("platforms", {}):
+        continue
+    aliases = launcher.get("aliases", [])
+    alias_text = f" aliases={','.join(aliases)}" if aliases else ""
+    display = launcher.get("display_name", name)
+    print(f"{name}\t{display}{alias_text}")
+    found = True
+
+if not found:
+    print(f"No launchers configured for platform: {platform}")
+PY
+}
+
+resolve_launcher() {
+  local platform name
+  platform="$1"
+  name="$2"
+
+  python3 - "$MANIFEST_PATH" "$platform" "$name" <<'PY'
+import json
+import os
+import re
+import shlex
+import sys
+from pathlib import Path
+
+
+def strip_json_comments(payload: str) -> str:
+    out = []
+    in_string = False
+    string_char = ""
+    escape = False
+    i = 0
+    while i < len(payload):
+        ch = payload[i]
+        nxt = payload[i + 1] if i + 1 < len(payload) else ""
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            i += 2
+            while i < len(payload) and payload[i] not in "\r\n":
+                i += 1
+            continue
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < len(payload) and not (payload[i] == "*" and payload[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def strip_jsonc_trailing_commas(payload: str) -> str:
+    out = []
+    in_string = False
+    string_char = ""
+    escape = False
+    i = 0
+    while i < len(payload):
+        ch = payload[i]
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < len(payload) and payload[j] in " \t\r\n":
+                j += 1
+            if j < len(payload) and payload[j] in "]}":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def parse_jsonc(path: Path) -> dict:
+    raw = path.read_text(encoding="utf-8")
+    return json.loads(strip_jsonc_trailing_commas(strip_json_comments(raw)))
+
+
+def env_prefix_for(name: str, launcher: dict) -> str:
+    explicit = launcher.get("env_prefix")
+    if explicit:
+        return explicit
+    return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
+
+
+def expand_path(value: str, home: str, workspace: str) -> str:
+    return value.replace("{home}", home).replace("{workspace}", workspace)
+
+
+def shell_array(name: str, values: list[str]) -> str:
+    return f"{name}=({shlex.join(values)})"
+
+
+manifest = parse_jsonc(Path(sys.argv[1]))
+platform = sys.argv[2]
+requested = sys.argv[3]
+home = os.path.expanduser("~")
+
+matches = []
+for name, spec in manifest.get("devcontainers", {}).items():
+    launcher = spec.get("launcher", {})
+    if not launcher.get("enabled"):
+        continue
+    platforms = launcher.get("platforms", {})
+    if platform not in platforms:
+        continue
+    aliases = launcher.get("aliases", [])
+    if requested == name or requested in aliases:
+        matches.append((name, launcher, platforms[platform]))
+
+if not matches:
+    raise SystemExit(f"No launcher named or aliased {requested!r} for platform {platform!r}")
+if len(matches) > 1:
+    names = ", ".join(name for name, _, _ in matches)
+    raise SystemExit(f"Launcher name or alias {requested!r} is ambiguous: {names}")
+
+name, launcher, platform_spec = matches[0]
+prefix = env_prefix_for(name, launcher)
+
+workspace = expand_path(platform_spec["workspace_folder"], home, "")
+workspace = os.environ.get(f"{prefix}_WORKSPACE", workspace)
+config = expand_path(platform_spec["config"], home, workspace)
+config = os.environ.get(f"{prefix}_CONFIG", config)
+
+shell_spec = os.environ.get(f"{prefix}_SHELL")
+if shell_spec:
+    shell = shlex.split(shell_spec)
+else:
+    shell = launcher.get("shell", ["zsh", "-l"])
+
+if not isinstance(shell, list) or not shell or not all(isinstance(item, str) and item for item in shell):
+    raise SystemExit(f"Invalid shell for launcher {name!r}")
+
+print(f"LAUNCHER_NAME={shlex.quote(name)}")
+print(f"LAUNCHER_DISPLAY_NAME={shlex.quote(launcher.get('display_name', name))}")
+print(f"LAUNCHER_ENV_PREFIX={shlex.quote(prefix)}")
+print(f"WORKSPACE_FOLDER={shlex.quote(workspace)}")
+print(f"CONFIG_PATH={shlex.quote(config)}")
+print(shell_array("SHELL_CMD", shell))
+PY
+}
+
+main() {
+  local platform action requested resolved
+
+  platform="$(detect_platform)" || die "unsupported platform; supported platforms are macOS and Debian WSL2"
+
+  command -v python3 >/dev/null 2>&1 || die "python3 is required"
+  require_file "$MANIFEST_PATH" "launcher manifest"
+
+  if [[ "${1:-}" == "--list" ]]; then
+    list_launchers "$platform"
+    return 0
+  fi
+
+  if [[ $# -lt 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    return 2
+  fi
+
+  requested="$1"
+  shift
+  action="${1:-shell}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  resolved="$(resolve_launcher "$platform" "$requested")" || die "failed to resolve launcher: $requested"
+  eval "$resolved"
+
+  require_dir "$WORKSPACE_FOLDER" "workspace folder"
+  require_file "$CONFIG_PATH" "devcontainer config"
+  command -v devcontainer >/dev/null 2>&1 || die "devcontainer CLI is required"
+
+  local devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
+
+  case "$action" in
+    shell)
+      devcontainer up "${devcontainer_args[@]}" >/dev/null
+      exec devcontainer exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
+      ;;
+    up)
+      exec devcontainer up "${devcontainer_args[@]}"
+      ;;
+    rebuild)
+      exec devcontainer up "${devcontainer_args[@]}" --remove-existing-container
+      ;;
+    rebuild-no-cache)
+      exec devcontainer up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
+      ;;
+    exec)
+      if [[ "${1:-}" == "--" ]]; then
+        shift
+      fi
+      [[ $# -gt 0 ]] || die "exec action requires a command"
+      devcontainer up "${devcontainer_args[@]}" >/dev/null
+      exec devcontainer exec "${devcontainer_args[@]}" "$@"
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    *)
+      usage
+      die "unknown action: $action"
+      ;;
+  esac
+}
+
+main "$@"

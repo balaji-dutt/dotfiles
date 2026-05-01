@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+{{- $osrel := "" }}
+{{- if eq .chezmoi.os "linux" }}
+{{- $osrel = (.chezmoi.kernel.osrelease | lower) }}
+{{- end }}
+{{- if not (and (eq .chezmoi.os "linux") ($osrel | contains "microsoft") ($osrel | contains "wsl2") (eq .chezmoi.osRelease.id "debian")) }}
+exit 0
+{{- end }}
+
 if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
   exit 0
 fi
