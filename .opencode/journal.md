@@ -22,6 +22,18 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-01
+
+- decision: Added opt-in review-loop debug logging to
+  `.opencode/plugins/review-loop-marker.js` and
+  `.opencode/plugins/review-loop-enforcer.js` with
+  `DOTFILES_REVIEW_MARKER_DEBUG=1` and
+  `DOTFILES_REVIEW_ENFORCER_DEBUG=1`.
+- convention: Review-loop marker/enforcer debug logs must be written outside
+  the repo under user state (`$XDG_STATE_HOME/opencode-tooling` or
+  `~/.local/state/opencode-tooling`) and avoid absolute repo paths in log
+  entries.
+
 ## 2026-04-30
 
 - gotcha: A stale `~/.config/opencode/opencode.json` with `"plugin": []`

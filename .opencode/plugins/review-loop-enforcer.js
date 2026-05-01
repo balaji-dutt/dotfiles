@@ -1,11 +1,42 @@
 // review-loop-enforcer.js
 // On session.idle, checks for a review sentinel and injects a prompt to run
 // the configured reviewer agent. Configured via .opencode/opencode-tooling.config.jsonc.
-import { stat, readFile, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, stat, readFile, writeFile, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
-const PLUGIN_VERSION = "1.0.0";
+const PLUGIN_VERSION = "1.1.0";
+const DEBUG_ENV_VAR = "DOTFILES_REVIEW_ENFORCER_DEBUG";
+
+function safeLogName(s) {
+  return (
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "opencode"
+  );
+}
+
+function isPathInside(child, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function stateLogPath(baseDir, reviewLabel, suffix) {
+  const defaultStateHome = path.join(os.homedir(), ".local", "state");
+  const tmpStateHome = path.join(os.tmpdir(), "opencode-tooling-state");
+  const configuredStateHome = process.env.XDG_STATE_HOME;
+  let stateHome =
+    configuredStateHome && path.isAbsolute(configuredStateHome)
+      ? configuredStateHome
+      : defaultStateHome;
+  if (isPathInside(stateHome, baseDir)) stateHome = defaultStateHome;
+  if (isPathInside(stateHome, baseDir)) stateHome = tmpStateHome;
+  const repo = safeLogName(path.basename(baseDir));
+  const label = safeLogName(reviewLabel);
+  return path.join(stateHome, "opencode-tooling", `${repo}-${label}-${suffix}.log`);
+}
 
 // Resolve picomatch from ../node_modules/picomatch/ relative to this file.
 // In the shared opencode-tooling repo: resolves to <repo-root>/node_modules/picomatch/.
@@ -114,12 +145,6 @@ export default async (ctx = {}) => {
   const cfg = await loadConfig(baseDir);
   if (!cfg) return { event: async () => {} };
 
-  // Disable with: OPENCODE_ENFORCE_REVIEW=0
-  const env = String(process.env.OPENCODE_ENFORCE_REVIEW || "").toLowerCase();
-  if (env === "0" || env === "false" || env === "off") {
-    return { event: async () => {} };
-  }
-
   const sentinelDir = path.join(baseDir, ".opencode");
   const {
     sentinelBase,
@@ -130,7 +155,30 @@ export default async (ctx = {}) => {
     legacyGatePaths,
   } = cfg;
 
+  const DEBUG = /^(1|true|on)$/i.test(process.env[DEBUG_ENV_VAR] || "");
+  const logFile = stateLogPath(baseDir, reviewLabel, "review-enforcer");
+
+  async function appendDebug(line) {
+    if (!DEBUG) return;
+    const ts = new Date().toISOString();
+    try {
+      await mkdir(path.dirname(logFile), { recursive: true });
+      await appendFile(logFile, `${ts} [v${PLUGIN_VERSION}] ${line}\n`, "utf8");
+    } catch {}
+  }
+
+  // Disable with: OPENCODE_ENFORCE_REVIEW=0
+  const env = String(process.env.OPENCODE_ENFORCE_REVIEW || "").toLowerCase();
+  if (env === "0" || env === "false" || env === "off") {
+    await appendDebug(`disabled by OPENCODE_ENFORCE_REVIEW=${env}`);
+    return { event: async () => {} };
+  }
+
   const gateUnsuffixed = path.join(sentinelDir, sentinelBase);
+
+  await appendDebug(
+    `initialized repo=${path.basename(baseDir)} reviewerAgent=${reviewerAgent} debugEnv=${DEBUG_ENV_VAR}`
+  );
 
   // Shell-safe single-quote escaping for use in git diff / git status args.
   function shellQuote(s) {
@@ -210,6 +258,12 @@ export default async (ctx = {}) => {
     return String(sessionID || "")
       .trim()
       .replace(/[^A-Za-z0-9._-]/g, "_");
+  }
+
+  function shortSessionID(sessionID) {
+    const sid = sanitizeSessionID(sessionID);
+    if (!sid) return "none";
+    return sid.length > 12 ? `${sid.slice(0, 8)}…${sid.slice(-4)}` : sid;
   }
 
   function stateFilePath() {
@@ -297,14 +351,14 @@ export default async (ctx = {}) => {
     }
   }
 
-  // Returns false for sub-sessions (parentID set) or when the reviewer agent
-  // itself is running — avoids injecting the review prompt into the reviewer.
-  async function shouldPromptSession(sessionID) {
+  // Blocks sub-sessions (parentID set) and the reviewer agent itself, avoiding
+  // prompt injection into delegated review sessions.
+  async function promptSessionDecision(sessionID) {
     const info = await sessionMeta(sessionID);
-    if (!info) return false;
-    if (info.parentID) return false;
-    if (info.agent === reviewerAgent) return false;
-    return true;
+    if (!info) return { ok: false, reason: "missing-session-meta" };
+    if (info.parentID) return { ok: false, reason: "sub-session" };
+    if (info.agent === reviewerAgent) return { ok: false, reason: "reviewer-agent" };
+    return { ok: true, reason: "" };
   }
 
   // ── Debounced enforcement ─────────────────────────────────────────────────
@@ -322,22 +376,42 @@ export default async (ctx = {}) => {
       void enforceNow(trigger);
     }, DEBOUNCE_MS);
     debounceTimer.unref?.();
+    void appendDebug(`scheduled enforcement trigger=${trigger} delayMs=${DEBOUNCE_MS}`);
   }
 
   async function enforceNow(trigger) {
-    if (inFlight) return;
+    if (inFlight) {
+      await appendDebug(`skip enforcement trigger=${trigger}: already in flight`);
+      return;
+    }
 
     const gatePath = await getGatePath();
-    if (!gatePath) return;
+    if (!gatePath) {
+      await appendDebug(
+        `skip enforcement trigger=${trigger}: no gate for session=${shortSessionID(lastSessionID)}`
+      );
+      return;
+    }
 
-    if (!(await shouldPromptSession(lastSessionID))) return;
+    const sessionDecision = await promptSessionDecision(lastSessionID);
+    if (!sessionDecision.ok) {
+      await appendDebug(
+        `skip enforcement trigger=${trigger}: ${sessionDecision.reason} session=${shortSessionID(lastSessionID)}`
+      );
+      return;
+    }
 
     const mtime = await gateMtimeMs(gatePath);
     const state = await loadState();
     const lastDisk = Number(state.lastHandledGateMtimeMs || 0);
 
     // Only run once per gate instance (identified by mtime)
-    if (mtime <= lastHandledGateMtimeMsMem || mtime <= lastDisk) return;
+    if (mtime <= lastHandledGateMtimeMsMem || mtime <= lastDisk) {
+      await appendDebug(
+        `skip enforcement trigger=${trigger}: already handled gate=${path.basename(gatePath)} mtime=${mtime} mem=${lastHandledGateMtimeMsMem} disk=${lastDisk}`
+      );
+      return;
+    }
 
     lastHandledGateMtimeMsMem = mtime;
     await saveState({
@@ -353,6 +427,9 @@ export default async (ctx = {}) => {
     try {
       const files = await readSentinelFiles(gatePath);
       const prompt = buildReviewerPrompt(files);
+      await appendDebug(
+        `enforcing trigger=${trigger} gate=${path.basename(gatePath)} session=${shortSessionID(lastSessionID)} fileCount=${files?.length || 0}`
+      );
       if (lastSessionID && ctx.client?.session?.prompt) {
         await toast(
           `${reviewLabel} review required — running ${reviewerAgent}…`,
@@ -362,6 +439,7 @@ export default async (ctx = {}) => {
           path: { id: lastSessionID },
           body: { parts: [{ type: "text", text: prompt }] },
         });
+        await appendDebug(`prompt sent to session=${shortSessionID(lastSessionID)}`);
       } else {
         // Fallback: insert prompt for manual enter
         await toast(
@@ -372,6 +450,7 @@ export default async (ctx = {}) => {
           await ctx.client?.tui?.clearPrompt?.();
           await ctx.client?.tui?.appendPrompt?.({ body: { text: prompt } });
         } catch {}
+        await appendDebug("prompt inserted into TUI fallback");
       }
     } finally {
       setTimeout(() => (inFlight = false), 500);
@@ -385,13 +464,21 @@ export default async (ctx = {}) => {
       // Keep sessionID and session metadata fresh from normal chat flow.
       if (evt.type === "message.updated") {
         const sid = extractSessionID(evt);
-        if (sid) lastSessionID = sid;
+        if (sid && sid !== lastSessionID) {
+          await appendDebug(
+            `session changed old=${shortSessionID(lastSessionID)} new=${shortSessionID(sid)}`
+          );
+          lastSessionID = sid;
+        } else if (sid) {
+          lastSessionID = sid;
+        }
         rememberMessage(sessionCache, evt.properties?.info);
         return;
       }
 
       if (evt.type === "session.created" || evt.type === "session.updated") {
         rememberSession(sessionCache, evt.properties?.info);
+        await appendDebug(`cached session event type=${evt.type}`);
         return;
       }
 
@@ -401,7 +488,12 @@ export default async (ctx = {}) => {
       if (evt.type === "file.edited") return;
 
       if (evt.type === "session.idle") {
-        if (!(await getGatePath())) return;
+        if (!(await getGatePath())) {
+          await appendDebug(
+            `idle ignored: no gate for session=${shortSessionID(lastSessionID)}`
+          );
+          return;
+        }
         scheduleEnforce("session.idle");
       }
     },

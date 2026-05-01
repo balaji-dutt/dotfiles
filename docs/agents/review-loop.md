@@ -46,6 +46,17 @@ should not, and how post-review docs refresh should behave.
 - Build completion requires a docs-impact assessment after review PASS before
   the task is considered complete.
 
+## Debug logging
+
+- Review gate PASS detection: set `DOTFILES_REVIEW_GATE_DEBUG=1`; logs to
+  `.opencode/.dotfiles-review-gate.log`.
+- Review marker decisions: set `DOTFILES_REVIEW_MARKER_DEBUG=1`; logs to
+  `$XDG_STATE_HOME/opencode-tooling/` or `~/.local/state/opencode-tooling/`.
+- Review enforcer decisions: set `DOTFILES_REVIEW_ENFORCER_DEBUG=1`; logs to
+  `$XDG_STATE_HOME/opencode-tooling/` or `~/.local/state/opencode-tooling/`.
+- If the state directory would be inside the repo, logs fall back to temp state.
+- Restart OpenCode after changing debug environment variables.
+
 ## Manual command wrapper
 
 - Use `/refresh-docs` as a manual wrapper around the `refresh-docs` skill.
@@ -59,9 +70,11 @@ should not, and how post-review docs refresh should behave.
 - OpenCode Build prompt:
   `.opencode/prompts/build.md`
 - OpenCode marker plugin:
-  `.opencode/plugins/mark-needs-review-on-file-edited.js`
+  `.opencode/plugins/review-loop-marker.js`
 - OpenCode enforcer plugin:
-  `.opencode/plugins/enforce-dotfiles-review.js`
+  `.opencode/plugins/review-loop-enforcer.js`
+- OpenCode gate plugin:
+  `.opencode/plugins/review-loop-gate.js`
 - OpenCode config wiring:
   `.opencode/opencode.jsonc`
 - Claude stop hook:

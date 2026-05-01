@@ -1,11 +1,42 @@
 // review-loop-marker.js
 // Watches for file edits and writes a session-scoped sentinel file to signal
 // that a review is required. Configured via .opencode/opencode-tooling.config.jsonc.
-import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
-const PLUGIN_VERSION = "1.0.0";
+const PLUGIN_VERSION = "1.1.0";
+const DEBUG_ENV_VAR = "DOTFILES_REVIEW_MARKER_DEBUG";
+
+function safeLogName(s) {
+  return (
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "opencode"
+  );
+}
+
+function isPathInside(child, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function stateLogPath(baseDir, reviewLabel, suffix) {
+  const defaultStateHome = path.join(os.homedir(), ".local", "state");
+  const tmpStateHome = path.join(os.tmpdir(), "opencode-tooling-state");
+  const configuredStateHome = process.env.XDG_STATE_HOME;
+  let stateHome =
+    configuredStateHome && path.isAbsolute(configuredStateHome)
+      ? configuredStateHome
+      : defaultStateHome;
+  if (isPathInside(stateHome, baseDir)) stateHome = defaultStateHome;
+  if (isPathInside(stateHome, baseDir)) stateHome = tmpStateHome;
+  const repo = safeLogName(path.basename(baseDir));
+  const label = safeLogName(reviewLabel);
+  return path.join(stateHome, "opencode-tooling", `${repo}-${label}-${suffix}.log`);
+}
 
 // Resolve picomatch from ../node_modules/picomatch/ relative to this file.
 // In the shared opencode-tooling repo: resolves to <repo-root>/node_modules/picomatch/.
@@ -138,9 +169,25 @@ export default async (ctx = {}) => {
   const cfg = await loadConfig(baseDir);
   if (!cfg) return { event: async () => {} };
 
+  const sentinelDir = path.join(baseDir, ".opencode");
+  const { sentinelBase, enforcerStateBase, reviewLabel } = cfg;
+
+  const DEBUG = /^(1|true|on)$/i.test(process.env[DEBUG_ENV_VAR] || "");
+  const logFile = stateLogPath(baseDir, reviewLabel, "review-marker");
+
+  async function appendDebug(line) {
+    if (!DEBUG) return;
+    const ts = new Date().toISOString();
+    try {
+      await mkdir(path.dirname(logFile), { recursive: true });
+      await appendFile(logFile, `${ts} [v${PLUGIN_VERSION}] ${line}\n`, "utf8");
+    } catch {}
+  }
+
   // Disable with: OPENCODE_MARK_REVIEW=0
   const envMark = (process.env.OPENCODE_MARK_REVIEW || "").toLowerCase();
   if (envMark === "0" || envMark === "false" || envMark === "off") {
+    await appendDebug(`disabled by OPENCODE_MARK_REVIEW=${envMark}`);
     return { event: async () => {} };
   }
 
@@ -152,9 +199,11 @@ export default async (ctx = {}) => {
   const TOAST_THROTTLE_MS = 10_000;
   let lastToastAtMs = 0;
 
-  const sentinelDir = path.join(baseDir, ".opencode");
-  const { sentinelBase, enforcerStateBase, reviewLabel } = cfg;
   const watchEventSet = new Set(cfg.watchEvents);
+
+  await appendDebug(
+    `initialized repo=${path.basename(baseDir)} watchEvents=${[...watchEventSet].join(",")} debugEnv=${DEBUG_ENV_VAR}`
+  );
 
   // Session tracking: scoped sentinels prevent cross-session interference.
   let lastSessionID = null;
@@ -174,6 +223,12 @@ export default async (ctx = {}) => {
     return String(sessionID || "")
       .trim()
       .replace(/[^A-Za-z0-9._-]/g, "_");
+  }
+
+  function shortSessionID(sessionID) {
+    const sid = sanitizeSessionID(sessionID);
+    if (!sid) return "none";
+    return sid.length > 12 ? `${sid.slice(0, 8)}…${sid.slice(-4)}` : sid;
   }
 
   function sentinelPath(sessionID) {
@@ -214,6 +269,9 @@ export default async (ctx = {}) => {
     return (
       basename.startsWith(sentinelBase.toLowerCase()) ||
       basename.startsWith(enforcerStateBase.toLowerCase()) ||
+      basename.endsWith("-review-gate.log") ||
+      basename.endsWith("-review-marker.log") ||
+      basename.endsWith("-review-enforcer.log") ||
       basename === ".ds_store" ||
       n.startsWith(".opencode/node_modules/") ||
       n.includes("/.opencode/node_modules/")
@@ -233,6 +291,12 @@ export default async (ctx = {}) => {
 
   function repoRelLower(p) {
     return normalizeLower(relPath(p).replace(/^\.\//, ""));
+  }
+
+  function debugFilePath(p) {
+    if (!p) return "unknown file";
+    if (!isInsideRepo(p)) return `outside-repo:${path.basename(p) || "unknown"}`;
+    return relPath(p);
   }
 
   function extractFileFromEvent(event) {
@@ -264,11 +328,15 @@ export default async (ctx = {}) => {
       files: [...editedFiles],
     };
     await writeFile(p, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await appendDebug(
+      `marked sentinel=${relPath(p)} session=${shortSessionID(lastSessionID)} fileCount=${payload.files.length}`
+    );
     // If we just wrote a scoped sentinel, remove the unsuffixed fallback so
     // cold-start sessions in other windows cannot accidentally consume it.
     if (sid) {
       try {
         await unlink(path.join(sentinelDir, sentinelBase));
+        await appendDebug(`removed unsuffixed fallback sentinel=${sentinelBase}`);
       } catch {}
     }
   }
@@ -289,10 +357,23 @@ export default async (ctx = {}) => {
   }
 
   async function handleFileChange(file) {
-    if (!file) return;
-    if (!isInsideRepo(file)) return;
-    if (isOpencodeRuntimeArtifact(file)) return;
-    if (cfg.isExempt(repoRelLower(file))) return;
+    if (!file) {
+      await appendDebug("skip file event: no file path found");
+      return;
+    }
+    if (!isInsideRepo(file)) {
+      await appendDebug(`skip file event: outside repo file=${debugFilePath(file)}`);
+      return;
+    }
+    if (isOpencodeRuntimeArtifact(file)) {
+      await appendDebug(`skip file event: opencode runtime artifact file=${debugFilePath(file)}`);
+      return;
+    }
+    if (cfg.isExempt(repoRelLower(file))) {
+      await appendDebug(`skip file event: exempt path file=${debugFilePath(file)}`);
+      return;
+    }
+    await appendDebug(`marking file event file=${debugFilePath(file)}`);
     await markAndToast(file);
   }
 
@@ -307,10 +388,16 @@ export default async (ctx = {}) => {
           if (lastSessionID && sid !== lastSessionID) {
             // New session — discard file list from prior session.
             editedFiles.clear();
+            await appendDebug(
+              `session changed old=${shortSessionID(lastSessionID)} new=${shortSessionID(sid)}; cleared file list`
+            );
           }
           lastSessionID = sid;
           if (pendingMarkWithoutSession) {
             pendingMarkWithoutSession = false;
+            await appendDebug(
+              `backfilling unsuffixed mark into session=${shortSessionID(lastSessionID)}`
+            );
             await mark();
             await maybeToast(
               `Marked for ${reviewLabel} review: pending edit in current session`
@@ -323,6 +410,7 @@ export default async (ctx = {}) => {
       if (!watchEventSet.has(event.type)) return;
 
       const file = extractFileFromEvent(event);
+      await appendDebug(`received event type=${event.type} file=${debugFilePath(file)}`);
       await handleFileChange(file);
     },
   };
