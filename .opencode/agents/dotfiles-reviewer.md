@@ -1,7 +1,7 @@
 ---
 description: Lightweight reviewer for chezmoi templates + bash + PowerShell 7 dotfiles.
 mode: subagent
-tools:
+permission:
   edit: deny
   bash:
     "*": deny
