@@ -24,6 +24,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-01
 
+- decision: Persisted homelab-IaC devcontainer Claude Code runtime state under
+  `/home/vscode/persistent-data/claude`; `postCreate.sh` and `postStart.sh`
+  now link `~/.claude` and `~/.claude.json` there while refreshing managed
+  Claude settings from `/tmp/host-claude`.
 - decision: Added opt-in review-loop debug logging to
   `.opencode/plugins/review-loop-marker.js` and
   `.opencode/plugins/review-loop-enforcer.js` with

@@ -155,6 +155,20 @@ If the browser does not open automatically when `submit_plan` runs, open:
 
 - `http://localhost:9999`
 
+## Claude Code in Devcontainers
+
+For the `homelab-IaC` template, Claude Code runtime state is persisted under:
+
+- `/home/vscode/persistent-data/claude`
+
+`postCreate.sh` and `postStart.sh` link `~/.claude` and `~/.claude.json` to
+this location so browser-login/auth state survives container rebuild/recreate
+cycles.
+
+Managed Claude settings and command files are still refreshed from host dotfiles
+under `/tmp/host-claude`; runtime-generated login state remains in persistent
+container storage and should not be committed.
+
 ## Agent of Empires in Devcontainers
 
 For the `homelab-IaC` template, AoE state is persisted under:

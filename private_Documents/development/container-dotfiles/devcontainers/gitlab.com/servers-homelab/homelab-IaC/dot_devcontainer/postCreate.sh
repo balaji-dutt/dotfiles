@@ -118,6 +118,54 @@ install_custom_ca_certificates() {
   fi
 }
 
+ensure_claude_persistence_links() {
+  local claude_persist_dir claude_config_persist_dir
+  local claude_config_dir claude_home_config claude_home_config_persist
+
+  claude_persist_dir="/home/vscode/persistent-data/claude"
+  claude_config_persist_dir="$claude_persist_dir/config"
+  claude_config_dir="$HOME/.claude"
+  claude_home_config="$HOME/.claude.json"
+  claude_home_config_persist="$claude_persist_dir/.claude.json"
+
+  mkdir -p "$claude_config_persist_dir"
+
+  if [[ -L "$claude_config_dir" ]]; then
+    ln -sfn "$claude_config_persist_dir" "$claude_config_dir"
+  else
+    if [[ -d "$claude_config_dir" ]]; then
+      if [[ -n "$(find "$claude_config_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+        if [[ -n "$(find "$claude_config_persist_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+          cp -an "$claude_config_dir"/. "$claude_config_persist_dir"/
+        else
+          cp -a "$claude_config_dir"/. "$claude_config_persist_dir"/
+        fi
+      fi
+      rm -rf "$claude_config_dir"
+    elif [[ -e "$claude_config_dir" ]]; then
+      rm -f "$claude_config_dir"
+    fi
+
+    ln -sfn "$claude_config_persist_dir" "$claude_config_dir"
+  fi
+
+  if [[ -L "$claude_home_config" ]]; then
+    ln -sfn "$claude_home_config_persist" "$claude_home_config"
+  else
+    if [[ -f "$claude_home_config" ]]; then
+      if [[ ! -e "$claude_home_config_persist" ]] || \
+        ! cmp -s "$claude_home_config" "$claude_home_config_persist"; then
+        cp -a "$claude_home_config" "$claude_home_config_persist"
+      fi
+      rm -f "$claude_home_config"
+    elif [[ -e "$claude_home_config" ]]; then
+      rm -rf "$claude_home_config"
+    fi
+
+    ln -sfn "$claude_home_config_persist" "$claude_home_config"
+  fi
+}
+
 on_error() {
   local exit_code=$?
   echo
@@ -246,6 +294,7 @@ done_step "Install uv tools"
 
 # --- 6) Claude symlinks / setup ---
 step "Setup Claude config symlinks and permissions"
+ensure_claude_persistence_links
 mkdir -p /home/vscode/.claude/commands
 
 ln -sf /tmp/host-claude/private_settings.json /home/vscode/.claude/settings.json || true

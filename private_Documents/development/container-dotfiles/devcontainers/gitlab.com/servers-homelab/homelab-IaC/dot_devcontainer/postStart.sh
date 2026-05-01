@@ -197,6 +197,54 @@ ensure_agent_of_empires_persistence_link() {
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
 }
 
+ensure_claude_persistence_links() {
+  local claude_persist_dir claude_config_persist_dir
+  local claude_config_dir claude_home_config claude_home_config_persist
+
+  claude_persist_dir="/home/vscode/persistent-data/claude"
+  claude_config_persist_dir="$claude_persist_dir/config"
+  claude_config_dir="$HOME/.claude"
+  claude_home_config="$HOME/.claude.json"
+  claude_home_config_persist="$claude_persist_dir/.claude.json"
+
+  mkdir -p "$claude_config_persist_dir"
+
+  if [[ -L "$claude_config_dir" ]]; then
+    ln -sfn "$claude_config_persist_dir" "$claude_config_dir"
+  else
+    if [[ -d "$claude_config_dir" ]]; then
+      if [[ -n "$(find "$claude_config_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+        if [[ -n "$(find "$claude_config_persist_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+          cp -an "$claude_config_dir"/. "$claude_config_persist_dir"/
+        else
+          cp -a "$claude_config_dir"/. "$claude_config_persist_dir"/
+        fi
+      fi
+      rm -rf "$claude_config_dir"
+    elif [[ -e "$claude_config_dir" ]]; then
+      rm -f "$claude_config_dir"
+    fi
+
+    ln -sfn "$claude_config_persist_dir" "$claude_config_dir"
+  fi
+
+  if [[ -L "$claude_home_config" ]]; then
+    ln -sfn "$claude_home_config_persist" "$claude_home_config"
+  else
+    if [[ -f "$claude_home_config" ]]; then
+      if [[ ! -e "$claude_home_config_persist" ]] || \
+        ! cmp -s "$claude_home_config" "$claude_home_config_persist"; then
+        cp -a "$claude_home_config" "$claude_home_config_persist"
+      fi
+      rm -f "$claude_home_config"
+    elif [[ -e "$claude_home_config" ]]; then
+      rm -rf "$claude_home_config"
+    fi
+
+    ln -sfn "$claude_home_config_persist" "$claude_home_config"
+  fi
+}
+
 install_sset_helper() {
   local helper_path
   mkdir -p "$HOME/.local/bin"
@@ -322,6 +370,15 @@ mkdir -p \
   "$HOME/.ssh"
 
 ensure_agent_of_empires_persistence_link
+ensure_claude_persistence_links
+
+mkdir -p "$HOME/.claude/commands"
+ln -sf /tmp/host-claude/private_settings.json "$HOME/.claude/settings.json" || true
+ln -sf /tmp/host-claude/AGENTS.md "$HOME/.claude/AGENTS.md" || true
+ln -sf "$HOME/.claude/AGENTS.md" "$HOME/.claude/CLAUDE.md" || true
+ln -sf /tmp/host-claude/commands/todo.md "$HOME/.claude/commands/todo.md" || true
+ln -sf /tmp/host-claude/executable_commit-docs.sh "$HOME/.claude/commit-docs.sh" || true
+chmod +x "$HOME/.claude/commit-docs.sh" || true
 
 if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
   install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
