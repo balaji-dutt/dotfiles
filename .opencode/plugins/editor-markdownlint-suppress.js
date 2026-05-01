@@ -94,6 +94,8 @@ export default async (ctx = {}) => {
   // ── Dedup guard ───────────────────────────────────────────────────────────
   // Prevents double-injection when multiple watch events fire for the same file.
   const processed = new Set();
+  const pending = new Set();
+  const timers = new Map();
 
   function markProcessed(p) {
     processed.add(p);
@@ -103,18 +105,47 @@ export default async (ctx = {}) => {
   }
 
   // ── Injection ─────────────────────────────────────────────────────────────
+  function scheduleInject(filePath) {
+    if (processed.has(filePath)) return;
+    const existingTimer = timers.get(filePath);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    // Debounce file creation/write bursts.  On Linux/WSL, a temp file may be
+    // created before its contents are written; injecting too early can be
+    // overwritten by the writer's subsequent write.
+    const timer = setTimeout(() => {
+      timers.delete(filePath);
+      void inject(filePath);
+    }, 250);
+    timers.set(filePath, timer);
+  }
+
   async function inject(filePath) {
     if (processed.has(filePath)) return;
-    markProcessed(filePath);
+    if (pending.has(filePath)) return;
+    pending.add(filePath);
+
     try {
-      // Brief pause: let the writer finish flushing the file before we read it.
-      await new Promise((r) => setTimeout(r, 60));
-      const existing = await readFile(filePath, "utf8");
-      // Idempotent: skip if any markdownlint-disable comment is already present.
-      if (existing.startsWith("<!-- markdownlint-disable")) return;
-      await writeFile(filePath, header + existing, "utf8");
-    } catch {
-      // File may not yet be flushed, or was already deleted — ignore silently.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // Let the writer create/flush the file before reading it.  On Linux/WSL,
+        // fs.watch can report creation before the file is readable.
+        await new Promise((r) => setTimeout(r, 60 * (attempt + 1)));
+        try {
+          const existing = await readFile(filePath, "utf8");
+          // Idempotent: skip if any markdownlint-disable comment is already present.
+          if (existing.startsWith("<!-- markdownlint-disable")) {
+            markProcessed(filePath);
+            return;
+          }
+          await writeFile(filePath, header + existing, "utf8");
+          markProcessed(filePath);
+          return;
+        } catch {
+          // File may not yet be flushed, or was already deleted — retry briefly.
+        }
+      }
+    } finally {
+      pending.delete(filePath);
     }
   }
 
@@ -129,7 +160,7 @@ export default async (ctx = {}) => {
         // "change" also accepted defensively (Bun behaviour can vary).
         if (event !== "rename" && event !== "change") return;
 
-        void inject(path.join(dir, filename));
+        scheduleInject(path.join(dir, filename));
       });
       watcher.on("error", () => {});
     } catch {
