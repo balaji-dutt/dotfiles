@@ -269,6 +269,18 @@ The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Rebuild actions are explicit so
 terminal profiles do not recreate containers accidentally.
 
+On macOS, the homelab devcontainer now uses a stable host relay at
+`/tmp/macos-ssh-agent/ssh-agent.sock` instead of depending on VS Code's implicit
+SSH-agent forwarding. The relay is provided by the managed LaunchAgent
+`com.user.ssh-agent-relay`, and the devcontainer bind-mounts `/tmp/macos-ssh-agent`
+into the container so both VS Code and `devcontainer-launch` share the same socket
+path.
+
+If the upstream macOS `SSH_AUTH_SOCK` path changes mid-session, reload
+`com.user.ssh-agent-relay` before rebuilding or reopening the container. Rerun
+`chezmoi apply` only if the helper/LaunchAgent has not yet been installed on the
+host.
+
 For `homelab-IaC`, the platform defaults are:
 
 - macOS workspace: `/Volumes/devdrive/homelab-IaC`

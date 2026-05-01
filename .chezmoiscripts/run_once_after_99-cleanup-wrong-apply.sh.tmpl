@@ -124,6 +124,11 @@ rm_rel "bin/code"
 rm_rel "bin/devcontainer-launch"
 {{ end }}
 
+# bin/macos_ssh_agent_relay.sh should exist ONLY on macOS
+{{ if not $isDarwin }}
+rm_rel "bin/macos_ssh_agent_relay.sh"
+{{ end }}
+
 # Doom should exist ONLY on macOS OR Ubuntu WSL2
 {{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
 rm_rel ".config/doom"

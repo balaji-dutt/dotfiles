@@ -20,6 +20,7 @@
 {{ if not $isDarwin }}
 Library
 bin/vnc_monitor.sh
+bin/macos_ssh_agent_relay.sh
 .agent-of-empires
 .agent-of-empires/**
 {{ end }}

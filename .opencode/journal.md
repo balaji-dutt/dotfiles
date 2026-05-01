@@ -24,6 +24,15 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-01
 
+- decision: Added macOS LaunchAgent-backed SSH agent relay at
+  `/tmp/macos-ssh-agent/ssh-agent.sock` so `devcontainer-launch` and VS Code can
+  share a stable host-side socket path.
+- gotcha: Do not bind the live macOS `SSH_AUTH_SOCK` socket file directly into a
+  devcontainer; mount a stable relay directory instead so host socket inode churn
+  does not strand the container mount.
+- convention: If the upstream macOS `SSH_AUTH_SOCK` path changes mid-session,
+  reload `com.user.ssh-agent-relay` (or rerun `chezmoi apply`) before rebuilding
+  or reopening the devcontainer.
 - decision: Added manifest-backed `devcontainer-launch` user-bin wrapper for
   terminal-launched devcontainer shells/actions; `homelab-IaC` is the first
   launcher entry in `configs/devcontainer-sync.jsonc`.
