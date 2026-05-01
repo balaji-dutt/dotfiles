@@ -454,7 +454,7 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "openai/gpt-5.5",
+      "model": "github-copilot/gpt-5.4",
       "reasoningEffort": "high",
       "temperature": 0.2,
       // Anthropic does not support temperature modification with thinking budgets
