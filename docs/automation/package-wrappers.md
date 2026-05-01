@@ -21,8 +21,12 @@ Shell wrappers in dotfiles can update package manifests and create git commits a
 | Mise | `mise` | `configs/mise.toml` | Commits global or local mise changes depending on context. |
 | uv | `uv` | `configs/uv_tools.txt` | Updates uv tool list and commits tool operations. |
 | npm | `npm` | `configs/npm_globals*.txt` | Updates npm global package lists and commits changes. |
+| npx | `npx` | none | Pass-through wrapper that enforces native Linux resolution on WSL2. |
 | bun | `bun` | `configs/bun_globals.txt` | Tracks bun global package operations and commits updates. |
 | bunx | `bunx` | `$XDG_STATE_HOME/bunx/commands.log` (or `~/.local/state/bunx/commands.log`) | Audits successful command usage only (no auto-commit behavior). |
+
+On WSL2, wrappers prefer native Linux executables and reject `/mnt/<drive>/...`
+Windows-mounted shims for tool-managed commands.
 
 ## Docs Commit Helper
 
@@ -39,3 +43,4 @@ Repo-local equivalent helper:
 - Review auto-generated commits before pushing.
 - Do not use these wrappers in repositories where automated commits are undesirable.
 - Never commit secrets from environment-derived files.
+- `chezmoi apply` package hydration uses the same native-tool preference on WSL2.

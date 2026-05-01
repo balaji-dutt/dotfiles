@@ -35,6 +35,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `npm:@anthropic-ai/claude-code` and `npm:@devcontainers/cli` live in
   `configs/mise.toml`, and `devcontainer-launch` rejects WSL `/mnt/<drive>`
   shims.
+- decision: WSL2 shell wrappers and package hydration now resolve native Linux
+  `mise`, `uv`, `npm`, `npx`, `bun`, and `bunx` at call time and reject
+  Windows-mounted `/mnt/<drive>` shims instead of snapshotting polluted PATH
+  entries.
 - decision: Persisted homelab-IaC devcontainer Claude Code runtime state under
   `/home/vscode/persistent-data/claude`; `postCreate.sh` and `postStart.sh`
   now link `~/.claude` and `~/.claude.json` there while refreshing managed

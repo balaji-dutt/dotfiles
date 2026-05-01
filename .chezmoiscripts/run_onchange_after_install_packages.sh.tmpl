@@ -35,6 +35,119 @@ echo "Starting Hydration of non-brew packages..."
 # Define the absolute path to your configs
 CONFIG_DIR="{{ .chezmoi.sourceDir }}/configs"
 
+is_windows_mounted_path() {
+  local candidate resolved
+  candidate="$1"
+
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f -- "$candidate" 2>/dev/null || printf '%s' "$candidate")"
+  else
+    resolved="$candidate"
+  fi
+
+  [[ "$candidate" == /mnt/[[:alpha:]]/* || "$resolved" == /mnt/[[:alpha:]]/* ]]
+}
+
+prepend_path_entry() {
+  local entry path_value
+  entry="$1"
+  path_value="${PATH:-}"
+
+  [[ -d "$entry" ]] || return 0
+
+  case ":$path_value:" in
+    *":$entry:"*) ;;
+    *) export PATH="$entry${path_value:+:$path_value}" ;;
+  esac
+}
+
+resolve_native_path_command() {
+  local tool candidate entry found_windows path_value
+  tool="$1"
+  found_windows=""
+
+  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  for entry in "$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/.bun/bin" "$HOME/bin"; do
+    prepend_path_entry "$entry"
+  done
+  {{- end }}
+
+  path_value="${PATH:-}"
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] || continue
+    candidate="${entry%/}/$tool"
+    [[ -x "$candidate" && ! -d "$candidate" ]] || continue
+
+    {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    if is_windows_mounted_path "$candidate"; then
+      found_windows="${found_windows}${found_windows:+, }$candidate"
+      continue
+    fi
+    {{- end }}
+
+    printf '%s\n' "$candidate"
+    return 0
+  done < <(printf '%s' "$path_value" | tr ':' '\n')
+
+  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  if [[ -n "$found_windows" ]]; then
+    echo "❌Error: only Windows-mounted candidates found for $tool: $found_windows" >&2
+    return 1
+  fi
+  {{- end }}
+
+  echo "❌Error: required command not found: $tool" >&2
+  return 1
+}
+
+resolve_mise_managed_command() {
+  local tool mise_bin resolved
+  tool="$1"
+
+  [[ "$tool" != "mise" ]] || return 1
+
+  mise_bin="$(resolve_native_path_command mise 2>/dev/null)" || return 1
+  resolved="$(env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+    "$mise_bin" which "$tool" 2>/dev/null || true)"
+
+  [[ -n "$resolved" && -x "$resolved" && ! -d "$resolved" ]] || return 1
+  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  is_windows_mounted_path "$resolved" && return 1
+  {{- end }}
+
+  printf '%s\n' "$resolved"
+  return 0
+}
+
+resolve_native_command() {
+  local tool
+  tool="$1"
+
+  resolve_mise_managed_command "$tool" && return 0
+  resolve_native_path_command "$tool"
+}
+
+run_native_command() {
+  local tool tool_bin
+  tool="$1"
+  shift
+  tool_bin="$(resolve_native_command "$tool")" || return 1
+  env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+    "$tool_bin" "$@"
+}
+
+run_manifest_lines() {
+  local manifest_file tool
+  manifest_file="$1"
+  tool="$2"
+  shift 2
+
+  while IFS= read -r line; do
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    run_native_command "$tool" "$@" "$line"
+  done < "$manifest_file"
+}
+
 # 1. ENSURE BREW & MISE ARE AVAILABLE
 if [[ -d "/opt/homebrew/bin" ]]; then
   export PATH="/opt/homebrew/bin:$PATH"
@@ -42,24 +155,23 @@ elif [[ -d "/usr/local/bin" ]]; then
   export PATH="/usr/local/bin:$PATH"
 fi
 
-if ! command -v mise >/dev/null 2>&1; then
+if ! resolve_native_command mise >/dev/null 2>&1; then
     echo "❌Error: mise not found. Please run 'brew install mise' first."
     exit 1
 fi
 
 # 2. ACTIVATE MISE ENVIRONMENT
-eval "$(mise activate bash)"
+eval "$(run_native_command mise activate bash)"
 
 echo "Installing Runtimes from mise.toml..."
-mise install -y
-mise reshim
+run_native_command mise install -y
+run_native_command mise reshim
 
 # 3. HYDRATE NPM GLOBAL PACKAGES
 NPM_FILE="$CONFIG_DIR/npm_globals.txt"
 if [ -s "$NPM_FILE" ]; then
     echo "Syncing NPM global packages..."
-    # xargs -r is not always available on macOS, so we use the [ -s ] check above
-    xargs npm install -g < "$NPM_FILE"
+    run_manifest_lines "$NPM_FILE" npm install -g
 fi
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
@@ -70,7 +182,7 @@ NPM_LINUX_FILE="$CONFIG_DIR/npm_globals_linux.txt"
 {{- end }}
 if [ -s "$NPM_LINUX_FILE" ]; then
     echo "Syncing Linux-specific NPM packages..."
-    xargs npm install -g < "$NPM_LINUX_FILE"
+    run_manifest_lines "$NPM_LINUX_FILE" npm install -g
 fi
 {{- end }}
 
@@ -78,8 +190,8 @@ fi
 BUN_FILE="$CONFIG_DIR/bun_globals.txt"
 if [ -s "$BUN_FILE" ]; then
     echo "Syncing Bun global packages..."
-    if command -v bun >/dev/null 2>&1; then
-        xargs bun add -g < "$BUN_FILE"
+    if resolve_native_command bun >/dev/null 2>&1; then
+        run_manifest_lines "$BUN_FILE" bun add -g
     fi
 fi
 
@@ -88,13 +200,13 @@ UV_FILE="$CONFIG_DIR/uv_tools.txt"
 if [ -s "$UV_FILE" ]; then
     echo "Syncing UV Tools..."
 
-    if command -v uv >/dev/null 2>&1; then
+    if resolve_native_command uv >/dev/null 2>&1; then
         while IFS= read -r tool; do
             [[ -z "$tool" || "$tool" =~ ^# ]] && continue
             # Check if already installed to save time
-            if ! uv tool list | grep -q "^$tool "; then
+            if ! run_native_command uv tool list | grep -q "^$tool "; then
                 echo "   + Installing $tool..."
-                uv tool install "$tool" --force
+                run_native_command uv tool install "$tool" --force
             fi
         done < "$UV_FILE"
     else

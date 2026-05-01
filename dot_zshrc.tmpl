@@ -352,23 +352,114 @@ brew() {
 
 {{- end }}
 
-# Initialize mise
-if command -v mise >/dev/null 2>&1; then
-    eval "$(mise activate zsh)"
-fi
-
-
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+_wsl2_prepend_path_entry() {
+    local entry="$1"
+
+    [[ -d "$entry" ]] || return 0
+
+    path=("$entry" ${path:#$entry})
+}
+
+_wsl2_resolve_native_path_command() {
+    local tool="$1"
+    local candidate entry
+    local -a search_path windows_candidates
+
+    for entry in "$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/.bun/bin" "$HOME/bin"; do
+        _wsl2_prepend_path_entry "$entry"
+    done
+
+    search_path=("${(@)path}")
+    windows_candidates=()
+
+    for entry in "${search_path[@]}"; do
+        [[ -n "$entry" ]] || continue
+        candidate="${entry%/}/$tool"
+        [[ -x "$candidate" && ! -d "$candidate" ]] || continue
+
+        if _wsl2_is_windows_mounted_path "$candidate"; then
+            windows_candidates+=("$candidate")
+            continue
+        fi
+
+        printf '%s\n' "$candidate"
+        return 0
+    done
+
+    if (( ${#windows_candidates[@]} > 0 )); then
+        printf 'WSL2 native command not found for %s; only Windows-mounted candidates were available: %s\n' \
+            "$tool" "${(j:, :)windows_candidates}" >&2
+    else
+        printf 'WSL2 native command not found for %s\n' "$tool" >&2
+    fi
+
+    return 1
+}
+
+_wsl2_realpath_or_echo() {
+    local candidate="$1"
+
+    if command -v readlink >/dev/null 2>&1; then
+        readlink -f -- "$candidate" 2>/dev/null || printf '%s\n' "$candidate"
+    else
+        printf '%s\n' "$candidate"
+    fi
+}
+
+_wsl2_is_windows_mounted_path() {
+    local candidate="$1"
+    local resolved
+
+    resolved="$(_wsl2_realpath_or_echo "$candidate")"
+    [[ "$candidate" == /mnt/[[:alpha:]]/* || "$resolved" == /mnt/[[:alpha:]]/* ]]
+}
+
+_wsl2_resolve_mise_managed_command() {
+    local tool="$1"
+    local mise_bin resolved
+
+    [[ "$tool" != "mise" ]] || return 1
+
+    mise_bin="$(_wsl2_resolve_native_path_command mise 2>/dev/null)" || return 1
+    resolved="$(env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+        "$mise_bin" which "$tool" 2>/dev/null || true)"
+
+    [[ -n "$resolved" && -x "$resolved" && ! -d "$resolved" ]] || return 1
+    _wsl2_is_windows_mounted_path "$resolved" && return 1
+
+    printf '%s\n' "$resolved"
+    return 0
+}
+
+_wsl2_resolve_native_command() {
+    local tool="$1"
+
+    _wsl2_resolve_mise_managed_command "$tool" && return 0
+    _wsl2_resolve_native_path_command "$tool"
+}
+
+_resolve_preferred_command_path() {
+    _wsl2_resolve_native_command "$1"
+}
+
+_run_preferred_command() {
+    local tool="$1"
+    local tool_bin
+    shift
+
+    tool_bin="$(_wsl2_resolve_native_command "$tool")" || return 1
+    env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+        "$tool_bin" "$@"
+}
+
 # Ensure npm global bin is on PATH (WSL2)
-if command -v npm >/dev/null 2>&1; then
-    npm_prefix="$(npm prefix -g 2>/dev/null)"
+if _resolve_preferred_command_path npm >/dev/null 2>&1; then
+    npm_prefix="$(_run_preferred_command npm prefix -g 2>/dev/null || true)"
     if [ -n "$npm_prefix" ]; then
         npm_global_bin="$npm_prefix/bin"
         if [ -d "$npm_global_bin" ]; then
-            case ":$PATH:" in
-                *":$npm_global_bin:"*) ;;
-                *) export PATH="$npm_global_bin:$PATH" ;;
-            esac
+            _wsl2_prepend_path_entry "$npm_global_bin"
         fi
     fi
 fi
@@ -384,11 +475,11 @@ if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
         local mise_shims="${HOME}/.local/share/mise/shims"
         # Linux npm global bin (covers npm-installed globals like claude)
         local npm_global_bin=""
-        if (( ${+commands[npm]} )); then
+        if _resolve_preferred_command_path npm >/dev/null 2>&1; then
             local _npm_prefix
-            _npm_prefix="$(command npm prefix -g 2>/dev/null)"
+            _npm_prefix="$(_run_preferred_command npm prefix -g 2>/dev/null || true)"
             # Only use prefix if it resolves to a Linux path (not /mnt/c/...)
-            if [[ -n "$_npm_prefix" && "$_npm_prefix" != /mnt/* ]]; then
+            if [[ -n "$_npm_prefix" ]] && ! _wsl2_is_windows_mounted_path "$_npm_prefix"; then
                 npm_global_bin="${_npm_prefix}/bin"
             fi
         fi
@@ -396,13 +487,7 @@ if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
         local entry
         for entry in "$npm_global_bin" "$mise_shims"; do
             [[ -z "$entry" || ! -d "$entry" ]] && continue
-            # Move entry to front if not already there
-            if [[ ":${PATH}:" != *":${entry}:"* ]]; then
-                export PATH="${entry}:${PATH}"
-            elif [[ "${PATH%%:*}" != "$entry" ]]; then
-                # Already in PATH but not at front — move it to front
-                path=("$entry" ${path:#$entry})
-            fi
+            _wsl2_prepend_path_entry "$entry"
         done
     }
 
@@ -531,7 +616,28 @@ if [[ -o interactive ]]; then
     add-zsh-hook precmd _wsl2_pageant_auto_heal
 fi
 {{- end }}
+
+{{- else }}
+_resolve_preferred_command_path() {
+    local tool="$1"
+    whence -p "$tool" >/dev/null || return 1
+    whence -p "$tool"
+}
+
+_run_preferred_command() {
+    local tool="$1"
+    local tool_bin
+    shift
+
+    tool_bin="$(_resolve_preferred_command_path "$tool")" || return 1
+    "$tool_bin" "$@"
+}
 {{- end }}
+
+# Initialize mise
+if _resolve_preferred_command_path mise >/dev/null 2>&1; then
+    eval "$(_run_preferred_command mise activate zsh)"
+fi
 
 # Override mise, pipx and npm with custom functions to ensure package installs are 
 # automatically committed to the dotfiles repo.
@@ -542,7 +648,7 @@ mise() {
     local MISE_MANIFEST="configs/mise.toml"
 
     # 1. RUN COMMAND NORMALLY
-    command mise "$@"
+    _run_preferred_command mise "$@"
     exit_code=$?
 
     # Stop if mise failed
@@ -583,8 +689,6 @@ mise() {
 
 
 # --- UV WRAPPER ---
-if [ -z "$ORIGINAL_UV" ]; then export ORIGINAL_UV=$(which uv); fi
-
 uv() {
     local exit_code
     local command=$1
@@ -592,13 +696,13 @@ uv() {
     local UV_MANIFEST="configs/uv_tools.txt" 
 
     # 1. Run the original command
-    "$ORIGINAL_UV" "$@"
+    _run_preferred_command uv "$@"
     exit_code=$?
 
     # 2. Check if command succeeded
     if [[ $exit_code -eq 0 ]]; then
         if [[ "$command" == "tool" ]] && [[ "$subcommand" =~ ^(install|uninstall|upgrade)$ ]]; then
-            "$ORIGINAL_UV" tool list | grep -v "^-" | awk '{print $1}' > "${DOTFILES_REPO}/${UV_MANIFEST}"
+            _run_preferred_command uv tool list | grep -v "^-" | awk '{print $1}' > "${DOTFILES_REPO}/${UV_MANIFEST}"
             sync_to_dotfiles "uv" "$UV_MANIFEST" "$*"
         fi
     fi
@@ -606,8 +710,6 @@ uv() {
 }
 
 # --- NPM WRAPPER ---
-if [ -z "$ORIGINAL_NPM" ]; then export ORIGINAL_NPM=$(which npm); fi
-
 npm() {
     local args=("$@")
     local command=$1
@@ -626,7 +728,7 @@ npm() {
     fi
 
     # 1. Run original command
-    "$ORIGINAL_NPM" "$@"
+    _run_preferred_command npm "$@"
     local exit_code=$?
 
     # 2. If global modification succeeded
@@ -641,7 +743,7 @@ npm() {
         # - Unscoped packages: .../node_modules/<pkg>
         # - Scoped packages:   .../node_modules/@scope/<pkg>
         # We strip everything up to node_modules/ and reconstruct @scope/pkg.
-        "$ORIGINAL_NPM" list -g --depth=0 --parseable \
+        _run_preferred_command npm list -g --depth=0 --parseable \
           | sed '1d' \
           | sed 's#.*/node_modules/##' \
           | awk -F/ '($1 ~ /^@/ && $2 != ""){print $1"/"$2; next} ($1 !~ /^@/){print $1}' \
@@ -653,6 +755,10 @@ npm() {
     fi
 
     return $exit_code
+}
+
+npx() {
+    _run_preferred_command npx "$@"
 }
 
 # --- BUN WRAPPER (Globals Manifest + Auto-Commit) ---
@@ -675,7 +781,7 @@ bun() {
     fi
 
     # 1. Run original command (bypass this wrapper)
-    command bun "$@"
+    _run_preferred_command bun "$@"
     local exit_code=$?
 
     # 2. If global modification succeeded
@@ -720,7 +826,7 @@ bunx() {
     local log_filename="bunx_commands.txt"
 
     # 1. Run the actual command
-    command bunx "$@"
+    _run_preferred_command bunx "$@"
     exit_code=$?
 
     # Stop if the command failed
