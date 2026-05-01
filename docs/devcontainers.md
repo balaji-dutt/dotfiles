@@ -187,6 +187,43 @@ example `~/.cargo` and `~/.rustup`) from accumulating AoE bootstrap residue.
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
 
+## opencode-claude-bridge Validation
+
+The `opencode-claude-bridge` validator can be run inside the devcontainer to
+compare OpenCode wire traffic against Claude Code. It requires TypeScript only
+as a project-local dev dependency — no global TypeScript install is needed.
+
+A helper command is available after the devcontainer is created:
+
+```sh
+opencode-claude-bridge-validate
+```
+
+The bridge source is cloned or updated under persistent storage on first use:
+
+- `/home/vscode/persistent-data/src/opencode-claude-bridge`
+
+`npm install` installs project-local dependencies including `tsc`. Validation
+output streams directly to stdout/stderr.
+
+To clean validator artifacts (which may contain sensitive request metadata):
+
+```sh
+opencode-claude-bridge-validate --clean-artifacts
+```
+
+To run validation from the host using the `devcontainer` CLI:
+
+```sh
+devcontainer exec \
+  --workspace-folder "/Volumes/devdrive/homelab-IaC" \
+  --config "/Users/balaji/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json" \
+  opencode-claude-bridge-validate
+```
+
+Do not clone the bridge or store `node_modules` inside the mounted workspace
+repo. The persistent volume path keeps all bridge state separate.
+
 ## WSL Overlay Publishing
 
 WSL-specific overlay publishing is handled by:

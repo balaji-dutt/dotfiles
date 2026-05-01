@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# opencode-claude-bridge-validate
+#
+# Validates local OpenCode traffic against Claude Code wire format using the
+# opencode-claude-bridge local validator.
+#
+# The bridge checkout is kept under the devcontainer persistent-data volume so
+# it survives container rebuild/recreate cycles and stays outside the mounted
+# workspace repo.
+#
+# Usage:
+#   opencode-claude-bridge-validate [--clean-artifacts] [<extra npm run validate:oauth args>]
+#   OPENCODE_CLAUDE_BRIDGE_DIR=/custom/path opencode-claude-bridge-validate [<args>]
+#
+# Modes:
+#   (default)          Clone/update bridge, npm install, run validator.
+#   --clean-artifacts  Remove tmp/validate-* artifacts from the bridge checkout.
+#   --help, -h         Print this usage message and exit.
+
+readonly PROG="${0##*/}"
+readonly DEFAULT_BRIDGE_DIR="/home/vscode/persistent-data/src/opencode-claude-bridge"
+readonly BRIDGE_REPO="https://github.com/dotCipher/opencode-claude-bridge.git"
+
+log() {
+  printf '[%s] %s\n' "$PROG" "$*" >&2
+}
+
+die() {
+  printf '[%s] ERROR: %s\n' "$PROG" "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage:
+  $PROG [--clean-artifacts] [<extra npm run validate:oauth args>]
+  OPENCODE_CLAUDE_BRIDGE_DIR=/custom/path $PROG [<args>]
+
+Options:
+  --clean-artifacts   Remove tmp/validate-* artifacts from the bridge checkout.
+  --help, -h          Print this message and exit.
+
+The bridge checkout lives at \$OPENCODE_CLAUDE_BRIDGE_DIR (default: $DEFAULT_BRIDGE_DIR).
+node_modules and validator artifacts are local to the bridge checkout.
+EOF
+}
+
+clean_artifacts() {
+  local bridge_dir="${OPENCODE_CLAUDE_BRIDGE_DIR:-$DEFAULT_BRIDGE_DIR}"
+  if [ ! -d "$bridge_dir" ]; then
+    log "Bridge checkout not found at $bridge_dir; nothing to clean."
+    exit 0
+  fi
+  log "Cleaning validator artifacts under $bridge_dir/tmp/validate-* ..."
+  rm -rf "${bridge_dir:?}/tmp/validate-"*
+  log "Done."
+  exit 0
+}
+
+# Parse a leading --clean-artifacts or --help/--h before delegating the rest
+# to npm run validate:oauth. All other args are passed through.
+case "${1:-}" in
+  --help|-h)
+    usage
+    exit 0
+    ;;
+  --clean-artifacts)
+    clean_artifacts
+    ;;
+esac
+
+# Resolve bridge checkout directory
+bridge_dir="${OPENCODE_CLAUDE_BRIDGE_DIR:-$DEFAULT_BRIDGE_DIR}"
+parent_dir="${bridge_dir%/*}"
+
+# Ensure parent directory exists
+mkdir -p "$parent_dir"
+
+# Clone or update bridge repo
+if [ ! -d "$bridge_dir/.git" ]; then
+  log "Cloning opencode-claude-bridge to $bridge_dir ..."
+  git clone "$BRIDGE_REPO" "$bridge_dir"
+else
+  log "Updating opencode-claude-bridge at $bridge_dir ..."
+  git -C "$bridge_dir" pull --ff-only
+fi
+
+log "Bridge checkout: $bridge_dir"
+log "Artifact directory: $bridge_dir/tmp/"
+
+# Install project-local dependencies (provides tsc from devDependencies)
+log "Running npm install ..."
+npm install --prefix "$bridge_dir"
+
+# Confirm local TypeScript compiler is available
+log "TypeScript version: $(npm exec --prefix "$bridge_dir" -- tsc --version)"
+
+# Run validator; stdout/stderr stream directly to the terminal.
+# Any extra arguments passed to this script are forwarded to validate:oauth.
+log "Running validator (model: claude-sonnet-4-6) ..."
+log "Streaming npm run validate:oauth output below:"
+
+npm run --prefix "$bridge_dir" validate:oauth -- \
+  --model claude-sonnet-4-6 \
+  --prompt "Reply with exactly VALIDATE." \
+  "$@"
