@@ -74,6 +74,10 @@ prepend_mise_shims() {
   fi
 }
 
+RESOLVED_NATIVE_PATH=""
+NATIVE_PATH_WINDOWS_CANDIDATES=""
+DEVCONTAINER_CMD=()
+
 is_windows_mounted_path() {
   local platform path
   platform="$1"
@@ -82,22 +86,19 @@ is_windows_mounted_path() {
   [[ "$platform" == "wsl2-debian" && "$path" =~ ^/mnt/[[:alpha:]]/ ]]
 }
 
-resolve_devcontainer_cli() {
-  local platform candidate path_entry found_windows path_value
+resolve_native_path_command() {
+  local platform tool candidate path_entry found_windows path_value
   platform="$1"
+  tool="$2"
   found_windows=""
   path_value="${PATH:-}"
 
-  if [[ -n "${DEVCONTAINER_CLI:-}" ]]; then
-    [[ -x "$DEVCONTAINER_CLI" && ! -d "$DEVCONTAINER_CLI" ]] || die "DEVCONTAINER_CLI is not executable: $DEVCONTAINER_CLI"
-    is_windows_mounted_path "$platform" "$DEVCONTAINER_CLI" && die "DEVCONTAINER_CLI points to a Windows-mounted path on WSL2: $DEVCONTAINER_CLI"
-    printf '%s\n' "$DEVCONTAINER_CLI"
-    return 0
-  fi
+  RESOLVED_NATIVE_PATH=""
+  NATIVE_PATH_WINDOWS_CANDIDATES=""
 
   while IFS= read -r path_entry; do
     [[ -n "$path_entry" ]] || continue
-    candidate="${path_entry%/}/devcontainer"
+    candidate="${path_entry%/}/$tool"
     [[ -x "$candidate" && ! -d "$candidate" ]] || continue
 
     if is_windows_mounted_path "$platform" "$candidate"; then
@@ -105,12 +106,59 @@ resolve_devcontainer_cli() {
       continue
     fi
 
-    printf '%s\n' "$candidate"
+    RESOLVED_NATIVE_PATH="$candidate"
     return 0
   done < <(printf '%s' "$path_value" | tr ':' '\n')
 
-  if [[ -n "$found_windows" ]]; then
-    die "only Windows-mounted devcontainer CLI candidates were found on WSL2: $found_windows. Install the native mise-managed npm:@devcontainers/cli tool in Debian WSL2."
+  NATIVE_PATH_WINDOWS_CANDIDATES="$found_windows"
+  return 1
+}
+
+resolve_mise_devcontainer_command() {
+  local platform mise_bin install_root wrapper_path
+  platform="$1"
+
+  [[ "$platform" == "wsl2-debian" ]] || return 1
+  resolve_native_path_command "$platform" mise || return 1
+  mise_bin="$RESOLVED_NATIVE_PATH"
+
+  install_root="$(env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL "$mise_bin" where "npm:@devcontainers/cli" 2>/dev/null || true)"
+  [[ -n "$install_root" && -d "$install_root" ]] || return 1
+  is_windows_mounted_path "$platform" "$install_root" && return 1
+
+  wrapper_path="$install_root/devcontainer"
+  [[ -f "$wrapper_path" ]] || return 1
+  is_windows_mounted_path "$platform" "$wrapper_path" && return 1
+
+  DEVCONTAINER_CMD=(sh "$wrapper_path")
+  return 0
+}
+
+resolve_devcontainer_command() {
+  local platform devcontainer_windows_candidates
+  platform="$1"
+  DEVCONTAINER_CMD=()
+
+  if [[ -n "${DEVCONTAINER_CLI:-}" ]]; then
+    [[ -x "$DEVCONTAINER_CLI" && ! -d "$DEVCONTAINER_CLI" ]] || die "DEVCONTAINER_CLI is not executable: $DEVCONTAINER_CLI"
+    is_windows_mounted_path "$platform" "$DEVCONTAINER_CLI" && die "DEVCONTAINER_CLI points to a Windows-mounted path on WSL2: $DEVCONTAINER_CLI"
+    DEVCONTAINER_CMD=("$DEVCONTAINER_CLI")
+    return 0
+  fi
+
+  if resolve_native_path_command "$platform" devcontainer; then
+    DEVCONTAINER_CMD=("$RESOLVED_NATIVE_PATH")
+    return 0
+  fi
+
+  devcontainer_windows_candidates="$NATIVE_PATH_WINDOWS_CANDIDATES"
+
+  if resolve_mise_devcontainer_command "$platform"; then
+    return 0
+  fi
+
+  if [[ -n "$devcontainer_windows_candidates" ]]; then
+    die "only Windows-mounted devcontainer CLI candidates were found on WSL2: $devcontainer_windows_candidates. Install the native mise-managed npm:@devcontainers/cli tool in Debian WSL2."
   fi
 
   die "devcontainer CLI is required; install the native mise-managed npm:@devcontainers/cli tool"
@@ -390,7 +438,7 @@ PY
 }
 
 main() {
-  local platform action requested resolved devcontainer_bin
+  local platform action requested resolved
 
   platform="$(detect_platform)" || die "unsupported platform; supported platforms are macOS and Debian WSL2"
 
@@ -420,31 +468,31 @@ main() {
 
   require_dir "$WORKSPACE_FOLDER" "workspace folder"
   require_file "$CONFIG_PATH" "devcontainer config"
-  devcontainer_bin="$(resolve_devcontainer_cli "$platform")"
+  resolve_devcontainer_command "$platform"
 
   local devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
 
   case "$action" in
     shell)
-      "$devcontainer_bin" up "${devcontainer_args[@]}" >/dev/null
-      exec "$devcontainer_bin" exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
+      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
+      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
       ;;
     up)
-      exec "$devcontainer_bin" up "${devcontainer_args[@]}"
+      exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}"
       ;;
     rebuild)
-      exec "$devcontainer_bin" up "${devcontainer_args[@]}" --remove-existing-container
+      exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --remove-existing-container
       ;;
     rebuild-no-cache)
-      exec "$devcontainer_bin" up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
+      exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
       ;;
     exec)
       if [[ "${1:-}" == "--" ]]; then
         shift
       fi
       [[ $# -gt 0 ]] || die "exec action requires a command"
-      "$devcontainer_bin" up "${devcontainer_args[@]}" >/dev/null
-      exec "$devcontainer_bin" exec "${devcontainer_args[@]}" "$@"
+      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
+      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "$@"
       ;;
     -h|--help|help)
       usage

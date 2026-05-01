@@ -34,7 +34,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Prefer mise-managed npm CLI tools for non-interactive launchers;
   `npm:@anthropic-ai/claude-code` and `npm:@devcontainers/cli` live in
   `configs/mise.toml`, and `devcontainer-launch` rejects WSL `/mnt/<drive>`
-  shims.
+  shims while falling back to `sh "$(mise where npm:@devcontainers/cli)/devcontainer"`
+  when mise does not provide a usable `devcontainer` shim.
 - decision: WSL2 shell wrappers and package hydration now resolve native Linux
   `mise`, `uv`, `npm`, `npx`, `bun`, and `bunx` at call time and reject
   Windows-mounted `/mnt/<drive>` shims instead of snapshotting polluted PATH
