@@ -278,6 +278,14 @@ For `homelab-IaC`, the platform defaults are:
 - Debian WSL2 config:
   `/mnt/devdrive/homelab-IaC/.devcontainer/personal-wsl/devcontainer.json`
 
+`devcontainer-launch` uses the native Debian WSL2 workspace path
+`/mnt/devdrive/homelab-IaC`. In practice, VS Code Dev Containers may still
+canonicalize the same repo to a UNC path such as
+`\\wsl.localhost\Debian\mnt\devdrive\homelab-IaC`, which creates a separate
+container identity from the terminal launcher. If you want VS Code to use the
+already-running launcher container, prefer **Dev Containers: Attach to Running
+Container...** instead of assuming **Reopen in Container** will reuse it.
+
 Per-machine overrides use the manifest `env_prefix`:
 
 ```sh
