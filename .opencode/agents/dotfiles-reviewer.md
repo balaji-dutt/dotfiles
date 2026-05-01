@@ -2,12 +2,12 @@
 description: Lightweight reviewer for chezmoi templates + bash + PowerShell 7 dotfiles.
 mode: subagent
 tools:
-  write: false
-  edit: false
-  bash: true
-  read: false
-  grep: false
-  glob: false
+  edit: deny
+  bash:
+    "*": deny
+    "git status*": allow
+    "git diff*": allow
+    "git log*": allow
 ---
 <!-- markdownlint-disable MD012 MD013 MD032 MD022 MD041 -->
 <!-- markdownlint-configure-file

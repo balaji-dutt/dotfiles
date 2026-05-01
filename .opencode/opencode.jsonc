@@ -102,18 +102,6 @@
       //   "type": "enabled",
       //   "budgetTokens": 10000
       // },
-      "tools": {
-        "write": false,
-        "edit": false
-        // bash enabled; controlled by permission block below
-      },
-      "permission": {
-        "bash": {
-          "git diff*": "allow",
-          "git status --short*": "allow",
-          "*": "deny"
-        }
-      }
     },
     // "dotfiles-reviewer-deep": {
     //   "mode": "subagent",
