@@ -94,7 +94,7 @@ git config --global coauthor.gptNext true
 Optional repo-specific override:
 
 ```bash
-git config --local coauthor.gptTrailer 'Co-authored-by: GPT-5.2 <noreply@openai.com>'
+git config --local coauthor.gptTrailer 'Co-authored-by: GPT-5.5 <noreply@openai.com>'
 ```
 
 Disarm manually:
