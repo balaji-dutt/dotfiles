@@ -5,6 +5,8 @@ import { mkdir, writeFile, unlink, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
+const PLUGIN_VERSION = "1.0.0";
+
 // Resolve picomatch from ../node_modules/picomatch/ relative to this file.
 // In the shared opencode-tooling repo: resolves to <repo-root>/node_modules/picomatch/.
 // In a seeded target repo:            resolves to .opencode/node_modules/picomatch/.

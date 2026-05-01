@@ -1,6 +1,8 @@
 import { appendFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 
+const PLUGIN_VERSION = "1.0.0";
+
 export default async () => {
   // Off by default. Enable with: OPENCODE_EVENT_TAP=1
   const enabled = /^(1|true|on)$/i.test(process.env.OPENCODE_EVENT_TAP || "");
