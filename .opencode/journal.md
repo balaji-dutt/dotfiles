@@ -31,6 +31,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   to macOS + Debian WSL2; Ubuntu WSL2 remains unsupported for container-dotfiles.
 - convention: Windows Terminal and iTerm devcontainer profiles are documented in
   `docs/devcontainers.md`, not managed by chezmoi.
+- decision: Prefer mise-managed npm CLI tools for non-interactive launchers;
+  `npm:@anthropic-ai/claude-code` and `npm:@devcontainers/cli` live in
+  `configs/mise.toml`, and `devcontainer-launch` rejects WSL `/mnt/<drive>`
+  shims.
 - decision: Persisted homelab-IaC devcontainer Claude Code runtime state under
   `/home/vscode/persistent-data/claude`; `postCreate.sh` and `postStart.sh`
   now link `~/.claude` and `~/.claude.json` there while refreshing managed

@@ -61,6 +61,61 @@ require_dir() {
   [[ -d "$path" ]] || die "$label not found: $path"
 }
 
+prepend_mise_shims() {
+  local mise_shims path_value
+  mise_shims="${HOME}/.local/share/mise/shims"
+  path_value="${PATH:-}"
+
+  if [[ -d "$mise_shims" ]]; then
+    case ":$path_value:" in
+      *":$mise_shims:"*) ;;
+      *) export PATH="$mise_shims${path_value:+:$path_value}" ;;
+    esac
+  fi
+}
+
+is_windows_mounted_path() {
+  local platform path
+  platform="$1"
+  path="$2"
+
+  [[ "$platform" == "wsl2-debian" && "$path" =~ ^/mnt/[[:alpha:]]/ ]]
+}
+
+resolve_devcontainer_cli() {
+  local platform candidate path_entry found_windows path_value
+  platform="$1"
+  found_windows=""
+  path_value="${PATH:-}"
+
+  if [[ -n "${DEVCONTAINER_CLI:-}" ]]; then
+    [[ -x "$DEVCONTAINER_CLI" && ! -d "$DEVCONTAINER_CLI" ]] || die "DEVCONTAINER_CLI is not executable: $DEVCONTAINER_CLI"
+    is_windows_mounted_path "$platform" "$DEVCONTAINER_CLI" && die "DEVCONTAINER_CLI points to a Windows-mounted path on WSL2: $DEVCONTAINER_CLI"
+    printf '%s\n' "$DEVCONTAINER_CLI"
+    return 0
+  fi
+
+  while IFS= read -r path_entry; do
+    [[ -n "$path_entry" ]] || continue
+    candidate="${path_entry%/}/devcontainer"
+    [[ -x "$candidate" && ! -d "$candidate" ]] || continue
+
+    if is_windows_mounted_path "$platform" "$candidate"; then
+      found_windows="${found_windows}${found_windows:+, }$candidate"
+      continue
+    fi
+
+    printf '%s\n' "$candidate"
+    return 0
+  done < <(printf '%s' "$path_value" | tr ':' '\n')
+
+  if [[ -n "$found_windows" ]]; then
+    die "only Windows-mounted devcontainer CLI candidates were found on WSL2: $found_windows. Install the native mise-managed npm:@devcontainers/cli tool in Debian WSL2."
+  fi
+
+  die "devcontainer CLI is required; install the native mise-managed npm:@devcontainers/cli tool"
+}
+
 list_launchers() {
   local platform
   platform="$1"
@@ -335,10 +390,11 @@ PY
 }
 
 main() {
-  local platform action requested resolved
+  local platform action requested resolved devcontainer_bin
 
   platform="$(detect_platform)" || die "unsupported platform; supported platforms are macOS and Debian WSL2"
 
+  prepend_mise_shims
   command -v python3 >/dev/null 2>&1 || die "python3 is required"
   require_file "$MANIFEST_PATH" "launcher manifest"
 
@@ -364,31 +420,31 @@ main() {
 
   require_dir "$WORKSPACE_FOLDER" "workspace folder"
   require_file "$CONFIG_PATH" "devcontainer config"
-  command -v devcontainer >/dev/null 2>&1 || die "devcontainer CLI is required"
+  devcontainer_bin="$(resolve_devcontainer_cli "$platform")"
 
   local devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
 
   case "$action" in
     shell)
-      devcontainer up "${devcontainer_args[@]}" >/dev/null
-      exec devcontainer exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
+      "$devcontainer_bin" up "${devcontainer_args[@]}" >/dev/null
+      exec "$devcontainer_bin" exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
       ;;
     up)
-      exec devcontainer up "${devcontainer_args[@]}"
+      exec "$devcontainer_bin" up "${devcontainer_args[@]}"
       ;;
     rebuild)
-      exec devcontainer up "${devcontainer_args[@]}" --remove-existing-container
+      exec "$devcontainer_bin" up "${devcontainer_args[@]}" --remove-existing-container
       ;;
     rebuild-no-cache)
-      exec devcontainer up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
+      exec "$devcontainer_bin" up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
       ;;
     exec)
       if [[ "${1:-}" == "--" ]]; then
         shift
       fi
       [[ $# -gt 0 ]] || die "exec action requires a command"
-      devcontainer up "${devcontainer_args[@]}" >/dev/null
-      exec devcontainer exec "${devcontainer_args[@]}" "$@"
+      "$devcontainer_bin" up "${devcontainer_args[@]}" >/dev/null
+      exec "$devcontainer_bin" exec "${devcontainer_args[@]}" "$@"
       ;;
     -h|--help|help)
       usage

@@ -18,12 +18,12 @@
 | File | Purpose |
 | :--- | :--- |
 | `configs/packages.yaml` | WSL2 package groups and external tool version pins |
-| `configs/mise.toml` | mise tool/plugin declarations |
+| `configs/mise.toml` | mise tool/plugin declarations, including npm CLI shims |
 | `configs/mise_wsl2.toml` | WSL2-specific mise configuration |
 | `configs/uv_tools.txt` | `uv tool` package list |
-| `configs/npm_globals.txt` | npm global packages |
-| `configs/npm_globals_linux.txt` | npm globals for Linux/WSL2 |
-| `configs/npm_globals_linux_debian.txt` | npm globals for Debian WSL2 |
+| `configs/npm_globals.txt` | raw npm global packages |
+| `configs/npm_globals_linux.txt` | raw npm globals for Linux/WSL2 |
+| `configs/npm_globals_linux_debian.txt` | raw npm globals for Debian WSL2 |
 | `configs/bun_globals.txt` | bun global packages |
 | `configs/winget-packages.json` | Windows winget package set |
 | `configs/choco-packages.config` | Windows Chocolatey package set |

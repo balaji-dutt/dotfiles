@@ -2,6 +2,8 @@
 bun = "latest"
 jq = "latest"
 node = "lts"
+"npm:@anthropic-ai/claude-code" = "latest"
+"npm:@devcontainers/cli" = "latest"
 "npm:@opencode-ai/sdk" = "latest"
 "npm:promptfoo" = "latest"
 python = "3.14"
