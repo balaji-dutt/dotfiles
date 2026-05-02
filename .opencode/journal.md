@@ -94,6 +94,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - gotcha: Firefox Multi-Account Containers localhost assignment keys include the
   `siteContainerMap@@_` prefix and omit the colon before the port, for example
   `siteContainerMap@@_localhost8999`.
+- gotcha: Plannotator Agent Switching and identity are cookie-backed for
+  `localhost`, so build/custom ports need separate Firefox containers, not just
+  separate port assignments in one container.
+- gotcha: Host AoE reads the XDG config at `~/.config/agent-of-empires/config.toml`
+  on WSL/Linux; do not symlink it to an unrendered chezmoi source template.
 
 ## 2026-04-30
 

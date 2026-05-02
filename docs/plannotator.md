@@ -87,9 +87,14 @@ aoe add --cmd opencode --launch <repo-path>
 
 ## Firefox Multi-Account Containers
 
-The pool origins should be assigned to the existing Firefox container named
-`localhost`. Use the extension inspector instead of editing Firefox profile files
-directly.
+Plannotator stores settings in cookies, so Agent Switching and identity follow
+the Firefox container cookie jar for `localhost` rather than the individual port.
+Use separate containers for the two workflows:
+
+- `Plannotator Build`: build-handoff ports.
+- `Plannotator Custom`: stay-current custom ports.
+
+Use the extension inspector instead of editing Firefox profile files directly.
 
 Open:
 
@@ -97,24 +102,77 @@ Open:
 2. Multi-Account Containers
 3. Inspect
 
-Confirm the existing seed assignment:
+Confirm the two seed assignments after manually adding `localhost8997` to the
+Build container and `localhost9007` to the Custom container:
 
 ```js
-(await browser.storage.local.get("siteContainerMap@@_localhost8999"))["siteContainerMap@@_localhost8999"]
+{
+  const keys = [
+    "siteContainerMap@@_localhost8997",
+    "siteContainerMap@@_localhost9007",
+  ]
+  const data = await browser.storage.local.get(keys)
+  console.table(data)
+  data
+}
 ```
 
-The expected local seed currently has `userContextId: "40286"` and belongs to the
-`localhost` container. Confirm container identity with:
+The two seeds should have different `userContextId` values. Confirm container
+identity with:
 
 ```js
 await browser.contextualIdentities.query({})
 ```
 
-Create or refresh all pool assignments from the seed:
+Create or refresh all pool assignments from the two seeds:
 
 ```js
 {
-  const seed = (await browser.storage.local.get("siteContainerMap@@_localhost8999"))["siteContainerMap@@_localhost8999"]
+  const buildSeedKey = "siteContainerMap@@_localhost8997"
+  const customSeedKey = "siteContainerMap@@_localhost9007"
+
+  const data = await browser.storage.local.get([buildSeedKey, customSeedKey])
+  const buildSeed = data[buildSeedKey]
+  const customSeed = data[customSeedKey]
+
+  if (!buildSeed) throw new Error(`Missing seed: ${buildSeedKey}`)
+  if (!customSeed) throw new Error(`Missing seed: ${customSeedKey}`)
+
+  const buildHosts = [
+    "localhost8997",
+    "localhost8998",
+    "localhost8999",
+    "localhost9997",
+    "localhost9998",
+    "localhost9999",
+  ]
+
+  const customHosts = [
+    "localhost9007",
+    "localhost9008",
+    "localhost9009",
+    "localhost10007",
+    "localhost10008",
+    "localhost10009",
+  ]
+
+  await browser.storage.local.set({
+    ...Object.fromEntries(
+      buildHosts.map(h => [`siteContainerMap@@_${h}`, { ...buildSeed }])
+    ),
+    ...Object.fromEntries(
+      customHosts.map(h => [`siteContainerMap@@_${h}`, { ...customSeed }])
+    ),
+  })
+}
+```
+
+`undefined` from `browser.storage.local.set(...)` is expected.
+
+Verify the stored assignments explicitly:
+
+```js
+{
   const hosts = [
     "localhost8997",
     "localhost8998",
@@ -129,37 +187,33 @@ Create or refresh all pool assignments from the seed:
     "localhost10008",
     "localhost10009",
   ]
-  await browser.storage.local.set(Object.fromEntries(
-    hosts.map(h => [`siteContainerMap@@_${h}`, { ...seed }])
+
+  const keys = hosts.map(h => `siteContainerMap@@_${h}`)
+  const data = await browser.storage.local.get(keys)
+
+  console.table(Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      {
+        userContextId: value?.userContextId,
+        identityMacAddonUUID: value?.identityMacAddonUUID,
+        neverAsk: value?.neverAsk,
+      },
+    ])
   ))
-}
-```
 
-`undefined` from `browser.storage.local.set(...)` is expected.
-
-Verify the stored assignments explicitly:
-
-```js
-{
-  const all = await browser.storage.local.get(null)
-  const entries = Object.fromEntries(Object.entries(all).filter(([k]) =>
-    k.startsWith("siteContainerMap@@_localhost89") ||
-    k.startsWith("siteContainerMap@@_localhost90") ||
-    k.startsWith("siteContainerMap@@_localhost999") ||
-    k.startsWith("siteContainerMap@@_localhost100")
-  ))
-  console.table(entries)
-  entries
+  data
 }
 ```
 
 Then open Multi-Account Containers' **Manage Site List** UI and confirm the
-localhost entries are visible. Do not edit Firefox profile storage files directly
-while Firefox is running.
+localhost entries are split between the two Plannotator containers. Do not edit
+Firefox profile storage files directly while Firefox is running.
 
 ## Plannotator UI settings
 
-Configure these origins once with agent switch set to Build:
+In the `Plannotator Build` Firefox container, configure Agent Switching once as
+Build:
 
 - `http://localhost:8997`
 - `http://localhost:8998`
@@ -168,7 +222,8 @@ Configure these origins once with agent switch set to Build:
 - `http://localhost:9998`
 - `http://localhost:9999`
 
-Configure these origins once with agent switch set to Disabled / stay-current:
+In the `Plannotator Custom` Firefox container, configure Agent Switching once as
+Disabled / stay-current:
 
 - `http://localhost:9007`
 - `http://localhost:9008`
