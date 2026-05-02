@@ -80,7 +80,7 @@ Do not set `default_tool` to a wrapper command. `default_tool` selects the tool;
 For a custom/stay-current session, create the AoE session with a command override:
 
 ```sh
-aoe add --cmd opencode --cmd-override opencode-plannotator-custom --launch <repo-path>
+aoe add --cmd opencode --cmd-override opencode-plannotator-custom --title <TITLE> --launch <repo-path>
 ```
 
 Use the normal global default for build-handoff sessions:
