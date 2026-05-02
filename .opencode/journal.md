@@ -85,6 +85,15 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - gotcha: Devcontainer `/tmp/host-claude` is mounted read-only; do not `chmod`
   linked files there. Copy `executable_commit-docs.sh` into persisted
   `~/.claude/commit-docs.sh` with mode `0755` instead.
+- decision: Replaced single fixed Plannotator port behavior with host and
+  devcontainer build/custom port pools plus `opencode-plannotator` wrappers so
+  Firefox origin persistence can coexist with concurrent OpenCode sessions.
+- convention: AoE global `agent_command_override.opencode` uses the build
+  wrapper; custom/stay-current sessions should use `aoe add --cmd-override
+  opencode-plannotator-custom` or an equivalent profile/helper.
+- gotcha: Firefox Multi-Account Containers localhost assignment keys include the
+  `siteContainerMap@@_` prefix and omit the colon before the port, for example
+  `siteContainerMap@@_localhost8999`.
 
 ## 2026-04-30
 

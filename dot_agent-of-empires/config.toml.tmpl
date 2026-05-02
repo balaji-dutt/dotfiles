@@ -46,6 +46,11 @@ default_tool = "opencode"
 yolo_mode_default = false
 agent_status_hooks = true
 strict_hotkeys = false
+{{- if eq .chezmoi.os "linux" }}
+
+[session.agent_command_override]
+opencode = "opencode-plannotator"
+{{- end }}
 
 [diff]
 context_lines = 3

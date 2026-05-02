@@ -148,12 +148,24 @@ Workspace `.opencode` sync is template-whitelist based:
   `.git/info/exclude` so repo `.opencode/.gitignore` can stay repo-owned.
 
 - `PLANNOTATOR_REMOTE=1`
-- `PLANNOTATOR_PORT=9999`
-- `forwardPorts: [9999]`
+- `PLANNOTATOR_PORT=9999` as the direct `opencode` fallback
+- `PLANNOTATOR_PORTS_BUILD=9997,9998,9999`
+- `PLANNOTATOR_PORTS_CUSTOM=10007,10008,10009`
+- `forwardPorts: [9997, 9998, 9999, 10007, 10008, 10009]`
 
 If the browser does not open automatically when `submit_plan` runs, open:
 
-- `http://localhost:9999`
+- a build-handoff pool URL: `http://localhost:9997` through
+  `http://localhost:9999`
+- or a stay-current custom pool URL: `http://localhost:10007` through
+  `http://localhost:10009`
+
+The ports are explicitly forwarded even though VS Code can auto-forward some
+dynamic ports. Plannotator remote mode is more predictable when the expected
+review origins are known before the plan-review server starts.
+
+See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
+setup, and manual smoke tests.
 
 ## Claude Code in Devcontainers
 

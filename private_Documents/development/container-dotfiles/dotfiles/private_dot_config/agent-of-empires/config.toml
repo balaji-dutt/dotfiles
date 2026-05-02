@@ -1,6 +1,9 @@
 [session]
 default_tool = "opencode"
 
+[session.agent_command_override]
+opencode = "opencode-plannotator"
+
 [worktree]
 enabled = true
 path_template = "./worktrees/{branch}-{session-id}"

@@ -1,2 +1,9 @@
 ccr_port: 3456
 plannotator_port: 8999
+plannotator_ports:
+  host:
+    build: [8997, 8998, 8999]
+    custom: [9007, 9008, 9009]
+  devcontainer:
+    build: [9997, 9998, 9999]
+    custom: [10007, 10008, 10009]

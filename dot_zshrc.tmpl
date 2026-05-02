@@ -108,6 +108,10 @@ fi
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 
+: "${PLANNOTATOR_PORTS_BUILD:={{ .plannotator_ports.host.build | join "," }}}"
+: "${PLANNOTATOR_PORTS_CUSTOM:={{ .plannotator_ports.host.custom | join "," }}}"
+export PLANNOTATOR_PORTS_BUILD PLANNOTATOR_PORTS_CUSTOM
+
 _opencode_profile_helpers="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-profile.sh"
 if [ -r "$_opencode_profile_helpers" ]; then
   . "$_opencode_profile_helpers"
