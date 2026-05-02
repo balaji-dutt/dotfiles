@@ -45,6 +45,10 @@ The wrappers choose an available port from the configured pool, export
 `PLANNOTATOR_PORT` only for the child OpenCode process, and hold a `flock` lock
 until that process exits.
 
+In the homelab devcontainer, the six fixed Plannotator ports are both VS Code
+forwarded and Docker-published so `devcontainer-launch` terminal sessions can
+reach the review UI without attaching VS Code first.
+
 For diagnostics:
 
 ```sh
@@ -239,8 +243,10 @@ Plannotator slash commands are OpenCode TUI commands, not shell commands.
 1. Start `opencode-plannotator`.
 2. Ask any trivial question so there is a last assistant message.
 3. Type `/plannotator-last` in the OpenCode input box.
-4. Confirm Firefox opens on one of `8997..8999`.
-5. Repeat with `opencode-plannotator-custom` and confirm `9007..9009`.
+4. Confirm Firefox opens on one of `8997..8999` on host/WSL or `9997..9999`
+   in the devcontainer.
+5. Repeat with `opencode-plannotator-custom` and confirm `9007..9009` on
+   host/WSL or `10007..10009` in the devcontainer.
 
 For a full approval-path test, start a planning agent and ask it to submit a
 one-line test plan through Plannotator.

@@ -84,6 +84,9 @@
   "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh", "${containerWorkspaceFolder}"],
 
   "forwardPorts": [9997, 9998, 9999, 10007, 10008, 10009],
+  // Publish fixed Plannotator ports for terminal-only devcontainer-launch
+  // sessions, which do not have VS Code's port-forwarding service attached.
+  "appPort": [9997, 9998, 9999, 10007, 10008, 10009],
 
   "customizations": {
     "vscode": {

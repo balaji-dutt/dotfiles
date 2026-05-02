@@ -152,6 +152,7 @@ Workspace `.opencode` sync is template-whitelist based:
 - `PLANNOTATOR_PORTS_BUILD=9997,9998,9999`
 - `PLANNOTATOR_PORTS_CUSTOM=10007,10008,10009`
 - `forwardPorts: [9997, 9998, 9999, 10007, 10008, 10009]`
+- `appPort: [9997, 9998, 9999, 10007, 10008, 10009]`
 
 If the browser does not open automatically when `submit_plan` runs, open:
 
@@ -163,6 +164,15 @@ If the browser does not open automatically when `submit_plan` runs, open:
 The ports are explicitly forwarded even though VS Code can auto-forward some
 dynamic ports. Plannotator remote mode is more predictable when the expected
 review origins are known before the plan-review server starts.
+
+The same fixed ports are also published with `appPort` so terminal-only
+`devcontainer-launch` sessions can reach Plannotator without a VS Code attach
+session. Random callback ports, such as OAuth browser callbacks, still require
+VS Code port forwarding or an explicit manual forwarding path.
+
+Because these are fixed Docker-published host ports, stop any other homelab
+devcontainer that is already publishing the same Plannotator ports before
+starting another copy.
 
 See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
 setup, and manual smoke tests.
@@ -317,6 +327,12 @@ canonicalize the same repo to a UNC path such as
 container identity from the terminal launcher. If you want VS Code to use the
 already-running launcher container, prefer **Dev Containers: Attach to Running
 Container...** instead of assuming **Reopen in Container** will reuse it.
+
+`devcontainer-launch` starts the container through the standalone Dev Container
+CLI and then execs a shell. It does not provide VS Code's automatic
+port-forwarding service. Fixed Plannotator ports are Docker-published by the
+homelab template, but dynamic browser callback ports still need VS Code attach
+or another explicit forwarding mechanism.
 
 Per-machine overrides use the manifest `env_prefix`:
 
