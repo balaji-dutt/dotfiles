@@ -18,7 +18,8 @@
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "9999",
     {{- if eq .chezmoi.os "darwin" }}
-    "SSH_AUTH_SOCK": "/tmp/macos-ssh-agent/ssh-agent.sock",
+    "SSH_AUTH_SOCK": "/tmp/orbstack-ssh-agent/ssh-auth.sock",
+    "ORBSTACK_HOST_SSH_AUTH_SOCK": "/run/host-services/ssh-auth.sock",
     {{- else if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
     "SSH_AUTH_SOCK": "/tmp/wsl-ssh-pageant/ssh-agent.sock",
@@ -45,8 +46,8 @@
     // --- Mount for workspace file ---
     "source=${localEnv:HOME}/Documents/development/vscode-workspace/container-homelab-IaC.code-workspace,target=${containerWorkspaceFolder}/container-homelab-IaC.code-workspace,type=bind,readonly",
     {{- if eq .chezmoi.os "darwin" }}
-    // --- macOS-only: mount stable host SSH agent relay ---
-    "source=/tmp/macos-ssh-agent,target=/tmp/macos-ssh-agent,type=bind",
+    // --- macOS-only: mount OrbStack's native SSH agent socket for relay access ---
+    "source=/run/host-services/ssh-auth.sock,target=/run/host-services/ssh-auth.sock,type=bind",
     // --- macOS-only: keep Git metadata on local Docker volume ---
     "source=homelab-iac-gitmeta-macos,target=${containerWorkspaceFolder}/.git,type=volume",
     // --- macOS-only: expose shared workspace Git metadata for one-time seed ---
@@ -70,9 +71,7 @@
     }
   ],
 
-  {{- if eq .chezmoi.os "darwin" }}
-  "initializeCommand": ["bash", "-lc", "umask 077; mkdir -p /tmp/macos-ssh-agent; chmod 700 /tmp/macos-ssh-agent >/dev/null 2>&1 || true; SOCK=/tmp/macos-ssh-agent/ssh-agent.sock; SERVICE=gui/$(id -u)/com.user.ssh-agent-relay; HELPER=\"$HOME/bin/macos_ssh_agent_relay.sh\"; READY=0; if launchctl print \"$SERVICE\" >/dev/null 2>&1; then launchctl kickstart -k \"$SERVICE\" >/dev/null 2>&1 || true; elif [ -x \"$HELPER\" ]; then pkill -f 'macos_ssh_agent_relay\.sh' >/dev/null 2>&1 || true; rm -f \"$SOCK\" >/dev/null 2>&1 || true; if command -v setsid >/dev/null 2>&1; then setsid -f \"$HELPER\" </dev/null >/tmp/com.user.ssh-agent-relay.out 2>/tmp/com.user.ssh-agent-relay.err; else nohup \"$HELPER\" </dev/null >/tmp/com.user.ssh-agent-relay.out 2>/tmp/com.user.ssh-agent-relay.err & fi; fi; for ((i=0; i<50; i++)); do SSH_AUTH_SOCK=\"$SOCK\" ssh-add -l >/dev/null 2>&1; rc=$?; if [ \"$rc\" -eq 0 ] || [ \"$rc\" -eq 1 ]; then READY=1; break; fi; sleep 0.1; done; if [ \"$READY\" -ne 1 ]; then echo 'macOS SSH agent relay did not become ready' >&2; exit 1; fi"],
-  {{- else if hasKey . "homelab" }}
+  {{- if hasKey . "homelab" }}
   {{- if .homelab.windows_user }}
   "initializeCommand": ["bash", "-lc", "umask 077; mkdir -p /tmp/wsl2-ssh-agent; chmod 700 /tmp/wsl2-ssh-agent >/dev/null 2>&1 || true; SOCK=/tmp/wsl2-ssh-agent/ssh-agent.sock; NPIPERELAY=\"/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}\"; if command -v socat >/dev/null 2>&1 && [ -x \"$NPIPERELAY\" ]; then pkill -f 'socat.*npiperelay\\.exe.*ssh-pageant' >/dev/null 2>&1 || true; rm -f \"$SOCK\" >/dev/null 2>&1 || true; if command -v setsid >/dev/null 2>&1; then setsid -f socat EXEC:\"\\\"$NPIPERELAY\\\" -ei -s //./pipe/ssh-pageant\" UNIX-LISTEN:\"$SOCK\",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1; else nohup socat EXEC:\"\\\"$NPIPERELAY\\\" -ei -s //./pipe/ssh-pageant\" UNIX-LISTEN:\"$SOCK\",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1 & fi; for ((i=0; i<50; i++)); do SSH_AUTH_SOCK=\"$SOCK\" ssh-add -l >/dev/null 2>&1; rc=$?; if [ \"$rc\" -eq 0 ] || [ \"$rc\" -eq 1 ]; then break; fi; sleep 0.1; done; fi"],
   {{- end }}

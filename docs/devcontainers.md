@@ -269,17 +269,20 @@ The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Rebuild actions are explicit so
 terminal profiles do not recreate containers accidentally.
 
-On macOS, the homelab devcontainer now uses a stable host relay at
-`/tmp/macos-ssh-agent/ssh-agent.sock` instead of depending on VS Code's implicit
-SSH-agent forwarding. The relay is provided by the managed LaunchAgent
-`com.user.ssh-agent-relay`, and the devcontainer bind-mounts `/tmp/macos-ssh-agent`
-into the container so both VS Code and `devcontainer-launch` share the same socket
-path.
+On macOS with OrbStack, the homelab devcontainer bind-mounts OrbStack's native
+`/run/host-services/ssh-auth.sock`, but OrbStack exposes that mounted socket as
+root-only inside this container. `postStart.sh` therefore launches a small
+in-container relay and points `SSH_AUTH_SOCK` at `/tmp/orbstack-ssh-agent/ssh-auth.sock`
+so the `vscode` user, `devcontainer-launch`, and VS Code all share the same
+user-accessible agent socket.
 
-If the upstream macOS `SSH_AUTH_SOCK` path changes mid-session, reload
-`com.user.ssh-agent-relay` before rebuilding or reopening the container. Rerun
-`chezmoi apply` only if the helper/LaunchAgent has not yet been installed on the
-host.
+For `homelab-IaC`, macOS support is currently OrbStack-specific. This config
+does not try to support generic Docker-on-macOS runtimes with a separate SSH
+agent forwarding strategy.
+
+If SSH agent forwarding stops working on macOS, reopen or rebuild the
+devcontainer to refresh the forwarded socket mount and recreate the in-container
+relay. No separate host LaunchAgent or host-side `socat` relay is required.
 
 For `homelab-IaC`, the platform defaults are:
 

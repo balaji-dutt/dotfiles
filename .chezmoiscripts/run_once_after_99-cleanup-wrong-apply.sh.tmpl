@@ -68,7 +68,9 @@ REMOVE_ALWAYS=(
   "Documents/development/container-dotfiles/dotfiles/configs"
   ".claude-code-router"
   "bin/ccr_launcher.sh"
+  "bin/macos_ssh_agent_relay.sh"
   "Library/LaunchAgents/com.user.ccr.plist"
+  "Library/LaunchAgents/com.user.ssh-agent-relay.plist"
   # Legacy singular OpenCode path; keep to clean stale pre-rename applies.
   ".config/opencode/command"
 )
@@ -122,11 +124,6 @@ rm_rel "bin/code"
 # bin/devcontainer-launch should exist ONLY on macOS or Debian WSL2
 {{ if not (or $isDarwin (and $isWSL2 (eq $osID "debian"))) }}
 rm_rel "bin/devcontainer-launch"
-{{ end }}
-
-# bin/macos_ssh_agent_relay.sh should exist ONLY on macOS
-{{ if not $isDarwin }}
-rm_rel "bin/macos_ssh_agent_relay.sh"
 {{ end }}
 
 # Doom should exist ONLY on macOS OR Ubuntu WSL2

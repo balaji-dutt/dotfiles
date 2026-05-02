@@ -57,6 +57,8 @@ $RepoMetadata = @(
 $PlatformCleanup = @(
   # If bin/code should never be in native Windows home:
   "bin\code",
+  "bin\macos_ssh_agent_relay.sh",
+  "Library\LaunchAgents\com.user.ssh-agent-relay.plist",
 
   # macOS/Linux leftovers that should not exist on Windows:
   ".config\direnv",
@@ -66,8 +68,7 @@ $PlatformCleanup = @(
   ".config\doom",
   "Library",
   ".zpreztorc",
-  "bin\vnc_monitor.sh",
-  "bin\macos_ssh_agent_relay.sh"
+  "bin\vnc_monitor.sh"
 
   # Optional: if you ever accidentally wrote container-dotfiles into Windows home and want it gone:
   # "Documents\development\container-dotfiles"

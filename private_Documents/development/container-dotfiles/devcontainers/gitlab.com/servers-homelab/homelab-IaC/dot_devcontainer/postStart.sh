@@ -257,8 +257,83 @@ set -Eeuo pipefail
 sock="${SSH_AUTH_SOCK:-/tmp/wsl-ssh-pageant/ssh-agent.sock}"
 sock_dir="$(dirname "$sock")"
 npiperelay_path="${WSL_NPIPERELAY_PATH:-}"
+orbstack_host_sock="${ORBSTACK_HOST_SSH_AUTH_SOCK:-}"
+orbstack_relay_script="/tmp/host-homelab-devcontainer/orbstack_ssh_agent_relay.py"
+orbstack_relay_log="/tmp/orbstack-ssh-agent-relay.log"
+orbstack_relay_pid="${sock_dir}/relay.pid"
 ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
 ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
+
+ensure_orbstack_relay() {
+  local python_bin user_name group_name
+
+  [[ -n "$orbstack_host_sock" ]] || return 0
+
+  if [[ ! -S "$orbstack_host_sock" ]]; then
+    echo "WARN: OrbStack SSH agent socket not found: $orbstack_host_sock" >&2
+    return 1
+  fi
+
+  if [[ "$sock" == "$orbstack_host_sock" ]]; then
+    echo "WARN: relay socket path must differ from the OrbStack host socket." >&2
+    return 1
+  fi
+
+  if ! python_bin="$(command -v python3)"; then
+    echo "WARN: python3 is required for the OrbStack SSH agent relay." >&2
+    return 1
+  fi
+
+  if [[ ! -f "$orbstack_relay_script" ]]; then
+    echo "WARN: OrbStack SSH agent relay helper not found: $orbstack_relay_script" >&2
+    return 1
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+    echo "WARN: passwordless sudo is required for the OrbStack SSH agent relay." >&2
+    return 1
+  fi
+
+  user_name="$(id -un)"
+  group_name="$(id -gn)"
+
+  sudo -n sh -c '
+set -eu
+relay_sock="$1"
+relay_dir="$2"
+relay_pid="$3"
+relay_log="$4"
+python_bin="$5"
+relay_script="$6"
+upstream_sock="$7"
+user_name="$8"
+group_name="$9"
+mkdir -p "$relay_dir"
+chmod 700 "$relay_dir"
+chown "$user_name:$group_name" "$relay_dir"
+if [ -f "$relay_pid" ]; then
+  pid="$(cat "$relay_pid" 2>/dev/null || true)"
+  if [ -n "$pid" ]; then
+    cmdline="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+    case "$cmdline" in
+      *orbstack_ssh_agent_relay.py*--listen*"$relay_sock"*)
+        kill "$pid" >/dev/null 2>&1 || true
+        ;;
+    esac
+  fi
+  rm -f "$relay_pid"
+fi
+rm -f "$relay_sock" "$relay_log"
+nohup "$python_bin" "$relay_script" \
+  --listen "$relay_sock" \
+  --upstream "$upstream_sock" \
+  --user "$user_name" \
+  --group "$group_name" \
+  --mode 0600 \
+  >"$relay_log" 2>&1 </dev/null &
+echo $! >"$relay_pid"
+' sh "$sock" "$sock_dir" "$orbstack_relay_pid" "$orbstack_relay_log" "$python_bin" "$orbstack_relay_script" "$orbstack_host_sock" "$user_name" "$group_name"
+}
 
 if [[ -z "$npiperelay_path" ]]; then
   for candidate in /mnt/c/Users/*/Applications/npiperelay.exe; do
@@ -271,6 +346,8 @@ fi
 
 mkdir -p "$HOME/.ssh" "$sock_dir"
 chmod 700 "$sock_dir" >/dev/null 2>&1 || true
+
+ensure_orbstack_relay || true
 
 if [[ -n "$npiperelay_path" ]] && command -v socat >/dev/null 2>&1 && [[ -x "$npiperelay_path" ]]; then
   pkill -f 'socat.*npiperelay\.exe.*ssh-pageant' >/dev/null 2>&1 || true
@@ -296,7 +373,7 @@ done
 
 if [[ "$agent_ready" -ne 1 ]]; then
   echo "WARN: SSH agent did not become ready; keeping existing key file." >&2
-  echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
+  echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
   exit 1
 fi
 
@@ -340,7 +417,7 @@ else
     echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
   elif [[ "$ssh_add_exit" -eq 124 ]]; then
     echo "WARN: ssh-add -L timed out; SSH agent appears unhealthy." >&2
-    echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
+    echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
   else
     ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
     if [[ -n "$ssh_add_error" ]]; then
@@ -348,7 +425,7 @@ else
     else
       echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
     fi
-    echo "WARN: Relay recovery requires host-side initializeCommand; rebuild/reopen the container." >&2
+    echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
   fi
   rm -f "$ssh_add_stdout" "$ssh_add_stderr"
   exit 1
@@ -473,7 +550,7 @@ install_sset_helper
 
 if ! "$HOME/.local/bin/sset"; then
   echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
-  echo "WARN: If this persists, rebuild/reopen the container to rerun initializeCommand." >&2
+  echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
 fi
 
 SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"

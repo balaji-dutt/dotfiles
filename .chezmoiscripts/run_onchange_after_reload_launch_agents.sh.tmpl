@@ -2,7 +2,6 @@
 #!/bin/bash
 
 # private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl" | sha256sum }}
-# private_Library/LaunchAgents/com.user.ssh-agent-relay.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.ssh-agent-relay.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/Environment.plist.tmpl hash: {{ include "private_Library/LaunchAgents/Environment.plist.tmpl" | sha256sum }}
 
@@ -34,11 +33,33 @@ reload_agent() {
     fi
 }
 
+# Function to retire a removed agent and its stale target files.
+retire_agent() {
+    local service_target="$1"
+    local plist="$2"
+    local helper="$3"
+    local runtime_dir="$4"
+    local stdout_log="$5"
+    local stderr_log="$6"
+
+    echo "Retiring ${service_target##*/}..."
+    launchctl bootout "$service_target" >/dev/null 2>&1 || \
+        launchctl remove "${service_target##*/}" >/dev/null 2>&1 || true
+    rm -f "$plist" "$helper"
+    rm -f "$stdout_log" "$stderr_log"
+    rm -rf "$runtime_dir"
+}
+
 # Expand the home directory for the plist paths
 HOME_DIR="{{ .chezmoi.homeDir }}"
+retire_agent "gui/$(id -u)/com.user.ssh-agent-relay" \
+  "$HOME_DIR/Library/LaunchAgents/com.user.ssh-agent-relay.plist" \
+  "$HOME_DIR/bin/macos_ssh_agent_relay.sh" \
+  "/tmp/macos-ssh-agent" \
+  "/tmp/com.user.ssh-agent-relay.out" \
+  "/tmp/com.user.ssh-agent-relay.err"
 
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.vncmonitor.plist" "com.user.vncmonitor"
-reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.ssh-agent-relay.plist" "com.user.ssh-agent-relay"
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.ssh-add-keychain.plist" "com.ssh-add-keychain"
 reload_agent "$HOME_DIR/Library/LaunchAgents/Environment.plist" "Environment"
 

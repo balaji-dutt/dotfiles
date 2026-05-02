@@ -42,7 +42,6 @@ This page lists the main managed targets expected on macOS.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | LaunchAgents | `~/Library/LaunchAgents/*.plist` | `private_Library/LaunchAgents/*.plist.tmpl` |
-| SSH agent relay | `~/bin/macos_ssh_agent_relay.sh` | `bin/executable_macos_ssh_agent_relay.sh` |
 | User bin scripts | `~/bin/vnc_monitor.sh` | `bin/executable_vnc_monitor.sh` |
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 

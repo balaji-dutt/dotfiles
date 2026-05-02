@@ -40,6 +40,21 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   to macOS + Debian WSL2; Ubuntu WSL2 remains unsupported for container-dotfiles.
 - convention: Windows Terminal and iTerm devcontainer profiles are documented in
   `docs/devcontainers.md`, not managed by chezmoi.
+
+## 2026-05-02
+
+- correction: Reverted the macOS LaunchAgent-backed SSH relay for devcontainers
+  after verifying that OrbStack's native `/run/host-services/ssh-auth.sock`
+  works as the supported container-side forwarding path.
+- convention: The macOS `homelab-IaC` devcontainer path is now OrbStack-based,
+  not a generic Docker-on-macOS configuration.
+- gotcha: OrbStack's mounted `/run/host-services/ssh-auth.sock` is usable by
+  root in this container but not by the `vscode` user, so the devcontainer now
+  bridges it to `/tmp/orbstack-ssh-agent/ssh-auth.sock` during `postStart`.
+- gotcha: A host-created macOS relay socket can be healthy on the host yet still
+  return `Connection refused` when bind-mounted into an OrbStack container.
+- convention: Pin `SSH_AUTH_SOCK` in the macOS devcontainer config so
+  `devcontainer-launch` and VS Code share the same explicit forwarded-agent path.
 - decision: Prefer mise-managed npm CLI tools for non-interactive launchers;
   `npm:@anthropic-ai/claude-code` and `npm:@devcontainers/cli` live in
   `configs/mise.toml`, and `devcontainer-launch` rejects WSL `/mnt/<drive>`
