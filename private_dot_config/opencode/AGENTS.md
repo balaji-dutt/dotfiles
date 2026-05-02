@@ -1,0 +1,9 @@
+# Global Agent Rules
+
+These rules apply to all OpenCode sessions regardless of repository.
+
+## Commit Workflow
+
+- **Never use `git commit` directly.** Always use `oc-commit` instead. This wrapper ensures commits are attributed to OpenCode rather than the human user's git identity.
+- When work is complete and verified, propose a commit message for approval before running `oc-commit`.
+- Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.

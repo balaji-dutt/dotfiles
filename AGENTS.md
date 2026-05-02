@@ -159,7 +159,7 @@ your final response. If the commit message proposal is missing, the task is inco
 After changes are complete and verification has passed (audit tool + `chezmoi doctor` as applicable), the agent must propose a commit message as part of the final response.
 
 - Do not wait to be asked.
-- Do not run commit commands unless explicitly instructed.
+- Use `oc-commit` instead of `git commit` (enforced by permissions; see global AGENTS.md).
 - Exception: If the change includes `README.md`, follow **Documentation Workflow (README.md)** for committing.
 
 ### Commit message format

@@ -51,7 +51,8 @@
       "git stash*": "allow",
       "git remote*": "allow",
       "git add*": "allow",
-      "git commit*": "allow",
+      "git commit*": "deny",
+      "oc-commit*": "ask",
       "git rev-parse*": "allow",
       "git push*": "ask",
 
