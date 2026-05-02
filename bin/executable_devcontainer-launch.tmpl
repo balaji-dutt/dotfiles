@@ -7,7 +7,7 @@ usage() {
   cat >&2 <<'USAGE'
 Usage:
   devcontainer-launch --list
-  devcontainer-launch <name-or-alias> [shell|up|rebuild|rebuild-no-cache]
+  devcontainer-launch <name-or-alias> [shell|up|rebuild|rebuild-no-cache|stop|down]
   devcontainer-launch <name-or-alias> exec -- <command> [args...]
 
 Environment overrides use each launcher's env_prefix, for example:
@@ -77,6 +77,8 @@ prepend_mise_shims() {
 RESOLVED_NATIVE_PATH=""
 NATIVE_PATH_WINDOWS_CANDIDATES=""
 DEVCONTAINER_CMD=()
+DOCKER_CMD=()
+MATCHING_CONTAINERS=()
 
 is_windows_mounted_path() {
   local platform path
@@ -162,6 +164,87 @@ resolve_devcontainer_command() {
   fi
 
   die "devcontainer CLI is required; install the native mise-managed npm:@devcontainers/cli tool"
+}
+
+resolve_docker_command() {
+  local platform docker_windows_candidates
+  platform="$1"
+  DOCKER_CMD=()
+
+  if [[ -n "${DOCKER_CLI:-}" ]]; then
+    [[ -x "$DOCKER_CLI" && ! -d "$DOCKER_CLI" ]] || die "DOCKER_CLI is not executable: $DOCKER_CLI"
+    is_windows_mounted_path "$platform" "$DOCKER_CLI" && die "DOCKER_CLI points to a Windows-mounted path on WSL2: $DOCKER_CLI"
+    DOCKER_CMD=("$DOCKER_CLI")
+    return 0
+  fi
+
+  if resolve_native_path_command "$platform" docker; then
+    DOCKER_CMD=("$RESOLVED_NATIVE_PATH")
+    return 0
+  fi
+
+  docker_windows_candidates="$NATIVE_PATH_WINDOWS_CANDIDATES"
+
+  if [[ -n "$docker_windows_candidates" ]]; then
+    die "only Windows-mounted docker CLI candidates were found on WSL2: $docker_windows_candidates. Install a native Docker CLI in Debian WSL2."
+  fi
+
+  die "docker CLI is required for stop/down actions"
+}
+
+collect_matching_containers() {
+  local ps_flags output container_id
+  MATCHING_CONTAINERS=()
+  ps_flags="-q"
+
+  if [[ "$1" == "all" ]]; then
+    ps_flags="-aq"
+  fi
+
+  if ! output="$("${DOCKER_CMD[@]}" ps "$ps_flags" \
+    --filter "label=devcontainer.local_folder=$WORKSPACE_FOLDER" \
+    --filter "label=devcontainer.config_file=$CONFIG_PATH")"; then
+    die "failed to query docker containers for $LAUNCHER_NAME"
+  fi
+
+  while IFS= read -r container_id; do
+    [[ -n "$container_id" ]] || continue
+    MATCHING_CONTAINERS+=("$container_id")
+  done <<<"$output"
+}
+
+prepare_devcontainer_action() {
+  local platform
+  platform="$1"
+
+  require_dir "$WORKSPACE_FOLDER" "workspace folder"
+  require_file "$CONFIG_PATH" "devcontainer config"
+  resolve_devcontainer_command "$platform"
+  devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
+}
+
+stop_matching_containers() {
+  collect_matching_containers "running"
+
+  if [[ ${#MATCHING_CONTAINERS[@]} -eq 0 ]]; then
+    printf 'devcontainer-launch: no running container found for %s\n' "$LAUNCHER_NAME" >&2
+    return 0
+  fi
+
+  printf 'devcontainer-launch: stopping %d container(s) for %s\n' "${#MATCHING_CONTAINERS[@]}" "$LAUNCHER_NAME" >&2
+  "${DOCKER_CMD[@]}" stop "${MATCHING_CONTAINERS[@]}"
+}
+
+remove_matching_containers() {
+  collect_matching_containers "all"
+
+  if [[ ${#MATCHING_CONTAINERS[@]} -eq 0 ]]; then
+    printf 'devcontainer-launch: no container found for %s\n' "$LAUNCHER_NAME" >&2
+    return 0
+  fi
+
+  printf 'devcontainer-launch: removing %d container(s) for %s\n' "${#MATCHING_CONTAINERS[@]}" "$LAUNCHER_NAME" >&2
+  "${DOCKER_CMD[@]}" rm -f "${MATCHING_CONTAINERS[@]}"
 }
 
 list_launchers() {
@@ -466,33 +549,42 @@ main() {
   resolved="$(resolve_launcher "$platform" "$requested")" || die "failed to resolve launcher: $requested"
   eval "$resolved"
 
-  require_dir "$WORKSPACE_FOLDER" "workspace folder"
-  require_file "$CONFIG_PATH" "devcontainer config"
-  resolve_devcontainer_command "$platform"
-
-  local devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
+  local -a devcontainer_args=()
 
   case "$action" in
     shell)
+      prepare_devcontainer_action "$platform"
       "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
       exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
       ;;
     up)
+      prepare_devcontainer_action "$platform"
       exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}"
       ;;
     rebuild)
+      prepare_devcontainer_action "$platform"
       exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --remove-existing-container
       ;;
     rebuild-no-cache)
+      prepare_devcontainer_action "$platform"
       exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
       ;;
     exec)
+      prepare_devcontainer_action "$platform"
       if [[ "${1:-}" == "--" ]]; then
         shift
       fi
       [[ $# -gt 0 ]] || die "exec action requires a command"
       "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
       exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "$@"
+      ;;
+    stop)
+      resolve_docker_command "$platform"
+      stop_matching_containers
+      ;;
+    down)
+      resolve_docker_command "$platform"
+      remove_matching_containers
       ;;
     -h|--help|help)
       usage

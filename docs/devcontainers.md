@@ -261,13 +261,18 @@ devcontainer-launch homelab-IaC shell
 devcontainer-launch homelab-IaC up
 devcontainer-launch homelab-IaC rebuild
 devcontainer-launch homelab-IaC rebuild-no-cache
+devcontainer-launch homelab-IaC stop
+devcontainer-launch homelab-IaC down
 devcontainer-launch homelab-IaC exec -- opencode
 devcontainer-launch homelab exec -- claude
 ```
 
 The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Rebuild actions are explicit so
-terminal profiles do not recreate containers accidentally.
+terminal profiles do not recreate containers accidentally. `stop` stops all
+matching launcher containers so they can be reused later, while `down` removes
+all matching launcher containers entirely so the next `up` or `shell` starts
+fresh.
 
 On macOS with OrbStack, the homelab devcontainer bind-mounts OrbStack's native
 `/run/host-services/ssh-auth.sock`, but OrbStack exposes that mounted socket as

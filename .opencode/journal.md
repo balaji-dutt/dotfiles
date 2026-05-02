@@ -43,6 +43,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-02
 
+- decision: `devcontainer-launch` now exposes `stop` (stop matching running
+  containers) and `down` (remove matching containers whether running or
+  stopped)
+  by resolving containers through their `devcontainer.local_folder` and
+  `devcontainer.config_file` labels.
 - correction: Reverted the macOS LaunchAgent-backed SSH relay for devcontainers
   after verifying that OrbStack's native `/run/host-services/ssh-auth.sock`
   works as the supported container-side forwarding path.
