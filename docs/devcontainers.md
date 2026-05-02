@@ -152,7 +152,8 @@ Workspace `.opencode` sync is template-whitelist based:
 - `PLANNOTATOR_PORTS_BUILD=9997,9998,9999`
 - `PLANNOTATOR_PORTS_CUSTOM=10007,10008,10009`
 - `forwardPorts: [9997, 9998, 9999, 10007, 10008, 10009]`
-- `appPort: [9997, 9998, 9999, 10007, 10008, 10009]`
+- `appPort` host/container mappings:
+  `"9997:9997", "9998:9998", "9999:9999", "10007:10007", "10008:10008", "10009:10009"`
 
 If the browser does not open automatically when `submit_plan` runs, open:
 
