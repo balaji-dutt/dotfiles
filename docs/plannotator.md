@@ -48,6 +48,9 @@ until that process exits.
 In the homelab devcontainer, the six fixed Plannotator ports are both VS Code
 forwarded and Docker-published so `devcontainer-launch` terminal sessions can
 reach the review UI without attaching VS Code first.
+The devcontainer-installed wrappers default to `OPENCODE_PLANNOTATOR_VERBOSE=1`
+so terminal sessions print the selected port before OpenCode starts. Host
+wrappers remain quiet unless `OPENCODE_PLANNOTATOR_VERBOSE=1` is set.
 
 For diagnostics:
 

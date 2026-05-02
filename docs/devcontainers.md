@@ -171,6 +171,9 @@ The same fixed ports are also published with `appPort` so terminal-only
 session. Random callback ports, such as OAuth browser callbacks, still require
 VS Code port forwarding or an explicit manual forwarding path.
 
+Container-installed `opencode-plannotator*` wrappers are verbose by default so
+terminal sessions show the selected Plannotator port before OpenCode starts.
+
 Because these are fixed Docker-published host ports, stop any other homelab
 devcontainer that is already publishing the same Plannotator ports before
 starting another copy.
