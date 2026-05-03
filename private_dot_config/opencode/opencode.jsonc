@@ -468,7 +468,7 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "github-copilot/gpt-5.4",
+      "model": "anthropic/claude-opus-4-6",
       "reasoningEffort": "high",
       "temperature": 0.2,
       // Anthropic does not support temperature modification with thinking budgets
@@ -496,10 +496,8 @@
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
       "model": "anthropic/claude-opus-4-6",
-      "thinking": {
-        "type": "enabled",
-        "budgetTokens": 10000
-      },
+      "reasoningEffort": "xhigh",
+      "temperature": 0.2,
       "prompt": "{file:./skills/agent-engineer/agent-engineer-prompt.md}",
       "permission": {
         "webfetch": "allow",
