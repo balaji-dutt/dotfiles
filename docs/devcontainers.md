@@ -173,6 +173,8 @@ VS Code port forwarding or an explicit manual forwarding path.
 
 Container-installed `opencode-plannotator*` wrappers are verbose by default so
 terminal sessions show the selected Plannotator port before OpenCode starts.
+They also pause for one second before launching the TUI; set
+`OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip that pause.
 
 Because these are fixed Docker-published host ports, stop any other homelab
 devcontainer that is already publishing the same Plannotator ports before

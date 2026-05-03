@@ -51,6 +51,8 @@ reach the review UI without attaching VS Code first.
 The devcontainer-installed wrappers default to `OPENCODE_PLANNOTATOR_VERBOSE=1`
 so terminal sessions print the selected port before OpenCode starts. Host
 wrappers remain quiet unless `OPENCODE_PLANNOTATOR_VERBOSE=1` is set.
+Devcontainer wrappers also pause for one second before launching the TUI; set
+`OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip the pause.
 
 For diagnostics:
 
