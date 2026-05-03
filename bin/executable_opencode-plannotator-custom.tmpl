@@ -56,6 +56,40 @@ select_pool() {
   printf '%s' "${!env_name:-$default_pool}"
 }
 
+select_lock_backend() {
+  if command -v flock >/dev/null 2>&1; then
+    printf 'flock'
+  elif command -v lockf >/dev/null 2>&1; then
+    printf 'lockf'
+  else
+    die "flock or lockf is required for Plannotator port locking"
+  fi
+}
+
+lock_port_fd() {
+  case "$LOCK_BACKEND" in
+    flock)
+      flock -n "$LOCK_FD"
+      ;;
+    lockf)
+      # macOS/BSD lockf can lock an already-open shell fd; the lock is held
+      # until fd 9 is closed, including after the final exec into OpenCode.
+      lockf -s -t 0 "$LOCK_FD"
+      ;;
+    *)
+      die "unknown lock backend: $LOCK_BACKEND"
+      ;;
+  esac
+}
+
+release_port_fd() {
+  if [ "${LOCK_BACKEND:-}" = "flock" ]; then
+    flock -u "$LOCK_FD" || true
+  fi
+  # LOCK_FD is fixed at 9; closing it releases lockf locks as well.
+  exec 9>&-
+}
+
 POOL_NAME="build"
 if [[ "$SCRIPT_NAME" == *-custom ]]; then
   POOL_NAME="custom"
@@ -63,7 +97,7 @@ fi
 
 POOL="$(select_pool "$POOL_NAME")"
 [ -n "$POOL" ] || die "empty port pool for $POOL_NAME"
-command -v flock >/dev/null 2>&1 || die "flock is required for Plannotator port locking"
+LOCK_BACKEND="$(select_lock_backend)"
 
 IFS=',' read -r -a PORTS <<<"$POOL"
 [ "${#PORTS[@]}" -gt 0 ] || die "empty port pool for $POOL_NAME"
@@ -81,14 +115,13 @@ for raw_port in "${PORTS[@]}"; do
   lock_path="$LOCK_ROOT/port-$port.lock"
   exec 9>"$lock_path"
 
-  if ! flock -n "$LOCK_FD"; then
-    exec 9>&-
+  if ! lock_port_fd; then
+    release_port_fd
     continue
   fi
 
   if port_is_listening "$port"; then
-    flock -u "$LOCK_FD" || true
-    exec 9>&-
+    release_port_fd
     continue
   fi
 
@@ -109,7 +142,7 @@ fi
 
 if [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
   sleep "${OPENCODE_PLANNOTATOR_HOLD_SECONDS:-0}"
-  flock -u "$LOCK_FD" || true
+  release_port_fd
   exit 0
 fi
 

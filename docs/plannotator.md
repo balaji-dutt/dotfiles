@@ -42,8 +42,8 @@ opencode-plannotator-custom  # stay-current custom pool
 ```
 
 The wrappers choose an available port from the configured pool, export
-`PLANNOTATOR_PORT` only for the child OpenCode process, and hold a `flock` lock
-until that process exits.
+`PLANNOTATOR_PORT` only for the child OpenCode process, and hold an advisory
+file lock until that process exits.
 
 In the homelab devcontainer, the six fixed Plannotator ports are both VS Code
 forwarded and Docker-published so `devcontainer-launch` terminal sessions can
@@ -63,7 +63,7 @@ OPENCODE_PLANNOTATOR_DRY_RUN=1 opencode-plannotator-custom
 
 ## Agents of Empire
 
-On Linux, the global AoE default uses the build-handoff wrapper:
+On Linux and macOS, the global AoE default uses the build-handoff wrapper:
 
 ```toml
 [session]
@@ -73,11 +73,12 @@ default_tool = "opencode"
 opencode = "opencode-plannotator"
 ```
 
-The managed host AoE config only emits this override on Linux targets. Native
-Windows and macOS do not receive the Bash wrapper override.
+The managed host AoE config emits this override on Linux and macOS targets.
+Native Windows does not receive the Bash wrapper override.
 
-The wrappers depend on Bash and `flock`; native macOS and native Windows should
-not use them unless those dependencies are available and tested there.
+The host wrappers depend on Bash plus either `flock` or `lockf`. macOS hosts use
+the bundled `lockf` fallback when `flock` is unavailable; native Windows should
+not use these Bash wrappers.
 
 Do not set `default_tool` to a wrapper command. `default_tool` selects the tool;
 `agent_command_override.opencode` changes the command used to launch that tool.
