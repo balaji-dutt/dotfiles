@@ -200,61 +200,13 @@
         "websearch_cited": {
           "model": "gpt-5.5"
         }
-      },
-
-      "models": {
-        // Base model with UI-cyclable variants (optional but useful).
-        "gpt-5.4": {
-          "variants": {
-            "low": {
-              "reasoningEffort": "low",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            },
-            "medium": {
-              "reasoningEffort": "medium",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            },
-            "high": {
-              "reasoningEffort": "high",
-              "textVerbosity": "high",
-              "reasoningSummary": "auto"
-            }
-          }
-        },
-        "gpt-5.5": {
-          "variants": {
-            "low": {
-              "reasoningEffort": "low",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            },
-            "medium": {
-              "reasoningEffort": "medium",
-              "textVerbosity": "low",
-              "reasoningSummary": "auto"
-            },
-            "high": {
-              "reasoningEffort": "high",
-              "textVerbosity": "high",
-              "reasoningSummary": "auto"
-            }
-          }
-        },
       }
     },
 
-    // Anthropic: API key from env
+    // Anthropic: built-in auth/models.dev; API key use is in anthropic-api.
     "anthropic": {
       "options": {
-        "apiKey": "{env:ANTHROPIC_API_KEY}",
         "timeout": 600000
-      },
-      "models": {
-        "claude-haiku-4-6": {},
-        "claude-sonnet-4-6": {},
-        "claude-opus-4-6": {}
       }
     },
 
@@ -266,9 +218,69 @@
         "timeout": 600000
       },
       "models": {
-        "claude-haiku-4-6": {},
-        "claude-sonnet-4-6": {},
-        "claude-opus-4-6": {}
+        "claude-haiku-4-6": {
+          "name": "Haiku 4.6"
+        },
+        "claude-sonnet-4-6": {
+          "name": "Sonnet 4.6",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        "claude-opus-4-6": {
+          "name": "Opus 4.6",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        "claude-haiku-4-7": {
+          "name": "Haiku 4.7"
+        },
+        "claude-sonnet-4-7": {
+          "name": "Sonnet 4.7",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh"
+            }
+          }
+        },
+        "claude-opus-4-7": {
+          "name": "Opus 4.7",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh",
+              "maxOutputTokens": 64000
+            }
+          }
+        }
       }
     },
 
@@ -279,10 +291,6 @@
         "baseURL": "https://opencode.ai/zen/go/v1",
         "apiKey": "{env:OPENCODE_API_KEY}",
         "timeout": 600000
-      },
-      "models": {
-        "kimi-k2.6": {},
-        "kimi-k2.5": {}
       }
     },
 
@@ -350,15 +358,17 @@
       },
       "models": {
         // OpenCode will pass "options" to the provider, but vendor-specific keys may or may not be honored.
-        // Validate by testing the model and checking if "thinking" behavior changes.
-        "deepseek/deepseek-v3.1-terminus:exacto": {
+        // Validate by testing the model and checking if reasoning behavior changes.
+        "deepseek/deepseek-v4-pro:exacto": {
+          "name": "DeepSeek V4 Pro (Exacto)",
           "options": {
             "reasoning": {
               "enabled": true
             }
           }
         },
-        "deepseek/deepseek-r1": {
+        "deepseek/deepseek-v4-flash:exacto": {
+          "name": "DeepSeek V4 Flash (Exacto)",
           "options": {
             "reasoning": {
               "enabled": true
@@ -366,6 +376,7 @@
           }
         },
         "z-ai/glm-5.1:exacto": {
+          "name": "GLM 5.1 (Exacto)",
           "options": {
             "reasoning": {
               "effort": "high",
@@ -373,14 +384,16 @@
             }
           }
         },
-        "moonshotai/kimi-k2.6": {
+        "moonshotai/kimi-k2.5": {
+          "name": "Kimi K2.5",
           "options": {
             "reasoning": {
               "enabled": true
             }
           }
         },
-        "moonshotai/kimi-k2.5": {
+        "moonshotai/kimi-k2.6": {
+          "name": "Kimi K2.6",
           "options": {
             "reasoning": {
               "enabled": true
