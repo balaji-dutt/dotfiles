@@ -2,6 +2,10 @@
   "name": "Homelab IaC - Container (Personalized)",
   "image": "homelab-iac:base",
 
+  "runArgs": [
+    "--label=image_retention=retain"
+  ],
+
   "containerEnv": {
     "DEVCONTAINER": "1", // Additional environment variable for use with chezmoi
     "FZF_VERSION": "0.71.0", // renovate: datasource=github-releases depName=junegunn/fzf extractVersion=^v(?<version>.*)$
