@@ -293,30 +293,43 @@ fi
 done_step "Install uv tools"
 
 # --- 5b) MCP server binaries ---
-step "Install MCP server binaries (hop, terraform-mcp-server)"
+step "Install MCP server binaries (hop)"
 ARCH="$(uname -m)"
 case "$ARCH" in
-  x86_64)  HOP_ARCH="amd64"; TF_MCP_ARCH="amd64" ;;
-  aarch64) HOP_ARCH="arm64"; TF_MCP_ARCH="arm64" ;;
+  x86_64)  HOP_ARCH="amd64" ;;
+  aarch64) HOP_ARCH="arm64" ;;
   *)       echo "WARN: Unsupported architecture $ARCH for MCP binaries; skipping." >&2 ;;
 esac
 
 if [[ -n "${HOP_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
   echo "[mcp] installing hop v${HOP_VERSION} (${HOP_ARCH})"
-  curl -fsSL "https://github.com/danmartuszewski/hop/releases/download/v${HOP_VERSION}/hop_${HOP_VERSION}_linux_${HOP_ARCH}.tar.gz" \
+  curl -fsSL "https://github.com/danmartuszewski/hop/releases/download/v${HOP_VERSION}/hop_linux_${HOP_ARCH}.tar.gz" \
     | sudo tar xz -C /usr/local/bin hop
   hop version || echo "WARN: hop version check failed"
 else
   echo "WARN: HOP_VERSION not set; skipping hop install."
 fi
 
-if [[ -n "${TF_MCP_VERSION:-}" && -n "${TF_MCP_ARCH:-}" ]]; then
-  echo "[mcp] installing terraform-mcp-server v${TF_MCP_VERSION} (${TF_MCP_ARCH})"
-  curl -fsSL "https://github.com/hashicorp/terraform-mcp-server/releases/download/v${TF_MCP_VERSION}/terraform-mcp-server_${TF_MCP_VERSION}_linux_${TF_MCP_ARCH}.zip" \
-    -o /tmp/tf-mcp.zip
-  sudo unzip -o /tmp/tf-mcp.zip -d /usr/local/bin
-  rm -f /tmp/tf-mcp.zip
+if [[ -n "${TF_MCP_VERSION:-}" ]]; then
+  echo "[mcp] building terraform-mcp-server v${TF_MCP_VERSION} (no pre-built binaries available)"
+  TF_MCP_GO_VERSION="1.24.3"
+  TF_MCP_GO_ARCH="${HOP_ARCH:-amd64}"
+  TF_MCP_GOROOT="/tmp/go-tf-mcp"
+  TF_MCP_GOPATH="/tmp/go-tf-mcp-path"
+
+  curl -fsSL "https://go.dev/dl/go${TF_MCP_GO_VERSION}.linux-${TF_MCP_GO_ARCH}.tar.gz" \
+    | tar xz -C /tmp
+  mv /tmp/go "$TF_MCP_GOROOT"
+
+  GOROOT="$TF_MCP_GOROOT" GOPATH="$TF_MCP_GOPATH" GOBIN="$TF_MCP_GOPATH/bin" \
+    "$TF_MCP_GOROOT/bin/go" install \
+    "github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@v${TF_MCP_VERSION}"
+
+  sudo install -m 0755 "$TF_MCP_GOPATH/bin/terraform-mcp-server" /usr/local/bin/terraform-mcp-server
   terraform-mcp-server --help 2>&1 | head -1 || echo "WARN: terraform-mcp-server check failed"
+
+  rm -rf "$TF_MCP_GOROOT" "$TF_MCP_GOPATH"
+  echo "[mcp] cleaned up temporary Go toolchain"
 else
   echo "WARN: TF_MCP_VERSION not set; skipping terraform-mcp-server install."
 fi
