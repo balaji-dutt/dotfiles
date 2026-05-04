@@ -13,6 +13,9 @@
     "LAZYGIT_VERSION": "latest",
     "AOE_VERSION": "1.4.6", // renovate: datasource=github-releases depName=njbrake/agent-of-empires extractVersion=^v(?<version>.*)$
     "SNIP_VERSION": "0.15.0", // renovate: datasource=github-releases depName=edouard-claude/snip extractVersion=^v(?<version>.*)$
+    "HOP_VERSION": "1.5.0", // renovate: datasource=github-releases depName=danmartuszewski/hop extractVersion=^v(?<version>.*)$
+    "TF_MCP_VERSION": "0.5.2", // renovate: datasource=github-releases depName=hashicorp/terraform-mcp-server extractVersion=^v(?<version>.*)$
+    "ADM_API_KEY": "{{ onepasswordRead "op://Private/API Credentials/credential" }}",
     "DEVCONTAINER_CLIPBOARD_MODE": "osc52",
     "CERTPATH": "/home/vscode/development/keys",
     "CERTFILES_RAW": {{ .CERTFILES_RAW | toJson }},

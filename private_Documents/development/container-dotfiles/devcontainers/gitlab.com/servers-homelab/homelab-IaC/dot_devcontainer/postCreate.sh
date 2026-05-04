@@ -212,7 +212,7 @@ sudo locale-gen
 done_step "Install locales + generate en_GB.UTF-8"
 
 step "Install python3-pip + python3-venv + ripgrep"
-sudo apt-get install -y python3-pip python3-venv ripgrep
+sudo apt-get install -y python3-pip python3-venv ripgrep unzip
 done_step "Install python3-pip + python3-venv + ripgrep"
 
 # --- 2) uv install ---
@@ -291,6 +291,36 @@ else
   echo "No /tmp/host-homelab-configs/uv_tools.txt found; skipping."
 fi
 done_step "Install uv tools"
+
+# --- 5b) MCP server binaries ---
+step "Install MCP server binaries (hop, terraform-mcp-server)"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64)  HOP_ARCH="amd64"; TF_MCP_ARCH="amd64" ;;
+  aarch64) HOP_ARCH="arm64"; TF_MCP_ARCH="arm64" ;;
+  *)       echo "WARN: Unsupported architecture $ARCH for MCP binaries; skipping." >&2 ;;
+esac
+
+if [[ -n "${HOP_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
+  echo "[mcp] installing hop v${HOP_VERSION} (${HOP_ARCH})"
+  curl -fsSL "https://github.com/danmartuszewski/hop/releases/download/v${HOP_VERSION}/hop_${HOP_VERSION}_linux_${HOP_ARCH}.tar.gz" \
+    | sudo tar xz -C /usr/local/bin hop
+  hop version || echo "WARN: hop version check failed"
+else
+  echo "WARN: HOP_VERSION not set; skipping hop install."
+fi
+
+if [[ -n "${TF_MCP_VERSION:-}" && -n "${TF_MCP_ARCH:-}" ]]; then
+  echo "[mcp] installing terraform-mcp-server v${TF_MCP_VERSION} (${TF_MCP_ARCH})"
+  curl -fsSL "https://github.com/hashicorp/terraform-mcp-server/releases/download/v${TF_MCP_VERSION}/terraform-mcp-server_${TF_MCP_VERSION}_linux_${TF_MCP_ARCH}.zip" \
+    -o /tmp/tf-mcp.zip
+  sudo unzip -o /tmp/tf-mcp.zip -d /usr/local/bin
+  rm -f /tmp/tf-mcp.zip
+  terraform-mcp-server --help 2>&1 | head -1 || echo "WARN: terraform-mcp-server check failed"
+else
+  echo "WARN: TF_MCP_VERSION not set; skipping terraform-mcp-server install."
+fi
+done_step "Install MCP server binaries"
 
 # --- 6) Claude symlinks / setup ---
 step "Setup Claude config symlinks and permissions"

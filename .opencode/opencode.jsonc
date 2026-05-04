@@ -1,11 +1,26 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "instructions": [".opencode/instructions/mcp-usage.md"],
   // ----------------------------
   // Project specific plugins
   // ----------------------------
   // "plugin": [
   //   "oh-my-opencode@3.5.2"
   // ],
+  // ----------------------------
+  // MCP Servers (repo-specific)
+  // ----------------------------
+  "mcp": {
+    "tempograph": {
+      "type": "local",
+      "command": ["tempograph-server"]
+    }
+  },
+  // Disable all TempoGraph tools by default to avoid context pollution (24 tools).
+  // Agents below selectively enable the tools they need.
+  "tools": {
+    "tempograph_*": false
+  },
   // ----------------------------
   // Project specific permissions
   // ----------------------------
@@ -36,6 +51,12 @@
   "agent": {
     // Customize global agents for this project
     "plan": {
+      "tools": {
+        "tempograph_prepare_context": true,
+        "tempograph_overview": true,
+        "tempograph_hotspots": true,
+        "tempograph_file_map": true
+      },
       "permission": {
         "task": {
           "*": "deny",
@@ -44,6 +65,12 @@
       }
     },
     "plan-GPT-xhigh": {
+      "tools": {
+        "tempograph_prepare_context": true,
+        "tempograph_overview": true,
+        "tempograph_hotspots": true,
+        "tempograph_file_map": true
+      },
       "permission": {
         "task": {
           "*": "deny",
@@ -53,6 +80,18 @@
     },
     "build": {
       "prompt": "{file:./prompts/build.md}",
+      "tools": {
+        "tempograph_prepare_context": true,
+        "tempograph_blast_radius": true,
+        "tempograph_focus": true,
+        "tempograph_diff_context": true,
+        "tempograph_hotspots": true,
+        "tempograph_dead_code": true,
+        "tempograph_symbols": true,
+        "tempograph_file_map": true,
+        "tempograph_overview": true,
+        "tempograph_dependencies": true
+      },
       "permission": {
         "bash": {
           "./assets/sync-opencode-copilot-profiles.sh*": "allow",
@@ -65,6 +104,14 @@
       }
     },
     "agent-engineer": {
+      "tools": {
+        "tempograph_prepare_context": true,
+        "tempograph_blast_radius": true,
+        "tempograph_focus": true,
+        "tempograph_diff_context": true,
+        "tempograph_symbols": true,
+        "tempograph_file_map": true
+      },
       "permission": {
         "bash": {
           "./assets/sync-opencode-copilot-profiles.sh*": "allow",
@@ -77,6 +124,14 @@
       }
     },
     "special-builder": {
+      "tools": {
+        "tempograph_prepare_context": true,
+        "tempograph_blast_radius": true,
+        "tempograph_focus": true,
+        "tempograph_diff_context": true,
+        "tempograph_symbols": true,
+        "tempograph_file_map": true
+      },
       "permission": {
         "bash": {
           "./assets/sync-opencode-copilot-profiles.sh*": "allow",

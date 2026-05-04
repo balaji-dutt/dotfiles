@@ -148,6 +148,16 @@
   },
 
   // ----------------------------
+  // MCP Servers (global)
+  // ----------------------------
+  "mcp": {
+    "deepwiki": {
+      "type": "remote",
+      "url": "https://mcp.deepwiki.com/mcp"
+    }
+  },
+
+  // ----------------------------
   // Experimental
   // ----------------------------
   "experimental": {
