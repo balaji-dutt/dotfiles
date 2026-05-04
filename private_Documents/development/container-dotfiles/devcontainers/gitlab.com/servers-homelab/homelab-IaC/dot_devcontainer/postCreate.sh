@@ -328,7 +328,7 @@ if [[ -n "${TF_MCP_VERSION:-}" ]]; then
   sudo install -m 0755 "$TF_MCP_GOPATH/bin/terraform-mcp-server" /usr/local/bin/terraform-mcp-server
   terraform-mcp-server --help 2>&1 | head -1 || echo "WARN: terraform-mcp-server check failed"
 
-  rm -rf "$TF_MCP_GOROOT" "$TF_MCP_GOPATH"
+  sudo rm -rf "$TF_MCP_GOROOT" "$TF_MCP_GOPATH"
   echo "[mcp] cleaned up temporary Go toolchain"
 else
   echo "WARN: TF_MCP_VERSION not set; skipping terraform-mcp-server install."
