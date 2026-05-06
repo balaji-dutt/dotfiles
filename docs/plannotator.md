@@ -45,9 +45,12 @@ The wrappers choose an available port from the configured pool, export
 `PLANNOTATOR_PORT` only for the child OpenCode process, and hold an advisory
 file lock until that process exits.
 
-In the homelab devcontainer, the six fixed Plannotator ports are both VS Code
-forwarded and Docker-published so `devcontainer-launch` terminal sessions can
-reach the review UI without attaching VS Code first.
+In the homelab devcontainer, the six fixed Plannotator ports remain configured
+as wrapper pools, but the template currently comments out both VS Code
+`forwardPorts` and Docker-published `appPort` mappings while
+`opencode-plannotator*` behavior is being debugged. During that experiment,
+`devcontainer-launch` terminal sessions need VS Code attach or another explicit
+forwarding path to reach the review UI.
 The devcontainer-installed wrappers default to `OPENCODE_PLANNOTATOR_VERBOSE=1`
 so terminal sessions print the selected port before OpenCode starts. Host
 wrappers remain quiet unless `OPENCODE_PLANNOTATOR_VERBOSE=1` is set.

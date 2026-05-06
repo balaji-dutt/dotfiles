@@ -27,7 +27,7 @@ Typical synced files:
 
 - `devcontainers/**/devcontainer.json.tmpl`
 - `dotfiles/install.sh`
-- `dotfiles/configs/*.txt`
+- `dotfiles/configs/**`
 - `dotfiles/.config/**` and shell dotfiles used by the container build
 
 Manifest-driven source mirroring for shared container-dotfiles is handled by:
@@ -37,6 +37,28 @@ Manifest-driven source mirroring for shared container-dotfiles is handled by:
 
 Run the sync script after changing canonical host-side sources that are mirrored
 into `private_Documents/development/container-dotfiles/dotfiles/**`.
+
+## homelab-IaC: package pins
+
+Shared container-dotfiles config and generated inputs live under:
+
+- `private_Documents/development/container-dotfiles/dotfiles/configs/**`
+
+The `homelab-IaC` devcontainer has its own package pins under:
+
+- `private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/`
+
+The main package-list files are:
+
+- `npm_packages.txt` for global npm tools installed by `postCreate.sh` from
+  `/tmp/host-homelab-configs/npm_packages.txt`
+- `uv_tools.txt` for uv-installed Python tools
+- `pipx_packages.txt`, which is deprecated and retained only as a pointer away
+  from pipx
+
+Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
+Do not add comments to that file; the installer loop treats each non-blank line
+as an npm package spec.
 
 ## Platform Behavior
 
@@ -151,33 +173,30 @@ Workspace `.opencode` sync is template-whitelist based:
 - `PLANNOTATOR_PORT=9999` as the direct `opencode` fallback
 - `PLANNOTATOR_PORTS_BUILD=9997,9998,9999`
 - `PLANNOTATOR_PORTS_CUSTOM=10007,10008,10009`
-- `forwardPorts: [9997, 9998, 9999, 10007, 10008, 10009]`
-- `appPort` host/container mappings:
-  `"9997:9997", "9998:9998", "9999:9999", "10007:10007", "10008:10008", "10009:10009"`
 
-If the browser does not open automatically when `submit_plan` runs, open:
+The template currently leaves the fixed `forwardPorts` and Docker-published
+`appPort` mappings commented out while `opencode-plannotator*` behavior is being
+debugged in the devcontainer.
+
+If the browser does not open automatically when `submit_plan` runs, forward the
+selected port and open:
 
 - a build-handoff pool URL: `http://localhost:9997` through
   `http://localhost:9999`
 - or a stay-current custom pool URL: `http://localhost:10007` through
   `http://localhost:10009`
 
-The ports are explicitly forwarded even though VS Code can auto-forward some
-dynamic ports. Plannotator remote mode is more predictable when the expected
-review origins are known before the plan-review server starts.
-
-The same fixed ports are also published with `appPort` so terminal-only
-`devcontainer-launch` sessions can reach Plannotator without a VS Code attach
-session. Random callback ports, such as OAuth browser callbacks, still require
-VS Code port forwarding or an explicit manual forwarding path.
+During this experiment, VS Code auto-forwarding or manual forwarding may be
+required. Terminal-only `devcontainer-launch` sessions should not assume the
+review UI is reachable through pre-published localhost ports.
 
 Container-installed `opencode-plannotator*` wrappers are verbose by default so
 terminal sessions show the selected Plannotator port before OpenCode starts.
 They also pause for one second before launching the TUI; set
 `OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip that pause.
 
-Because these are fixed Docker-published host ports, stop any other homelab
-devcontainer that is already publishing the same Plannotator ports before
+If fixed Docker-published host ports are re-enabled later, stop any other
+homelab devcontainer that is already publishing the same Plannotator ports before
 starting another copy.
 
 See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
@@ -336,9 +355,9 @@ Container...** instead of assuming **Reopen in Container** will reuse it.
 
 `devcontainer-launch` starts the container through the standalone Dev Container
 CLI and then execs a shell. It does not provide VS Code's automatic
-port-forwarding service. Fixed Plannotator ports are Docker-published by the
-homelab template, but dynamic browser callback ports still need VS Code attach
-or another explicit forwarding mechanism.
+port-forwarding service. The homelab template currently has fixed Plannotator
+port publishing commented out, so terminal-only sessions need VS Code attach or
+another explicit forwarding mechanism for the review UI.
 
 Per-machine overrides use the manifest `env_prefix`:
 
