@@ -262,7 +262,14 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
     echo "[npm] installing: $pkg"
-    npm install -g "$pkg"
+    # Keep CI=1 for the noninteractive bootstrap, but do not pass it to npm
+    # lifecycle scripts. Some npm tools, such as @beads/bd, skip native binary
+    # downloads when CI is set and leave only a broken JavaScript shim behind.
+    env -u CI npm install -g "$pkg"
+
+    if [[ "$pkg" == @beads/bd@* ]]; then
+      bd version
+    fi
   done < /tmp/host-homelab-configs/npm_packages.txt
 else
   echo "No /tmp/host-homelab-configs/npm_packages.txt found; skipping."
