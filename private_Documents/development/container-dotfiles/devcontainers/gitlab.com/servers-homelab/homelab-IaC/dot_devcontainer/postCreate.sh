@@ -63,6 +63,39 @@ bootstrap_local_git_metadata() {
   echo "Initialized local Git metadata volume for workspace: $workspace"
 }
 
+ensure_beads_persistence_mounts() {
+  local workspace beads_dir subdir
+
+  workspace="$1"
+  beads_dir="$workspace/.beads"
+
+  if [[ ! -d "$workspace" ]]; then
+    echo "ERROR: Workspace path does not exist: $workspace" >&2
+    return 1
+  fi
+
+  mkdir -p "$beads_dir"
+
+  if [[ ! -w "$beads_dir" ]]; then
+    sudo chown "$USER:$USER" "$beads_dir"
+  fi
+
+  for subdir in embeddeddolt backup; do
+    mkdir -p "$beads_dir/$subdir"
+    if [[ ! -w "$beads_dir/$subdir" ]]; then
+      sudo chown -R "$USER:$USER" "$beads_dir/$subdir"
+    fi
+  done
+
+  if [[ ! -f "$beads_dir/config.yaml" && ! -f "$beads_dir/issues.jsonl" ]]; then
+    echo "WARN: Beads project metadata not found in $beads_dir; run bd init in the workspace if needed." >&2
+  fi
+
+  if [[ ! -f "$beads_dir/.gitignore" ]]; then
+    echo "WARN: $beads_dir/.gitignore not found; ensure embeddeddolt/ and backup/ stay untracked." >&2
+  fi
+}
+
 install_custom_ca_certificates() {
   local cert_dir certfiles_raw cert_file src_file dest_file dest_name
   local changed=0
@@ -193,6 +226,10 @@ if [[ -d /home/vscode/persistent-data ]]; then
   sudo chown -R vscode:vscode /home/vscode/persistent-data
 fi
 done_step "Fix ownership for persistent-data"
+
+step "Prepare Beads persistence mounts"
+ensure_beads_persistence_mounts "$WORKSPACE_PATH"
+done_step "Prepare Beads persistence mounts"
 
 step "apt-get update"
 sudo apt-get update

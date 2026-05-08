@@ -31,6 +31,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   subagent `mcpServers` frontmatter for agent-scoped servers such as TempoGraph.
 - gotcha: In zsh, `path` is a special array tied to `PATH`; avoid `for path in`
   audit loops because it can break subprocess lookup.
+- decision: Persist homelab-IaC Beads local runtime data with named volumes at
+  workspace `.beads/embeddeddolt` and `.beads/backup`; keep
+  `.beads/issues.jsonl` in the workspace as the commit-friendly export.
 
 ## 2026-05-01
 

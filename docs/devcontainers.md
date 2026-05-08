@@ -99,6 +99,22 @@ paths.
 `tf` remains the supported command for switching between OpenTofu and
 Terraform (`TF_CMD=tofu|opentofu|terraform`).
 
+## homelab-IaC: Beads local state
+
+For `homelab-IaC`, Beads runtime data is split between workspace files and
+container-local named volumes:
+
+- `.beads/embeddeddolt` is mounted on the `homelab-iac-beads-embeddeddolt`
+  Docker volume.
+- `.beads/backup` is mounted on the `homelab-iac-beads-backup` Docker volume.
+- `.beads/issues.jsonl` remains in the workspace and is the Git-friendly export
+  to review and commit.
+
+The named volumes survive normal container restart, rebuild, and reopen cycles.
+They do not survive deliberate Docker volume deletion. To exercise the terminal
+rebuild path, use `devcontainer-launch.sh homelab-IaC rebuild`; if VS Code later
+prompts for its own rebuild or reopen, treat that as a human-operator follow-up.
+
 ## Runtime-Generated Files
 
 Some files are generated at render time and should not be committed:

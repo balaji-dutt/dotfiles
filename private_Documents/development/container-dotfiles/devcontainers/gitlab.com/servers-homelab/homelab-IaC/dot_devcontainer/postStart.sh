@@ -197,6 +197,39 @@ ensure_agent_of_empires_persistence_link() {
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
 }
 
+ensure_beads_persistence_mounts() {
+  local workspace beads_dir subdir
+
+  workspace="$1"
+  beads_dir="$workspace/.beads"
+
+  if [[ ! -d "$workspace" ]]; then
+    echo "ERROR: Workspace path does not exist: $workspace" >&2
+    return 1
+  fi
+
+  mkdir -p "$beads_dir"
+
+  if [[ ! -w "$beads_dir" ]]; then
+    sudo chown "$USER:$USER" "$beads_dir"
+  fi
+
+  for subdir in embeddeddolt backup; do
+    mkdir -p "$beads_dir/$subdir"
+    if [[ ! -w "$beads_dir/$subdir" ]]; then
+      sudo chown -R "$USER:$USER" "$beads_dir/$subdir"
+    fi
+  done
+
+  if [[ ! -f "$beads_dir/config.yaml" && ! -f "$beads_dir/issues.jsonl" ]]; then
+    echo "WARN: Beads project metadata not found in $beads_dir; run bd init in the workspace if needed." >&2
+  fi
+
+  if [[ ! -f "$beads_dir/.gitignore" ]]; then
+    echo "WARN: $beads_dir/.gitignore not found; ensure embeddeddolt/ and backup/ stay untracked." >&2
+  fi
+}
+
 ensure_claude_persistence_links() {
   local claude_persist_dir claude_config_persist_dir
   local claude_config_dir claude_home_config claude_home_config_persist
@@ -448,6 +481,7 @@ mkdir -p \
 
 ensure_agent_of_empires_persistence_link
 ensure_claude_persistence_links
+ensure_beads_persistence_mounts "$workspace_root"
 
 mkdir -p "$HOME/.claude/commands"
 ln -sf /tmp/host-claude/private_settings.json "$HOME/.claude/settings.json" || true

@@ -78,6 +78,18 @@
       "source": "homelab-iac-data-volume",
       "target": "/home/vscode/persistent-data",
       "type": "volume"
+    },
+    // --- Mount for Beads embedded Dolt state ---
+    {
+      "source": "homelab-iac-beads-embeddeddolt",
+      "target": "${containerWorkspaceFolder}/.beads/embeddeddolt",
+      "type": "volume"
+    },
+    // --- Mount for Beads backup data ---
+    {
+      "source": "homelab-iac-beads-backup",
+      "target": "${containerWorkspaceFolder}/.beads/backup",
+      "type": "volume"
     }
   ],
 
