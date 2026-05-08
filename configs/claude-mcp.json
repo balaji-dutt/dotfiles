@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "deepwiki": {
+      "enabled": true,
+      "scope": "user",
+      "transport": "http",
+      "url": "https://mcp.deepwiki.com/mcp",
+      "replace": false
+    }
+  }
+}

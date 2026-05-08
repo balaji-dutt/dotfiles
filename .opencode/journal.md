@@ -22,6 +22,16 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-08
+
+- decision: Manage global Claude MCP intent through `configs/claude-mcp.json`
+  plus `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl`; do not
+  template all of `~/.claude.json` because it carries Claude state.
+- convention: The Claude MCP registration script is user-scope only. Use Claude
+  subagent `mcpServers` frontmatter for agent-scoped servers such as TempoGraph.
+- gotcha: In zsh, `path` is a special array tied to `PATH`; avoid `for path in`
+  audit loops because it can break subprocess lookup.
+
 ## 2026-05-01
 
 - decision: Added macOS LaunchAgent-backed SSH agent relay at

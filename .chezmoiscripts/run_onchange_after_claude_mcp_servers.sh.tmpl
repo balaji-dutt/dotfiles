@@ -1,0 +1,147 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# configs/claude-mcp.json hash: {{ include "configs/claude-mcp.json" | sha256sum }}
+
+config_path={{ printf "%s/configs/claude-mcp.json" .chezmoi.sourceDir | quote }}
+
+if ! command -v claude >/dev/null 2>&1; then
+  echo "INFO: claude command not found; skipping Claude MCP configuration."
+  exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "INFO: python3 command not found; skipping Claude MCP configuration."
+  exit 0
+fi
+
+python3 - "$config_path" <<'PY'
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+
+try:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    print(f"ERROR: Claude MCP config not found: {config_path}")
+    sys.exit(1)
+except json.JSONDecodeError as exc:
+    print(f"ERROR: Invalid Claude MCP JSON config: {exc}")
+    sys.exit(1)
+
+servers = config.get("servers", {})
+if not isinstance(servers, dict):
+    print('ERROR: Claude MCP config must contain an object at key "servers".')
+    sys.exit(1)
+
+valid_scopes = {"user"}
+valid_transports = {"http", "sse", "stdio"}
+
+
+def run_checked(command):
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+for name, server in sorted(servers.items()):
+    if not isinstance(server, dict):
+        print(f"ERROR: Claude MCP server {name!r} must be an object.")
+        sys.exit(1)
+
+    enabled = server.get("enabled", True)
+    if not isinstance(enabled, bool):
+        print(f"ERROR: Claude MCP server {name!r} enabled must be a boolean.")
+        sys.exit(1)
+
+    if not enabled:
+        continue
+
+    if not isinstance(name, str) or not name or any(ch.isspace() for ch in name):
+        print(f"ERROR: Invalid Claude MCP server name: {name!r}")
+        sys.exit(1)
+
+    scope = server.get("scope", "user")
+    transport = server.get("transport", "http")
+    replace = server.get("replace", False)
+    if not isinstance(replace, bool):
+        print(f"ERROR: Claude MCP server {name!r} replace must be a boolean.")
+        sys.exit(1)
+
+    if scope not in valid_scopes:
+        print(f"ERROR: Claude MCP server {name!r} has invalid scope: {scope!r}")
+        sys.exit(1)
+
+    if transport not in valid_transports:
+        print(
+            f"ERROR: Claude MCP server {name!r} has invalid transport: "
+            f"{transport!r}"
+        )
+        sys.exit(1)
+
+    command = ["claude", "mcp", "add", "--transport", transport, "--scope", scope]
+
+    if transport in {"http", "sse"}:
+        url = server.get("url")
+        if not isinstance(url, str) or not url:
+            print(
+                f"ERROR: Claude MCP server {name!r} requires a non-empty "
+                f"url for transport {transport!r}."
+            )
+            sys.exit(1)
+        command.extend([name, url])
+    else:
+        server_command = server.get("command")
+        args = server.get("args", [])
+        if not isinstance(server_command, str) or not server_command:
+            print(
+                f"ERROR: Claude MCP server {name!r} requires a non-empty "
+                "command for stdio transport."
+            )
+            sys.exit(1)
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            print(f"ERROR: Claude MCP server {name!r} args must be a string list.")
+            sys.exit(1)
+        command.extend([name, "--", server_command, *args])
+
+    if "CLAUDE_MCP_DRY_RUN" in os.environ:
+        print(f"INFO: Would configure Claude MCP server {name!r} ({transport}, {scope}).")
+        continue
+
+    existing = run_checked(["claude", "mcp", "get", name])
+    if existing.returncode == 0:
+        if not replace:
+            print(
+                f"INFO: Claude MCP server {name!r} already exists in Claude; "
+                "set replace=true to reapply it."
+            )
+            continue
+
+        remove = run_checked(["claude", "mcp", "remove", "--scope", scope, name])
+        if remove.returncode != 0:
+            print(f"ERROR: Failed to remove Claude MCP server {name!r}.")
+            if remove.stdout.strip():
+                print(remove.stdout.rstrip())
+            sys.exit(remove.returncode)
+
+    print(f"INFO: Configuring Claude MCP server {name!r} ({transport}, {scope}).")
+    add = run_checked(command)
+    if add.returncode != 0:
+        print(f"ERROR: Failed to configure Claude MCP server {name!r}.")
+        if add.stdout.strip():
+            print(add.stdout.rstrip())
+        sys.exit(add.returncode)
+
+    print(f"INFO: Configured Claude MCP server {name!r}.")
+PY
+
+{{ end -}}

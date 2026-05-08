@@ -38,6 +38,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
+| `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | package installs |
 | `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload |
 | `run_onchange_after_ansible_syntax_image.sh.tmpl` | onchange | Ansible syntax image update |
@@ -48,4 +49,6 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 
 - Keep scripts templated and OS-gated.
 - Follow `docs/agents/ADDING_SCRIPTS.md` when adding new scripts.
+- User-scope Claude MCP server registration is configured by
+  `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.
