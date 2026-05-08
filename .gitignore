@@ -16,3 +16,8 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 .opencode/review-loop.seed.json
 .tempograph/
 .tempograph/**
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
