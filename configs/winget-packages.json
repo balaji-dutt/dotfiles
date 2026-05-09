@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-05-09T17:15:39.35+08:00",
+  "CreationDate": "2026-05-09T20:53:49.48+08:00",
   "Sources": [
     {
       "Packages": [
@@ -210,9 +210,6 @@
         },
         {
           "PackageIdentifier": "Anthropic.ClaudeCode"
-        },
-        {
-          "PackageIdentifier": "Anthropic.Claude"
         },
         {
           "PackageIdentifier": "DenoLand.Deno"
