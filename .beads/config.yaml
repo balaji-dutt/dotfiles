@@ -56,6 +56,6 @@
 dolt.shared-server: true
 dolt.mode: server
 dolt.auto-push: false
-# sync.remote: "git+ssh://git@gitlab.com/balaji-personal-files/dotfiles-beads.git"
+sync.remote: "git+ssh://git@gitlab.com/balaji-personal-files/dotfiles-beads.git"
 
 backup.enabled: false
