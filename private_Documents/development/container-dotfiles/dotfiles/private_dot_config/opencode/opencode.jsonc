@@ -171,7 +171,7 @@
     "cc-safety-net@0.8.2",
     "envsitter-guard@0.0.4",
     "opencode-claude-bridge@latest",
-    "@slkiser/opencode-quota@3.5.0",
+    "@slkiser/opencode-quota@3.7.1",
     "opencode-snip@1.6.1",
     "opencode-websearch-cited@1.2.0"
   ],

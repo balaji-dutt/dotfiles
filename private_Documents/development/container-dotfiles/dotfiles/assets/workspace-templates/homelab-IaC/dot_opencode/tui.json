@@ -2,6 +2,6 @@
   "$schema": "https://opencode.ai/tui.json",
   "theme": "material",
   "plugin": [
-    "@slkiser/opencode-quota@3.2.0"
+    "@slkiser/opencode-quota@3.7.1"
   ]
 }

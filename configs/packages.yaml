@@ -9,7 +9,7 @@
 # Tool versions (GitHub releases)
 # -----------------------------------------------------------------------------
 versions:
-  aoe: "1.5.0" # renovate: datasource=github-releases depName=njbrake/agent-of-empires extractVersion=^v(?<version>.*)$
+  aoe: "1.5.2" # renovate: datasource=github-releases depName=njbrake/agent-of-empires extractVersion=^v(?<version>.*)$
   lazygit: "0.61.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
   lazydocker: "0.25.2" # renovate: datasource=github-releases depName=jesseduffield/lazydocker extractVersion=^v(?<version>.*)$
   snip: "0.15.0" # renovate: datasource=github-releases depName=edouard-claude/snip extractVersion=^v(?<version>.*)$
