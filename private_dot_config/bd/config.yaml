@@ -1,0 +1,6 @@
+dolt:
+  shared-server: true
+  auto-push: false
+
+backup:
+  enabled: false

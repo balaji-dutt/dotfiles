@@ -56,9 +56,6 @@
 dolt.shared-server: true
 dolt.mode: server
 dolt.auto-push: false
-
-
+sync.remote: "git+ssh://git@gitlab.com/servers-homelab/homelab-iac-beads.git"
 
 backup.enabled: false
-
-sync.remote: "git+ssh://git@gitlab.com/servers-homelab/homelab-iac-beads.git"
