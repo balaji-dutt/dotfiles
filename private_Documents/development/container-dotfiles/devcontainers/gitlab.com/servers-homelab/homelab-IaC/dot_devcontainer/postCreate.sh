@@ -303,8 +303,6 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
 
     if [[ "$pkg" == @beads/bd@* ]]; then
       bd version
-      command -v dolt
-      dolt version
     fi
   done < /tmp/host-homelab-configs/npm_packages.txt
 else
@@ -462,6 +460,16 @@ else
   echo "$SRC not found; skipping."
 fi
 done_step "Run host dotfiles installer (if present)"
+
+step "Verify Beads CLI tooling"
+if command -v bd >/dev/null 2>&1; then
+  bd version
+  command -v dolt
+  dolt version
+else
+  echo "bd not found; skipping Beads Dolt verification."
+fi
+done_step "Verify Beads CLI tooling"
 
 # --- 9) Antidote ---
 step "Load Antidote (if present)"
