@@ -27,6 +27,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Renovate keeps global `minimumReleaseAge: "7 days"`, but OpenCode
   plugin patch/digest package rules set `minimumReleaseAge: null` so fast-cadence
   patches are not starved while minor/major updates keep the 7-day soak.
+- gotcha: Tuple-style OpenCode plugin entries with nested options need a separate
+  Renovate regex matcher; the scalar plugin matcher only catches bare strings.
 
 ## 2026-05-08
 
