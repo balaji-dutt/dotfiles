@@ -29,6 +29,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   patches are not starved while minor/major updates keep the 7-day soak.
 - gotcha: Tuple-style OpenCode plugin entries with nested options need a separate
   Renovate regex matcher; the scalar plugin matcher only catches bare strings.
+- decision: homelab-IaC Beads now uses Dolt shared-server state at
+  `/home/vscode/.beads/shared-server` on Docker volume
+  `homelab-iac-beads-shared-server`; workspace `.beads/config.yaml`,
+  `.beads/metadata.json`, and `.beads/issues.jsonl` remain project state.
+- convention: Install the external `dolt` CLI separately from npm `@beads/bd`;
+  the npm package provides `bd` but not the Dolt server binary.
 
 ## 2026-05-08
 
@@ -39,9 +45,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   subagent `mcpServers` frontmatter for agent-scoped servers such as TempoGraph.
 - gotcha: In zsh, `path` is a special array tied to `PATH`; avoid `for path in`
   audit loops because it can break subprocess lookup.
-- decision: Persist homelab-IaC Beads local runtime data with named volumes at
-  workspace `.beads/embeddeddolt` and `.beads/backup`; keep
-  `.beads/issues.jsonl` in the workspace as the commit-friendly export.
+- decision: Superseded by the 2026-05-09 Dolt shared-server convention for
+  homelab-IaC Beads runtime state.
 
 ## 2026-05-01
 

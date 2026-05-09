@@ -244,6 +244,50 @@
             path: "{{ local_bin }}/openusage"
             mode: "0755"
 
+    - name: Check installed dolt version
+      ansible.builtin.command: "{{ local_bin }}/dolt version"
+      register: dolt_version_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Parse installed dolt version
+      ansible.builtin.set_fact:
+        dolt_installed_version: >-
+          {{
+            (dolt_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+
+    - name: Install or upgrade dolt
+      when: (dolt_installed_version | default('')) != versions.dolt
+      block:
+        - name: Create temporary directory for dolt archive extraction
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: dolt
+          register: dolt_extract_dir
+
+        - name: Download and extract dolt release archive
+          ansible.builtin.unarchive:
+            src: "https://github.com/dolthub/dolt/releases/download/v{{ versions.dolt }}/dolt-linux-{{ deb_arch }}.tar.gz"
+            dest: "{{ dolt_extract_dir.path }}"
+            remote_src: true
+
+        - name: Install dolt binary to local bin
+          ansible.builtin.copy:
+            src: "{{ dolt_extract_dir.path }}/dolt-linux-{{ deb_arch }}/bin/dolt"
+            dest: "{{ local_bin }}/dolt"
+            mode: "0755"
+            remote_src: true
+
+      always:
+        - name: Remove temporary dolt extraction directory
+          ansible.builtin.file:
+            path: "{{ dolt_extract_dir.path | default('') }}"
+            state: absent
+          when: (dolt_extract_dir.path | default('')) | length > 0
+
     - name: Check installed snip version
       ansible.builtin.command: "{{ local_bin }}/snip --version"
       register: snip_version_cmd

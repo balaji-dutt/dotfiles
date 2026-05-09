@@ -99,21 +99,29 @@ paths.
 `tf` remains the supported command for switching between OpenTofu and
 Terraform (`TF_CMD=tofu|opentofu|terraform`).
 
-## homelab-IaC: Beads local state
+## homelab-IaC: Beads Dolt shared-server state
 
-For `homelab-IaC`, Beads runtime data is split between workspace files and
-container-local named volumes:
+For `homelab-IaC`, Beads is configured to use the Dolt shared-server backend.
+Runtime state is split between workspace files and a container-local named
+volume:
 
-- `.beads/embeddeddolt` is mounted on the `homelab-iac-beads-embeddeddolt`
-  Docker volume.
-- `.beads/backup` is mounted on the `homelab-iac-beads-backup` Docker volume.
+- `/home/vscode/.beads/shared-server` is mounted on the
+  `homelab-iac-beads-shared-server` Docker volume.
+- `.beads/config.yaml` and `.beads/metadata.json` remain in the workspace as
+  project state.
 - `.beads/issues.jsonl` remains in the workspace and is the Git-friendly export
   to review and commit.
 
-The named volumes survive normal container restart, rebuild, and reopen cycles.
-They do not survive deliberate Docker volume deletion. To exercise the terminal
+The named volume survives normal container restart, rebuild, and reopen cycles.
+It does not survive deliberate Docker volume deletion. To exercise the terminal
 rebuild path, use `devcontainer-launch.sh homelab-IaC rebuild`; if VS Code later
 prompts for its own rebuild or reopen, treat that as a human-operator follow-up.
+
+The devcontainer installs the external `dolt` CLI explicitly because the
+`@beads/bd` npm package provides `bd`, not the separate Dolt server binary.
+Migrating existing embedded-Dolt state into the shared server remains a separate
+human-operated step; the bootstrap scripts only verify that `bd` and `dolt` are
+available.
 
 ## Runtime-Generated Files
 

@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+LABEL image_retention=retain
+
 # Pin if you want stability; loosen if you really want "always latest"
 ARG ANSIBLE_CORE_SPEC="ansible-core==2.16.*"
 ARG ANSIBLE_LINT_SPEC="ansible-lint==24.*"
