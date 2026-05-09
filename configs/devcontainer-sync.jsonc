@@ -20,7 +20,8 @@
           "skills/**",
           "tools/**",
           "themes/**",
-          "prompts/**"
+          "prompts/**",
+          "opencode-quota/**"
         ],
         "exclude": [
           "opencode.jsonc",

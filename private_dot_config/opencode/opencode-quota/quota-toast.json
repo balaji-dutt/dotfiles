@@ -1,0 +1,19 @@
+{
+    "enabledProviders": [
+      "copilot",
+      "openai",
+      "anthropic",
+      "opencode-go"
+    ],
+  "enableToast": false,
+  "requestTimeoutMs": 12000,
+  "formatStyle": "singleWindow",
+  "tuiSidebarPanel": {
+    "enabled": true
+  },
+  "tuiCompactStatus": {
+    "enabled": true,
+    "homeBottom": true,
+    "sessionPrompt": false
+  }
+}

@@ -158,20 +158,6 @@
   },
 
   // ----------------------------
-  // Experimental
-  // ----------------------------
-  "experimental": {
-    "quotaToast": {
-      "enabledProviders": [
-        "copilot",
-        "openai",
-        "anthropic",
-        "opencode-go"
-      ]
-    }
-  },
-
-  // ----------------------------
   // Plugins
   // ----------------------------
 
