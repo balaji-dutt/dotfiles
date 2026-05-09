@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-05-01T01:50:22.585+08:00",
+  "CreationDate": "2026-05-09T17:15:39.35+08:00",
   "Sources": [
     {
       "Packages": [
@@ -86,9 +86,6 @@
           "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
-          "PackageIdentifier": "Starship.Starship"
-        },
-        {
           "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
@@ -104,7 +101,13 @@
           "PackageIdentifier": "Nvidia.PhysX"
         },
         {
+          "PackageIdentifier": "Starship.Starship"
+        },
+        {
           "PackageIdentifier": "Insta360.Link.Controller"
+        },
+        {
+          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
         },
         {
           "PackageIdentifier": "Maximus5.ConEmu"
@@ -126,6 +129,9 @@
         },
         {
           "PackageIdentifier": "Windscribe.Windscribe"
+        },
+        {
+          "PackageIdentifier": "Dropbox.Dropbox"
         },
         {
           "PackageIdentifier": "Google.Chrome.EXE"
@@ -206,6 +212,9 @@
           "PackageIdentifier": "Anthropic.ClaudeCode"
         },
         {
+          "PackageIdentifier": "Anthropic.Claude"
+        },
+        {
           "PackageIdentifier": "DenoLand.Deno"
         },
         {
@@ -243,6 +252,9 @@
         },
         {
           "PackageIdentifier": "Microsoft.AppInstaller"
+        },
+        {
+          "PackageIdentifier": "Microsoft.DotNet.Native.Runtime"
         },
         {
           "PackageIdentifier": "Microsoft.UI.Xaml.2.7"
