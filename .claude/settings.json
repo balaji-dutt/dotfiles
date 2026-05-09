@@ -1,4 +1,59 @@
 {
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-review-on-stop.sh\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/clear-needs-review-on-pass.sh\"",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(chezmoi doctor)",
@@ -57,39 +112,6 @@
       "Bash(cz state set:*)",
       "Bash(cz unmanage:*)",
       "Bash(cz upgrade)"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh\""
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/clear-needs-review-on-pass.sh\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-review-on-stop.sh\""
-          }
-        ]
-      }
     ]
   }
 }
