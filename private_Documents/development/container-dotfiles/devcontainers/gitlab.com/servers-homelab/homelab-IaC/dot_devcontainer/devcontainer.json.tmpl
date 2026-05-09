@@ -26,6 +26,9 @@
     "PLANNOTATOR_PORTS_BUILD": "{{ .plannotator_ports.devcontainer.build | join "," }}",
     "PLANNOTATOR_PORTS_CUSTOM": "{{ .plannotator_ports.devcontainer.custom | join "," }}",
     "OPENSPEC_TELEMETRY": "0",
+    // Configure Beads to use a shared server for state synchronization and disable backups.
+    "BEADS_DOLT_SHARED_SERVER": "1",
+    "BD_BACKUP_ENABLED": "false",
     {{- if eq .chezmoi.os "darwin" }}
     "SSH_AUTH_SOCK": "/tmp/orbstack-ssh-agent/ssh-auth.sock",
     "ORBSTACK_HOST_SSH_AUTH_SOCK": "/run/host-services/ssh-auth.sock",
@@ -78,18 +81,12 @@
       "target": "/home/vscode/persistent-data",
       "type": "volume"
     },
-    // --- Mount for Beads embedded Dolt state ---
+    // --- Mount for Beads shared Dolt server state ---
     {
-      "source": "homelab-iac-beads-embeddeddolt",
-      "target": "${containerWorkspaceFolder}/.beads/embeddeddolt",
+      "source": "homelab-iac-beads-shared-server",
+      "target": "/home/vscode/.beads/shared-server",
       "type": "volume"
     },
-    // --- Mount for Beads backup data ---
-    {
-      "source": "homelab-iac-beads-backup",
-      "target": "${containerWorkspaceFolder}/.beads/backup",
-      "type": "volume"
-    }
   ],
 
   {{- if hasKey . "homelab" }}
@@ -101,19 +98,6 @@
   "postCreateCommand": ["bash", "/tmp/host-homelab-devcontainer/postCreate.sh", "${containerWorkspaceFolder}"],
 
   "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh", "${containerWorkspaceFolder}"],
-
-  // Temporarily disabled while debugging opencode-plannotator* in devcontainers.
-  // "forwardPorts": [9997, 9998, 9999, 10007, 10008, 10009],
-  // When re-enabled, publish fixed Plannotator ports for terminal-only
-  // devcontainer-launch sessions without VS Code's port-forwarding service.
-  // "appPort": [
-  //   "9997:9997",
-  //   "9998:9998",
-  //   "9999:9999",
-  //   "10007:10007",
-  //   "10008:10008",
-  //   "10009:10009"
-  // ],
 
   "customizations": {
     "vscode": {
