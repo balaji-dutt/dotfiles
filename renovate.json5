@@ -91,6 +91,7 @@
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
       ],
       "matchUpdateTypes": ["patch", "digest"],
+      "minimumReleaseAge": null,
       "groupName": "opencode plugins (patch)"
     },
     {

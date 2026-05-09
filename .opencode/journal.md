@@ -22,6 +22,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-09
+
+- decision: Renovate keeps global `minimumReleaseAge: "7 days"`, but OpenCode
+  plugin patch/digest package rules set `minimumReleaseAge: null` so fast-cadence
+  patches are not starved while minor/major updates keep the 7-day soak.
+
 ## 2026-05-08
 
 - decision: Manage global Claude MCP intent through `configs/claude-mcp.json`

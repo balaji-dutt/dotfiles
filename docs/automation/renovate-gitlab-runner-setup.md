@@ -111,5 +111,6 @@ Verify:
 - Keep explicit single-repo targeting first.
 - Keep automerge off initially.
 - Keep major updates grouped but separate from minor/patch groups.
-- Require a 7-day release age (`minimumReleaseAge`) before updates are eligible.
+- Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
+  except OpenCode plugin patch/digest updates.
 - After first successful run, enable weekends-only schedule.
