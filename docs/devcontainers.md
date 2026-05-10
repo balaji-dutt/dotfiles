@@ -62,10 +62,9 @@ as an npm package spec.
 
 `@ansible/ansible-mcp-server` is installed from this npm package list. During
 `postCreate`, the devcontainer also installs `ansible-mcp-server-fixed`, which
-preloads `/usr/local/lib/ansible-mcp-fixed/register-require.cjs` before
-delegating to the npm-managed `ansible-mcp-server` binary. Configure MCP clients
-to use the fixed wrapper if the upstream entrypoint fails at startup with a
-`require`/`process` error.
+resolves the package's `dist/cli.cjs` from the global npm root and runs it with
+`node`. Configure MCP clients to use the fixed wrapper if the upstream
+`ansible-mcp-server` entrypoint fails at startup.
 
 ## Platform Behavior
 

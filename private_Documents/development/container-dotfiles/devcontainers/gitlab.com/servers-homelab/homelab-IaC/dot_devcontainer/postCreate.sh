@@ -205,7 +205,7 @@ install_ansible_mcp_server_wrapper() {
   printf 'globalThis.require = require;\n' | sudo tee "$shim" >/dev/null
   sudo chmod 0644 "$shim"
 
-  sudo tee "$wrapper_path" >/dev/null <<EOF
+  sudo tee "$wrapper_path" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 cli="$(npm root -g)/@ansible/ansible-mcp-server/dist/cli.cjs"
