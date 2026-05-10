@@ -442,7 +442,7 @@
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
       "model": "openai/gpt-5.5",
-      "reasoningEffort": "high",
+      "reasoningEffort": "xhigh",
       "temperature": 0.2,
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
@@ -468,11 +468,8 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "anthropic/claude-opus-4-6",
-      "thinking": {
-        "type": "enabled",
-        "budgetTokens": 10000
-      },
+      "model": "anthropic/claude-opus-4-7",
+      "reasoningEffort": "xhigh",
       "prompt": "{file:./skills/agent-engineer/agent-engineer-prompt.md}",
       "permission": {
         "webfetch": "allow",
