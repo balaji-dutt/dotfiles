@@ -189,6 +189,60 @@ ensure_claude_persistence_links() {
   fi
 }
 
+install_ansible_mcp_server_wrapper() {
+  local shim_dir shim wrapper_path smoke_output smoke_exit smoke_text
+
+  if ! command -v ansible-mcp-server >/dev/null 2>&1; then
+    echo "WARN: ansible-mcp-server not found; skipping fixed wrapper install." >&2
+    return 0
+  fi
+
+  shim_dir="/usr/local/lib/ansible-mcp-fixed"
+  shim="$shim_dir/register-require.cjs"
+  wrapper_path="/usr/local/bin/ansible-mcp-server-fixed"
+
+  sudo install -d -m 0755 "$shim_dir"
+  printf 'globalThis.require = require;\n' | sudo tee "$shim" >/dev/null
+  sudo chmod 0644 "$shim"
+
+  sudo tee "$wrapper_path" >/dev/null <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+shim="$shim"
+if [[ -n "\${NODE_OPTIONS:-}" ]]; then
+  export NODE_OPTIONS="--require=\${shim} \${NODE_OPTIONS}"
+else
+  export NODE_OPTIONS="--require=\${shim}"
+fi
+exec ansible-mcp-server "\$@"
+EOF
+  sudo chmod 0755 "$wrapper_path"
+
+  smoke_output="$(mktemp)"
+  smoke_exit=0
+  timeout 3s "$wrapper_path" --stdio </dev/null >"$smoke_output" 2>&1 || smoke_exit=$?
+  smoke_text="$(<"$smoke_output")"
+  rm -f "$smoke_output"
+
+  case "$smoke_exit" in
+    0|124)
+      echo "Installed ansible MCP wrapper: $wrapper_path"
+      ;;
+    *)
+      if [[ "$smoke_text" == *require* || "$smoke_text" == *ReferenceError* || "$smoke_text" == *process* ]]; then
+        echo "ERROR: ansible-mcp-server-fixed failed startup smoke test:" >&2
+        printf '%s\n' "$smoke_text" >&2
+        return "$smoke_exit"
+      fi
+
+      echo "WARN: ansible-mcp-server-fixed smoke test exited $smoke_exit; keeping wrapper." >&2
+      if [[ -n "$smoke_text" ]]; then
+        printf '%s\n' "$smoke_text" >&2
+      fi
+      ;;
+  esac
+}
+
 on_error() {
   local exit_code=$?
   echo
@@ -302,6 +356,10 @@ else
   echo "No /tmp/host-homelab-configs/npm_packages.txt found; skipping."
 fi
 done_step "Install global npm packages"
+
+step "Install ansible MCP server fixed wrapper"
+install_ansible_mcp_server_wrapper
+done_step "Install ansible MCP server fixed wrapper"
 
 # Re-export in case npm changed shell hash / PATH during install
 step "Re-ensure PATH for user installs"

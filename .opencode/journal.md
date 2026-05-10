@@ -24,6 +24,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-10
 
+- decision: homelab-IaC devcontainer `postCreate.sh` installs
+  `ansible-mcp-server-fixed`, which preloads
+  `/usr/local/lib/ansible-mcp-fixed/register-require.cjs` before delegating to
+  npm-managed `ansible-mcp-server`; MCP clients must opt in to the fixed wrapper.
 - decision: Added host and container local OpenCode
   `opencode-claude-bridge-compat.js` plugins to patch Anthropic Messages
   requests at the final fetch boundary: keep the last prompt-cache marker by

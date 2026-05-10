@@ -60,6 +60,13 @@ Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
 Do not add comments to that file; the installer loop treats each non-blank line
 as an npm package spec.
 
+`@ansible/ansible-mcp-server` is installed from this npm package list. During
+`postCreate`, the devcontainer also installs `ansible-mcp-server-fixed`, which
+preloads `/usr/local/lib/ansible-mcp-fixed/register-require.cjs` before
+delegating to the npm-managed `ansible-mcp-server` binary. Configure MCP clients
+to use the fixed wrapper if the upstream entrypoint fails at startup with a
+`require`/`process` error.
+
 ## Platform Behavior
 
 Based on `.chezmoiignore` rules:
