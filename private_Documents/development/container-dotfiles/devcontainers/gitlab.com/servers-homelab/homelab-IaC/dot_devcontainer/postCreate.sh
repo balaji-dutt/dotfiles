@@ -68,7 +68,6 @@ ensure_beads_persistence_mounts() {
 
   workspace="$1"
   beads_dir="$workspace/.beads"
-  shared_server_dir="${BEADS_SHARED_SERVER_DIR:-$HOME/.beads/shared-server}"
 
   if [[ ! -d "$workspace" ]]; then
     echo "ERROR: Workspace path does not exist: $workspace" >&2
@@ -81,16 +80,10 @@ ensure_beads_persistence_mounts() {
     sudo chown "$USER:$USER" "$beads_dir"
   fi
 
-  mkdir -p "$shared_server_dir"
-  if [[ ! -w "$shared_server_dir" ]]; then
-    sudo chown -R "$USER:$USER" "$shared_server_dir"
-  fi
-
   if [[ ! -f "$beads_dir/config.yaml" && ! -f "$beads_dir/issues.jsonl" ]]; then
     echo "WARN: Beads project metadata not found in $beads_dir; run bd init in the workspace if needed." >&2
   fi
 
-  echo "Beads shared-server state directory: $shared_server_dir"
 }
 
 install_custom_ca_certificates() {
