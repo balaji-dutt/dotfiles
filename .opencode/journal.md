@@ -22,6 +22,17 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-10
+
+- decision: Added host and container local OpenCode
+  `opencode-claude-bridge-compat.js` plugins to patch Anthropic Messages
+  requests at the final fetch boundary: keep the last prompt-cache marker by
+  default, filter Claude-only stub tools, and drop stale `content-length`.
+- convention: `OPENCODE_CLAUDE_BRIDGE_COMPAT_DEBUG=1` writes count-only bridge
+  shim diagnostics to
+  `~/.local/state/opencode/opencode-claude-bridge-compat.log`; never log
+  prompts, request bodies, auth headers, or removed tool names.
+
 ## 2026-05-09
 
 - decision: Renovate keeps global `minimumReleaseAge: "7 days"`, but OpenCode

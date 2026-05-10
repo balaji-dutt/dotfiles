@@ -309,6 +309,25 @@ devcontainer exec \
 Do not clone the bridge or store `node_modules` inside the mounted workspace
 repo. The persistent volume path keeps all bridge state separate.
 
+## opencode-claude-bridge Compatibility Shim
+
+OpenCode also loads a local `opencode-claude-bridge-compat.js` plugin on the
+host and in the devcontainer dotfiles. The shim patches only Anthropic Messages
+requests at the final `fetch` boundary.
+
+By default, it keeps only the last prompt-cache `cache_control` marker, filters
+Claude-only stub tool schemas, and removes stale `content-length` headers after
+rewriting request JSON. It does not log prompt text, request bodies, request
+headers, or authentication values.
+
+Useful runtime overrides:
+
+- `OPENCODE_CLAUDE_BRIDGE_COMPAT=0` disables the shim.
+- `OPENCODE_CLAUDE_BRIDGE_CACHE_CONTROL_MAX=4` keeps up to four cache markers.
+- `OPENCODE_CLAUDE_BRIDGE_FILTER_STUB_TOOLS=0` disables stub tool filtering.
+- `OPENCODE_CLAUDE_BRIDGE_COMPAT_DEBUG=1` writes count-only diagnostics to
+  `~/.local/state/opencode/opencode-claude-bridge-compat.log`.
+
 ## Terminal-Launched Devcontainers
 
 A generic host launcher is managed at:
