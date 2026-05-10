@@ -32,6 +32,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   shim diagnostics to
   `~/.local/state/opencode/opencode-claude-bridge-compat.log`; never log
   prompts, request bodies, auth headers, or removed tool names.
+- convention: OpenCode shell profiles and `opencode-plannotator*` wrappers
+  default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` so
+  `opencode-claude-bridge` does not reuse stale Claude Code validator system
+  prompt caches; non-empty explicit overrides win.
 
 ## 2026-05-09
 

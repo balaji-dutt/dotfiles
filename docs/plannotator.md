@@ -45,6 +45,11 @@ The wrappers choose an available port from the configured pool, export
 `PLANNOTATOR_PORT` only for the child OpenCode process, and hold an advisory
 file lock until that process exits.
 
+They also default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` for the child
+OpenCode process, unless a non-empty value is already set, so
+`opencode-claude-bridge` does not reuse a stale validator-captured Claude Code
+system prompt.
+
 In the homelab devcontainer, the six fixed Plannotator ports remain configured
 as wrapper pools, but the template currently comments out both VS Code
 `forwardPorts` and Docker-published `appPort` mappings while

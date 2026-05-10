@@ -320,6 +320,13 @@ Claude-only stub tool schemas, and removes stale `content-length` headers after
 rewriting request JSON. It does not log prompt text, request bodies, request
 headers, or authentication values.
 
+The managed OpenCode shell profile and `opencode-plannotator*` wrappers also
+default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts.
+This prevents the bridge from reusing a stale Claude Code system prompt captured
+by the validator cache. Managed interactive `opencode` launches and the
+Plannotator wrappers are covered; direct non-shell launches must set the same
+environment variable explicitly if they bypass the managed shell/profile setup.
+
 Useful runtime overrides:
 
 - `OPENCODE_CLAUDE_BRIDGE_COMPAT=0` disables the shim.
@@ -327,6 +334,8 @@ Useful runtime overrides:
 - `OPENCODE_CLAUDE_BRIDGE_FILTER_STUB_TOOLS=0` disables stub tool filtering.
 - `OPENCODE_CLAUDE_BRIDGE_COMPAT_DEBUG=1` writes count-only diagnostics to
   `~/.local/state/opencode/opencode-claude-bridge-compat.log`.
+- Set `ANTHROPIC_SYSTEM_PROMPT_PATH` to a non-empty alternate path before launch
+  to intentionally use a custom captured system prompt cache.
 
 ## Terminal-Launched Devcontainers
 

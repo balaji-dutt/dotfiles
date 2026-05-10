@@ -82,10 +82,17 @@ _opencode_apply_anthropic_api_export() {
   esac
 }
 
+_opencode_apply_claude_bridge_system_prompt_override() {
+  : "${ANTHROPIC_SYSTEM_PROMPT_PATH:=/dev/null}"
+  export ANTHROPIC_SYSTEM_PROMPT_PATH
+}
+
 _opencode_apply_profile_dir() {
   local config_home workspace_root workspace_config
   local sync_helper sync_result signature target_dir
   local joined primary
+
+  _opencode_apply_claude_bridge_system_prompt_override
 
   config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
   if ! joined="$(_opencode_profiles_joined)"; then
@@ -318,6 +325,7 @@ opencode_profile() {
 }
 
 alias opencode-profile='opencode_profile'
+_opencode_apply_claude_bridge_system_prompt_override
 _opencode_install_shell_hooks
 _opencode_apply_profile_dir
 _opencode_run_post_switch_hook
