@@ -4,6 +4,7 @@
 # private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/Environment.plist.tmpl hash: {{ include "private_Library/LaunchAgents/Environment.plist.tmpl" | sha256sum }}
+# private_Library/LaunchAgents/com.user.nfs-dot-clean.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.nfs-dot-clean.plist.tmpl" | sha256sum }}
 
 echo "Reloading LaunchAgents..."
 
@@ -62,5 +63,6 @@ retire_agent "gui/$(id -u)/com.user.ssh-agent-relay" \
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.vncmonitor.plist" "com.user.vncmonitor"
 reload_agent "$HOME_DIR/Library/LaunchAgents/com.ssh-add-keychain.plist" "com.ssh-add-keychain"
 reload_agent "$HOME_DIR/Library/LaunchAgents/Environment.plist" "Environment"
+reload_agent "$HOME_DIR/Library/LaunchAgents/com.user.nfs-dot-clean.plist" "com.user.nfs-dot-clean"
 
 {{- end -}}

@@ -40,7 +40,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | package installs |
-| `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload |
+| `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload, including NFS dot-clean |
 | `run_onchange_after_ansible_syntax_image.sh.tmpl` | onchange | Ansible syntax image update |
 | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange | Windows bootstrap flow |
 | `run_copy_win_gitignore.sh.tmpl` | helper | windows gitignore helper |

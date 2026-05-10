@@ -45,3 +45,5 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 - Keep secrets out of git.
 - Prefer 1Password/runtime injection for sensitive values.
 - Do not commit rendered files containing tokens/keys.
+- macOS NFS AppleDouble cleanup paths intentionally live in runtime local
+  config at `~/.config/nfs-dot-clean/paths`, not chezmoi template data.

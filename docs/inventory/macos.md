@@ -42,8 +42,28 @@ This page lists the main managed targets expected on macOS.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | LaunchAgents | `~/Library/LaunchAgents/*.plist` | `private_Library/LaunchAgents/*.plist.tmpl` |
-| User bin scripts | `~/bin/vnc_monitor.sh` | `bin/executable_vnc_monitor.sh` |
+| User bin scripts | `~/bin/vnc_monitor.sh`, `~/bin/nfs_dot_clean.sh` | `bin/executable_vnc_monitor.sh`, `bin/executable_nfs_dot_clean.sh` |
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
+
+## NFS AppleDouble Cleanup
+
+The `com.user.nfs-dot-clean` LaunchAgent runs `~/bin/nfs_dot_clean.sh` every
+5 minutes and on mount events. Configure local cleanup roots in
+`~/.config/nfs-dot-clean/paths`, one path per line. Blank lines and `#`
+comments are ignored.
+
+Enable or update the job on a macOS host:
+
+```sh
+chezmoi apply
+mkdir -p ~/.config/nfs-dot-clean
+$EDITOR ~/.config/nfs-dot-clean/paths
+if ! launchctl print gui/$(id -u)/com.user.nfs-dot-clean >/dev/null 2>&1; then
+  launchctl bootstrap gui/$(id -u) \
+    ~/Library/LaunchAgents/com.user.nfs-dot-clean.plist
+fi
+launchctl kickstart -k gui/$(id -u)/com.user.nfs-dot-clean
+```
 
 ## Container Build Sync (macOS)
 

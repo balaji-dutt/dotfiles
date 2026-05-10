@@ -24,6 +24,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-10
 
+- decision: macOS NFS AppleDouble cleanup uses runtime local path config at
+  `~/.config/nfs-dot-clean/paths`; the LaunchAgent/script stay path-agnostic so
+  adding paths does not require `chezmoi init` or `chezmoi apply`.
+- gotcha: Avoid probing configured NFS paths directly before checking mounted
+  NFS mountpoints; even `stat`/`test -d` can hang on missing or stale NFS paths.
 - decision: homelab-IaC devcontainer `postCreate.sh` installs
   `ansible-mcp-server-fixed`, which resolves the global npm package's
   `dist/cli.cjs` and runs it with `node`; MCP clients must opt in to the fixed
