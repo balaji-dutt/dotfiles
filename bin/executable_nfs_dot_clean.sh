@@ -118,14 +118,19 @@ release_lock() {
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
-report_dot_clean_failure() {
+report_dot_clean_result() {
     local path="$1"
     local log_file="$2"
+    local status="$3"
     local line=""
     local privacy_hint=""
     local saw_operation_not_permitted=""
 
-    log_warn "dot_clean failed for: $path"
+    if [ "$status" -ne 0 ]; then
+        log_warn "dot_clean failed for: $path"
+    elif [ -s "$log_file" ]; then
+        log_warn "dot_clean output for: $path"
+    fi
 
     while IFS= read -r line || [ -n "$line" ]; do
         [ -n "$line" ] || continue
@@ -171,13 +176,13 @@ run_dot_clean_with_timeout() {
 
             if kill -0 "$child_pid" 2>/dev/null; then
                 log_warn "dot_clean child still alive; future runs will skip while PID $child_pid exists"
-                report_dot_clean_failure "$path" "$dot_clean_log"
+                report_dot_clean_result "$path" "$dot_clean_log" 124
                 rm -f "$dot_clean_log"
                 return 124
             fi
 
             wait "$child_pid" 2>/dev/null || true
-            report_dot_clean_failure "$path" "$dot_clean_log"
+            report_dot_clean_result "$path" "$dot_clean_log" 124
             rm -f "$dot_clean_log"
             rm -f "$PID_FILE"
             return 124
@@ -189,9 +194,7 @@ run_dot_clean_with_timeout() {
 
     wait "$child_pid"
     status="$?"
-    if [ "$status" -ne 0 ]; then
-        report_dot_clean_failure "$path" "$dot_clean_log"
-    fi
+    report_dot_clean_result "$path" "$dot_clean_log" "$status"
     rm -f "$dot_clean_log"
     rm -f "$PID_FILE"
     return "$status"
