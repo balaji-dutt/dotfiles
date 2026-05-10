@@ -118,13 +118,47 @@ release_lock() {
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
+report_dot_clean_failure() {
+    local path="$1"
+    local log_file="$2"
+    local line=""
+    local privacy_hint=""
+    local saw_operation_not_permitted=""
+
+    log_warn "dot_clean failed for: $path"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        log_warn "dot_clean: $line"
+        case "$line" in
+            *'Operation not permitted'*)
+                saw_operation_not_permitted=1
+                ;;
+        esac
+    done <"$log_file"
+
+    if [ -n "$saw_operation_not_permitted" ]; then
+        privacy_hint="macOS privacy may be blocking launchd access; grant Full Disk Access"
+        privacy_hint="$privacy_hint to /bin/bash and /usr/sbin/dot_clean, then kickstart"
+        privacy_hint="$privacy_hint com.user.nfs-dot-clean"
+        log_warn "$privacy_hint"
+    fi
+}
+
 run_dot_clean_with_timeout() {
     local path="$1"
     local child_pid=""
     local elapsed=0
-    local status=0
+    local status
+    local dot_clean_log=""
 
-    "$DOT_CLEAN_BIN" -m "$path" &
+    dot_clean_log="$STATE_DIR/dot-clean.$$.$RANDOM.err"
+    : >"$dot_clean_log" || {
+        log_warn "failed to create dot_clean log: $dot_clean_log"
+        return 1
+    }
+
+    "$DOT_CLEAN_BIN" -m "$path" >"$dot_clean_log" 2>&1 &
     child_pid="$!"
     printf '%s\n' "$child_pid" >"$PID_FILE"
 
@@ -137,10 +171,14 @@ run_dot_clean_with_timeout() {
 
             if kill -0 "$child_pid" 2>/dev/null; then
                 log_warn "dot_clean child still alive; future runs will skip while PID $child_pid exists"
+                report_dot_clean_failure "$path" "$dot_clean_log"
+                rm -f "$dot_clean_log"
                 return 124
             fi
 
             wait "$child_pid" 2>/dev/null || true
+            report_dot_clean_failure "$path" "$dot_clean_log"
+            rm -f "$dot_clean_log"
             rm -f "$PID_FILE"
             return 124
         fi
@@ -151,6 +189,10 @@ run_dot_clean_with_timeout() {
 
     wait "$child_pid"
     status="$?"
+    if [ "$status" -ne 0 ]; then
+        report_dot_clean_failure "$path" "$dot_clean_log"
+    fi
+    rm -f "$dot_clean_log"
     rm -f "$PID_FILE"
     return "$status"
 }

@@ -65,6 +65,11 @@ fi
 launchctl kickstart -k gui/$(id -u)/com.user.nfs-dot-clean
 ```
 
+If the LaunchAgent log reports `Operation not permitted`, macOS privacy
+controls are probably blocking the launchd-started shell from accessing the
+NFS volume. Grant Full Disk Access to `/bin/bash` and `/usr/sbin/dot_clean` in
+System Settings, then run the `launchctl kickstart` command again.
+
 ## Container Build Sync (macOS)
 
 On macOS, container build files are synced to:
