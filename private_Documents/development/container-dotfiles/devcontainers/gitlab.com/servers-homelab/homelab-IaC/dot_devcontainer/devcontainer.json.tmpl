@@ -27,9 +27,6 @@
     "PLANNOTATOR_PORTS_BUILD": "{{ .plannotator_ports.devcontainer.build | join "," }}",
     "PLANNOTATOR_PORTS_CUSTOM": "{{ .plannotator_ports.devcontainer.custom | join "," }}",
     "OPENSPEC_TELEMETRY": "0",
-    // Configure Beads to use a shared server for state synchronization and disable backups.
-    "BEADS_DOLT_SHARED_SERVER": "1",
-    "BD_BACKUP_ENABLED": "false",
     {{- if eq .chezmoi.os "darwin" }}
     "SSH_AUTH_SOCK": "/tmp/orbstack-ssh-agent/ssh-auth.sock",
     "ORBSTACK_HOST_SSH_AUTH_SOCK": "/run/host-services/ssh-auth.sock",
@@ -81,13 +78,7 @@
       "source": "homelab-iac-data-volume",
       "target": "/home/vscode/persistent-data",
       "type": "volume"
-    },
-    // --- Mount for Beads shared Dolt server state ---
-    {
-      "source": "homelab-iac-beads-shared-server",
-      "target": "/home/vscode/.beads/shared-server",
-      "type": "volume"
-    },
+    }
   ],
 
   {{- if hasKey . "homelab" }}
