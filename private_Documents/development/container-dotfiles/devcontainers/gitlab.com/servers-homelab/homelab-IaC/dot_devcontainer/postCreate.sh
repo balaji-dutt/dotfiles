@@ -208,13 +208,12 @@ install_ansible_mcp_server_wrapper() {
   sudo tee "$wrapper_path" >/dev/null <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-shim="$shim"
-if [[ -n "\${NODE_OPTIONS:-}" ]]; then
-  export NODE_OPTIONS="--require=\${shim} \${NODE_OPTIONS}"
-else
-  export NODE_OPTIONS="--require=\${shim}"
+cli="$(npm root -g)/@ansible/ansible-mcp-server/dist/cli.cjs"
+if [[ ! -r "$cli" ]]; then
+  echo "ansible-mcp-server cli.cjs not found: $cli" >&2
+  exit 1
 fi
-exec ansible-mcp-server "\$@"
+exec node "$cli" "$@"
 EOF
   sudo chmod 0755 "$wrapper_path"
 
