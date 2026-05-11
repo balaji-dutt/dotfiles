@@ -22,6 +22,16 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-11
+
+- gotcha: `@slkiser/opencode-quota` supports undocumented `minIntervalMs` in
+  `opencode-quota/quota-toast.json`; use it to reduce normal provider refresh
+  pressure. It does not affect `/quota_status` live probes.
+- decision: Added local `opencode-quota-anthropic-compat.js` plugins to cache
+  successful Claude OAuth usage responses for ten minutes and serve
+  last-known-good data for up to five hours on endpoint 408/429/5xx or
+  network/timeout failures.
+
 ## 2026-05-10
 
 - decision: macOS NFS AppleDouble cleanup uses runtime local path config at

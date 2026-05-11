@@ -343,6 +343,28 @@ Useful runtime overrides:
 - Set `ANTHROPIC_SYSTEM_PROMPT_PATH` to a non-empty alternate path before launch
   to intentionally use a custom captured system prompt cache.
 
+## opencode-quota Anthropic Compatibility Shim
+
+OpenCode also loads `opencode-quota-anthropic-compat.js` on the host and in the
+devcontainer dotfiles. The shim patches only `GET` requests to Anthropic's Claude
+OAuth usage endpoint used by `@slkiser/opencode-quota`.
+
+The quota config sets `minIntervalMs` to `600000` so normal provider refreshes
+are cached for ten minutes. The shim also caches successful Anthropic usage JSON
+under `~/.local/state/opencode/`, serves fresh cache for ten minutes, and serves
+last-known-good data for up to five hours on endpoint 408, 429, 5xx, timeout, or
+network failures. It does not store or log request headers, bearer tokens, or
+credential material.
+
+Useful runtime overrides:
+
+- `OPENCODE_QUOTA_ANTHROPIC_COMPAT=0` disables the shim.
+- `OPENCODE_QUOTA_ANTHROPIC_CACHE_TTL_MS` changes the fresh-cache TTL.
+- `OPENCODE_QUOTA_ANTHROPIC_STALE_TTL_MS` can shorten, but not extend beyond,
+  the five-hour stale fallback cap.
+- `OPENCODE_QUOTA_ANTHROPIC_COMPAT_DEBUG=1` writes count/status-only diagnostics
+  to `~/.local/state/opencode/opencode-quota-anthropic-compat.log`.
+
 ## Terminal-Launched Devcontainers
 
 A generic host launcher is managed at:
