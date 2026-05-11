@@ -178,8 +178,7 @@
     "cc-safety-net@latest",
     "envsitter-guard@latest",
     "opencode-claude-bridge@latest",
-    "@slkiser/opencode-quota@latest",
-    "opencode-websearch-cited@1.2.0"
+    "@slkiser/opencode-quota@latest"
   ],
 
   // ----------------------------
@@ -191,8 +190,8 @@
       // Do not set apiKey here.
       "options": {
         "timeout": 600000,
-        // Required by opencode-websearch-cited:
-        // This tells the plugin which OpenAI model to use when it runs the websearch_cited tool.
+        // Required by the local websearch_cited compatibility shim:
+        // This tells the shim which OpenAI model to use when it runs the tool.
         "websearch_cited": {
           "model": "gpt-5.5"
         }
@@ -202,7 +201,12 @@
     // Anthropic: built-in auth/models.dev; API key use is in anthropic-api.
     "anthropic": {
       "options": {
-        "timeout": 600000
+        "timeout": 600000,
+        // Anthropic OAuth fallback for the local websearch_cited compatibility shim.
+        // OpenAI remains selected first while its provider option above exists.
+        "websearch_cited": {
+          "model": "claude-haiku-4-6"
+        }
       }
     },
 
@@ -211,7 +215,12 @@
       "name": "Anthropic API",
       "options": {
         "apiKey": "{env:ANTHROPIC_API_KEY}",
-        "timeout": 600000
+        "timeout": 600000,
+        // Anthropic API-key fallback for the local websearch_cited compatibility shim.
+        // OpenAI remains selected first while its provider option above exists.
+        "websearch_cited": {
+          "model": "claude-haiku-4-6"
+        }
       },
       "models": {
         "claude-haiku-4-6": {

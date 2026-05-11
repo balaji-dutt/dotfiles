@@ -36,6 +36,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   the helper instead of embedding them inline in zshrc.
 - convention: Use `r*` ripgrep aliases (`ri`, `rn`, `rl`, `rc`, `rh`, `ru`) to
   avoid future `g*` git shortcut collisions; `rgf` is the fzf-backed file picker.
+- decision: Replaced npm `opencode-websearch-cited@1.2.0` with local
+  `opencode-websearch-cited-compat.js` so the websearch tool loads without
+  OpenAI/Google provider auth hooks that break OAuth login through `findLast()`.
+- convention: Keep the websearch compat shim in
+  `private_dot_config/opencode/plugins/`; `configs/devcontainer-sync.jsonc`
+  mirrors `plugins/**` into devcontainer dotfiles via
+  `./assets/sync-devcontainer-assets.sh`.
 
 ## 2026-05-10
 
