@@ -1,4 +1,4 @@
-# Intentionally empty.
-# Cleanup is handled by:
-#   .chezmoiscripts/run_once_after_99-cleanup-oops.sh.tmpl
-#   .chezmoiscripts/run_once_after_99-cleanup-oops.ps1.tmpl
+# Stale Claude Code user artifacts removed from dotfiles management.
+.claude/commands/sc
+.claude/commands/todo.md
+.claude/commit-docs.sh

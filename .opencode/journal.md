@@ -58,6 +58,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - command: Claude-in-loop env-deny smoke test passed with
   `--max-budget-usd 2.00`: `.env` and `.envsitter/pepper` were blocked,
   `.env.example` and `normal.txt` were allowed, and `cat .env` was blocked.
+- decision: `.chezmoiremove` removes stale Claude user artifacts left by the
+  retired SuperClaude and `/todo` setup: `.claude/commands/sc`,
+  `.claude/commands/todo.md`, and `.claude/commit-docs.sh`.
 
 ## 2026-05-10
 
