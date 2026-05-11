@@ -55,6 +55,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - convention: `configs/devcontainer-sync.jsonc` mirrors managed `dot_claude`
   assets into container-dotfiles; devcontainer startup prefers `/tmp/host-claude`
   and falls back to the mirrored copy.
+- command: Claude-in-loop env-deny smoke test passed with
+  `--max-budget-usd 2.00`: `.env` and `.envsitter/pepper` were blocked,
+  `.env.example` and `normal.txt` were allowed, and `cat .env` was blocked.
 
 ## 2026-05-10
 
