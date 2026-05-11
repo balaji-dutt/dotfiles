@@ -35,7 +35,6 @@
       "chezmoi apply --dry-run --verbose*": "allow",
       "chezmoi --use-builtin-diff --no-pager diff*": "allow",
       "chezmoi target-path*": "allow",
-      "./assets/commit-docs.sh*": "allow",
       "./assets/cz-audit.sh*": "allow",
       "pwsh ./assets/cz-audit.ps1*": "allow",
       "pwsh -NoProfile -Command \"./assets/cz-audit.ps1*\"": "allow",

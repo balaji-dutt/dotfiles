@@ -25,6 +25,7 @@
 | `configs/npm_globals_linux.txt` | raw npm globals for Linux/WSL2 |
 | `configs/npm_globals_linux_debian.txt` | raw npm globals for Debian WSL2 |
 | `configs/bun_globals.txt` | bun global packages |
+| `configs/devcontainer-sync.jsonc` | manifest for mirrored/generated container-dotfiles inputs |
 | `configs/winget-packages.json` | Windows winget package set |
 | `configs/choco-packages.config` | Windows Chocolatey package set |
 | `configs/espanso/base.yml` | shared espanso base config |

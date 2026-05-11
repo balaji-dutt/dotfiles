@@ -28,16 +28,6 @@ Shell wrappers in dotfiles can update package manifests and create git commits a
 On WSL2, wrappers prefer native Linux executables and reject `/mnt/<drive>/...`
 Windows-mounted shims for tool-managed commands.
 
-## Docs Commit Helper
-
-- `~/.claude/commit-docs.sh` is installed from `dot_claude/executable_commit-docs.sh`.
-- It supports `README.md` updates and `TODO.md` task actions (`add`, `pause`, `resume`, `complete`).
-- For README updates, subject/body formatting follows a constrained docs commit style.
-
-Repo-local equivalent helper:
-
-- `assets/commit-docs.sh`
-
 ## Safety Notes
 
 - Review auto-generated commits before pushing.

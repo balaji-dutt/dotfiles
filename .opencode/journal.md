@@ -47,6 +47,14 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: `opencode-websearch-cited-compat.js` tries configured websearch
   providers in OpenCode provider order and falls back on missing auth or
   sanitized provider failures; aborts still stop immediately.
+- decision: Claude Code baseline uses `extraKnownMarketplaces` for
+  `claude-pace`, `cc-safety-net`, and `plannotator`; no third-party installer
+  scripts are run from dotfiles.
+- decision: Removed the old Claude `/todo` command and `commit-docs.sh` helpers;
+  README/docs changes now rely on the normal commit-message workflow.
+- convention: `configs/devcontainer-sync.jsonc` mirrors managed `dot_claude`
+  assets into container-dotfiles; devcontainer startup prefers `/tmp/host-claude`
+  and falls back to the mirrored copy.
 
 ## 2026-05-10
 
@@ -159,8 +167,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `~/.local/state/opencode-tooling`) and avoid absolute repo paths in log
   entries.
 - gotcha: Devcontainer `/tmp/host-claude` is mounted read-only; do not `chmod`
-  linked files there. Copy `executable_commit-docs.sh` into persisted
-  `~/.claude/commit-docs.sh` with mode `0755` instead.
+  linked files there. This previously required copying
+  `executable_commit-docs.sh` into persisted `~/.claude/commit-docs.sh`, but
+  that helper was removed on 2026-05-11.
 - decision: Replaced single fixed Plannotator port behavior with host and
   devcontainer build/custom port pools plus `opencode-plannotator` wrappers so
   Firefox origin persistence can coexist with concurrent OpenCode sessions.

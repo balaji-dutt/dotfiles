@@ -55,8 +55,8 @@ The following tools may be available, so check for their availability before exe
      - **Subject:** A single line under 44 characters (the script adds the "docs: " prefix automatically).
      - **Body:** Detailed explanation, with each line wrapped at 72 characters.
   3. **Ask for my approval** of the draft message before proceeding.
-  4. Once approved, run `./assets/commit-docs.sh "readme" "<insert approved multi-line message here>"`.
-  5. **Note:** The script automatically handles the "docs: " prefix and the blank line separator, so do not include them in your draft.
+  4. Do not auto-commit the change. Include the approved docs commit message in
+     your final response unless I explicitly ask you to commit.
 
 ## Post-edit verification (required)
 

@@ -189,6 +189,78 @@ ensure_claude_persistence_links() {
   fi
 }
 
+claude_managed_source_dir() {
+  if [[ -d /tmp/host-claude ]]; then
+    printf '%s\n' /tmp/host-claude
+    return 0
+  fi
+
+  if [[ -d /home/vscode/.host-dotfiles/dot_claude ]]; then
+    printf '%s\n' /home/vscode/.host-dotfiles/dot_claude
+    return 0
+  fi
+
+  return 1
+}
+
+link_claude_managed_path() {
+  local src dst
+  src="$1"
+  dst="$2"
+
+  if [[ ! -e "$src" && ! -L "$src" ]]; then
+    if [[ -L "$dst" ]]; then
+      rm -f "$dst"
+    fi
+    return 0
+  fi
+
+  if [[ -L "$dst" ]]; then
+    ln -sfn "$src" "$dst"
+    return 0
+  fi
+
+  if [[ -e "$dst" ]]; then
+    echo "ERROR: Claude managed path exists and is not a symlink: $dst" >&2
+    echo "ERROR: Move it aside before linking the managed dotfiles source." >&2
+    return 1
+  fi
+
+  ln -s "$src" "$dst"
+}
+
+install_claude_managed_asset_links() {
+  local source_dir claude_config_dir managed_name source_path target_path
+
+  if ! source_dir="$(claude_managed_source_dir)"; then
+    echo "WARN: Claude managed source not found; keeping existing Claude config." >&2
+    return 0
+  fi
+
+  claude_config_dir="$HOME/.claude"
+  mkdir -p "$claude_config_dir"
+
+  link_claude_managed_path "$source_dir/private_settings.json" "$claude_config_dir/settings.json"
+  link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
+  link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
+
+  for managed_name in agents hooks commands; do
+    source_path="$source_dir/$managed_name"
+    target_path="$claude_config_dir/$managed_name"
+    if [[ -d "$source_path" ]] && \
+      [[ -n "$(find "$source_path" -mindepth 1 -print -quit)" ]]; then
+      link_claude_managed_path "$source_path" "$target_path"
+    elif [[ -L "$target_path" ]]; then
+      rm -f "$target_path"
+    fi
+  done
+
+  if [[ -d "$claude_config_dir/commands" && ! -L "$claude_config_dir/commands" ]]; then
+    rm -f "$claude_config_dir/commands/todo.md"
+  fi
+  rm -f "$claude_config_dir/commit-docs.sh"
+}
+
 install_ansible_mcp_server_wrapper() {
   local shim_dir shim wrapper_path smoke_output smoke_exit smoke_text
 
@@ -429,19 +501,7 @@ done_step "Install MCP server binaries"
 # --- 6) Claude symlinks / setup ---
 step "Setup Claude config symlinks and permissions"
 ensure_claude_persistence_links
-mkdir -p /home/vscode/.claude/commands
-
-ln -sf /tmp/host-claude/private_settings.json /home/vscode/.claude/settings.json || true
-ln -sf /tmp/host-claude/AGENTS.md /home/vscode/.claude/AGENTS.md || true
-ln -sf /home/vscode/.claude/AGENTS.md /home/vscode/.claude/CLAUDE.md || true
-ln -sf /tmp/host-claude/commands/todo.md /home/vscode/.claude/commands/todo.md || true
-
-if [[ -f /tmp/host-claude/executable_commit-docs.sh ]]; then
-  rm -f /home/vscode/.claude/commit-docs.sh
-  install -m 0755 /tmp/host-claude/executable_commit-docs.sh /home/vscode/.claude/commit-docs.sh
-else
-  echo "WARN: Claude commit-docs helper not found; keeping existing helper." >&2
-fi
+install_claude_managed_asset_links
 done_step "Setup Claude config symlinks and permissions"
 
 # --- 7) Source container env + dotfiles ---

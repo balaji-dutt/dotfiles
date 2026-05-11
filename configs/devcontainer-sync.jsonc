@@ -32,6 +32,24 @@
           "profiles/**",
           "opencode-notifier.json.tmpl"
         ]
+      },
+      {
+        "name": "claude-user-config",
+        "source_root": "dot_claude",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_claude",
+        "cleanup_managed": true,
+        "include": [
+          "AGENTS.md",
+          "symlink_CLAUDE.md",
+          "private_settings.json",
+          "agents/**",
+          "hooks/**",
+          "commands/**"
+        ],
+        "exclude": [
+          "commands/todo.md",
+          "executable_commit-docs.sh"
+        ]
       }
     ],
     "derived": [
