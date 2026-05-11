@@ -30,7 +30,8 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: Added local `opencode-quota-anthropic-compat.js` plugins to cache
   successful Claude OAuth usage responses for ten minutes and serve
   last-known-good data for up to five hours on endpoint 408/429/5xx or
-  network/timeout failures.
+  network/timeout failures; transient failures also set a default thirty-minute
+  backoff before the shim probes the live usage endpoint again.
 - decision: Added `zsh-modern-cli-hints.zsh` helper libraries for host and
   container zshrc files; keep ripgrep aliases, `rgf`, and antipattern nudges in
   the helper instead of embedding them inline in zshrc.

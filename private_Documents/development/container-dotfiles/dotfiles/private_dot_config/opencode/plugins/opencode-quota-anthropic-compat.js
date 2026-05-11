@@ -16,9 +16,11 @@ const COMPAT_ENV = "OPENCODE_QUOTA_ANTHROPIC_COMPAT";
 const DEBUG_ENV = "OPENCODE_QUOTA_ANTHROPIC_COMPAT_DEBUG";
 const CACHE_TTL_ENV = "OPENCODE_QUOTA_ANTHROPIC_CACHE_TTL_MS";
 const STALE_TTL_ENV = "OPENCODE_QUOTA_ANTHROPIC_STALE_TTL_MS";
+const BACKOFF_TTL_ENV = "OPENCODE_QUOTA_ANTHROPIC_BACKOFF_TTL_MS";
 
 const DEFAULT_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_STALE_TTL_MS = 5 * 60 * 60 * 1000;
+const DEFAULT_BACKOFF_TTL_MS = 30 * 60 * 1000;
 
 const WRAPPED_FETCH = Symbol.for(`${PLUGIN_NAME}.wrappedFetch`);
 const STATE = Symbol.for(`${PLUGIN_NAME}.state`);
@@ -136,6 +138,25 @@ function staleTtlMs() {
   return Math.min(durationMs(STALE_TTL_ENV, DEFAULT_STALE_TTL_MS), DEFAULT_STALE_TTL_MS);
 }
 
+function backoffTtlMs() {
+  return Math.min(durationMs(BACKOFF_TTL_ENV, DEFAULT_BACKOFF_TTL_MS), staleTtlMs());
+}
+
+function backoffRemainingMs(cache) {
+  if (!Number.isFinite(cache?.backoffUntilMs)) return 0;
+  return Math.max(0, cache.backoffUntilMs - Date.now());
+}
+
+function isBackoffActive(cache) {
+  return isStaleUsable(cache) && backoffRemainingMs(cache) > 0;
+}
+
+function cacheLogState(cache) {
+  if (!cache) return "cache=miss";
+  if (!isStaleUsable(cache)) return `cache=expired age_ms=${cacheAgeMs(cache)}`;
+  return `cache=unused age_ms=${cacheAgeMs(cache)}`;
+}
+
 function shouldUseStaleForStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -167,10 +188,19 @@ async function readCache() {
 async function writeCache(body) {
   try {
     JSON.parse(body);
+    return await writeCacheRecord({ cachedAtMs: Date.now(), body });
+  } catch {
+    return false;
+  }
+}
+
+async function writeCacheRecord(record) {
+  try {
+    JSON.parse(record.body);
     const dir = stateDir();
     const target = cachePath();
     const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-    const payload = `${JSON.stringify({ cachedAtMs: Date.now(), body })}\n`;
+    const payload = `${JSON.stringify(record)}\n`;
 
     await mkdir(dir, { recursive: true });
     await writeFile(tmp, payload, { encoding: "utf8", mode: 0o600 });
@@ -179,6 +209,21 @@ async function writeCache(body) {
   } catch {
     return false;
   }
+}
+
+async function recordBackoff(cache, details = {}) {
+  const ttl = backoffTtlMs();
+  const backoffUntilMs = Math.min(Date.now() + ttl, cache.cachedAtMs + staleTtlMs());
+
+  await writeCacheRecord({
+    cachedAtMs: cache.cachedAtMs,
+    body: cache.body,
+    backoffUntilMs,
+    ...(Number.isFinite(details.status) ? { backoffStatus: details.status } : {}),
+    ...(details.reason ? { backoffReason: details.reason } : {}),
+  });
+
+  return Math.max(0, backoffUntilMs - Date.now());
 }
 
 async function cacheSuccessfulResponse(response) {
@@ -204,16 +249,26 @@ async function fetchWithQuotaCache(originalFetch, input, init) {
     return cachedResponse(cache);
   }
 
+  if (cache && isBackoffActive(cache)) {
+    debugLog(
+      `served_cache=stale reason=backoff age_ms=${cacheAgeMs(cache)} backoff_remaining_ms=${backoffRemainingMs(cache)}`
+    );
+    return cachedResponse(cache);
+  }
+
   let response;
   try {
     response = await originalFetch(input, init);
   } catch (err) {
     if (cache && isStaleUsable(cache)) {
-      debugLog(`served_cache=stale reason=error age_ms=${cacheAgeMs(cache)}`);
+      const backoffMs = await recordBackoff(cache, { reason: "error" });
+      debugLog(
+        `served_cache=stale reason=error age_ms=${cacheAgeMs(cache)} backoff_ms=${backoffMs}`
+      );
       return cachedResponse(cache);
     }
 
-    debugLog("live_error cache=miss");
+    debugLog(`live_error ${cacheLogState(cache)}`);
     throw err;
   }
 
@@ -224,13 +279,18 @@ async function fetchWithQuotaCache(originalFetch, input, init) {
   }
 
   if (cache && isStaleUsable(cache) && shouldUseStaleForStatus(response.status)) {
+    const backoffMs = await recordBackoff(cache, { status: response.status });
     debugLog(
-      `served_cache=stale live_status=${response.status} age_ms=${cacheAgeMs(cache)}`
+      `served_cache=stale live_status=${response.status} age_ms=${cacheAgeMs(cache)} backoff_ms=${backoffMs}`
     );
     return cachedResponse(cache);
   }
 
-  debugLog(`live_status=${response?.status || 0} cache=miss`);
+  debugLog(
+    cache
+      ? `live_status=${response?.status || 0} ${cacheLogState(cache)}`
+      : `live_status=${response?.status || 0} cache=miss`
+  );
   return response;
 }
 
@@ -263,7 +323,7 @@ export default async function OpenCodeQuotaAnthropicCompat(ctx) {
 
   globalThis[WRAPPED_FETCH] = true;
   debugLog(
-    `initialized cache_ttl_ms=${durationMs(CACHE_TTL_ENV, DEFAULT_CACHE_TTL_MS)} stale_ttl_ms=${staleTtlMs()}`
+    `initialized cache_ttl_ms=${durationMs(CACHE_TTL_ENV, DEFAULT_CACHE_TTL_MS)} stale_ttl_ms=${staleTtlMs()} backoff_ttl_ms=${backoffTtlMs()}`
   );
 
   return { name: PLUGIN_NAME };
