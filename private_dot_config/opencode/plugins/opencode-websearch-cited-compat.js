@@ -191,11 +191,12 @@ function canonicalProviderID(providerID) {
   return undefined;
 }
 
-function findFirstWebsearchCitedConfig(config) {
+function findWebsearchCitedConfigs(config) {
   const providers = config?.provider;
-  if (!isRecord(providers)) return {};
+  if (!isRecord(providers)) return { selections: [] };
 
   let firstError;
+  const selections = [];
 
   for (const [providerID, providerConfig] of Object.entries(providers)) {
     if (!isRecord(providerConfig)) continue;
@@ -221,19 +222,18 @@ function findFirstWebsearchCitedConfig(config) {
       continue;
     }
 
-    return {
-      selected: {
-        providerID,
-        canonicalID,
-        model,
-        providerConfig,
-        providerOptions: options,
-        websearchOptions: cited,
-      },
-    };
+    selections.push({
+      providerID,
+      canonicalID,
+      model,
+      providerConfig,
+      providerOptions: options,
+      websearchOptions: cited,
+    });
   }
 
-  return firstError ? { error: firstError } : {};
+  if (selections.length > 0) return { selections };
+  return firstError ? { selections, error: firstError } : { selections };
 }
 
 function parseOpenAIOptions(providerConfig, model) {
@@ -1242,14 +1242,37 @@ async function runSelectedProvider(selection, auth, query, abortSignal) {
   throw safeError(`Unsupported provider "${selection.providerID}" for websearch_cited.`);
 }
 
+function fallbackFailureSummary(selection, error) {
+  if (isSafeError(error)) return `${selection.providerID}: ${error.message}`;
+  return `${selection.providerID}: request failed.`;
+}
+
+async function runWithProviderFallback(selections, query, abortSignal) {
+  const failures = [];
+
+  for (const selection of selections) {
+    try {
+      const auth = await resolveAuth(selection);
+      if (!auth) throw safeError(missingAuthMessage(selection));
+      return await runSelectedProvider(selection, auth, query, abortSignal);
+    } catch (error) {
+      if (isAbortError(error)) throw safeError("websearch_cited request was aborted.");
+      failures.push(fallbackFailureSummary(selection, error));
+    }
+  }
+
+  const details = failures.length > 0 ? `: ${failures.join("; ")}` : ".";
+  throw safeError(`websearch_cited failed for all configured providers${details}`);
+}
+
 export default async function WebsearchCitedCompatPlugin() {
-  let selectedProvider;
+  let providerSelections = [];
   let configError;
 
   return {
     async config(config) {
-      const { selected, error } = findFirstWebsearchCitedConfig(config);
-      selectedProvider = selected;
+      const { selections, error } = findWebsearchCitedConfigs(config);
+      providerSelections = selections;
       configError = error;
     },
     tool: {
@@ -1257,8 +1280,7 @@ export default async function WebsearchCitedCompatPlugin() {
         description: CITED_SEARCH_TOOL_DESCRIPTION,
         args: WEBSEARCH_ARGS,
         async execute(args, context) {
-          const argKeys = Object.keys(args ?? {});
-          const extraKeys = argKeys.filter((key) => !WEBSEARCH_ALLOWED_KEYS.has(key));
+          const extraKeys = Object.keys(args ?? {}).filter((key) => !WEBSEARCH_ALLOWED_KEYS.has(key));
           if (extraKeys.length > 0) {
             throw safeError(
               `Unknown argument(s): ${extraKeys.join(", ")}, only ${WEBSEARCH_ALLOWED_KEYS_DESCRIPTION} supported.`
@@ -1268,17 +1290,9 @@ export default async function WebsearchCitedCompatPlugin() {
           const query = args?.query?.trim();
           if (!query) throw safeError("The 'query' parameter cannot be empty.");
           if (configError) throw safeError(configError);
-          if (!selectedProvider) throw safeError("Missing web search model configuration.");
+          if (providerSelections.length === 0) throw safeError("Missing web search model configuration.");
 
-          try {
-            const auth = await resolveAuth(selectedProvider);
-            if (!auth) throw safeError(missingAuthMessage(selectedProvider));
-            return await runSelectedProvider(selectedProvider, auth, query, context?.abort);
-          } catch (error) {
-            if (isSafeError(error)) throw error;
-            if (isAbortError(error)) throw safeError("websearch_cited request was aborted.");
-            throw safeError(`websearch_cited failed for provider "${selectedProvider.providerID}".`);
-          }
+          return runWithProviderFallback(providerSelections, query, context?.abort);
         },
       }),
     },

@@ -44,6 +44,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `private_dot_config/opencode/plugins/`; `configs/devcontainer-sync.jsonc`
   mirrors `plugins/**` into devcontainer dotfiles via
   `./assets/sync-devcontainer-assets.sh`.
+- decision: `opencode-websearch-cited-compat.js` tries configured websearch
+  providers in OpenCode provider order and falls back on missing auth or
+  sanitized provider failures; aborts still stop immediately.
 
 ## 2026-05-10
 
