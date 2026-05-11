@@ -18,7 +18,7 @@ This page lists the main managed targets expected on macOS.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | Bash | `~/.bashrc` | `dot_bashrc.tmpl` |
-| Zsh | `~/.zshrc`, `~/.zsh_plugins.txt` | `dot_zshrc.tmpl`, `dot_zsh_plugins.txt.tmpl` |
+| Zsh | `~/.zshrc`, `~/.zsh_plugins.txt`, `~/.local/share/zsh-modern-cli-hints.zsh` | `dot_zshrc.tmpl`, `dot_zsh_plugins.txt.tmpl`, `dot_local/share/zsh-modern-cli-hints.zsh` |
 | Git | `~/.gitconfig` | `dot_gitconfig.tmpl` |
 | Markdownlint | `~/.markdownlint-cli2.jsonc` | `dot_markdownlint-cli2.jsonc` |
 | Prompt | `~/.p10k.zsh`, `~/.local/config/.p10k.zsh` | `symlink_dot_p10k.zsh.tmpl`, `dot_local/config/dot_p10k.zsh` |

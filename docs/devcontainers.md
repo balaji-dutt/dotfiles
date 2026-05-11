@@ -28,6 +28,7 @@ Typical synced files:
 - `devcontainers/**/devcontainer.json.tmpl`
 - `dotfiles/install.sh`
 - `dotfiles/configs/**`
+- `dotfiles/dot_local/share/**` shell helper libraries
 - `dotfiles/.config/**` and shell dotfiles used by the container build
 
 Manifest-driven source mirroring for shared container-dotfiles is handled by:

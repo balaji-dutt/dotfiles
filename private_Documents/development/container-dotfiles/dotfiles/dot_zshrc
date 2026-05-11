@@ -29,6 +29,13 @@ zshaddhistory() {
 # Universal custom aliases
 alias cd=" cd"
 
+# Modern CLI habit helpers (ripgrep aliases, rgf file picker, antipattern nudges)
+_modern_cli_hints="${HOME}/.local/share/zsh-modern-cli-hints.zsh"
+if [ -r "$_modern_cli_hints" ]; then
+    source "$_modern_cli_hints"
+fi
+unset _modern_cli_hints
+
 # Direnv initialization
 (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 

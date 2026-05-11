@@ -37,6 +37,13 @@ alias cz="chezmoi"
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
 
+# Modern CLI habit helpers (ripgrep aliases, rgf file picker, antipattern nudges)
+_modern_cli_hints="${HOME}/.local/share/zsh-modern-cli-hints.zsh"
+if [ -r "$_modern_cli_hints" ]; then
+    source "$_modern_cli_hints"
+fi
+unset _modern_cli_hints
+
 # Direnv initialization (export part) - MUST be before P10k instant prompt
 {{- if lookPath "direnv" }}
 # This line is for direnv export, run if direnv command exists

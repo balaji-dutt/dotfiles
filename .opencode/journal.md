@@ -31,6 +31,11 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   successful Claude OAuth usage responses for ten minutes and serve
   last-known-good data for up to five hours on endpoint 408/429/5xx or
   network/timeout failures.
+- decision: Added `zsh-modern-cli-hints.zsh` helper libraries for host and
+  container zshrc files; keep ripgrep aliases, `rgf`, and antipattern nudges in
+  the helper instead of embedding them inline in zshrc.
+- convention: Use `r*` ripgrep aliases (`ri`, `rn`, `rl`, `rc`, `rh`, `ru`) to
+  avoid future `g*` git shortcut collisions; `rgf` is the fzf-backed file picker.
 
 ## 2026-05-10
 
