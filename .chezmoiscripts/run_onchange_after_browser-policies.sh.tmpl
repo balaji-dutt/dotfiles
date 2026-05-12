@@ -1,0 +1,90 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/bin/bash
+{{ $browserPolicies := (get . "browser_policies" | default dict) }}
+{{ $jtb := (get $browserPolicies "justthebrowser" | default dict) }}
+{{ $enabled := (get $jtb "enabled" | default false) }}
+{{ $openProfiles := (get $jtb "macos_open_profiles_on_update" | default true) }}
+{{ $policyRoot := joinPath .chezmoi.sourceDir "configs/browser-policies/justthebrowser" }}
+# configs/browser-policies/justthebrowser/manifest.json hash: {{ include (joinPath $policyRoot "manifest.json") | sha256sum }}
+# configs/browser-policies/justthebrowser/chrome/chrome.mobileconfig hash: {{ include (joinPath $policyRoot "chrome/chrome.mobileconfig") | sha256sum }}
+# configs/browser-policies/justthebrowser/firefox/firefox.mobileconfig hash: {{ include (joinPath $policyRoot "firefox/firefox.mobileconfig") | sha256sum }}
+
+set -euo pipefail
+
+ENABLED="{{ $enabled }}"
+OPEN_PROFILES="{{ $openProfiles }}"
+POLICY_ROOT="{{ .chezmoi.sourceDir }}/configs/browser-policies/justthebrowser"
+DEST_ROOT="$HOME/.local/share/dotfiles/browser-policies/justthebrowser"
+
+if [[ "$ENABLED" != "true" ]]; then
+  echo "Just the Browser policy staging is disabled in chezmoi data."
+  exit 0
+fi
+
+mkdir -p "$DEST_ROOT"
+
+changed_profiles=()
+
+stage_profile() {
+  local browser="$1"
+  local src="$2"
+  local dest="$3"
+
+  if [[ ! -f "$src" ]]; then
+    echo "ERROR: Missing ${browser} profile: $src" >&2
+    return 1
+  fi
+
+  if command -v plutil >/dev/null 2>&1; then
+    plutil -lint "$src" >/dev/null
+  fi
+
+  if [[ -f "$dest" ]] && cmp -s "$src" "$dest"; then
+    echo "Just the Browser ${browser} profile already staged: $dest"
+    return 0
+  fi
+
+  cp "$src" "$dest"
+  chmod 0644 "$dest"
+  changed_profiles+=("$dest")
+  echo "Staged Just the Browser ${browser} profile: $dest"
+}
+
+stage_profile "Google Chrome" \
+  "$POLICY_ROOT/chrome/chrome.mobileconfig" \
+  "$DEST_ROOT/chrome.mobileconfig"
+stage_profile "Mozilla Firefox" \
+  "$POLICY_ROOT/firefox/firefox.mobileconfig" \
+  "$DEST_ROOT/firefox.mobileconfig"
+
+legacy_firefox_policy="/Applications/Firefox.app/Contents/Resources/distribution/policies.json"
+if [[ -f "$legacy_firefox_policy" ]]; then
+  echo "WARNING: Firefox legacy policies.json exists and may conflict: $legacy_firefox_policy" >&2
+  echo "WARNING: Review and remove it manually if it is the old Just the Browser JSON policy." >&2
+fi
+
+if [[ "${#changed_profiles[@]}" -eq 0 ]]; then
+  echo "No changed Just the Browser profiles to open."
+  exit 0
+fi
+
+if [[ "$OPEN_PROFILES" != "true" ]]; then
+  echo "Profiles changed but automatic opening is disabled. Install manually from:"
+  printf '  %s\n' "${changed_profiles[@]}"
+  exit 0
+fi
+
+for profile in "${changed_profiles[@]}"; do
+  if ! open "$profile"; then
+    echo "WARNING: Failed to open profile: $profile" >&2
+  fi
+done
+
+open -b "com.apple.systempreferences" >/dev/null 2>&1 || true
+cat <<'EOF'
+Just the Browser profiles were opened for review.
+In System Settings, go to General > Device Management (or Profiles on older
+macOS), then install the Google Chrome and Mozilla Firefox settings profiles.
+Restart Chrome and Firefox after installation.
+EOF
+{{- end -}}

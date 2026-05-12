@@ -14,6 +14,17 @@
   "customManagers": [
     {
       "customType": "regex",
+      "managerFilePatterns": [
+        "/^configs\\/browser-policies\\/justthebrowser\\/manifest\\.json$/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "corbindavenport/just-the-browser",
+      "matchStrings": [
+        "(?m)^\\s*\\\"version\\\":\\s*\\\"(?<currentValue>v?[^\\\"]+)\\\",\\s*$"
+      ]
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": ["/^configs\\/packages\\.yaml$/"],
       "matchStrings": [
         "(?m)^\\s*\\w+:\\s*\\\"(?<currentValue>[^\\\"]+)\\\"\\s+#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*$"
@@ -187,6 +198,12 @@
       ],
       "matchUpdateTypes": ["major"],
       "groupName": "container bootstrap tools (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["configs/browser-policies/justthebrowser/manifest.json"],
+      "automerge": false,
+      "groupName": "justthebrowser browser policies"
     },
     {
       "matchManagers": ["custom.regex"],

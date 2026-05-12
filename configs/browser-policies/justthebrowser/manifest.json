@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "name": "justthebrowser",
+  "upstream": {
+    "repo": "corbindavenport/just-the-browser",
+    "version": "v1.4",
+    "release_url": "https://github.com/corbindavenport/just-the-browser/releases/tag/v1.4",
+    "source_base_url": "https://raw.githubusercontent.com/corbindavenport/just-the-browser/v1.4/"
+  },
+  "scope": {
+    "browsers": ["chrome", "firefox"],
+    "platforms": ["windows", "darwin"],
+    "windows_policy_scope": "HKLM"
+  },
+  "artifacts": [
+    {
+      "path": "chrome/install.reg",
+      "source_path": "chrome/install.reg",
+      "sha256": "c8654c24fdd53b3ee59b49fcdaef5335e3f6af171b954fc1ed3672efa6947133"
+    },
+    {
+      "path": "chrome/uninstall.reg",
+      "source_path": "chrome/uninstall.reg",
+      "sha256": "dd9e894bec7f8454f2a27cc912eaf107706b569f24e2c199963887b2c37e5848"
+    },
+    {
+      "path": "chrome/chrome.mobileconfig",
+      "source_path": "chrome/chrome.mobileconfig",
+      "sha256": "2521b20e4fe9904be97d9e8bae98bc1cedf097f0b8f83885730a8d3dd6037697"
+    },
+    {
+      "path": "firefox/install.reg",
+      "source_path": "firefox/install.reg",
+      "sha256": "0f68ce719e17877aefcc2939743b14ebc182928cd86c30f9f5b363c04ad63bb9"
+    },
+    {
+      "path": "firefox/uninstall.reg",
+      "source_path": "firefox/uninstall.reg",
+      "sha256": "3a21636d6ca40168083d1723ad40cad13131cffc4791840866bf07410316db19"
+    },
+    {
+      "path": "firefox/firefox.mobileconfig",
+      "source_path": "firefox/firefox.mobileconfig",
+      "sha256": "561a888a46d8cf4133fb61d1ac0fde1a7554535378a5681070aa65dc8d653b59"
+    }
+  ],
+  "notes": [
+    "Vendored artifacts are applied from local repo content only.",
+    "Renovate tracks upstream releases by updating upstream.version; refresh artifacts in the same review before merging."
+  ]
+}

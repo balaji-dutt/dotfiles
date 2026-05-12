@@ -28,6 +28,7 @@
 | `configs/devcontainer-sync.jsonc` | manifest for mirrored/generated container-dotfiles inputs |
 | `configs/winget-packages.json` | Windows winget package set |
 | `configs/choco-packages.config` | Windows Chocolatey package set |
+| `configs/browser-policies/**` | vendored Chrome/Firefox policy artifacts |
 | `configs/espanso/base.yml` | shared espanso base config |
 
 ## Package Categories in `configs/packages.yaml`

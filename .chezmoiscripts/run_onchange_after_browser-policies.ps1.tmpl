@@ -1,0 +1,118 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+{{ $browserPolicies := (get . "browser_policies" | default dict) }}
+{{ $jtb := (get $browserPolicies "justthebrowser" | default dict) }}
+{{ $enabled := (get $jtb "enabled" | default false) }}
+{{ $policyRoot := joinPath .chezmoi.sourceDir "configs/browser-policies/justthebrowser" }}
+# configs/browser-policies/justthebrowser/manifest.json hash: {{ include (joinPath $policyRoot "manifest.json") | sha256sum }}
+# configs/browser-policies/justthebrowser/chrome/install.reg hash: {{ include (joinPath $policyRoot "chrome/install.reg") | sha256sum }}
+# configs/browser-policies/justthebrowser/firefox/install.reg hash: {{ include (joinPath $policyRoot "firefox/install.reg") | sha256sum }}
+
+$ErrorActionPreference = "Stop"
+
+$Enabled = [System.Convert]::ToBoolean("{{ $enabled }}")
+if (-not $Enabled) {
+  Write-Host "Just the Browser policy application is disabled in chezmoi data."
+  exit 0
+}
+
+$PolicyRoot = Join-Path "{{ .chezmoi.sourceDir }}" "configs\browser-policies\justthebrowser"
+$InstallFiles = @(
+  @{ Browser = "Google Chrome"; Path = Join-Path $PolicyRoot "chrome\install.reg" },
+  @{ Browser = "Mozilla Firefox"; Path = Join-Path $PolicyRoot "firefox\install.reg" }
+)
+
+function Test-IsElevated {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Import-RegistryPolicyFile {
+  param(
+    [Parameter(Mandatory=$true)][string] $Browser,
+    [Parameter(Mandatory=$true)][string] $Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Missing registry policy file for ${Browser}: $Path"
+  }
+
+  Write-Host "Importing Just the Browser policy for ${Browser}: $Path"
+  & reg.exe import $Path
+  if ($LASTEXITCODE -ne 0) {
+    throw "reg.exe import failed for ${Browser} with exit code $LASTEXITCODE"
+  }
+}
+
+function Get-FirefoxInstallDirs {
+  $dirs = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+  $commonDirs = @(
+    "C:\Program Files\Mozilla Firefox",
+    "C:\Program Files (x86)\Mozilla Firefox"
+  )
+
+  foreach ($dir in $commonDirs) {
+    if (Test-Path -LiteralPath $dir -PathType Container) {
+      [void]$dirs.Add($dir)
+    }
+  }
+
+  $registryRoots = @(
+    "HKLM:\SOFTWARE\Mozilla\Mozilla Firefox",
+    "HKLM:\SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox"
+  )
+
+  foreach ($root in $registryRoots) {
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $version = Get-ItemPropertyValue -LiteralPath $root -Name "CurrentVersion" -ErrorAction SilentlyContinue
+    if (-not $version) { continue }
+
+    $mainKey = Join-Path $root "$version\Main"
+    if (-not (Test-Path -LiteralPath $mainKey)) { continue }
+
+    $installDir = Get-ItemPropertyValue -LiteralPath $mainKey -Name "Install Directory" -ErrorAction SilentlyContinue
+    if ($installDir -and (Test-Path -LiteralPath $installDir -PathType Container)) {
+      [void]$dirs.Add($installDir)
+    }
+  }
+
+  return [string[]]$dirs
+}
+
+function Warn-FirefoxLegacyJsonPolicy {
+  foreach ($dir in Get-FirefoxInstallDirs) {
+    $legacyPolicy = Join-Path $dir "distribution\policies.json"
+    if (Test-Path -LiteralPath $legacyPolicy -PathType Leaf) {
+      Write-Warning "Firefox legacy policies.json exists and may conflict: $legacyPolicy"
+      Write-Warning "Review and remove it manually if it is the old Just the Browser JSON policy."
+    }
+  }
+}
+
+if (-not (Test-IsElevated)) {
+  $commands = foreach ($file in $InstallFiles) {
+    $escapedPath = $file.Path.Replace("'", "''")
+    "reg.exe import '$escapedPath'"
+    "if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }"
+  }
+  $commands += "Write-Host 'Just the Browser Windows policies applied. Restart Chrome and Firefox.'"
+  $encodedCommand = [Convert]::ToBase64String(
+    [Text.Encoding]::Unicode.GetBytes(($commands -join [Environment]::NewLine))
+  )
+
+  Write-Warning "Just the Browser Windows policies require an elevated PowerShell session."
+  Write-Warning "Skipping registry import so normal non-admin chezmoi applies do not fail."
+  Write-Host "To import these policies without re-running chezmoi apply, run:"
+  Write-Host "Start-Process pwsh -Verb RunAs -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','$encodedCommand')"
+  exit 0
+}
+
+foreach ($file in $InstallFiles) {
+  Import-RegistryPolicyFile -Browser $file.Browser -Path $file.Path
+}
+
+Warn-FirefoxLegacyJsonPolicy
+Write-Host "Just the Browser Windows policies applied. Restart Chrome and Firefox."
+{{- end -}}

@@ -1,4 +1,8 @@
 ccr_port: 3456
+browser_policies:
+  justthebrowser:
+    enabled: true
+    macos_open_profiles_on_update: true
 plannotator_port: 8999
 plannotator_ports:
   host:

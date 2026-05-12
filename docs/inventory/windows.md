@@ -29,6 +29,7 @@ This page lists the main managed targets expected on native Windows.
 | PowerShell scripts | `~/Documents/PowerShell/Scripts/**` | `private_Documents/PowerShell/Scripts/**` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Espanso | `~/AppData/Roaming/espanso/match/**` | `AppData/Roaming/espanso/match/**` |
+| Browser policies | `HKLM\Software\Policies\Google\Chrome`, `HKLM\Software\Policies\Mozilla\Firefox` | `.chezmoiscripts/run_onchange_after_browser-policies.ps1.tmpl`, `configs/browser-policies/**` |
 
 ## Notes About Scope
 
@@ -37,6 +38,7 @@ On Windows, `.chezmoiignore` uses a minimal whitelist strategy. This is intentio
 - Most non-Windows targets are ignored.
 - Only selected files under `.chezmoiscripts/` are unignored.
 - `Documents/PowerShell/**` and `.config/powershell/**` are the primary shell automation surface.
+- Browser policy imports require an elevated PowerShell session; non-elevated applies skip with a warning.
 
 ## Verify On This Machine
 

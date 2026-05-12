@@ -101,6 +101,7 @@ Documents/PowerShell
 !/.chezmoiscripts/copy_sublime_merge_packages.ps1
 !/.chezmoiscripts/10-dotfiles-commit-template.ps1
 !/.chezmoiscripts/windows-zz-register-startup-tasks.ps1
+!/.chezmoiscripts/browser-policies.ps1
 
 # Windows specific paths
 !/.config/

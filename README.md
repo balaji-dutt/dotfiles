@@ -63,6 +63,7 @@ Authoritative per-machine list is still `chezmoi managed`.
 ## Automation
 
 - Chezmoi hook catalog by trigger/platform: `docs/automation/chezmoi-scripts.md`
+- Browser policy automation: `docs/automation/browser-policies.md`
 - Package-manager wrappers and docs automation details: `docs/automation/package-wrappers.md`
 
 Note: wrappers can auto-commit package-manifest updates. Review before relying on automation in shared repositories.

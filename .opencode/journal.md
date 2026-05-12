@@ -24,6 +24,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## 2026-05-11
 
+- decision: Browser policy automation vendors Just the Browser artifacts under
+  `configs/browser-policies/justthebrowser/**`; apply scripts must use local
+  files only, with Windows HKLM imports gated on elevation and macOS profiles
+  staged/opened for user approval.
+- convention: Keep `configs/browser-policies/**` byte-stable via
+  `.gitattributes` because manifest SHA256 values validate vendored artifacts.
 - gotcha: `@slkiser/opencode-quota` supports undocumented `minIntervalMs` in
   `opencode-quota/quota-toast.json`; use it to reduce normal provider refresh
   pressure. It does not affect `/quota_status` live probes.
