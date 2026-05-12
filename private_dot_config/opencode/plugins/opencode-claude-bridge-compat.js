@@ -20,7 +20,14 @@ const FILTER_STUB_TOOLS_ENV = "OPENCODE_CLAUDE_BRIDGE_FILTER_STUB_TOOLS";
 const WRAPPED_FETCH = Symbol.for(`${PLUGIN_NAME}.wrappedFetch`);
 const STATE = Symbol.for(`${PLUGIN_NAME}.state`);
 
-const STUB_TOOL_NAMES = new Set([
+const ALWAYS_FILTER_TOOL_NAMES = new Set([
+  // This repo exposes a custom websearch_cited tool, not Claude Code's
+  // WebSearch runtime. Advertising WebSearch recreates unavailable-tool
+  // failures unless the bridge also maps inbound calls to a real OpenCode tool.
+  "WebSearch",
+]);
+
+const LEGACY_BROAD_STUB_TOOL_NAMES = new Set([
   "AskUserQuestion",
   "CronCreate",
   "CronDelete",
@@ -34,8 +41,9 @@ const STUB_TOOL_NAMES = new Set([
   "RemoteTrigger",
   "TaskOutput",
   "TaskStop",
-  "WebSearch",
 ]);
+
+const LEGACY_BROAD_STUB_THRESHOLD = 4;
 
 function envFlag(name, defaultValue = true) {
   const raw = process.env[name];
@@ -158,16 +166,35 @@ function collectCacheControlObjects(value, matches, seen = new Set()) {
   }
 }
 
+function isLegacyBroadStubInjection(toolNames) {
+  let legacyStubCount = 0;
+
+  for (const name of toolNames) {
+    if (LEGACY_BROAD_STUB_TOOL_NAMES.has(name)) legacyStubCount++;
+  }
+
+  return legacyStubCount >= LEGACY_BROAD_STUB_THRESHOLD;
+}
+
+function shouldFilterToolName(name, legacyBroadStubInjection) {
+  if (ALWAYS_FILTER_TOOL_NAMES.has(name)) return true;
+  return legacyBroadStubInjection && LEGACY_BROAD_STUB_TOOL_NAMES.has(name);
+}
+
 function filterStubTools(parsed, stats) {
   if (!envFlag(FILTER_STUB_TOOLS_ENV, true)) return;
   if (!Array.isArray(parsed?.tools)) return;
 
+  const toolNames = parsed.tools.map((tool) =>
+    typeof tool?.name === "string" ? tool.name : ""
+  );
+  const legacyBroadStubInjection = isLegacyBroadStubInjection(toolNames);
   const kept = [];
   const removed = [];
 
   for (const tool of parsed.tools) {
     const name = typeof tool?.name === "string" ? tool.name : "";
-    if (STUB_TOOL_NAMES.has(name)) {
+    if (shouldFilterToolName(name, legacyBroadStubInjection)) {
       removed.push(name);
       continue;
     }

@@ -22,6 +22,16 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-12
+
+- decision: Pin `opencode-claude-bridge@1.10.10` while validating upstream
+  active-tool schema filtering; local cache had still resolved `@latest` to
+  `1.10.8`.
+- convention: The local bridge compat shim preserves upstream-filtered
+  `AskUserQuestion` when `question` is active, but still removes legacy broad
+  stub injections and `WebSearch`; native OpenCode `websearch` bridging remains
+  a separate upstream/fork-level concern.
+
 ## 2026-05-11
 
 - decision: Browser policy automation vendors Just the Browser artifacts under
