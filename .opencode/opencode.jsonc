@@ -146,9 +146,9 @@
     "dotfiles-reviewer": {
       "mode": "subagent",
       "description": "Fast read-only review for dotfiles/chezmoi changes.",
-      "model": "openai/gpt-5.5",
+      "model": "anthropic/claude-opus-4-6",
       "reasoningEffort": "high",
-      // "model": "anthropic/claude-opus-4-6",
+      // "model": "openai/gpt-5.5",
       // Anthropic does not support temperature modification with thinking budgets
       // "temperature": 0.1,
       // Anthropic extended thinking (medium-ish)
