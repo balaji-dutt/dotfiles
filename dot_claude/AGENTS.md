@@ -37,7 +37,7 @@
 
 ## Notes / Journal
 
-- Do not claim to remember across sessions. If a repo contains `./.opencode/journal.md`, treat it as the single source of persistent context:
+- Do not claim to remember across sessions. If a repo contains `./.claude/journal.md`, treat it as the single source of persistent context:
   - Read/search it at the start of non-trivial work or when something seems familiar.
   - Append concise notes after completing meaningful work (decisions, conventions discovered, commands that worked, pitfalls).
   - If the file does not exist, do not create it unless I ask.
@@ -57,31 +57,20 @@
   - touches secrets/credentials
 - If a command is needed, show the exact command and explain what it does and how to verify success.
 
-### tmux
+## Commit workflow
 
-- Do **not** assume `tmux` exists (especially on Windows).
-- If tmux is available, you may use it to manage sessions.
-- If tmux is not available, fall back to:
-  - running commands normally
-  - using plain shell/PowerShell guidance
-  - using VS Code tasks / terminal instructions
-
-### What `tmux-cli` does (optional)
-
-`tmux-cli` is an optional helper command (bash) that can control programs running in tmux panes:
-launch programs, send input, capture output, and manage interactive sessions. If available, run
-`tmux-cli --help` for usage.
-
-- Do not assume it exists (especially on Windows).
-- macOS/WSL2 check: `command -v tmux-cli >/dev/null && tmux-cli --help`
-- Windows check (PowerShell): `Get-Command tmux-cli -ErrorAction SilentlyContinue`
-
-#### Examples of `tmux-cli` usage
-
-- Interact with a script that waits for user input
-- Launch a separate agent/instance for analysis/review/debugging
-- Run a Python script with Pdb to step through execution for debugging
-- Launch web apps and test them with browser automation tools (e.g., Playwright)
+- **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.
+- `cc-commit` is a Bash script. On native Windows (PowerShell), use Git's
+  environment variable overrides directly:
+  ```powershell
+  $env:GIT_AUTHOR_NAME = "Claude"
+  $env:GIT_AUTHOR_EMAIL = "noreply@anthropic.com"
+  $env:GIT_COMMITTER_NAME = "Claude"
+  $env:GIT_COMMITTER_EMAIL = "noreply@anthropic.com"
+  git commit <args>
+  ```
+- When work is complete and verified, propose a commit message for approval before running `cc-commit`.
+- Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
 
 ## Repo safety & secrets
 
@@ -98,7 +87,7 @@ launch programs, send input, capture output, and manage interactive sessions. If
   4) summarize what changed + how to rollback
 
 - After `DOTFILES_REVIEWER_RESULT=PASS`, assess docs impact before finishing.
-- If docs are stale, use `.opencode/skills/refresh-docs/SKILL.md`.
+- If docs are stale, use the `refresh-docs` skill.
 - Keep docs refresh minimal and idempotent; avoid broad rewrites.
 - If docs refresh changes reviewed docs (`README.md`, `AGENTS.md`,
   `dot_claude/AGENTS.md`, `docs/agents/**`), rerun `@dotfiles-reviewer`.
