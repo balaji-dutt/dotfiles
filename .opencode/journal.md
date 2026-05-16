@@ -39,6 +39,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   playbook without deleting chezmoi `scriptState`.
 - convention: WSL2 package hydration is Ansible-owned; the generic
   `run_onchange_after_install_packages.sh.tmpl` hook is non-WSL only.
+- decision: OpenCode unslop adoption vendors the upstream skill suite under
+  `private_dot_config/opencode/skills/unslop*` plus thin command wrappers under
+  `private_dot_config/opencode/commands/`; run
+  `bash assets/sync-devcontainer-assets.sh` to keep the container mirror aligned.
 
 ## 2026-05-15
 
