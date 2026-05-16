@@ -33,4 +33,5 @@ Windows-mounted shims for tool-managed commands.
 - Review auto-generated commits before pushing.
 - Do not use these wrappers in repositories where automated commits are undesirable.
 - Never commit secrets from environment-derived files.
-- `chezmoi apply` package hydration uses the same native-tool preference on WSL2.
+- WSL2 package hydration is owned by `ansible/wsl-playbook.yml`; the generic
+  package hydration hook is for non-WSL hosts.

@@ -33,6 +33,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: CardUp receipts in `configs/espanso/payment-from-copyq.py` parse
   principal, fees, total, two receipt dates, and optional offer code from the
   CopyQ clipboard text; no-offer fees render as `no offer code used/available`.
+- decision: WSL2 Ansible provisioning uses
+  `.chezmoiscripts/run_onchange_before_00-wsl-provision.sh.tmpl` and hashes
+  playbook/task/config inputs so Renovate-managed WSL manifests retrigger the
+  playbook without deleting chezmoi `scriptState`.
+- convention: WSL2 package hydration is Ansible-owned; the generic
+  `run_onchange_after_install_packages.sh.tmpl` hook is non-WSL only.
 
 ## 2026-05-15
 

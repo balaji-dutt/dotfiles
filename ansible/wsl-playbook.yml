@@ -202,6 +202,79 @@
       loop: "{{ uv_tools_desired }}"
       when: item not in uv_tools_installed
 
+    - name: Read common npm globals manifest
+      ansible.builtin.slurp:
+        src: "{{ chezmoi_source_dir }}/configs/npm_globals.txt"
+      register: npm_globals_common_manifest
+
+    - name: Select WSL npm globals manifest
+      ansible.builtin.set_fact:
+        npm_globals_wsl_file: >-
+          {{
+            'npm_globals_linux_debian.txt'
+            if (is_debian | bool)
+            else 'npm_globals_linux.txt'
+          }}
+
+    - name: Read WSL npm globals manifest
+      ansible.builtin.slurp:
+        src: "{{ chezmoi_source_dir }}/configs/{{ npm_globals_wsl_file }}"
+      register: npm_globals_wsl_manifest
+
+    - name: Parse npm globals manifests
+      ansible.builtin.set_fact:
+        npm_globals_desired: >-
+          {{
+            (
+              (npm_globals_common_manifest.content | b64decode).splitlines() +
+              (npm_globals_wsl_manifest.content | b64decode).splitlines()
+            )
+            | map('trim')
+            | reject('match', '^(#|$)')
+            | unique
+            | list
+          }}
+
+    - name: Install npm global packages
+      ansible.builtin.command:
+        argv:
+          - mise
+          - exec
+          - --
+          - npm
+          - install
+          - --global
+          - "{{ item }}"
+      loop: "{{ npm_globals_desired }}"
+
+    - name: Read bun globals manifest
+      ansible.builtin.slurp:
+        src: "{{ chezmoi_source_dir }}/configs/bun_globals.txt"
+      register: bun_globals_manifest
+
+    - name: Parse bun globals manifest
+      ansible.builtin.set_fact:
+        bun_globals_desired: >-
+          {{
+            (bun_globals_manifest.content | b64decode).splitlines()
+            | map('trim')
+            | reject('match', '^(#|$)')
+            | unique
+            | list
+          }}
+
+    - name: Install bun global packages
+      ansible.builtin.command:
+        argv:
+          - mise
+          - exec
+          - --
+          - bun
+          - add
+          - --global
+          - "{{ item }}"
+      loop: "{{ bun_globals_desired }}"
+
     - name: Include ZSH and Antidote setup
       ansible.builtin.include_tasks: tasks/zsh-setup.yml
 

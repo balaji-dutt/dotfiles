@@ -3,6 +3,31 @@ set -euo pipefail
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 
+{{- $wslProvisionInputs := list
+  "ansible/wsl-playbook.yml"
+  "ansible/tasks/apt-repos.yml"
+  "ansible/tasks/base-packages.yml"
+  "ansible/tasks/zsh-setup.yml"
+  "ansible/tasks/system-config.yml"
+  "ansible/tasks/ubuntu-extras.yml"
+  "ansible/tasks/emacs.yml"
+  "ansible/tasks/debian-dev-tools.yml"
+  "ansible/tasks/certificates.yml"
+  "ansible/tasks/onepassword-setup.yml"
+  "configs/packages.yaml"
+  "configs/mise.toml"
+  "configs/mise_wsl2.toml"
+  "configs/uv_tools.txt"
+  "configs/npm_globals.txt"
+  "configs/npm_globals_linux.txt"
+  "configs/npm_globals_linux_debian.txt"
+  "configs/bun_globals.txt"
+}}
+{{- range $path := $wslProvisionInputs }}
+{{- $input := joinPath $.chezmoi.sourceDir $path }}
+# {{ $path }} hash: {{ if stat $input }}{{ include $input | sha256sum }}{{ else }}missing{{ end }}
+{{- end }}
+
 echo "=== WSL2 Provisioning via Ansible ==="
 
 export PATH="$HOME/.local/bin:$PATH"

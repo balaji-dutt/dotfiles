@@ -1,4 +1,5 @@
-{{- if ne .chezmoi.os "windows" -}}
+{{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- if and (ne .chezmoi.os "windows") (not $isWSL) -}}
 #!/bin/bash
 
 # ============================================================================

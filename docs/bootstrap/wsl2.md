@@ -33,9 +33,8 @@ chezmoi apply
 
 This triggers key hooks and provisioning, including:
 
-- `.chezmoiscripts/run_once_before_00-wsl-provision.sh.tmpl`
+- `.chezmoiscripts/run_onchange_before_00-wsl-provision.sh.tmpl`
 - `ansible/wsl-playbook.yml`
-- `.chezmoiscripts/run_onchange_after_install_packages.sh.tmpl`
 
 ## Ansible Structure
 
@@ -56,12 +55,18 @@ Task files under `ansible/tasks/`:
 - `certificates.yml`
 - `onepassword-setup.yml`
 
+WSL2 package and tool hydration is owned by the Ansible playbook. Changes to
+watched inputs such as `configs/packages.yaml`, `configs/mise*.toml`,
+`configs/uv_tools.txt`, and npm/bun manifests retrigger the WSL provisioning
+hook on the next `chezmoi apply`.
+
 ## Validation
 
 After editing WSL-related files:
 
 ```sh
 ./assets/cz-audit.sh check bootstrap-wsl.sh
+./assets/cz-audit.sh check .chezmoiscripts/run_onchange_before_00-wsl-provision.sh.tmpl
 ./assets/cz-audit.sh check ansible/wsl-playbook.yml
 chezmoi doctor
 ```

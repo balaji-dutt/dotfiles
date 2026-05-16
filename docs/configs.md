@@ -37,6 +37,11 @@
 - `ubuntu_apt_packages`: Ubuntu-specific package additions
 - `versions`: externally fetched version pins (for example lazygit/lazydocker)
 
+On WSL2, `ansible/wsl-playbook.yml` consumes `configs/packages.yaml`,
+`configs/mise.toml`, `configs/mise_wsl2.toml`, `configs/uv_tools.txt`, and the
+npm/bun manifests. The WSL provisioning hook watches those files and reruns when
+they change.
+
 ## Related Top-Level Manifest
 
 - `brewfile.txt`: Homebrew bundle manifest for macOS.
