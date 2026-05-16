@@ -43,7 +43,7 @@ The following tools may be available, so check for their availability before exe
 ## Post-review docs refresh workflow
 
 - After a successful dotfiles review (`DOTFILES_REVIEWER_RESULT=PASS`), assess whether docs are stale.
-- If docs are stale, use the local skill at `.opencode/skills/refresh-docs/SKILL.md`.
+- If docs are stale, use the `refresh-docs` skill.
 - Refresh docs only when impact exists; do not rewrite docs broadly.
 - If docs refresh changes reviewed docs (`README.md`, `AGENTS.md`, `dot_claude/AGENTS.md`, `docs/agents/**`), run the reviewer again.
 
@@ -159,7 +159,10 @@ your final response. If the commit message proposal is missing, the task is inco
 After changes are complete and verification has passed (audit tool + `chezmoi doctor` as applicable), the agent must propose a commit message as part of the final response.
 
 - Do not wait to be asked.
-- Use `oc-commit` instead of `git commit` (enforced by permissions; see global AGENTS.md).
+- Use the agent commit wrapper specified by your harness's global configuration
+  (e.g. `oc-commit` for OpenCode). The wrapper ensures commits are attributed to
+  the agent rather than the human user's git identity.
+- If no harness-specific wrapper is available, use `git commit` directly.
 - Exception: If the change includes `README.md`, follow **Documentation Workflow (README.md)** for committing.
 
 ### Commit message format
