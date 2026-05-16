@@ -174,6 +174,11 @@ bind mount and fall back to the mirrored container-dotfiles copy seeded by
 `configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
 `commit-docs.sh` helper are no longer installed.
 
+If Claude or an older container run created one of these managed paths as a
+regular file or directory, startup moves it into persistent backup storage under
+`/home/vscode/persistent-data/claude/unmanaged-managed-path-backups/` before
+installing the managed symlink.
+
 ## OpenCode in Devcontainers
 
 For the `homelab-IaC` template, OpenCode is configured for browser-based

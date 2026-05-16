@@ -282,7 +282,7 @@ claude_managed_source_dir() {
 }
 
 link_claude_managed_path() {
-  local src dst
+  local src dst backup_root backup_run_dir backup_path backup_parent
   src="$1"
   dst="$2"
 
@@ -299,9 +299,15 @@ link_claude_managed_path() {
   fi
 
   if [[ -e "$dst" ]]; then
-    echo "ERROR: Claude managed path exists and is not a symlink: $dst" >&2
-    echo "ERROR: Move it aside before linking the managed dotfiles source." >&2
-    return 1
+    backup_root="${CLAUDE_MANAGED_BACKUP_ROOT:-/home/vscode/persistent-data/claude/unmanaged-managed-path-backups}"
+    backup_run_dir="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    backup_path="$backup_run_dir/${dst#/}"
+    backup_parent="${backup_path%/*}"
+
+    mkdir -p "$backup_parent"
+    mv "$dst" "$backup_path"
+    echo "WARN: Moved existing non-symlink Claude managed path aside: $dst" >&2
+    echo "WARN: Backup location: $backup_path" >&2
   fi
 
   ln -s "$src" "$dst"

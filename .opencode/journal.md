@@ -22,6 +22,14 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-15
+
+- decision: homelab-IaC devcontainer Claude managed-path linking now preserves
+  stale non-symlink managed paths under
+  `/home/vscode/persistent-data/claude/unmanaged-managed-path-backups/` before
+  installing host-dotfiles symlinks, preventing rebuild failures when Claude
+  creates `~/.claude/settings.json` as a regular file.
+
 ## 2026-05-12
 
 - decision: Pin `opencode-claude-bridge@1.10.10` while validating upstream
