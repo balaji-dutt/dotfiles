@@ -36,6 +36,16 @@ class Payment:
     transfer_date: str
 
 
+@dataclass
+class CardUpPayment:
+    amount: str
+    reference: str
+    payment_fee: str
+    transaction_date: str
+    payment_date: str
+    offer_code: str | None
+
+
 def require_match(text: str, pattern: str, field_name: str) -> str:
     match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
     if not match:
@@ -188,12 +198,68 @@ def parse_ocbc(text: str, bank_portal: str) -> Payment:
     )
 
 
+def parse_cardup(text: str) -> CardUpPayment:
+    reference = require_match(
+        text,
+        r"\b(?P<value>txn_[A-Za-z0-9]+)\b",
+        "CardUp transaction reference",
+    )
+
+    amount_values = re.findall(r"\bSGD\s*([0-9,]+\.[0-9]{2})\b", text, flags=re.IGNORECASE)
+    if len(amount_values) < 3:
+        raise ValueError("Could not parse CardUp paid amount, fee, and total from the receipt text.")
+
+    amount = normalize_amount(amount_values[0])
+    payment_fee = normalize_amount(amount_values[1])
+    total = normalize_amount(amount_values[2])
+    if Decimal(amount) + Decimal(payment_fee) != Decimal(total):
+        raise ValueError("CardUp paid amount and fee did not match the total.")
+
+    date_values = re.findall(r"\b\d{1,2}/\d{1,2}/\d{4}\b", text)
+    if len(date_values) < 2:
+        raise ValueError("Could not parse CardUp transaction and payment dates from the receipt text.")
+
+    offer_code = None
+    for line in text.splitlines():
+        line = line.strip()
+        if "SGD" not in line.upper() or not re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", line):
+            continue
+        offer_match = re.match(r"(?P<value>(?!SGD\b)[A-Z][A-Z0-9-]*)\s+SGD\b", line, flags=re.IGNORECASE)
+        if offer_match:
+            offer_code = offer_match.group("value")
+        break
+
+    return CardUpPayment(
+        amount=amount,
+        reference=reference,
+        payment_fee=payment_fee,
+        transaction_date=normalize_date(date_values[0]),
+        payment_date=normalize_date(date_values[1]),
+        offer_code=offer_code,
+    )
+
+
 def format_payment(payment: Payment, variant: str) -> str:
     tx_date = dt.date.today().strftime("%d/%m/%Y")
     base = (
         f"Paid ${payment.amount} vide {payment.bank_portal} "
         f"(Tx Ref: {payment.reference}) on {payment.transfer_date} "
         f"(Tx Date: {tx_date})"
+    )
+    return base + VARIANT_SUFFIX[variant]
+
+
+def format_cardup_payment(payment: CardUpPayment, variant: str) -> str:
+    offer_note = (
+        f"used Offer Code {payment.offer_code}"
+        if payment.offer_code
+        else "no offer code used/available"
+    )
+    base = (
+        f"Paid ${payment.amount} vide CardUp Portal\n"
+        f"Tx Ref: {payment.reference} on {payment.payment_date} "
+        f"(Tx Date: {payment.transaction_date})\n"
+        f"CardUp Payment Fees: ${payment.payment_fee} ({offer_note})"
     )
     return base + VARIANT_SUFFIX[variant]
 
@@ -208,7 +274,8 @@ def build_output(variant: str, bank_portal: str, source_text: str) -> str:
         return format_payment(payment, variant)
 
     if bank_portal == "CardUp Portal":
-        return "[CardUp Portal parser not implemented: add a sample receipt text.]"
+        payment = parse_cardup(source_text)
+        return format_cardup_payment(payment, variant)
 
     raise ValueError(f"Unsupported bank portal: {bank_portal!r}")
 
