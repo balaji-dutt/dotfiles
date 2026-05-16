@@ -333,6 +333,10 @@ install_snip_gh || echo "!! snip install failed; continuing"
 # dolt: install latest/pinned Linux binary from GitHub releases.
 # Supports amd64 and arm64 container architectures.
 # Set DOLT_VERSION as a container variable to a tag like "2.0.1" or "latest".
+dolt_cli_version() {
+  dolt version 2>/dev/null | awk '/^dolt version[[:space:]]+[0-9]/ { print $3; exit }'
+}
+
 install_dolt_gh() {
   local want_version="${DOLT_VERSION:-latest}"
   local arch norm_arch
@@ -359,7 +363,7 @@ install_dolt_gh() {
   # If already installed and version matches, skip
   if need_cmd dolt; then
     local curr
-    curr="$(dolt version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+    curr="$(dolt_cli_version)"
     if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
       echo "==> dolt $curr already installed; skipping."
       return 0
@@ -396,7 +400,7 @@ install_dolt_gh() {
     return 1
   fi
   local installed
-  installed="$(dolt version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+  installed="$(dolt_cli_version)"
   if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
     echo "!! dolt version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
     return 1
@@ -717,9 +721,13 @@ SRC="/home/vscode/.host-dotfiles"
 if [ -d "$SRC" ]; then
   echo "==> Syncing dotfiles from $SRC"
   # Use rsync to be more efficient and exclude setup files from being copied to $HOME
+  # Claude config/state is owned by devcontainer lifecycle scripts and persistent-data.
   rsync -a \
   --keep-dirlinks \
   --exclude='.git' \
+  --exclude='.claude/' \
+  --exclude='.claude.json' \
+  --exclude='dot_claude/' \
   --exclude='install.sh' \
   --exclude='assets/' \
   --exclude='.zcompdump*' \

@@ -22,6 +22,15 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-05-16
+
+- decision: Container-dotfiles installer excludes `.claude/`, `.claude.json`,
+  and `dot_claude/`; homelab-IaC Claude state/config is owned by
+  `postCreate.sh`/`postStart.sh` and persisted under
+  `/home/vscode/persistent-data/claude`.
+- gotcha: `dolt version` can print multiple version-like lines; parse only the
+  leading `dolt version` CLI line when checking pinned installs.
+
 ## 2026-05-15
 
 - decision: homelab-IaC devcontainer Claude managed-path linking now preserves

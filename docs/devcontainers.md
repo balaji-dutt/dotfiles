@@ -174,6 +174,9 @@ bind mount and fall back to the mirrored container-dotfiles copy seeded by
 `configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
 `commit-docs.sh` helper are no longer installed.
 
+The broad container-dotfiles installer excludes `.claude/`, `.claude.json`, and
+`dot_claude/` so it does not write through lifecycle-managed Claude symlinks.
+
 If Claude or an older container run created one of these managed paths as a
 regular file or directory, startup moves it into persistent backup storage under
 `/home/vscode/persistent-data/claude/unmanaged-managed-path-backups/` before
@@ -266,6 +269,10 @@ cycles.
 Managed Claude settings and command files are still refreshed from host dotfiles
 under `/tmp/host-claude`; runtime-generated login state remains in persistent
 container storage and should not be committed.
+
+The broad container-dotfiles installer excludes `.claude/`, `.claude.json`, and
+`dot_claude/`; Claude config ownership stays with `postCreate.sh` and
+`postStart.sh`.
 
 ## Agent of Empires in Devcontainers
 
