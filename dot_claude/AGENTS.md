@@ -57,6 +57,12 @@
   - touches secrets/credentials
 - If a command is needed, show the exact command and explain what it does and how to verify success.
 
+## Commit workflow
+
+- **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.
+- When work is complete and verified, propose a commit message for approval before running `cc-commit`.
+- Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
+
 ## Repo safety & secrets
 
 - Never print, store, or commit secrets.

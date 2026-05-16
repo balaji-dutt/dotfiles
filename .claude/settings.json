@@ -53,7 +53,7 @@
       "Bash(git log:*)",
       "Bash(git diff:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)",
+      "Bash(cc-commit:*)",
       "Bash(git branch:*)",
       "Bash(git checkout:*)",
       "Bash(git fetch:*)",
