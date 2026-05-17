@@ -43,6 +43,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   `private_dot_config/opencode/skills/unslop*` plus thin command wrappers under
   `private_dot_config/opencode/commands/`; run
   `bash assets/sync-devcontainer-assets.sh` to keep the container mirror aligned.
+- decision: `/unslop-file-voice` is a separate OpenCode command/skill so saved
+  voice-memory rewrites stay explicit; plain `/unslop-file` remains generic and
+  predictable.
 
 ## 2026-05-15
 
