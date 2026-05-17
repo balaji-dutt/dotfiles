@@ -29,7 +29,8 @@
 | `configs/winget-packages.json` | Windows winget package set |
 | `configs/choco-packages.config` | Windows Chocolatey package set |
 | `configs/browser-policies/**` | vendored Chrome/Firefox policy artifacts |
-| `configs/espanso/base.yml` | shared espanso base config |
+| `configs/espanso/base.yml` | shared Espanso base match config |
+| `configs/espanso/*.py` | shared Espanso script helpers rendered into platform config dirs |
 
 ## Package Categories in `configs/packages.yaml`
 

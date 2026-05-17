@@ -78,6 +78,39 @@ matches:
   - trigger: ":quote"
     replace: "[!quote]"
 
+  # Generate PR-friendly Agent of Empires session names.
+  - trigger: ":aoens"
+    replace: "{{aoe_session_name}}"
+    vars:
+      - name: formfields
+        type: form
+        params:
+          layout: |
+            Session type: [[branch_type]]
+            Description: [[description]]
+          fields:
+            branch_type:
+              type: choice
+              values:
+                - feat
+                - fix
+                - chore
+                - docs
+                - refactor
+                - test
+                - build
+                - ci
+      - name: aoe_session_name
+        type: script
+        params:
+          args:
+            - "{{espanso_python}}"
+            - "%CONFIG%/scripts/aoe-session-name.py"
+            - --type
+            - "{{formfields.branch_type}}"
+            - --description
+            - "{{formfields.description}}"
+
   # For Excel Bank Statements
   - trigger: ":sfm"
     replace: "Savings for the month of {{currmonth}}"

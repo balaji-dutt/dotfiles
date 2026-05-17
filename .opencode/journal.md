@@ -46,6 +46,9 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - decision: `/unslop-file-voice` is a separate OpenCode command/skill so saved
   voice-memory rewrites stay explicit; plain `/unslop-file` remains generic and
   predictable.
+- decision: Espanso `:aoens` generates AoE session names like `feat/foo`
+  through `configs/espanso/aoe-session-name.py`; keep AoE worktree/session-id
+  path templates unchanged until real PR/workspace usage shows a problem.
 
 ## 2026-05-15
 

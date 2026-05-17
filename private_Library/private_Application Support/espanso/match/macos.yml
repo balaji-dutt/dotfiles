@@ -1,4 +1,8 @@
 global_vars:
+  - name: espanso_python
+    type: echo
+    params:
+      echo: "python3"
   - name: payment_python
     type: echo
     params:
