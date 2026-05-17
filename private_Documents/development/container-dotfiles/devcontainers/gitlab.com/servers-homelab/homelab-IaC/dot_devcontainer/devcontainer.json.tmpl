@@ -43,6 +43,10 @@
   "mounts": [
     // String syntax used here as the object syntax does not support readonly mounting.
     "source=${localEnv:HOME}/.aws,target=/home/vscode/.aws,type=bind,readonly",
+    {{- if stat (joinPath .chezmoi.homeDir ".config" "unslop") }}
+    // --- Optional: mount Unslop numeric voice profile ---
+    "source=${localEnv:HOME}/.config/unslop,target=/home/vscode/.config/unslop,type=bind,readonly",
+    {{- end }}
     "source=${localEnv:HOME}/Documents/development/container-dotfiles/dotfiles,target=/home/vscode/.host-dotfiles,type=bind,readonly",
     "source=${localEnv:HOME}/Documents/development/dotfiles,target=/tmp/host-dotfiles,type=bind,readonly",
     // --- Mount for Claude Code configs and package lists ---

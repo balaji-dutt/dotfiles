@@ -198,6 +198,13 @@ Configuration ownership is split intentionally:
   `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/<repo>/.opencode/**`
   are for local-only overlay files.
 
+The homelab devcontainer also mounts `~/.config/unslop` read-only when that
+directory exists on the host. Seed `~/.config/unslop/style-memory.json` there
+from a trusted private source, or generate it locally before relying on
+`unslop-file-voice` in the container. Missing profile files should not block
+container startup. Portable copies of that file should use a neutral `source`
+key such as `dotfiles-managed` or `generated` rather than a host-specific path.
+
 OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
 
 - Container user profiles are sourced from
