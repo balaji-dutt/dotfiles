@@ -63,9 +63,9 @@
     // --- macOS-only: mount OrbStack's native SSH agent socket for relay access ---
     "source=/run/host-services/ssh-auth.sock,target=/run/host-services/ssh-auth.sock,type=bind",
     // --- macOS-only: keep Git metadata on local Docker volume ---
-    "source=homelab-iac-gitmeta-macos,target=${containerWorkspaceFolder}/.git,type=volume",
+    // "source=homelab-iac-gitmeta-macos,target=${containerWorkspaceFolder}/.git,type=volume",
     // --- macOS-only: expose shared workspace Git metadata for one-time seed ---
-    "source=${localWorkspaceFolder}/.git,target=/tmp/host-workspace-git,type=bind,readonly",
+    // "source=${localWorkspaceFolder}/.git,target=/tmp/host-workspace-git,type=bind,readonly",
     {{- else if hasKey . "homelab" }}
     {{- if .homelab.windows_user }}
     "source=/tmp/wsl2-ssh-agent,target=/tmp/wsl-ssh-pageant,type=bind",
