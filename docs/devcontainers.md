@@ -28,6 +28,7 @@ Typical synced files:
 - `devcontainers/**/devcontainer.json.tmpl`
 - `dotfiles/install.sh`
 - `dotfiles/configs/**`
+- selected `dotfiles/dot_local/bin/**` wrappers
 - `dotfiles/dot_local/share/**` shell helper libraries
 - `dotfiles/.config/**` and shell dotfiles used by the container build
 
@@ -38,6 +39,9 @@ Manifest-driven source mirroring for shared container-dotfiles is handled by:
 
 Run the sync script after changing canonical host-side sources that are mirrored
 into `private_Documents/development/container-dotfiles/dotfiles/**`.
+Host bin wrappers are mirrored only when explicitly listed in the manifest;
+`ai-wt` uses this selective mirror so container-specific wrappers can continue
+to diverge when needed.
 
 ## homelab-IaC: package pins
 

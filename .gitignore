@@ -14,6 +14,8 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 .cz-audit
 .opencode/*dotfiles*
 .opencode/review-loop.seed.json
+.ai-wt/
+.ai-wt/**
 .tempograph/
 .tempograph/**
 worktrees/

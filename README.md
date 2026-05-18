@@ -63,6 +63,7 @@ Authoritative per-machine list is still `chezmoi managed`.
 ## Automation
 
 - Chezmoi hook catalog by trigger/platform: `docs/automation/chezmoi-scripts.md`
+- AI worktree wrapper for Claude/OpenCode sessions: `docs/automation/ai-worktrees.md`
 - Browser policy automation: `docs/automation/browser-policies.md`
 - Package-manager wrappers and docs automation details: `docs/automation/package-wrappers.md`
 

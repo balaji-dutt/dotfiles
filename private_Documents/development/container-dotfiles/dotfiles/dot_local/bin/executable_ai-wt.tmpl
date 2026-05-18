@@ -1,0 +1,810 @@
+#!/usr/bin/env python3
+"""Create per-session Git worktrees for AI coding tools."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import os
+import random
+import re
+import shlex
+import shutil
+import string
+import subprocess
+import sys
+import tempfile
+import unicodedata
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+SCRIPT_NAME = Path(sys.argv[0]).name
+VERSION = 1
+BRANCH_TYPES = ("feat", "fix", "chore", "docs", "refactor", "test", "build", "ci")
+DEFAULT_PATH_TEMPLATE = "worktrees/{safe_branch}-{session_id}"
+DEFAULT_STATE_DIR = ".ai-wt"
+
+
+class AiWtError(Exception):
+    """User-facing wrapper error."""
+
+
+@dataclass
+class Config:
+    repo_root: Path
+    git_common_dir: Path
+    worktree_parent: Path | None
+    path_template: str
+    state_dir: Path
+    base_ref: str
+    delete_branch_on_cleanup: bool
+    cleanup_dirty: str
+    update_exclude: bool
+    opencode_command: str | None
+    claude_command: str | None
+    submodule_init: bool
+
+
+def eprint(message: str) -> None:
+    print(f"{SCRIPT_NAME}: {message}", file=sys.stderr)
+
+
+def die(message: str) -> None:
+    raise AiWtError(message)
+
+
+def run_git(
+    repo_root: Path | None,
+    args: list[str],
+    *,
+    check: bool = True,
+    capture: bool = True,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    cmd = ["git"]
+    if repo_root is not None:
+        cmd.extend(["-C", str(repo_root)])
+    cmd.extend(args)
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+    )
+
+
+def git_output(repo_root: Path | None, args: list[str], *, cwd: Path | None = None) -> str:
+    result = run_git(repo_root, args, cwd=cwd)
+    return result.stdout.strip()
+
+
+def resolve_repo_root() -> Path:
+    try:
+        return Path(git_output(None, ["rev-parse", "--show-toplevel"])).resolve()
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "not a Git repository").strip()
+        die(detail)
+
+
+def resolve_git_common_dir(repo_root: Path) -> Path:
+    try:
+        raw = git_output(repo_root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        return Path(raw).resolve()
+    except subprocess.CalledProcessError:
+        raw = git_output(repo_root, ["rev-parse", "--git-common-dir"])
+        path = Path(raw)
+        if not path.is_absolute():
+            path = repo_root / path
+        return path.resolve()
+
+
+def git_config(repo_root: Path, key: str) -> str | None:
+    result = run_git(repo_root, ["config", "--get", key], check=False)
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value if value else None
+
+
+def parse_bool(value: str | bool | None, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    die(f"invalid boolean value: {value}")
+
+
+def resolve_path(repo_root: Path, value: str | None, default: str) -> Path:
+    raw = value or default
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = repo_root / path
+    return path.resolve()
+
+
+def load_config(repo_root: Path, args: argparse.Namespace) -> Config:
+    git_common_dir = resolve_git_common_dir(repo_root)
+
+    def from_sources(attr: str, env: str, key: str, default: str | None = None) -> str | None:
+        cli_value = getattr(args, attr, None)
+        if cli_value not in (None, ""):
+            return cli_value
+        env_value = os.environ.get(env)
+        if env_value not in (None, ""):
+            return env_value
+        git_value = git_config(repo_root, key)
+        if git_value not in (None, ""):
+            return git_value
+        return default
+
+    path_template = from_sources(
+        "path_template",
+        "AI_WT_PATH_TEMPLATE",
+        "ai-wt.pathTemplate",
+        DEFAULT_PATH_TEMPLATE,
+    )
+    state_raw = from_sources("state_dir", "AI_WT_STATE_DIR", "ai-wt.stateDir", DEFAULT_STATE_DIR)
+    parent_raw = from_sources("worktree_parent", "AI_WT_WORKTREE_PARENT", "ai-wt.worktreeParent")
+    base_ref = from_sources("base_ref", "AI_WT_BASE_REF", "ai-wt.baseRef", "HEAD") or "HEAD"
+    cleanup_dirty = from_sources("cleanup_dirty", "AI_WT_CLEANUP_DIRTY", "ai-wt.cleanupDirty", "keep") or "keep"
+    cleanup_dirty = cleanup_dirty.strip().lower()
+    if cleanup_dirty not in {"keep", "delete"}:
+        die("ai-wt.cleanupDirty must be 'keep' or 'delete'")
+
+    delete_branch = parse_bool(
+        from_sources(
+            "delete_branch_on_cleanup",
+            "AI_WT_DELETE_BRANCH_ON_CLEANUP",
+            "ai-wt.deleteBranchOnCleanup",
+        ),
+        False,
+    )
+    update_exclude = parse_bool(
+        from_sources("update_exclude", "AI_WT_UPDATE_EXCLUDE", "ai-wt.updateExclude"),
+        True,
+    )
+    if getattr(args, "no_update_exclude", False):
+        update_exclude = False
+
+    submodule_init = parse_bool(
+        from_sources("submodule_init", "AI_WT_SUBMODULE_INIT", "ai-wt.submoduleInit"),
+        False,
+    )
+    if getattr(args, "submodule_init_flag", False):
+        submodule_init = True
+    if getattr(args, "no_submodule_init", False):
+        submodule_init = False
+
+    worktree_parent = None
+    if parent_raw:
+        worktree_parent = resolve_path(repo_root, parent_raw, "worktrees")
+
+    return Config(
+        repo_root=repo_root,
+        git_common_dir=git_common_dir,
+        worktree_parent=worktree_parent,
+        path_template=path_template or DEFAULT_PATH_TEMPLATE,
+        state_dir=resolve_path(repo_root, state_raw, DEFAULT_STATE_DIR),
+        base_ref=base_ref,
+        delete_branch_on_cleanup=delete_branch,
+        cleanup_dirty=cleanup_dirty,
+        update_exclude=update_exclude,
+        opencode_command=from_sources("opencode_command", "AI_WT_OPENCODE_COMMAND", "ai-wt.opencodeCommand"),
+        claude_command=from_sources("claude_command", "AI_WT_CLAUDE_COMMAND", "ai-wt.claudeCommand"),
+        submodule_init=submodule_init,
+    )
+
+
+def slugify(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    lowered = ascii_value.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
+    slug = re.sub(r"-+", "-", slug)
+    return slug
+
+
+def validate_ref_name(repo_root: Path, ref_name: str) -> None:
+    if not ref_name or ref_name.startswith("-"):
+        die("branch name must not be empty or start with '-'")
+    result = run_git(repo_root, ["check-ref-format", "--branch", ref_name], check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "invalid branch name").strip()
+        die(detail)
+
+
+def build_session_name(repo_root: Path, branch_type: str, description: str) -> str:
+    branch_type = branch_type.strip()
+    if branch_type not in BRANCH_TYPES:
+        die(f"branch type must be one of: {', '.join(BRANCH_TYPES)}")
+    slug = slugify(description)
+    if not slug:
+        die("description must contain at least one ASCII letter or digit")
+    ref_name = f"{branch_type}/{slug}"
+    validate_ref_name(repo_root, ref_name)
+    return ref_name
+
+
+def prompt_for_branch(repo_root: Path) -> str:
+    if not sys.stdin.isatty():
+        die("branch is required when stdin is not interactive")
+    print("Branch type:")
+    for index, branch_type in enumerate(BRANCH_TYPES, start=1):
+        print(f"  {index}. {branch_type}")
+    raw_type = input("Type [feat]: ").strip() or "feat"
+    if raw_type.isdigit():
+        position = int(raw_type)
+        if position < 1 or position > len(BRANCH_TYPES):
+            die("branch type selection is out of range")
+        raw_type = BRANCH_TYPES[position - 1]
+    description = input("Description: ").strip()
+    return build_session_name(repo_root, raw_type, description)
+
+
+def safe_branch_component(branch: str) -> str:
+    component = re.sub(r"[^A-Za-z0-9._-]+", "-", branch).strip(".-_")
+    component = re.sub(r"-+", "-", component) or "branch"
+    if len(component) <= 80:
+        return component
+    digest = hashlib.sha1(branch.encode("utf-8")).hexdigest()[:10]
+    return f"{component[:69].rstrip('-')}-{digest}"
+
+
+def generate_session_id(state_dir: Path) -> str:
+    alphabet = string.hexdigits.lower()[:16]
+    for _ in range(20):
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+        suffix = "".join(random.choice(alphabet) for _ in range(6))
+        session_id = f"{timestamp}-{suffix}"
+        if not (state_dir / "sessions" / f"{session_id}.json").exists():
+            return session_id
+    die("could not allocate a unique session id")
+
+
+def path_inside(parent: Path, child: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def rel_to_repo(repo_root: Path, path: Path) -> str | None:
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def render_worktree_path(config: Config, branch: str, session_id: str) -> Path:
+    safe_branch = safe_branch_component(branch)
+    template = config.path_template
+    if config.worktree_parent is not None and template == DEFAULT_PATH_TEMPLATE:
+        template = "{safe_branch}-{session_id}"
+    values = {
+        "repo_root": str(config.repo_root),
+        "branch": branch,
+        "safe_branch": safe_branch,
+        "session_id": session_id,
+        "session-id": session_id,
+    }
+    def replace_field(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in values:
+            die(f"unknown path template key: {key}")
+        return values[key]
+
+    rendered = re.sub(r"\{([A-Za-z0-9_-]+)\}", replace_field, template)
+    if "{" in rendered or "}" in rendered:
+        die("path template contains unsupported brace syntax")
+    path = Path(rendered).expanduser()
+    if config.worktree_parent is not None and not path.is_absolute():
+        path = config.worktree_parent / path
+    elif not path.is_absolute():
+        path = config.repo_root / path
+    return path.resolve()
+
+
+def ensure_state(config: Config) -> None:
+    config.state_dir.mkdir(parents=True, exist_ok=True)
+    (config.state_dir / "sessions").mkdir(parents=True, exist_ok=True)
+
+
+class RepoLock:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.handle: Any = None
+
+    def __enter__(self) -> "RepoLock":
+        import fcntl
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+")
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        import fcntl
+
+        if self.handle is not None:
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            self.handle.close()
+
+
+def git_check_ignored(repo_root: Path, rel_probe: str) -> bool:
+    result = run_git(repo_root, ["check-ignore", "-q", "--no-index", rel_probe], check=False)
+    return result.returncode == 0
+
+
+def ensure_local_exclude(config: Config, path: Path) -> None:
+    rel = rel_to_repo(config.repo_root, path)
+    if rel is None:
+        return
+    rel = rel.strip("/")
+    if not rel:
+        return
+    probe = f"{rel}/.ai-wt-ignore-probe"
+    if git_check_ignored(config.repo_root, probe):
+        return
+
+    entry = f"/{rel}/"
+    exclude_path = config.git_common_dir / "info" / "exclude"
+    try:
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+        if any(line.strip() == entry for line in existing.splitlines()):
+            return
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        with exclude_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{prefix}{entry}\n")
+    except OSError as exc:
+        eprint(f"warning: could not update {exclude_path}: {exc}")
+
+
+def ensure_ignores(config: Config, worktree_path: Path) -> None:
+    if not config.update_exclude:
+        return
+    ensure_local_exclude(config, config.state_dir)
+    if path_inside(config.repo_root, worktree_path):
+        parent = worktree_path.parent
+        ensure_local_exclude(config, parent)
+
+
+def branch_exists(repo_root: Path, branch: str) -> bool:
+    result = run_git(repo_root, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], check=False)
+    return result.returncode == 0
+
+
+def create_worktree(config: Config, branch: str, worktree_path: Path) -> bool:
+    if worktree_path.exists():
+        die(f"worktree path already exists: {worktree_path}")
+    existed = branch_exists(config.repo_root, branch)
+    if existed:
+        args = ["worktree", "add", str(worktree_path), branch]
+    else:
+        args = ["worktree", "add", "-b", branch, str(worktree_path), config.base_ref]
+    try:
+        run_git(config.repo_root, args, capture=False)
+    except subprocess.CalledProcessError as exc:
+        die(f"git worktree add failed with exit {exc.returncode}")
+    if config.submodule_init:
+        try:
+            run_git(worktree_path, ["submodule", "update", "--init", "--recursive"], capture=False)
+        except subprocess.CalledProcessError as exc:
+            die(f"git submodule update failed with exit {exc.returncode}")
+    return not existed
+
+
+def metadata_path(config: Config, session_id: str) -> Path:
+    return config.state_dir / "sessions" / f"{session_id}.json"
+
+
+def write_metadata(config: Config, metadata: dict[str, Any]) -> None:
+    metadata["updated_at"] = now_iso()
+    path = metadata_path(config, metadata["session_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent), text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    Path(tmp_name).replace(path)
+
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def read_metadata(path: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        eprint(f"warning: could not read {path}: {exc}")
+        return None
+
+
+def load_sessions(config: Config) -> list[dict[str, Any]]:
+    sessions_dir = config.state_dir / "sessions"
+    if not sessions_dir.exists():
+        return []
+    sessions: list[dict[str, Any]] = []
+    for path in sorted(sessions_dir.glob("*.json")):
+        metadata = read_metadata(path)
+        if metadata is not None:
+            metadata["_metadata_path"] = str(path)
+            sessions.append(metadata)
+    return sessions
+
+
+def parse_command(value: str) -> list[str]:
+    try:
+        command = shlex.split(value)
+    except ValueError as exc:
+        die(f"could not parse command {value!r}: {exc}")
+    if not command:
+        die("configured command is empty")
+    return command
+
+
+def command_path(name: str) -> str | None:
+    if os.sep in name:
+        return name if os.access(name, os.X_OK) else None
+    return shutil.which(name)
+
+
+def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args: list[str]) -> tuple[list[str], Path]:
+    if tool == "opencode":
+        if config.opencode_command:
+            base = parse_command(config.opencode_command)
+            if any("{worktree}" in part for part in base):
+                command = [part.replace("{worktree}", str(worktree_path)) for part in base]
+            else:
+                command = [*base, str(worktree_path)]
+        else:
+            opencode = command_path("opencode-plannotator") or command_path("opencode")
+            if not opencode:
+                die("opencode-plannotator or opencode not found in PATH")
+            command = [opencode, str(worktree_path)]
+        return [*command, *tool_args], config.repo_root
+
+    if tool == "claude":
+        for arg in tool_args:
+            if arg == "--worktree" or arg == "-w" or arg.startswith("--worktree="):
+                die("do not pass Claude --worktree/-w through ai-wt; ai-wt already created the worktree")
+        if config.claude_command:
+            command = parse_command(config.claude_command)
+        else:
+            claude = command_path("claude")
+            if not claude:
+                die("claude not found in PATH")
+            command = [claude]
+        return [*command, *tool_args], worktree_path
+
+    die(f"unsupported tool: {tool}")
+
+
+def worktree_dirty(path: Path) -> bool:
+    result = run_git(path, ["status", "--porcelain", "--untracked-files=all"], check=False)
+    if result.returncode != 0:
+        return True
+    return bool(result.stdout.strip())
+
+
+def remove_worktree(repo_root: Path, path: Path, force: bool, dry_run: bool) -> bool:
+    args = ["worktree", "remove"]
+    if force:
+        args.append("--force")
+    args.append(str(path))
+    if dry_run:
+        print("would run:", shlex.join(["git", "-C", str(repo_root), *args]))
+        return True
+    try:
+        run_git(repo_root, args, capture=False)
+        return True
+    except subprocess.CalledProcessError as exc:
+        eprint(f"git worktree remove failed with exit {exc.returncode}")
+        return False
+
+
+def delete_branch(repo_root: Path, branch: str, force: bool, dry_run: bool) -> bool:
+    flag = "-D" if force else "-d"
+    args = ["branch", flag, branch]
+    if dry_run:
+        print("would run:", shlex.join(["git", "-C", str(repo_root), *args]))
+        return True
+    try:
+        run_git(repo_root, args, capture=False)
+        return True
+    except subprocess.CalledProcessError as exc:
+        eprint(f"git branch {flag} failed with exit {exc.returncode}")
+        return False
+
+
+def cleanup_session(
+    config: Config,
+    metadata: dict[str, Any],
+    *,
+    delete: bool,
+    force: bool,
+    dry_run: bool,
+    auto: bool,
+) -> bool:
+    path = Path(metadata["worktree_path"])
+    branch = str(metadata.get("branch", ""))
+    branch_created = bool(metadata.get("branch_created", False))
+    ok = True
+
+    if path.exists():
+        dirty = worktree_dirty(path)
+        if dirty and not force:
+            if auto:
+                metadata["cleanup_status"] = "kept_dirty"
+                write_metadata(config, metadata)
+                eprint(f"kept dirty worktree: {path}")
+                return True
+            eprint(f"refusing to remove dirty worktree without --force: {path}")
+            return False
+        ok = remove_worktree(config.repo_root, path, force=force, dry_run=dry_run)
+        if ok:
+            metadata["cleanup_status"] = "removed_worktree" if not dry_run else "dry_run"
+    else:
+        metadata["cleanup_status"] = "missing_worktree"
+
+    if delete and branch:
+        if not branch_created and not force:
+            eprint(f"refusing to delete pre-existing branch without --force: {branch}")
+            ok = False
+        elif branch_exists(config.repo_root, branch):
+            ok = delete_branch(config.repo_root, branch, force=force, dry_run=dry_run) and ok
+            if ok:
+                metadata["cleanup_status"] = "removed_worktree_deleted_branch" if not dry_run else "dry_run"
+
+    if not dry_run:
+        write_metadata(config, metadata)
+    return ok
+
+
+def launch_child(command: list[str], cwd: Path) -> int:
+    eprint(f"launching: {shlex.join(command)}")
+    child = subprocess.Popen(command, cwd=str(cwd))
+    try:
+        return child.wait()
+    except KeyboardInterrupt:
+        return child.wait()
+
+
+def split_passthrough(args: list[str]) -> tuple[list[str], list[str]]:
+    if "--" not in args:
+        return args, []
+    index = args.index("--")
+    return args[:index], args[index + 1 :]
+
+
+def add_run_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--worktree-parent")
+    parser.add_argument("--path-template")
+    parser.add_argument("--state-dir")
+    parser.add_argument("--base-ref")
+    parser.add_argument("--cleanup-dirty", choices=("keep", "delete"))
+    parser.add_argument("--delete-branch-on-cleanup", action="store_true", default=None)
+    parser.add_argument("--no-update-exclude", action="store_true")
+    parser.add_argument("--opencode-command")
+    parser.add_argument("--claude-command")
+    parser.add_argument("--submodule-init", dest="submodule_init_flag", action="store_true")
+    parser.add_argument("--no-submodule-init", action="store_true")
+
+
+def parse_run_args(tool: str, raw_args: list[str]) -> tuple[argparse.Namespace, str | None, list[str]]:
+    head, tool_args = split_passthrough(raw_args)
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} {tool}")
+    add_run_options(parser)
+    parser.add_argument("branch", nargs="?")
+    parsed = parser.parse_args(head)
+    return parsed, parsed.branch, tool_args
+
+
+def cmd_run(tool: str, raw_args: list[str]) -> int:
+    parsed, branch, tool_args = parse_run_args(tool, raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    ensure_state(config)
+    if branch is None:
+        branch = prompt_for_branch(repo_root)
+    validate_ref_name(repo_root, branch)
+
+    with RepoLock(config.state_dir / "lock"):
+        session_id = generate_session_id(config.state_dir)
+        worktree_path = render_worktree_path(config, branch, session_id)
+        ensure_ignores(config, worktree_path)
+        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+        branch_created = create_worktree(config, branch, worktree_path)
+        metadata: dict[str, Any] = {
+            "version": VERSION,
+            "session_id": session_id,
+            "repo_root": str(config.repo_root),
+            "git_common_dir": str(config.git_common_dir),
+            "tool": tool,
+            "tool_command": command,
+            "branch": branch,
+            "branch_created": branch_created,
+            "base_ref": config.base_ref,
+            "worktree_path": str(worktree_path),
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+            "child_exit_status": None,
+            "cleanup_status": "created",
+        }
+        write_metadata(config, metadata)
+
+    exit_status = 125
+    try:
+        exit_status = launch_child(command, cwd)
+        metadata["child_exit_status"] = exit_status
+        write_metadata(config, metadata)
+    finally:
+        force_cleanup = config.cleanup_dirty == "delete"
+        cleanup_session(
+            config,
+            metadata,
+            delete=config.delete_branch_on_cleanup,
+            force=force_cleanup,
+            dry_run=False,
+            auto=True,
+        )
+    return exit_status
+
+
+def cmd_name(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} name")
+    parser.add_argument("--type", required=True, choices=BRANCH_TYPES)
+    parser.add_argument("--description", required=True)
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    print(build_session_name(repo_root, parsed.type, parsed.description))
+    return 0
+
+
+def cmd_list(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} list")
+    parser.add_argument("--state-dir")
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    sessions = load_sessions(config)
+    if not sessions:
+        print("No ai-wt sessions found.")
+        return 0
+    print("SESSION ID                 TOOL      BRANCH                         STATUS        WORKTREE")
+    for item in sessions:
+        session_id = str(item.get("session_id", ""))
+        tool = str(item.get("tool", ""))[:8]
+        branch = str(item.get("branch", ""))[:30]
+        status = str(item.get("cleanup_status", ""))[:13]
+        path = str(item.get("worktree_path", ""))
+        print(f"{session_id:26} {tool:8} {branch:30} {status:13} {path}")
+    return 0
+
+
+def find_session(config: Config, target: str) -> dict[str, Any]:
+    sessions = load_sessions(config)
+    matches: list[dict[str, Any]] = []
+    target_path = Path(target).expanduser()
+    resolved_target: Path | None = None
+    if target_path.is_absolute() or any(sep in target for sep in ("/", os.sep)):
+        try:
+            resolved_target = target_path.resolve()
+        except OSError:
+            resolved_target = target_path.absolute()
+    for item in sessions:
+        if item.get("session_id") == target or item.get("branch") == target:
+            matches.append(item)
+            continue
+        if resolved_target is not None:
+            try:
+                if Path(str(item.get("worktree_path", ""))).resolve() == resolved_target:
+                    matches.append(item)
+            except OSError:
+                pass
+    if not matches:
+        die(f"no managed session matches: {target}")
+    unique = {item.get("session_id"): item for item in matches}
+    if len(unique) > 1:
+        die(f"ambiguous cleanup target: {target}")
+    return next(iter(unique.values()))
+
+
+def cmd_cleanup(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} cleanup")
+    parser.add_argument("target")
+    parser.add_argument("--delete", action="store_true", help="delete the branch after removing the worktree")
+    parser.add_argument("--force", action="store_true", help="remove dirty worktrees and force branch deletion with --delete")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--state-dir")
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    metadata = find_session(config, parsed.target)
+    ok = cleanup_session(config, metadata, delete=parsed.delete, force=parsed.force, dry_run=parsed.dry_run, auto=False)
+    return 0 if ok else 1
+
+
+def cmd_prune(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} prune")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--state-dir")
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    ok = True
+    for item in load_sessions(config):
+        path = Path(str(item.get("worktree_path", "")))
+        if path.exists():
+            ok = cleanup_session(config, item, delete=False, force=parsed.force, dry_run=parsed.dry_run, auto=False) and ok
+            continue
+        meta = Path(str(item.get("_metadata_path", "")))
+        if parsed.dry_run:
+            print(f"would remove stale metadata: {meta}")
+        else:
+            try:
+                meta.unlink()
+                print(f"removed stale metadata: {meta}")
+            except OSError as exc:
+                eprint(f"could not remove stale metadata {meta}: {exc}")
+                ok = False
+    return 0 if ok else 1
+
+
+def usage() -> str:
+    return f"""Usage:
+  {SCRIPT_NAME} opencode [branch] [-- tool args...]
+  {SCRIPT_NAME} claude [branch] [-- tool args...]
+  {SCRIPT_NAME} run <opencode|claude> [branch] [-- tool args...]
+  {SCRIPT_NAME} list
+  {SCRIPT_NAME} cleanup <session-id|branch|path> [--delete] [--force] [--dry-run]
+  {SCRIPT_NAME} prune [--dry-run] [--force]
+  {SCRIPT_NAME} name --type <type> --description <text>
+"""
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in {"-h", "--help"}:
+        print(usage(), end="")
+        return 0
+    command = argv[0]
+    try:
+        if command in {"opencode", "claude"}:
+            return cmd_run(command, argv[1:])
+        if command == "run":
+            if len(argv) < 2:
+                die("run requires a tool: opencode or claude")
+            tool = argv[1]
+            if tool not in {"opencode", "claude"}:
+                die("run tool must be opencode or claude")
+            return cmd_run(tool, argv[2:])
+        if command == "name":
+            return cmd_name(argv[1:])
+        if command == "list":
+            return cmd_list(argv[1:])
+        if command == "cleanup":
+            return cmd_cleanup(argv[1:])
+        if command == "prune":
+            return cmd_prune(argv[1:])
+        die(f"unknown command: {command}")
+    except AiWtError as exc:
+        eprint(str(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

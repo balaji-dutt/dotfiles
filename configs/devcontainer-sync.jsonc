@@ -50,6 +50,16 @@
           "commands/todo.md",
           "executable_commit-docs.sh"
         ]
+      },
+      {
+        "name": "user-bin-ai-wt",
+        "source_root": "bin",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin",
+        "cleanup_managed": false,
+        "include": [
+          "executable_ai-wt.tmpl"
+        ],
+        "exclude": []
       }
     ],
     "derived": [
