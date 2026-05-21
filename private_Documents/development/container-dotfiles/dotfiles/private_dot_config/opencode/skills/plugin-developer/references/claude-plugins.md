@@ -52,22 +52,24 @@ tools:
 [Agent system prompt / instructions here]
 
 ## Capabilities
+
 - [Capability 1]
 - [Capability 2]
 
 ## Workflow
+
 1. [Step 1]
 2. [Step 2]
 ```
 
 ### Frontmatter fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Kebab-case identifier |
-| `description` | Yes | 1-2 sentence purpose |
-| `model` | No | Override default model |
-| `tools` | No | List of allowed tools |
+| Field         | Required | Description            |
+| ------------- | -------- | ---------------------- |
+| `name`        | Yes      | Kebab-case identifier  |
+| `description` | Yes      | 1-2 sentence purpose   |
+| `model`       | No       | Override default model |
+| `tools`       | No       | List of allowed tools  |
 
 ## Skill Definition (skills/skill-name.md)
 
@@ -107,12 +109,12 @@ description: What this skill does
 
 ### Hook triggers
 
-| Trigger | When it fires |
-|---------|---------------|
-| `before-completion` | Before main agent marks work complete |
-| `before-subagent-completion` | Before subagent marks work complete |
-| `on-error` | When an error occurs |
-| `on-start` | When the agent session starts |
+| Trigger                      | When it fires                         |
+| ---------------------------- | ------------------------------------- |
+| `before-completion`          | Before main agent marks work complete |
+| `before-subagent-completion` | Before subagent marks work complete   |
+| `on-error`                   | When an error occurs                  |
+| `on-start`                   | When the agent session starts         |
 
 ## Hook Implementation (hooks/hook-name.md)
 

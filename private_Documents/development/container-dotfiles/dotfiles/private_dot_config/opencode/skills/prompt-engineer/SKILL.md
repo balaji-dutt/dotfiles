@@ -62,6 +62,7 @@ setting, output formatting, and model-specific optimization.
 ## Model-specific guidance
 
 See `references/model-specific.md` for detailed model-specific patterns:
+
 - **Claude**: XML tags for structure, thinking blocks, artifact patterns.
 - **GPT**: System/user/assistant role separation, function calling patterns.
 - **General**: Temperature, top-p, and sampling guidance per task type.

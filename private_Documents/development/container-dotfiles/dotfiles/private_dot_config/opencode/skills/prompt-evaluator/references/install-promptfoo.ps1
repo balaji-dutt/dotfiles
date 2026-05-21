@@ -66,8 +66,9 @@ if (-not $promptfooReady) {
 # -------------------------------------------------------------------
 # Install via npm
 # -------------------------------------------------------------------
+$installNeeded = (-not $promptfooReady) -or (-not $sdkReady)
 $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
-if (-not $npmCmd) {
+if ($installNeeded -and -not $npmCmd) {
     Write-Error @"
 ERROR: npm not found. Install Node.js first:
   winget install OpenJS.NodeJS.LTS

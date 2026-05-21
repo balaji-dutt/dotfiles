@@ -138,13 +138,13 @@ export default plugin;
 
 ## Hook Types
 
-| Hook | Trigger | Use Case |
-|------|---------|----------|
-| `event` | Session/lifecycle events | Init, cleanup, state tracking |
-| `tool.execute.before` | Before a tool runs | Validation, gating, transformation |
-| `tool.execute.after` | After a tool runs | Auditing, post-processing |
-| `chat.message` | Each chat message | Logging, routing, context injection |
-| `experimental.session.compacting` | Context compaction | Custom summarization |
+| Hook                              | Trigger                  | Use Case                            |
+| --------------------------------- | ------------------------ | ----------------------------------- |
+| `event`                           | Session/lifecycle events | Init, cleanup, state tracking       |
+| `tool.execute.before`             | Before a tool runs       | Validation, gating, transformation  |
+| `tool.execute.after`              | After a tool runs        | Auditing, post-processing           |
+| `chat.message`                    | Each chat message        | Logging, routing, context injection |
+| `experimental.session.compacting` | Context compaction       | Custom summarization                |
 
 ## Custom Tool Schema (Zod)
 
@@ -152,7 +152,7 @@ export default plugin;
 import { z } from "zod";
 
 // String enum
-z.enum(["option1", "option2", "option3"])
+z.enum(["option1", "option2", "option3"]);
 
 // Object with optional fields
 z.object({
@@ -160,13 +160,13 @@ z.object({
   optional: z.string().optional(),
   withDefault: z.number().default(10),
   described: z.string().describe("Human-readable description"),
-})
+});
 
 // Array
-z.array(z.string())
+z.array(z.string());
 
 // Union
-z.union([z.string(), z.number()])
+z.union([z.string(), z.number()]);
 ```
 
 ## Distribution
@@ -186,9 +186,10 @@ Package as an npm module:
 ```
 
 Register in `opencode.jsonc`:
+
 ```jsonc
 {
-  "plugin": ["opencode-plugin-my-plugin@1.0.0"]
+  "plugin": ["opencode-plugin-my-plugin@1.0.0"],
 }
 ```
 

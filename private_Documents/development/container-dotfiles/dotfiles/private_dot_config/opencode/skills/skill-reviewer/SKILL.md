@@ -30,13 +30,16 @@ verdict and actionable improvement recommendations.
 ## Review modes
 
 ### Mode 1: Self-review
+
 Review a skill you or the agent just created. Focus on quality and completeness.
 
 ### Mode 2: External review
+
 Review a skill from an external source. Focus on suitability, quality, and
 adaptation needs.
 
 ### Mode 3: Comparison review
+
 Compare two skills that serve similar purposes. Recommend which to adopt or
 how to synthesize the best of both.
 
@@ -52,12 +55,14 @@ purpose, triggers, workflow, and output format.
 Score each criterion as PASS, PARTIAL, or FAIL:
 
 **Frontmatter**:
+
 - [ ] `name` is kebab-case and matches directory name.
 - [ ] `description` is concise, specific, and trigger-accurate.
 - [ ] `compatibility` is correctly specified.
 - [ ] All required fields present.
 
 **Instructions**:
+
 - [ ] "Use this skill when" section has clear trigger conditions.
 - [ ] "Do not use this skill when" section prevents false triggers.
 - [ ] Workflow steps are numbered, actionable, and complete.
@@ -65,12 +70,14 @@ Score each criterion as PASS, PARTIAL, or FAIL:
 - [ ] SKILL.md is under 5000 words.
 
 **Resources**:
+
 - [ ] All referenced files exist in `references/`.
 - [ ] References are self-contained and focused.
 - [ ] No orphan references (files not mentioned in SKILL.md).
 - [ ] No redundancy between SKILL.md and references.
 
 **Quality**:
+
 - [ ] Imperative mood used for instructions.
 - [ ] No vague verbs ("handle", "manage", "process").
 - [ ] Edge cases addressed or flagged.
@@ -89,28 +96,34 @@ description would correctly trigger/skip the skill.
 ## Skill Review: [skill-name]
 
 ### Mode: Self-review | External | Comparison
+
 ### Verdict: PASS | CONDITIONAL | FAIL
 
 ### Checklist Results
-| Category | Item | Result |
-|----------|------|--------|
+
+| Category    | Item | Result            |
+| ----------- | ---- | ----------------- |
 | Frontmatter | name | PASS/PARTIAL/FAIL |
-| ... | ... | ... |
+| ...         | ...  | ...               |
 
 ### Trigger Accuracy: [X/5]
 
 ### Strengths
+
 - [Strength 1]
 - [Strength 2]
 
 ### Issues
+
 - [CRITICAL] [Issue requiring fix before use]
 - [MINOR] [Issue that should be fixed but doesn't block use]
 
 ### Recommendations
+
 - [Specific, actionable recommendation]
 
 ### For external skills: Suitability Assessment
+
 - **Adopt as-is**: [yes/no and why]
 - **Fork and adapt**: [what needs changing]
 - **Reject**: [why it's not suitable]

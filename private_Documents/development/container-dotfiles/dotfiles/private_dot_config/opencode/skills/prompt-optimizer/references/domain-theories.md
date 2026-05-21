@@ -6,6 +6,7 @@ in proven patterns rather than inventing behavior from scratch.
 ## Workflow & Productivity
 
 ### GTD (Getting Things Done)
+
 - **Capture**: Collect all inputs into a trusted system.
 - **Clarify**: Determine next action for each input.
 - **Organize**: Categorize by context, priority, and project.
@@ -15,6 +16,7 @@ in proven patterns rather than inventing behavior from scratch.
 **Apply to**: Task management agents, planning agents, inbox processors.
 
 ### Kanban
+
 - **Visualize work**: Make all work items visible.
 - **Limit WIP**: Constrain work-in-progress to prevent overload.
 - **Pull-based flow**: Start new work only when capacity exists.
@@ -25,7 +27,9 @@ in proven patterns rather than inventing behavior from scratch.
 ## User Interaction
 
 ### BJ Fogg Behavior Model
+
 Behavior = Motivation x Ability x Prompt (B = MAP).
+
 - **Motivation**: Make the desired action appealing.
 - **Ability**: Make the desired action easy.
 - **Prompt**: Provide a clear trigger at the right moment.
@@ -33,6 +37,7 @@ Behavior = Motivation x Ability x Prompt (B = MAP).
 **Apply to**: User-facing agents, onboarding flows, recommendation agents.
 
 ### Nielsen's Heuristics (adapted for agents)
+
 1. **Visibility of status**: Tell the user what the agent is doing.
 2. **Match real-world language**: Use the user's terminology.
 3. **User control**: Let the user abort, undo, or redirect.
@@ -49,6 +54,7 @@ Behavior = Motivation x Ability x Prompt (B = MAP).
 ## Analysis & Reasoning
 
 ### Scientific Method (adapted)
+
 1. **Observe**: Gather data about the problem.
 2. **Hypothesize**: Form a testable explanation.
 3. **Predict**: State what should happen if the hypothesis is correct.
@@ -58,6 +64,7 @@ Behavior = Motivation x Ability x Prompt (B = MAP).
 **Apply to**: Debugging agents, diagnostic agents, research agents.
 
 ### Root Cause Analysis (5 Whys)
+
 Ask "why" iteratively until the root cause is found. Typically 5 levels deep.
 
 **Apply to**: Incident response agents, bug analysis agents.
@@ -65,6 +72,7 @@ Ask "why" iteratively until the root cause is found. Typically 5 levels deep.
 ## Creative & Design
 
 ### Design Thinking
+
 1. **Empathize**: Understand the user's needs and context.
 2. **Define**: Frame the problem clearly.
 3. **Ideate**: Generate multiple potential solutions.
@@ -74,6 +82,7 @@ Ask "why" iteratively until the root cause is found. Typically 5 levels deep.
 **Apply to**: Feature design agents, solution proposal agents.
 
 ### Diverge/Converge
+
 - **Diverge phase**: Generate many options without judgment.
 - **Converge phase**: Evaluate and select the best options.
 - Never do both simultaneously.
@@ -83,6 +92,7 @@ Ask "why" iteratively until the root cause is found. Typically 5 levels deep.
 ## Software Engineering
 
 ### SOLID Principles (adapted for agent design)
+
 - **Single Responsibility**: Each agent does one thing well.
 - **Open/Closed**: Extend via skills, don't modify core prompts.
 - **Liskov Substitution**: Agents with the same interface are interchangeable.
@@ -94,11 +104,11 @@ Ask "why" iteratively until the root cause is found. Typically 5 levels deep.
 
 ## Selection Guide
 
-| Agent Type | Primary Theory | Secondary Theory |
-|-----------|---------------|-----------------|
-| Task manager | GTD | Kanban |
-| User-facing | BJ Fogg | Nielsen's Heuristics |
-| Debugger | Scientific Method | 5 Whys |
-| Designer | Design Thinking | Diverge/Converge |
-| Code agent | SOLID | Scientific Method |
-| Coordinator | Kanban | GTD |
+| Agent Type   | Primary Theory    | Secondary Theory     |
+| ------------ | ----------------- | -------------------- |
+| Task manager | GTD               | Kanban               |
+| User-facing  | BJ Fogg           | Nielsen's Heuristics |
+| Debugger     | Scientific Method | 5 Whys               |
+| Designer     | Design Thinking   | Diverge/Converge     |
+| Code agent   | SOLID             | Scientific Method    |
+| Coordinator  | Kanban            | GTD                  |

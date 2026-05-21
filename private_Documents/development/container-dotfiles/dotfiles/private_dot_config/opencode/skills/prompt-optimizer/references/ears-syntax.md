@@ -10,6 +10,7 @@ unambiguous, testable requirements.
 **Use for**: Behavior that is always active, with no trigger or condition.
 
 **Examples**:
+
 - "The agent shall respond in English."
 - "The agent shall include source citations in every response."
 - "The agent shall use markdown formatting for all output."
@@ -23,6 +24,7 @@ unambiguous, testable requirements.
 **Use for**: Behavior triggered by a specific event or input.
 
 **Examples**:
+
 - "When the user provides a code snippet, the agent shall analyze it for bugs."
 - "When an error is detected, the agent shall report the error type and
   suggest a fix."
@@ -37,6 +39,7 @@ unambiguous, testable requirements.
 **Use for**: Behavior that persists as long as a condition holds.
 
 **Examples**:
+
 - "While in debug mode, the agent shall show its reasoning steps."
 - "While processing a multi-file change, the agent shall track all modified
   files."
@@ -53,6 +56,7 @@ verify behavior stops.
 **Use for**: One-time conditional behavior based on a detected condition.
 
 **Examples**:
+
 - "If the input exceeds 1000 tokens, then the agent shall summarize before
   processing."
 - "If no examples are provided, then the agent shall ask for at least one."
@@ -68,6 +72,7 @@ verify behavior stops.
 **Use for**: Error handling, safety guardrails, and edge cases.
 
 **Examples**:
+
 - "If the agent cannot determine the user's intent, then it shall ask a
   clarifying question rather than guessing."
 - "If the generated code fails syntax validation, then the agent shall fix the

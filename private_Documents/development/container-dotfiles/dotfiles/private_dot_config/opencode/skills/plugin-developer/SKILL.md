@@ -43,6 +43,7 @@ Before starting, determine the target platform:
 See `references/opencode-plugins.md` for detailed reference.
 
 **Structure**:
+
 ```
 plugin-name/
   src/
@@ -52,6 +53,7 @@ plugin-name/
 ```
 
 **Key concepts**:
+
 - Plugin is a TypeScript function returning a config object.
 - Config can define: agents, hooks, tools, permissions.
 - Agent modes: `primary` (full agent) or `subagent` (delegated tasks).
@@ -61,6 +63,7 @@ plugin-name/
 - Distribution: npm packages.
 
 **Constraints**:
+
 - Only one default export per plugin (the Plugin function).
 - Subagents cannot spawn other subagents.
 - `task()` calls block explore-type agents; avoid in explore context.
@@ -70,6 +73,7 @@ plugin-name/
 See `references/claude-plugins.md` for detailed reference.
 
 **Structure**:
+
 ```
 plugin-name/
   .claude-plugin/
@@ -85,6 +89,7 @@ plugin-name/
 ```
 
 **Key concepts**:
+
 - Agents and skills are markdown files with YAML frontmatter.
 - Hooks enforce quality gates (e.g., run validation before completion).
 - `claude plugin validate` validates structure.
@@ -95,6 +100,7 @@ plugin-name/
 ### Step 1: Define scope
 
 Answer:
+
 - What agents does this plugin provide?
 - What hooks are needed (quality gates, workflow enforcement)?
 - What custom tools are required?
@@ -108,6 +114,7 @@ required configuration files.
 ### Step 3: Implement agents
 
 For each agent:
+
 1. Define its mode (primary/subagent).
 2. Write its prompt (use `prompt-engineer` skill).
 3. Configure model, thinking, and tool permissions.
@@ -116,6 +123,7 @@ For each agent:
 ### Step 4: Implement hooks (if needed)
 
 For workflow enforcement:
+
 1. Identify trigger points (before/after tool execution, on message, etc.).
 2. Write hook logic (validation, gating, transformation).
 3. Define failure behavior (block, warn, log).
@@ -123,6 +131,7 @@ For workflow enforcement:
 ### Step 5: Implement custom tools (if needed)
 
 For each tool:
+
 1. Define the Zod schema for inputs.
 2. Implement the tool function.
 3. Write a clear description for the agent to understand when to use it.
@@ -136,6 +145,7 @@ For each tool:
 ### Step 7: Document
 
 Write a README.md covering:
+
 - What the plugin does.
 - How to install it.
 - How to use each agent/hook/tool.

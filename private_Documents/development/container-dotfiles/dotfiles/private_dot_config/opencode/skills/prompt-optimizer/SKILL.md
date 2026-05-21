@@ -34,6 +34,7 @@ directly translated into agent prompts.
 ### Step 1: Analyze the raw requirement
 
 Read the input requirement. Identify:
+
 - The core intent (what the user actually wants).
 - Implicit assumptions that need to be made explicit.
 - Ambiguous terms that need definitions.
@@ -43,19 +44,20 @@ Read the input requirement. Identify:
 
 Apply EARS syntax patterns to rewrite each requirement:
 
-| Pattern | Template | Use when |
-|---------|----------|----------|
-| **Ubiquitous** | "The agent shall [action]." | Always-on behavior |
-| **Event-driven** | "When [event], the agent shall [action]." | Triggered behavior |
-| **State-driven** | "While [state], the agent shall [action]." | Ongoing conditional |
-| **Conditional** | "If [condition], then the agent shall [action]." | One-time conditional |
-| **Unwanted** | "If [unwanted situation], then the agent shall [mitigation]." | Error/edge handling |
+| Pattern          | Template                                                      | Use when             |
+| ---------------- | ------------------------------------------------------------- | -------------------- |
+| **Ubiquitous**   | "The agent shall [action]."                                   | Always-on behavior   |
+| **Event-driven** | "When [event], the agent shall [action]."                     | Triggered behavior   |
+| **State-driven** | "While [state], the agent shall [action]."                    | Ongoing conditional  |
+| **Conditional**  | "If [condition], then the agent shall [action]."              | One-time conditional |
+| **Unwanted**     | "If [unwanted situation], then the agent shall [mitigation]." | Error/edge handling  |
 
 See `references/ears-syntax.md` for detailed EARS syntax reference.
 
 ### Step 3: Ground in domain theories
 
 Map requirements to relevant domain frameworks:
+
 - Workflow agents: GTD (Getting Things Done), Kanban principles.
 - User-facing agents: BJ Fogg behavior model, UX heuristics.
 - Analytical agents: scientific method, hypothesis testing.
@@ -66,6 +68,7 @@ See `references/domain-theories.md` for the theory catalog.
 ### Step 4: Extract test scenarios
 
 For each EARS requirement, generate:
+
 - A happy-path test case.
 - An edge-case test case.
 - A failure-mode test case.
@@ -78,28 +81,35 @@ Output format:
 ## Agent Specification: [Name]
 
 ### Role
+
 [1-2 sentence role definition]
 
 ### Core Skills
+
 - [Skill 1]: [Description]
 - [Skill 2]: [Description]
 
 ### Workflows
+
 1. [Workflow name]: [Step-by-step process]
 
 ### Requirements (EARS)
+
 - [REQ-001] [EARS requirement]
 - [REQ-002] [EARS requirement]
 
 ### Test Scenarios
-| ID | Requirement | Input | Expected Output |
-|----|-------------|-------|-----------------|
-| T-001 | REQ-001 | [input] | [output] |
+
+| ID    | Requirement | Input   | Expected Output |
+| ----- | ----------- | ------- | --------------- |
+| T-001 | REQ-001     | [input] | [output]        |
 
 ### Edge Cases
+
 - [Edge case 1]: [Handling strategy]
 
 ### Open Questions
+
 - [Question requiring human input]
 ```
 

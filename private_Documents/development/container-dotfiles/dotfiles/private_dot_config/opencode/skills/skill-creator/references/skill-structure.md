@@ -6,14 +6,14 @@ Detailed requirements for each component of a well-formed skill.
 
 ```yaml
 ---
-name: kebab-case-name          # Required. Must match directory name.
-description: >-                # Required. 1-2 sentences, < 100 words.
+name: kebab-case-name # Required. Must match directory name.
+description: >- # Required. 1-2 sentences, < 100 words.
   Concise trigger description
   that helps the agent decide
   whether to load this skill.
-license: MIT                   # Required. MIT, Apache-2.0, Proprietary, etc.
-compatibility: opencode        # Required. opencode | claude-code | both
-metadata:                      # Optional. Additional classification.
+license: MIT # Required. MIT, Apache-2.0, Proprietary, etc.
+compatibility: opencode # Required. opencode | claude-code | both
+metadata: # Optional. Additional classification.
   audience: target-users
   workflow: workflow-name
 ---
@@ -76,6 +76,7 @@ gets loaded at the right time.
 ### Reference file structure
 
 Each reference file should be self-contained:
+
 - Title (`# Reference Name`)
 - Brief intro (what this reference contains and when to use it).
 - The actual content.

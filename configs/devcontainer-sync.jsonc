@@ -21,6 +21,7 @@
           "tools/**",
           "themes/**",
           "prompts/**",
+          "prompts/generated/**",
           "opencode-quota/**"
         ],
         "exclude": [

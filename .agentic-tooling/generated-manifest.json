@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "agentic-tooling",
+  "shape": "chezmoi",
+  "platforms": [
+    "claude",
+    "opencode"
+  ],
+  "files": [
+    {
+      "kind": "agent",
+      "path": "dot_claude/agents/agent-engineer.md",
+      "platform": "claude",
+      "source": "agents/agent-engineer.yaml",
+      "sourceDigest": "sha256:d704eec94daa5f1a24514a1addbfda9db11c3360100db99b5556299508198f97",
+      "digest": "sha256:fa7841ba6c07a815b35bcb7f82965eeef3030fe5ec50ff123bb3564002f18e47"
+    },
+    {
+      "kind": "agent",
+      "path": "private_dot_config/opencode/prompts/generated/agent-engineer.md",
+      "platform": "opencode",
+      "source": "agents/agent-engineer.yaml",
+      "sourceDigest": "sha256:d704eec94daa5f1a24514a1addbfda9db11c3360100db99b5556299508198f97",
+      "digest": "sha256:fd6c74d0a23cc96cc4b08e5d0d1b288cc8e25fd34f5edfc61b19d8b1a58b9871"
+    },
+    {
+      "kind": "agent",
+      "path": "dot_claude/agents/special-builder.md",
+      "platform": "claude",
+      "source": "agents/special-builder.yaml",
+      "sourceDigest": "sha256:73eb28b4d1d749fa72dc48d80c0021362786cee1925508937648a456af946e27",
+      "digest": "sha256:1425a61e7b98a406bd1a269a00f28523c63aef7b5a7c58e7a07f7b7925ede206"
+    },
+    {
+      "kind": "agent",
+      "path": "private_dot_config/opencode/prompts/generated/special-builder.md",
+      "platform": "opencode",
+      "source": "agents/special-builder.yaml",
+      "sourceDigest": "sha256:73eb28b4d1d749fa72dc48d80c0021362786cee1925508937648a456af946e27",
+      "digest": "sha256:2bd112381b4f28e34b4f0e6de174f76682fdcd01e1ee9583deb30aa82e2b80a2"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-optimizer/SKILL.md",
+      "platform": "claude",
+      "source": "skills/prompt-optimizer/SKILL.md",
+      "sourceDigest": "sha256:2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af",
+      "digest": "sha256:2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-optimizer/references/domain-theories.md",
+      "platform": "claude",
+      "source": "skills/prompt-optimizer/references/domain-theories.md",
+      "sourceDigest": "sha256:daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5",
+      "digest": "sha256:daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-optimizer/references/ears-syntax.md",
+      "platform": "claude",
+      "source": "skills/prompt-optimizer/references/ears-syntax.md",
+      "sourceDigest": "sha256:29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343",
+      "digest": "sha256:29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-optimizer/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/prompt-optimizer/SKILL.md",
+      "sourceDigest": "sha256:2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af",
+      "digest": "sha256:2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-optimizer/references/domain-theories.md",
+      "platform": "opencode",
+      "source": "skills/prompt-optimizer/references/domain-theories.md",
+      "sourceDigest": "sha256:daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5",
+      "digest": "sha256:daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-optimizer/references/ears-syntax.md",
+      "platform": "opencode",
+      "source": "skills/prompt-optimizer/references/ears-syntax.md",
+      "sourceDigest": "sha256:29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343",
+      "digest": "sha256:29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-engineer/SKILL.md",
+      "platform": "claude",
+      "source": "skills/prompt-engineer/SKILL.md",
+      "sourceDigest": "sha256:bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c",
+      "digest": "sha256:bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-engineer/references/authoring-patterns.md",
+      "platform": "claude",
+      "source": "skills/prompt-engineer/references/authoring-patterns.md",
+      "sourceDigest": "sha256:029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b",
+      "digest": "sha256:029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-engineer/references/improvement-checklist.md",
+      "platform": "claude",
+      "source": "skills/prompt-engineer/references/improvement-checklist.md",
+      "sourceDigest": "sha256:8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96",
+      "digest": "sha256:8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-engineer/references/model-specific.md",
+      "platform": "claude",
+      "source": "skills/prompt-engineer/references/model-specific.md",
+      "sourceDigest": "sha256:e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71",
+      "digest": "sha256:e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-engineer/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/prompt-engineer/SKILL.md",
+      "sourceDigest": "sha256:bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c",
+      "digest": "sha256:bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-engineer/references/authoring-patterns.md",
+      "platform": "opencode",
+      "source": "skills/prompt-engineer/references/authoring-patterns.md",
+      "sourceDigest": "sha256:029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b",
+      "digest": "sha256:029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-engineer/references/improvement-checklist.md",
+      "platform": "opencode",
+      "source": "skills/prompt-engineer/references/improvement-checklist.md",
+      "sourceDigest": "sha256:8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96",
+      "digest": "sha256:8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-engineer/references/model-specific.md",
+      "platform": "opencode",
+      "source": "skills/prompt-engineer/references/model-specific.md",
+      "sourceDigest": "sha256:e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71",
+      "digest": "sha256:e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-evaluator/SKILL.md",
+      "platform": "claude",
+      "source": "skills/prompt-evaluator/SKILL.md",
+      "sourceDigest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7",
+      "digest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-evaluator/references/evaluation-rubric.md",
+      "platform": "claude",
+      "source": "skills/prompt-evaluator/references/evaluation-rubric.md",
+      "sourceDigest": "sha256:75e208e5e15149372ed15661d07fd23ab47ee20e7f13015918e62fb03ba05287",
+      "digest": "sha256:75e208e5e15149372ed15661d07fd23ab47ee20e7f13015918e62fb03ba05287"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.ps1",
+      "platform": "claude",
+      "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
+      "sourceDigest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9",
+      "digest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.sh",
+      "platform": "claude",
+      "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
+      "sourceDigest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650",
+      "digest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/prompt-evaluator/references/promptfoo-guide.md",
+      "platform": "claude",
+      "source": "skills/prompt-evaluator/references/promptfoo-guide.md",
+      "sourceDigest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b",
+      "digest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-evaluator/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/prompt-evaluator/SKILL.md",
+      "sourceDigest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7",
+      "digest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-evaluator/references/evaluation-rubric.md",
+      "platform": "opencode",
+      "source": "skills/prompt-evaluator/references/evaluation-rubric.md",
+      "sourceDigest": "sha256:75e208e5e15149372ed15661d07fd23ab47ee20e7f13015918e62fb03ba05287",
+      "digest": "sha256:75e208e5e15149372ed15661d07fd23ab47ee20e7f13015918e62fb03ba05287"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.ps1",
+      "platform": "opencode",
+      "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
+      "sourceDigest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9",
+      "digest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.sh",
+      "platform": "opencode",
+      "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
+      "sourceDigest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650",
+      "digest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/prompt-evaluator/references/promptfoo-guide.md",
+      "platform": "opencode",
+      "source": "skills/prompt-evaluator/references/promptfoo-guide.md",
+      "sourceDigest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b",
+      "digest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/skill-creator/SKILL.md",
+      "platform": "claude",
+      "source": "skills/skill-creator/SKILL.md",
+      "sourceDigest": "sha256:a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e",
+      "digest": "sha256:a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/skill-creator/references/skill-structure.md",
+      "platform": "claude",
+      "source": "skills/skill-creator/references/skill-structure.md",
+      "sourceDigest": "sha256:45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0",
+      "digest": "sha256:45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/skill-creator/references/testing-guide.md",
+      "platform": "claude",
+      "source": "skills/skill-creator/references/testing-guide.md",
+      "sourceDigest": "sha256:67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19",
+      "digest": "sha256:67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/skill-creator/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/skill-creator/SKILL.md",
+      "sourceDigest": "sha256:a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e",
+      "digest": "sha256:a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/skill-creator/references/skill-structure.md",
+      "platform": "opencode",
+      "source": "skills/skill-creator/references/skill-structure.md",
+      "sourceDigest": "sha256:45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0",
+      "digest": "sha256:45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/skill-creator/references/testing-guide.md",
+      "platform": "opencode",
+      "source": "skills/skill-creator/references/testing-guide.md",
+      "sourceDigest": "sha256:67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19",
+      "digest": "sha256:67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/skill-reviewer/SKILL.md",
+      "platform": "claude",
+      "source": "skills/skill-reviewer/SKILL.md",
+      "sourceDigest": "sha256:0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50",
+      "digest": "sha256:0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/skill-reviewer/references/review-checklist.md",
+      "platform": "claude",
+      "source": "skills/skill-reviewer/references/review-checklist.md",
+      "sourceDigest": "sha256:6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d",
+      "digest": "sha256:6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/skill-reviewer/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/skill-reviewer/SKILL.md",
+      "sourceDigest": "sha256:0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50",
+      "digest": "sha256:0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/skill-reviewer/references/review-checklist.md",
+      "platform": "opencode",
+      "source": "skills/skill-reviewer/references/review-checklist.md",
+      "sourceDigest": "sha256:6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d",
+      "digest": "sha256:6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/plugin-developer/SKILL.md",
+      "platform": "claude",
+      "source": "skills/plugin-developer/SKILL.md",
+      "sourceDigest": "sha256:1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f",
+      "digest": "sha256:1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/plugin-developer/references/claude-plugins.md",
+      "platform": "claude",
+      "source": "skills/plugin-developer/references/claude-plugins.md",
+      "sourceDigest": "sha256:be1fb570f74ff0331852f5f586ba17e99e105143eeec73f78c625558809f2c73",
+      "digest": "sha256:be1fb570f74ff0331852f5f586ba17e99e105143eeec73f78c625558809f2c73"
+    },
+    {
+      "kind": "skill",
+      "path": "dot_claude/skills/plugin-developer/references/opencode-plugins.md",
+      "platform": "claude",
+      "source": "skills/plugin-developer/references/opencode-plugins.md",
+      "sourceDigest": "sha256:e2d59b8095493a2ec74727037d023b9de9babeb00c21b3c7ceeb3a77deac64e1",
+      "digest": "sha256:e2d59b8095493a2ec74727037d023b9de9babeb00c21b3c7ceeb3a77deac64e1"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/plugin-developer/SKILL.md",
+      "platform": "opencode",
+      "source": "skills/plugin-developer/SKILL.md",
+      "sourceDigest": "sha256:1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f",
+      "digest": "sha256:1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/plugin-developer/references/claude-plugins.md",
+      "platform": "opencode",
+      "source": "skills/plugin-developer/references/claude-plugins.md",
+      "sourceDigest": "sha256:be1fb570f74ff0331852f5f586ba17e99e105143eeec73f78c625558809f2c73",
+      "digest": "sha256:be1fb570f74ff0331852f5f586ba17e99e105143eeec73f78c625558809f2c73"
+    },
+    {
+      "kind": "skill",
+      "path": "private_dot_config/opencode/skills/plugin-developer/references/opencode-plugins.md",
+      "platform": "opencode",
+      "source": "skills/plugin-developer/references/opencode-plugins.md",
+      "sourceDigest": "sha256:e2d59b8095493a2ec74727037d023b9de9babeb00c21b3c7ceeb3a77deac64e1",
+      "digest": "sha256:e2d59b8095493a2ec74727037d023b9de9babeb00c21b3c7ceeb3a77deac64e1"
+    }
+  ]
+}

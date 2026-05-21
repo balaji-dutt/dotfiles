@@ -58,6 +58,7 @@ skill-name/
 ### Step 1: Capture intent
 
 Answer these questions:
+
 - What capability does this skill provide?
 - When should an agent load this skill? (trigger conditions)
 - When should an agent NOT load this skill? (anti-triggers)
@@ -67,6 +68,7 @@ Answer these questions:
 ### Step 2: Research prior art
 
 Search for existing skills that cover similar ground:
+
 - Suggest keyword searches to the user.
 - If prior art is provided, evaluate with `skill-reviewer`.
 - Decide: create from scratch, fork and adapt, or compose existing skills.
@@ -91,27 +93,34 @@ metadata:
 [1-2 sentence summary of what the skill does.]
 
 ## Use this skill when
+
 [Bullet list of trigger conditions]
 
 ## Do not use this skill when
+
 [Bullet list of anti-triggers]
 
 ## Inputs
+
 [What the skill expects to receive]
 
 ## Workflow
+
 [Numbered steps for the core process]
 
 ## Output
+
 [Expected output format and markers]
 
 ## Guardrails
+
 [Safety constraints and limitations]
 ```
 
 ### Step 4: Create bundled references
 
 For each reference file:
+
 - Name it descriptively (kebab-case).
 - Include it only if the SKILL.md body references it.
 - Keep each reference focused on one topic.
@@ -119,6 +128,7 @@ For each reference file:
 ### Step 5: Validate the skill
 
 Run through this checklist:
+
 - [ ] Frontmatter has all required fields (name, description, compatibility).
 - [ ] Description is precise enough to trigger correctly.
 - [ ] SKILL.md body is under 5000 words.
