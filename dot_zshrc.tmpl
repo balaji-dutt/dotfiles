@@ -115,6 +115,12 @@ fi
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+: "${PLANNOTATOR_REMOTE:=1}"
+export PLANNOTATOR_REMOTE
+
+{{- end }}
+
 : "${PLANNOTATOR_PORTS_BUILD:={{ .plannotator_ports.host.build | join "," }}}"
 : "${PLANNOTATOR_PORTS_CUSTOM:={{ .plannotator_ports.host.custom | join "," }}}"
 export PLANNOTATOR_PORTS_BUILD PLANNOTATOR_PORTS_CUSTOM
