@@ -469,13 +469,13 @@ def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args
             if any("{worktree}" in part for part in base):
                 command = [part.replace("{worktree}", str(worktree_path)) for part in base]
             else:
-                command = [*base, str(worktree_path)]
+                command = base
         else:
             opencode = command_path("opencode-plannotator") or command_path("opencode")
             if not opencode:
                 die("opencode-plannotator or opencode not found in PATH")
-            command = [opencode, str(worktree_path)]
-        return [*command, *tool_args], config.repo_root
+            command = [opencode]
+        return [*command, *tool_args], worktree_path
 
     if tool == "claude":
         for arg in tool_args:

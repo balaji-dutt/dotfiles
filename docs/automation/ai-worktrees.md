@@ -99,9 +99,10 @@ wrapper itself.
 
 ## Tool Launching
 
-OpenCode launches with the worktree path as the project argument. The wrapper
-prefers `opencode-plannotator` when it is available and falls back to
-`opencode`.
+OpenCode launches with its current working directory set to the worktree path.
+The wrapper prefers `opencode-plannotator` when it is available and falls back
+to `opencode`. Custom OpenCode commands may still use an explicit `{worktree}`
+placeholder when they need the absolute worktree path as an argument.
 
 Claude launches with its current working directory set to the worktree path.
 Do not pass Claude's `--worktree` or `-w` flags through `ai-wt`; the wrapper
@@ -153,7 +154,8 @@ AI_WT_SUBMODULE_INIT
 ```
 
 If `AI_WT_OPENCODE_COMMAND` contains `{worktree}`, that placeholder is replaced
-with the worktree path. Otherwise the path is appended as the project argument.
+with the worktree path. Otherwise the command runs from the worktree without an
+implicit project argument.
 
 ## Devcontainer Availability
 
