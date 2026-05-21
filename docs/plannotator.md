@@ -69,6 +69,31 @@ OPENCODE_PLANNOTATOR_DRY_RUN=1 opencode-plannotator
 OPENCODE_PLANNOTATOR_DRY_RUN=1 opencode-plannotator-custom
 ```
 
+## Claude Code
+
+Claude Code enables the Plannotator plugin through `~/.claude/settings.json`.
+This repo also installs an explicit fallback hook:
+
+```text
+PermissionRequest > ExitPlanMode > plannotator
+```
+
+Keep the plugin enabled. It still provides the `EnterPlanMode` context hook and
+Plannotator slash commands, but `/hooks` may show the EnterPlan hook without the
+ExitPlan hook. The explicit settings hook makes the review UI launch path
+deterministic.
+
+On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
+`PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote
+mode.
+
+If Claude Code does not open the Plannotator UI on ExitPlan:
+
+1. Restart or reload Claude Code after plugin or settings changes.
+2. Confirm `plannotator` is on `PATH` in the Claude Code environment.
+3. Run `/hooks` and confirm `PermissionRequest > ExitPlanMode > plannotator`.
+4. Check the Claude Code plugin errors view for Plannotator load errors.
+
 ## Agents of Empire
 
 On Linux and macOS, the global AoE default uses the build-handoff wrapper:
@@ -251,6 +276,15 @@ Disabled / stay-current:
 - `http://localhost:10009`
 
 ## Manual smoke test
+
+For Claude Code, ask for a tiny plan and stop before editing:
+
+```text
+Enter plan mode and draft a plan for a tiny no-op change: add a temporary comment to README.md, then stop and ask for approval before editing anything.
+```
+
+When Claude Code requests approval to exit plan mode, the Plannotator UI should
+open. Do not approve the README edit unless a real edit is desired.
 
 Plannotator slash commands are OpenCode TUI commands, not shell commands.
 
