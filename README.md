@@ -97,3 +97,28 @@ chezmoi doctor
 - Resolve source root: `chezmoi source-path`
 - Preview target differences: `chezmoi diff --verbose <target>`
 - Dry-run target apply: `chezmoi apply --dry-run --verbose <target>`
+
+## Beads setup on a new machine
+
+```bash
+pkill -9 -f dolt 2>/dev/null; sleep 1
+bd init --server --non-interactive --skip-agents --skip-hooks --prefix dots
+
+# Remove .beads/ from .git/info/exclude if bd init added it (blocks JSONL tracking).
+# No-op when not present.
+grep -q "Beads fork protection" .git/info/exclude && \
+  sed -i.bak '/^# Beads fork protection (bd init)$/,/^\.beads\/$/d' .git/info/exclude && \
+  rm -f .git/info/exclude.bak
+
+# Verify
+git check-ignore -v .beads/issues.jsonl   # should print nothing
+bd list                                    # should show issues
+```
+
+The `bd` shell wrapper that filters dolt's auto-import noise is in `<path-to-shell-config-in-this-repo>`. Source the relevant file in your `.zshrc`.
+
+### Routine cross-machine sync
+
+`.beads/issues.jsonl` is the source of truth in git. Sync via standard `git pull`/`git push`; the next `bd` command on the other machine auto-imports any new JSONL. Avoid `bd dolt pull` — use `git pull` instead.
+
+For recovery scenarios, filesystem caveats, or full context on each step, see [homelab-IaC's Beads notes](https://gitlab.com/servers-homelab/homelab-IaC/-/blob/main/README.md#beads-setup)
