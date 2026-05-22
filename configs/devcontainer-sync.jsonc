@@ -113,7 +113,7 @@
         "shell": ["zsh", "-l"],
         "platforms": {
           "darwin": {
-            "workspace_folder": "/Volumes/devdrive/homelab-IaC",
+            "workspace_folder": "/Users/balaji/Documents/development/homelab-IaC",
             "config": "{home}/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json"
           },
           "wsl2-debian": {
