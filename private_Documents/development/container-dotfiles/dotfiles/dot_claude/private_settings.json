@@ -192,6 +192,11 @@
       }
     ]
   },
+  "enabledPlugins": {
+    "claude-pace@claude-pace-marketplace": true,
+    "safety-net@cc-marketplace": true,
+    "plannotator@plannotator": true
+  },
   "extraKnownMarketplaces": {
     "claude-pace-marketplace": {
       "source": {
@@ -212,13 +217,10 @@
       }
     }
   },
-  "enabledPlugins": {
-    "claude-pace@claude-pace-marketplace": true,
-    "safety-net@cc-marketplace": true,
-    "plannotator@plannotator": true
-  },
-  "model": "claude-opus-4-7",
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
-  "theme": "dark"
+  "theme": "dark",
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  }
 }
