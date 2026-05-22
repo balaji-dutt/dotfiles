@@ -178,7 +178,7 @@
     ],
     "defaultMode": "plan"
   },
-  "hooks": {
+  "_disabled_hooks_DUPLICATES_PLANNOTATOR_PLUGIN": {
     "PermissionRequest": [
       {
         "matcher": "ExitPlanMode",
