@@ -146,7 +146,7 @@
     "@franlol/opencode-md-table-formatter@0.0.6",
     "@tarquinen/opencode-dcp@3.1.11",
     "@mohak34/opencode-notifier@0.2.5",
-    ["@plannotator/opencode@0.19.11", {
+    ["@plannotator/opencode@0.19.21", {
       "workflow": "plan-agent",
       "planningAgents": [
         "plan",
