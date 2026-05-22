@@ -285,11 +285,13 @@ Repo history shows a recurring `chore(beads): Update issues.jsonl` commit
 after every closed issue. Reproduce it:
 
 ```bash
-bd export > .beads/issues.jsonl
+bd export -o .beads/issues.jsonl
 ```
 
-Confirm exact flags against `bd export --help` if `bd` reports an
-unexpected schema. Then commit via the harness wrapper:
+The `-o` flag writes directly to the file. Do not use a plain `>`
+redirect — zsh's `noclobber` setopt (common in interactive shells)
+refuses to overwrite an existing file with `>`, and `.beads/issues.jsonl`
+already exists at this point. Then commit via the harness wrapper:
 
 - Claude Code: `cc-commit -m "chore(beads): Update issues.jsonl"`.
 - OpenCode: `oc-commit -m "chore(beads): Update issues.jsonl"`.

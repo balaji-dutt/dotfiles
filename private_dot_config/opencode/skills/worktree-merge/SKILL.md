@@ -119,8 +119,18 @@ with `git -C`, not `git merge`, so it would be punted to the ask tier on
 every invocation. A single `cd` followed by plain `git <verb>` matches
 the existing allowlist entries.
 
-The cwd persists across Bash calls in both harnesses' shell sessions, so
-subsequent steps run inside `$MAIN_WT` without re-issuing `cd`.
+**Important: cwd persistence is not guaranteed.** Some harness shell
+sessions (notably Claude Code) reset cwd to the project root between
+Bash invocations. Treat `cd "$MAIN_WT"` as a per-invocation prefix, not
+a one-shot setup. Either:
+
+- Chain the related steps in a single Bash invocation that starts with
+  `cd "$MAIN_WT" && <commands>`, **or**
+- Re-issue `cd "$MAIN_WT"` at the top of every subsequent Bash call
+  that needs to operate on the main worktree (preconditions, ff
+  attempt, no-ff fallback, log inspection, return).
+
+A bare `cd "$MAIN_WT"` in step 3 alone does **not** carry forward.
 
 ### Step 4: Verify preconditions
 
