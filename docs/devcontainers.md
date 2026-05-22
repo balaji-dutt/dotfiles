@@ -71,6 +71,11 @@ resolves the package's `dist/cli.cjs` from the global npm root and runs it with
 `node`. Configure MCP clients to use the fixed wrapper if the upstream
 `ansible-mcp-server` entrypoint fails at startup.
 
+Release-binary pins such as `MNEMO_VERSION` live in the template's
+`containerEnv` and are consumed by the container-dotfiles installer. `mnemo` is
+installed as a CLI only; MCP tools and automatic context injection are not
+enabled by these dotfiles.
+
 ## Platform Behavior
 
 Based on `.chezmoiignore` rules:
@@ -316,6 +321,18 @@ example `~/.cargo` and `~/.rustup`) from accumulating AoE bootstrap residue.
 
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
+
+## mnemo in Devcontainers
+
+The `mnemo` CLI is installed from its pinned GitHub release. Its local search
+index is persisted under:
+
+- `/home/vscode/persistent-data/mnemo`
+
+`postCreate.sh` links `~/.mnemo` to that directory so the SQLite/FTS index
+survives container rebuild/recreate cycles. Host AI history directories are not
+mounted into the devcontainer by default, and `mnemo` MCP/auto-context setup is
+intentionally left opt-in.
 
 ## opencode-claude-bridge Validation
 
