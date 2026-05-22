@@ -36,6 +36,12 @@ if [ -r "$_modern_cli_hints" ]; then
 fi
 unset _modern_cli_hints
 
+_beads_helpers="${HOME}/.local/share/beads-helpers.zsh"
+if [ -r "$_beads_helpers" ]; then
+    source "$_beads_helpers"
+fi
+unset _beads_helpers
+
 # Direnv initialization
 (( ${+commands[direnv]} )) && emulate zsh -c "$(direnv hook zsh)"
 

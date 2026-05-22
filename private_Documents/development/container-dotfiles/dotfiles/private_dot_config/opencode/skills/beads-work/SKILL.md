@@ -281,8 +281,9 @@ bd close dots-<id> \
 
 ### Step 12: Refresh the JSONL export and delete the state file
 
-Repo history shows a recurring `chore(beads): Update issues.jsonl` commit
-after every closed issue. Reproduce it:
+Repo history uses a separate `chore(beads): Commit updated issues.jsonl`
+commit after every closed issue. If the zsh helper already made that commit,
+skip this step. Otherwise reproduce it:
 
 ```bash
 bd export -o .beads/issues.jsonl
@@ -293,8 +294,8 @@ redirect — zsh's `noclobber` setopt (common in interactive shells)
 refuses to overwrite an existing file with `>`, and `.beads/issues.jsonl`
 already exists at this point. Then commit via the harness wrapper:
 
-- Claude Code: `cc-commit -m "chore(beads): Update issues.jsonl"`.
-- OpenCode: `oc-commit -m "chore(beads): Update issues.jsonl"`.
+- Claude Code: `cc-commit -m "chore(beads): Commit updated issues.jsonl"`.
+- OpenCode: `oc-commit -m "chore(beads): Commit updated issues.jsonl"`.
 
 Finally, remove the state file:
 
