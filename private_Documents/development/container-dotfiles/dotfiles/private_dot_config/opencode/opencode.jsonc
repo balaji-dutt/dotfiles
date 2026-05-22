@@ -32,7 +32,7 @@
 
     // Safety guards (OpenCode calls these out specifically).
     "doom_loop": "ask",
-    "external_directory": "ask",
+    "external_directory": "allow",
 
     // Bash is pattern-matchable and supports wildcards; "last matching rule wins".
     "bash": {
@@ -57,6 +57,8 @@
       "git rev-parse*": "allow",
       "git merge*": "allow",
       "git worktree*": "allow",
+      "git show-ref*": "allow",
+      "git rev-list*": "allow",
       "git push*": "ask",
 
       // ---- filesystem + text inspection
@@ -94,6 +96,10 @@
 
       // ---- misc
       "echo *": "allow",
+      "printf *": "allow",
+      "test *": "allow",
+      "true": "allow",
+      "false": "allow",
       "printenv*": "allow",
       "jq *": "allow",
       "yq *": "allow",
