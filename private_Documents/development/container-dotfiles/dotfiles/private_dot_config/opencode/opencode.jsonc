@@ -55,7 +55,12 @@
       "git commit*": "deny",
       "oc-commit*": "ask",
       "git rev-parse*": "allow",
+      "git merge*": "allow",
+      "git worktree*": "allow",
       "git push*": "ask",
+
+      // ---- beads (issue tracker; allowed for beads-work skill)
+      "bd*": "allow",
 
       // ---- filesystem + text inspection
       "ls*": "allow",
