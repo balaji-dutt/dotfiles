@@ -609,7 +609,7 @@ if [[ -f /tmp/host-container-configs/opencode.env ]]; then
     fi
   fi
 else
-  echo "WARN: /tmp/host-container-configs/opencode.env not found; keeping existing env file." >&2
+  echo "WARN: /tmp/host-container-configs/opencode.env not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then restart the container. Keeping existing env file if present." >&2
 fi
 
 load_opencode_env_file

@@ -545,6 +545,47 @@ ensure_agent_of_empires_persistence_link() {
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
 }
 
+install_opencode_env_file() {
+  local src dest profile_lines tmp_file
+
+  src="/tmp/host-container-configs/opencode.env"
+  dest="/home/vscode/persistent-data/opencode/config/opencode.env"
+  profile_lines=""
+  tmp_file=""
+
+  if [[ ! -f "$src" ]]; then
+    echo "WARN: $src not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then rebuild/restart the container. Keeping existing env file if present." >&2
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+  profile_lines="$(mktemp "${dest}.profiles.XXXXXX")"
+
+  if [[ -r "$dest" ]]; then
+    awk '
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { print; next }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { print; next }
+    ' "$dest" > "$profile_lines"
+  fi
+
+  install -m 0600 "$src" "$dest"
+
+  if [[ -s "$profile_lines" ]]; then
+    tmp_file="$(mktemp "${dest}.XXXXXX")"
+    awk '
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { next }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { next }
+      { print }
+    ' "$dest" > "$tmp_file"
+    cat "$profile_lines" >> "$tmp_file"
+    mv -f "$tmp_file" "$dest"
+    chmod 600 "$dest" 2>/dev/null || true
+    tmp_file=""
+  fi
+
+  rm -f "$profile_lines" ${tmp_file:+"$tmp_file"}
+}
+
 step "Prime OpenCode/AoE persistent-data symlinks before install"
 mkdir -p \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
@@ -558,6 +599,10 @@ ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
 ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
 done_step "Prime OpenCode/AoE persistent-data symlinks before install"
+
+step "Install generated OpenCode env file (if present)"
+install_opencode_env_file
+done_step "Install generated OpenCode env file (if present)"
 
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles
