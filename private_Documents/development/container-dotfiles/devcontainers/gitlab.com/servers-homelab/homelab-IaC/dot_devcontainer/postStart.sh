@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+LOG_FILE="${LOG_FILE:-/tmp/postStart.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee "$LOG_FILE") 2>&1
+
+timestamp() { date +"%Y-%m-%d %H:%M:%S%z"; }
+
+log_run_header() {
+  local workspace
+  workspace="$1"
+
+  echo "==== [$(timestamp)] postStart run ===="
+  echo "script=${BASH_SOURCE[0]}"
+  echo "workspace=$workspace"
+  echo "hostname=$(hostname 2>/dev/null || true)"
+  echo "note=postStart runs when the container starts or reopens; check /tmp/postCreate.log for create/recreate runs."
+}
+
 workspace_root="${1:-}"
 if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
   workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 fi
 workspace_root="${workspace_root:-$PWD}"
+log_run_header "$workspace_root"
 
 load_opencode_env_file() {
   local env_file restore_allexport
@@ -195,6 +213,62 @@ ensure_agent_of_empires_persistence_link() {
   fi
 
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+}
+
+migrate_directory_to_persistent_target() {
+  local source_dir target_dir skip_name target_has_content item item_name
+  source_dir="$1"
+  target_dir="$2"
+  skip_name="$3"
+  target_has_content=0
+
+  if [[ -n "$(find "$target_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    target_has_content=1
+  fi
+
+  while IFS= read -r -d '' item; do
+    item_name="$(basename "$item")"
+    if [[ "$item_name" == "$skip_name" && -L "$item" && "$(readlink "$item")" == "$target_dir" ]]; then
+      echo "Skipping stale nested OpenCode symlink artifact: $item"
+      continue
+    fi
+
+    if [[ "$target_has_content" -eq 1 ]]; then
+      cp -an "$item" "$target_dir"/
+    else
+      cp -a "$item" "$target_dir"/
+    fi
+  done < <(find "$source_dir" -mindepth 1 -maxdepth 1 -print0)
+}
+
+ensure_opencode_persistence_link() {
+  local target_dir link_path skip_name
+  target_dir="$1"
+  link_path="$2"
+  skip_name="$(basename "$target_dir")"
+
+  mkdir -p "$target_dir" "$(dirname "$link_path")"
+
+  if [[ -L "$link_path" ]]; then
+    ln -sfn "$target_dir" "$link_path"
+    return 0
+  fi
+
+  if [[ -d "$link_path" ]]; then
+    migrate_directory_to_persistent_target "$link_path" "$target_dir" "$skip_name"
+    rm -rf "$link_path"
+  elif [[ -e "$link_path" ]]; then
+    rm -rf "$link_path"
+  fi
+
+  ln -sfn "$target_dir" "$link_path"
+}
+
+ensure_opencode_persistence_links() {
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
 }
 
 ensure_beads_persistence_mounts() {
@@ -558,10 +632,7 @@ else
   echo "WARN: Agent of Empires config not found; keeping existing config." >&2
 fi
 
-ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
+ensure_opencode_persistence_links
 if [[ -f /home/vscode/.host-dotfiles/.config/opencode/opencode.jsonc ]]; then
   install -m 0644 /home/vscode/.host-dotfiles/.config/opencode/opencode.jsonc \
     /home/vscode/persistent-data/opencode/config/opencode.jsonc

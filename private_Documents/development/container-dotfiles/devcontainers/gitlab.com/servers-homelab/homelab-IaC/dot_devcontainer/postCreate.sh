@@ -4,11 +4,22 @@ set -Eeuo pipefail
 # --- Logging / debugging ---
 LOG_FILE="${LOG_FILE:-/tmp/postCreate.log}"
 mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE") 2>&1
+exec > >(tee "$LOG_FILE") 2>&1
 
 timestamp() { date +"%Y-%m-%d %H:%M:%S%z"; }
 step() { echo; echo "==== [$(timestamp)] STEP: $* ===="; }
 done_step() { echo "==== [$(timestamp)] DONE: $* ===="; }
+
+log_run_header() {
+  local workspace
+  workspace="$1"
+
+  echo "==== [$(timestamp)] postCreate run ===="
+  echo "script=${BASH_SOURCE[0]}"
+  echo "workspace=$workspace"
+  echo "hostname=$(hostname 2>/dev/null || true)"
+  echo "note=postCreate runs only when the container is created or recreated; check /tmp/postStart.log for restart/reopen runs."
+}
 
 trim_whitespace() {
   local value="$1"
@@ -337,6 +348,8 @@ export DEBIAN_FRONTEND=noninteractive
 export CI=1
 
 WORKSPACE_PATH="${1:-$PWD}"
+log_run_header "$WORKSPACE_PATH"
+
 step "Bootstrap local Git metadata volume (if mounted)"
 bootstrap_local_git_metadata "$WORKSPACE_PATH"
 done_step "Bootstrap local Git metadata volume (if mounted)"
@@ -545,6 +558,62 @@ ensure_agent_of_empires_persistence_link() {
   ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
 }
 
+migrate_directory_to_persistent_target() {
+  local source_dir target_dir skip_name target_has_content item item_name
+  source_dir="$1"
+  target_dir="$2"
+  skip_name="$3"
+  target_has_content=0
+
+  if [[ -n "$(find "$target_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    target_has_content=1
+  fi
+
+  while IFS= read -r -d '' item; do
+    item_name="$(basename "$item")"
+    if [[ "$item_name" == "$skip_name" && -L "$item" && "$(readlink "$item")" == "$target_dir" ]]; then
+      echo "Skipping stale nested OpenCode symlink artifact: $item"
+      continue
+    fi
+
+    if [[ "$target_has_content" -eq 1 ]]; then
+      cp -an "$item" "$target_dir"/
+    else
+      cp -a "$item" "$target_dir"/
+    fi
+  done < <(find "$source_dir" -mindepth 1 -maxdepth 1 -print0)
+}
+
+ensure_opencode_persistence_link() {
+  local target_dir link_path skip_name
+  target_dir="$1"
+  link_path="$2"
+  skip_name="$(basename "$target_dir")"
+
+  mkdir -p "$target_dir" "$(dirname "$link_path")"
+
+  if [[ -L "$link_path" ]]; then
+    ln -sfn "$target_dir" "$link_path"
+    return 0
+  fi
+
+  if [[ -d "$link_path" ]]; then
+    migrate_directory_to_persistent_target "$link_path" "$target_dir" "$skip_name"
+    rm -rf "$link_path"
+  elif [[ -e "$link_path" ]]; then
+    rm -rf "$link_path"
+  fi
+
+  ln -sfn "$target_dir" "$link_path"
+}
+
+ensure_opencode_persistence_links() {
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
+  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
+}
+
 install_opencode_env_file() {
   local src dest profile_lines tmp_file
 
@@ -594,10 +663,7 @@ mkdir -p \
   "$HOME/.local/state"
 
 ensure_agent_of_empires_persistence_link
-ln -sfn /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
-ln -sfn /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
+ensure_opencode_persistence_links
 done_step "Prime OpenCode/AoE persistent-data symlinks before install"
 
 step "Install generated OpenCode env file (if present)"
