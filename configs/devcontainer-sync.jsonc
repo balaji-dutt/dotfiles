@@ -54,12 +54,14 @@
         ]
       },
       {
-        "name": "user-bin-ai-wt",
+        "name": "user-bin-selected-wrappers",
         "source_root": "bin",
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin",
         "cleanup_managed": false,
         "include": [
-          "executable_ai-wt.tmpl"
+          "executable_ai-wt.tmpl",
+          "executable_cc-commit",
+          "executable_oc-commit"
         ],
         "exclude": []
       }
