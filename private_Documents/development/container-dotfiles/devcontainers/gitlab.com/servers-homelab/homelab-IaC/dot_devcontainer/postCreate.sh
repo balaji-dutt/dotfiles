@@ -517,6 +517,68 @@ else
 fi
 done_step "Install MCP server binaries"
 
+# --- 5c) plannotator CLI ---
+# Claude Code's plannotator plugin invokes a bare `plannotator` command from
+# PATH; the plugin itself does not ship the CLI. Pin + install it here so
+# every container rebuild matches PLANNOTATOR_VERSION (set in
+# devcontainer.json.tmpl, sourced from .chezmoidata.yaml).
+step "Install plannotator CLI"
+if [[ -n "${PLANNOTATOR_VERSION:-}" ]]; then
+  case "$ARCH" in
+    x86_64)  PLANNOTATOR_ARCH="x64" ;;
+    aarch64) PLANNOTATOR_ARCH="arm64" ;;
+    *)
+      echo "WARN: unsupported architecture $ARCH for plannotator; skipping."
+      PLANNOTATOR_ARCH=""
+      ;;
+  esac
+
+  if [[ -n "$PLANNOTATOR_ARCH" ]]; then
+    PLANNOTATOR_BIN="$HOME/.local/bin/plannotator"
+    PLANNOTATOR_INSTALLED=""
+    if [[ -x "$PLANNOTATOR_BIN" ]]; then
+      PLANNOTATOR_INSTALLED=$(
+        "$PLANNOTATOR_BIN" --version 2>/dev/null \
+          | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+          | head -1 \
+          || true
+      )
+    fi
+
+    if [[ "$PLANNOTATOR_INSTALLED" == "$PLANNOTATOR_VERSION" ]]; then
+      echo "[plannotator] ${PLANNOTATOR_INSTALLED} already installed; nothing to do."
+    else
+      echo "[plannotator] installing v${PLANNOTATOR_VERSION} (${PLANNOTATOR_ARCH})"
+      PLANNOTATOR_BASE_URL="https://github.com/backnotprop/plannotator/releases/download/v${PLANNOTATOR_VERSION}"
+      PLANNOTATOR_ASSET="plannotator-linux-${PLANNOTATOR_ARCH}"
+      PLANNOTATOR_TMP=$(mktemp -d /tmp/plannotator.XXXXXX)
+
+      curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}.sha256" \
+        -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256"
+      curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}" \
+        -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}"
+
+      PLANNOTATOR_EXPECTED=$(awk '{print $1}' "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256")
+      PLANNOTATOR_ACTUAL=$(sha256sum "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" | awk '{print $1}')
+      if [[ "$PLANNOTATOR_EXPECTED" != "$PLANNOTATOR_ACTUAL" ]]; then
+        echo "ERROR: SHA256 mismatch for ${PLANNOTATOR_ASSET}" >&2
+        echo "  expected: $PLANNOTATOR_EXPECTED" >&2
+        echo "  actual:   $PLANNOTATOR_ACTUAL" >&2
+        rm -rf "$PLANNOTATOR_TMP"
+        exit 1
+      fi
+
+      mkdir -p "$HOME/.local/bin"
+      install -m 0755 "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" "$PLANNOTATOR_BIN"
+      rm -rf "$PLANNOTATOR_TMP"
+      "$PLANNOTATOR_BIN" --version 2>/dev/null || echo "WARN: plannotator --version check failed"
+    fi
+  fi
+else
+  echo "WARN: PLANNOTATOR_VERSION not set; skipping plannotator install."
+fi
+done_step "Install plannotator CLI"
+
 # --- 6) Claude symlinks / setup ---
 step "Setup Claude config symlinks and permissions"
 ensure_claude_persistence_links
