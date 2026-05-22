@@ -59,9 +59,6 @@
       "git worktree*": "allow",
       "git push*": "ask",
 
-      // ---- beads (issue tracker; allowed for beads-work skill)
-      "bd*": "allow",
-
       // ---- filesystem + text inspection
       "ls*": "allow",
       "pwd*": "allow",
@@ -484,6 +481,7 @@
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
       "model": "openai/gpt-5.5",
       "reasoningEffort": "xhigh",
+      "temperature": 0.2,
       "prompt": "{file:./prompts/generated/agent-engineer.md}",
       "permission": {
         "webfetch": "allow",
