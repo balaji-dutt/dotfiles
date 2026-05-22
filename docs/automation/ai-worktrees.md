@@ -49,7 +49,7 @@ The session ID is wrapper-owned and has this form:
 YYYYMMDD-HHMMSS-<6-hex-random>
 ```
 
-Session metadata is stored under:
+Active or retained session metadata is stored under:
 
 ```text
 .ai-wt/sessions/<session-id>.json
@@ -57,9 +57,10 @@ Session metadata is stored under:
 
 ## Cleanup Behavior
 
-On normal tool exit, `ai-wt` removes a clean managed worktree and keeps the
-branch. If the worktree has uncommitted changes, it is left on disk and the
-metadata remains available for later cleanup.
+On normal tool exit, `ai-wt` removes a clean managed worktree, deletes its
+session metadata, and keeps the branch. Clean completed sessions do not appear
+in `ai-wt list`. If the worktree has uncommitted changes, it is left on disk
+and the metadata remains available for later cleanup.
 
 Manual cleanup accepts a session ID, exact branch name, or exact worktree path:
 

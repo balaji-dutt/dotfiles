@@ -416,7 +416,8 @@ def write_metadata(config: Config, metadata: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent), text=True)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, indent=2, sort_keys=True)
+        persisted = {key: value for key, value in metadata.items() if not key.startswith("_")}
+        json.dump(persisted, handle, indent=2, sort_keys=True)
         handle.write("\n")
     Path(tmp_name).replace(path)
 
@@ -431,6 +432,33 @@ def read_metadata(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError) as exc:
         eprint(f"warning: could not read {path}: {exc}")
         return None
+
+
+def metadata_file_for(config: Config, metadata: dict[str, Any]) -> Path | None:
+    raw_path = metadata.get("_metadata_path")
+    if raw_path:
+        return Path(str(raw_path))
+    session_id = str(metadata.get("session_id", ""))
+    if not session_id:
+        return None
+    return metadata_path(config, session_id)
+
+
+def remove_metadata(config: Config, metadata: dict[str, Any]) -> bool:
+    path = metadata_file_for(config, metadata)
+    if path is None:
+        eprint("could not remove session metadata: missing session id")
+        return False
+    try:
+        path.unlink()
+        metadata.pop("_metadata_path", None)
+        return True
+    except FileNotFoundError:
+        metadata.pop("_metadata_path", None)
+        return True
+    except OSError as exc:
+        eprint(f"could not remove session metadata {path}: {exc}")
+        return False
 
 
 def load_sessions(config: Config) -> list[dict[str, Any]]:
@@ -543,6 +571,7 @@ def cleanup_session(
     branch = str(metadata.get("branch", ""))
     branch_created = bool(metadata.get("branch_created", False))
     ok = True
+    cleanup_complete = False
 
     if path.exists():
         dirty = worktree_dirty(path)
@@ -557,8 +586,10 @@ def cleanup_session(
         ok = remove_worktree(config.repo_root, path, force=force, dry_run=dry_run)
         if ok:
             metadata["cleanup_status"] = "removed_worktree" if not dry_run else "dry_run"
+            cleanup_complete = True
     else:
         metadata["cleanup_status"] = "missing_worktree"
+        cleanup_complete = True
 
     if delete and branch:
         if not branch_created and not force:
@@ -570,7 +601,10 @@ def cleanup_session(
                 metadata["cleanup_status"] = "removed_worktree_deleted_branch" if not dry_run else "dry_run"
 
     if not dry_run:
-        write_metadata(config, metadata)
+        if ok and cleanup_complete:
+            ok = remove_metadata(config, metadata)
+        else:
+            write_metadata(config, metadata)
     return ok
 
 
@@ -756,11 +790,9 @@ def cmd_prune(raw_args: list[str]) -> int:
         if parsed.dry_run:
             print(f"would remove stale metadata: {meta}")
         else:
-            try:
-                meta.unlink()
+            if remove_metadata(config, item):
                 print(f"removed stale metadata: {meta}")
-            except OSError as exc:
-                eprint(f"could not remove stale metadata {meta}: {exc}")
+            else:
                 ok = False
     return 0 if ok else 1
 
