@@ -178,6 +178,10 @@
     ],
     "defaultMode": "plan"
   },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
   "hooks": {
     "PermissionRequest": [
       {

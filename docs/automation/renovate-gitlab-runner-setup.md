@@ -114,3 +114,109 @@ Verify:
 - Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
   except OpenCode plugin patch/digest updates.
 - After first successful run, enable weekends-only schedule.
+
+## 9) Statusline auto-sync token (`STATUSLINE_SYNC_TOKEN`)
+
+The dotfiles project ships a vendored copy of the `claude-pace` statusline
+script (`dot_claude/executable_statusline.sh` and the container-dotfiles
+mirror). A Renovate `customManager` bumps the `CLAUDE_PACE_VERSION`
+sentinel when upstream releases ship, but Renovate cannot rewrite the
+script body. `.gitlab-ci.yml` closes that gap: on
+`renovate/statusline-*` branches it runs `assets/sync-statusline.sh`,
+amends the sync onto the Renovate commit, and force-pushes back to the MR
+branch before `platformAutomerge` fires.
+
+The amend-and-push step needs a token that can write to this repository.
+The built-in `CI_JOB_TOKEN` cannot push branches, and the renovate-runner
+group service-account token lives in the runner project (not in this
+project's CI variables). A dedicated **Project Access Token** scoped to
+the dotfiles project is the right tool.
+
+### Required token type
+
+GitLab **Project Access Token** — not a personal PAT, not a deploy token,
+not a group access token. Project Access Tokens act as a bot user
+attached to a single project and can push code.
+
+### Required scopes
+
+- `write_repository` — required; allows `git push`.
+- `read_repository` — implied by `write_repository`; do not tick
+  separately.
+- **Do not** grant `api`, `read_user`, `read_registry`, or any other
+  scope. The job only needs to push.
+
+### Required role
+
+- **Developer** — sufficient when the `renovate/statusline-*` branches
+  are not in the project's protected-branches list. Renovate's default
+  behavior keeps MR source branches unprotected, so Developer is the
+  right starting point.
+- **Maintainer** — required only if `renovate/*` (or
+  `renovate/statusline-*` specifically) has been added to Settings →
+  Repository → Protected branches. If unsure, leave the role at
+  Developer; the first failing CI run will report a
+  `pre-receive hook declined` / `protected branch` error and the role
+  can be upgraded.
+
+### Steps in the GitLab UI
+
+1. Go to `gitlab.com/balaji-personal-files/dotfiles → Settings →
+   Access Tokens → Project access tokens → Add new token`.
+2. Set token fields:
+   - **Token name:** `statusline-sync` (or `claude-pace-sync`).
+   - **Expiry date:** set the maximum GitLab allows (currently 364 days).
+     Add a calendar reminder ~14 days before expiry to rotate.
+   - **Select a role:** Developer (see "Required role" above).
+   - **Select scopes:** tick `write_repository` only.
+3. Click **Create project access token**. **Copy the token value
+   immediately** — it is shown only once.
+4. Store the value in 1Password as an API credential. The 1Password item
+   title is purely a human-facing label for recall; it is not referenced
+   by any code, chezmoi template, or CI job in this repo. Recommended
+   fields (pick any title):
+   - Notes: creation date, expiry date, scopes (`write_repository`),
+     owning project URL (`gitlab.com/balaji-personal-files/dotfiles`),
+     consumer (GitLab CI variable `STATUSLINE_SYNC_TOKEN`).
+   - Suggested title, mirroring the renovate-service-account entry:
+     `GitLab — dotfiles statusline-sync PAT`.
+5. In the **same project → Settings → CI/CD → Variables → Add
+   variable**, configure:
+   - **Key:** `STATUSLINE_SYNC_TOKEN`.
+   - **Value:** paste the token from step 3.
+   - **Type:** Variable (not File).
+   - **Environment scope:** `*` (all environments).
+   - **Protect variable:** **OFF**. `renovate/statusline-*` branches are
+     not protected, so a protected variable would be unavailable in the
+     sync job and the push would fail.
+   - **Mask variable:** **ON**. Hides the value from job logs.
+   - **Expand variable reference:** OFF.
+6. Click **Add variable**.
+
+### How the CI job consumes the token
+
+The `statusline-sync` job in `.gitlab-ci.yml` rewrites `origin` to embed
+the token under the `oauth2:<token>` username convention GitLab accepts
+for token-based git auth, then force-pushes:
+
+```bash
+git remote set-url origin \
+  "https://oauth2:${STATUSLINE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
+```
+
+A push made via this Project Access Token (rather than `CI_JOB_TOKEN`)
+**does** trigger a new pipeline on the same branch — the desired
+behavior, since the new pipeline runs `assets/sync-statusline.sh --check`
+to verify the synced body and then unblocks `platformAutomerge`.
+
+### Rotation and revocation
+
+To rotate: create a new token (steps 1–3 above), update the CI variable
+value with the new token, then revoke the old token under Settings →
+Access Tokens. No code change required.
+
+To revoke: same Settings → Access Tokens page, **Revoke** action on the
+token row. The next CI run on a `renovate/statusline-*` branch will
+fail loudly, signalling the missing token without leaking history or
+performing unwanted pushes.

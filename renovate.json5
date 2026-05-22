@@ -80,6 +80,18 @@
         "(?m)^\\s*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\",?\\s*$",
         "(?m)^\\s*\\[\\s*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\"\\s*,"
       ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^dot_claude\\/executable_statusline\\.sh$/",
+        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/dot_claude\\/executable_statusline\\.sh$/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "Astro-Han/claude-pace",
+      "matchStrings": [
+        "(?m)^CLAUDE_PACE_VERSION=\\\"(?<currentValue>v[^\\\"]+)\\\"\\s*$"
+      ]
     }
   ],
 
@@ -222,6 +234,15 @@
       "matchFileNames": ["configs/packages.yaml"],
       "matchUpdateTypes": ["major"],
       "groupName": "wsl tool versions (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [
+        "dot_claude/executable_statusline.sh",
+        "private_Documents/development/container-dotfiles/dotfiles/dot_claude/executable_statusline.sh"
+      ],
+      "groupName": "claude-pace statusline",
+      "additionalBranchPrefix": "statusline-"
     }
   ]
 }

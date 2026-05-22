@@ -401,6 +401,7 @@ install_claude_managed_asset_links() {
   link_claude_managed_path "$source_dir/private_settings.json" "$claude_config_dir/settings.json"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
+  link_claude_managed_path "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
 
   for managed_name in agents hooks commands; do
     source_path="$source_dir/$managed_name"
