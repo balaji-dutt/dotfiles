@@ -115,7 +115,9 @@ git check-ignore -v .beads/issues.jsonl   # should print nothing
 bd list                                    # should show issues
 ```
 
-The `bd` shell wrapper that filters dolt's auto-import noise is in `<path-to-shell-config-in-this-repo>`. Source the relevant file in your `.zshrc`.
+The host and dev-container zsh configs source `~/.local/share/beads-helpers.zsh`.
+That helper filters dolt auto-import noise and commits `.beads/issues.jsonl`
+separately after successful `bd` write commands.
 
 ### Routine cross-machine sync
 
