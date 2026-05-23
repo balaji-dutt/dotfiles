@@ -135,6 +135,11 @@ Documents/PowerShell
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}
+{{/* Local AI worktree/session artifacts */}}
+.ai-wt/
+.ai-wt/**
+worktrees/
+worktrees/**
 ansible/
 ansible/**
 /assets/
