@@ -32,6 +32,16 @@ repo_root() {
 
 info(){ echo "INFO: $*" >&2; }
 
+# Optional override: set CHEZMOI_SOURCE_DIR to point chezmoi at a different
+# source directory (e.g. a feature worktree). Without this, chezmoi always
+# uses its configured source dir, so edits in branch worktrees are invisible.
+if [[ -n "${CHEZMOI_SOURCE_DIR:-}" ]]; then
+  info "CHEZMOI_SOURCE_DIR override: $CHEZMOI_SOURCE_DIR"
+  cm(){ chezmoi --source "$CHEZMOI_SOURCE_DIR" "$@"; }
+else
+  cm(){ chezmoi "$@"; }
+fi
+
 audit_logdir() {
   local d="${CZ_AUDIT_LOGDIR:-.cz-audit}"
   mkdir -p "$d"
@@ -148,11 +158,11 @@ ansible_container_lint() {
     "$image" ansible-lint -c "$cfg" "$file_rel"
 }
 
-srcdir(){ chezmoi source-path; }
-destdir(){ chezmoi target-path; }
+srcdir(){ cm source-path; }
+destdir(){ cm target-path; }
 
 target_from_source_rel() {
-  chezmoi target-path "$(srcdir)/$relsrc"
+  cm target-path "$(srcdir)/$relsrc"
 }
 
 target_rel_from_source_rel() {
@@ -174,7 +184,7 @@ is_managed_source_rel() {
   rel="$(target_rel_from_source_rel)"
   [[ -n "${rel:-}" ]] || return 1
 
-  chezmoi managed | grep -Fx "$rel" >/dev/null 2>&1
+  cm managed | grep -Fx "$rel" >/dev/null 2>&1
 }
 
 is_chezmoi_config_file() {
@@ -225,8 +235,8 @@ dryrun_if_managed() {
   fi
   local t
   t="$(target_from_source_rel)"
-  chezmoi --use-builtin-diff --no-pager diff --verbose "$t"
-  chezmoi apply --use-builtin-diff --no-pager --dry-run --verbose "$t"
+  cm --use-builtin-diff --no-pager diff --verbose "$t"
+  cm apply --use-builtin-diff --no-pager --dry-run --verbose "$t"
 }
 
 check_shell_file_rel() {
@@ -321,12 +331,12 @@ check_chezmoi_config() {
 
   # If templated, ensure it renders on THIS machine.
   if [[ "$relsrc" == *.tmpl ]]; then
-    chezmoi execute-template -f "$abs" >/dev/null
+    cm execute-template -f "$abs" >/dev/null
     info "Template renders OK: $relsrc"
   fi
 
   # Advisory: may emit warnings; capture and suppress by default.
-  audit_capture chezmoi doctor
+  audit_capture cm doctor
   audit_handle "CHEZMOI_DOCTOR" "$relsrc" 1
 }
 
@@ -349,7 +359,7 @@ check() {
     chezmoiscript:*)
       if [[ "$relsrc" == *.sh.tmpl ]]; then
         tmp="$(mktemp)"
-        chezmoi execute-template -f "$(srcdir)/$relsrc" >"$tmp"
+        cm execute-template -f "$(srcdir)/$relsrc" >"$tmp"
         bash -n "$tmp"
         rm -f "$tmp"
       elif [[ "$relsrc" == *.sh ]]; then

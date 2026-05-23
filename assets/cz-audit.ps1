@@ -170,6 +170,13 @@ function Invoke-Cz([string[]]$CzArgs) {
   $exe = (Get-Command cz -ErrorAction SilentlyContinue)
   if (-not $exe) { $exe = (Get-Command chezmoi -ErrorAction SilentlyContinue) }
   if (-not $exe) { throw "Neither 'cz' nor 'chezmoi' found in PATH" }
+  # Optional override: set $env:CHEZMOI_SOURCE_DIR to point chezmoi at a
+  # different source directory (e.g. a feature worktree). Without this,
+  # chezmoi uses its configured source dir, so edits in branch worktrees
+  # are invisible.
+  if ($env:CHEZMOI_SOURCE_DIR) {
+    $CzArgs = @('--source', $env:CHEZMOI_SOURCE_DIR) + $CzArgs
+  }
   & $exe @CzArgs
 }
 
@@ -614,6 +621,10 @@ try {
   Import-AuditEnv (Join-Path $script:ROOT 'assets/cz-audit.env')
   Ensure-AuditDefaults
   Clear-AuditLogsOnce
+
+  if ($env:CHEZMOI_SOURCE_DIR) {
+    Write-Info "CHEZMOI_SOURCE_DIR override: $($env:CHEZMOI_SOURCE_DIR)"
+  }
 
   switch ($Command) {
     'classify' { Classify $RelSrc | Write-Output }
