@@ -127,71 +127,83 @@ amends the sync onto the Renovate commit, and force-pushes back to the MR
 branch before `platformAutomerge` fires.
 
 The amend-and-push step needs a token that can write to this repository.
-The built-in `CI_JOB_TOKEN` cannot push branches, and the renovate-runner
-group service-account token lives in the runner project (not in this
-project's CI variables). A dedicated **Project Access Token** scoped to
-the dotfiles project is the right tool.
+The built-in `CI_JOB_TOKEN` cannot push branches, and the existing
+group-level `RENOVATE_TOKEN` is marked Protected — so it is invisible to
+pipelines that run on unprotected branches like `renovate/statusline-*`.
+A dedicated, scoped token is therefore required.
 
 ### Required token type
 
-GitLab **Project Access Token** — not a personal PAT, not a deploy token,
-not a group access token. Project Access Tokens act as a bot user
-attached to a single project and can push code.
+**Service Account Access Token** issued from the existing `renovate-bot`
+service account (the same account that owns the `RENOVATE_TOKEN` you
+already use). Reusing the service account — but with a second, narrower
+token — keeps the pusher identity in GitLab's audit log aligned with the
+commit author identity set by the CI job
+(`Renovate Bot <service_account_group_65498163_...@noreply.gitlab.com>`),
+so a single MR shows one consistent actor end-to-end.
 
 ### Required scopes
 
 - `write_repository` — required; allows `git push`.
-- `read_repository` — implied by `write_repository`; do not tick
-  separately.
-- **Do not** grant `api`, `read_user`, `read_registry`, or any other
-  scope. The job only needs to push.
+- **Do not** tick `read_user`, `api`, `read_registry`, `self_rotate`,
+  or any other scope. This token only needs to push the body-sync
+  commit; broader scopes would expand blast radius for no benefit.
 
 ### Required role
 
-- **Developer** — sufficient when the `renovate/statusline-*` branches
-  are not in the project's protected-branches list. Renovate's default
-  behavior keeps MR source branches unprotected, so Developer is the
-  right starting point.
-- **Maintainer** — required only if `renovate/*` (or
-  `renovate/statusline-*` specifically) has been added to Settings →
-  Repository → Protected branches. If unsure, leave the role at
-  Developer; the first failing CI run will report a
-  `pre-receive hook declined` / `protected branch` error and the role
-  can be upgraded.
+The `renovate-bot` service account already has at least Developer
+membership on the dotfiles project (per section 3 of this runbook).
+Service-account access tokens inherit that membership; no role is
+selected at token-creation time. Verify:
+
+- Developer is sufficient when `renovate/statusline-*` branches are
+  **not** in Settings → Repository → Protected branches (the default).
+- If you've added `renovate/*` to protected branches, upgrade the
+  `renovate-bot` membership on dotfiles to Maintainer; the first failing
+  CI run will report a `pre-receive hook declined` / `protected branch`
+  error if the role is too low.
 
 ### Steps in the GitLab UI
 
-1. Go to `gitlab.com/balaji-personal-files/dotfiles → Settings →
-   Access Tokens → Project access tokens → Add new token`.
-2. Set token fields:
+1. Go to
+   `gitlab.com/groups/balaji-personal-files/-/service_accounts`
+   (Group → Settings → Service Accounts) and locate the `renovate-bot`
+   service account.
+2. Open the account menu (`⋮`) → **Manage Access Tokens** → **Add new
+   token**.
+3. Set token fields:
    - **Token name:** `statusline-sync` (or `claude-pace-sync`).
    - **Expiry date:** set the maximum GitLab allows (currently 364 days).
      Add a calendar reminder ~14 days before expiry to rotate.
-   - **Select a role:** Developer (see "Required role" above).
    - **Select scopes:** tick `write_repository` only.
-3. Click **Create project access token**. **Copy the token value
-   immediately** — it is shown only once.
-4. Store the value in 1Password as an API credential. The 1Password item
+4. Click **Create token**. **Copy the token value immediately** — it is
+   shown only once.
+5. Store the value in 1Password as an API credential. The 1Password item
    title is purely a human-facing label for recall; it is not referenced
    by any code, chezmoi template, or CI job in this repo. Recommended
    fields (pick any title):
    - Notes: creation date, expiry date, scopes (`write_repository`),
-     owning project URL (`gitlab.com/balaji-personal-files/dotfiles`),
-     consumer (GitLab CI variable `STATUSLINE_SYNC_TOKEN`).
-   - Suggested title, mirroring the renovate-service-account entry:
-     `GitLab — dotfiles statusline-sync PAT`.
-5. In the **same project → Settings → CI/CD → Variables → Add
-   variable**, configure:
+     owning service account (`renovate-bot` in group
+     `balaji-personal-files`), consumer (GitLab CI variable
+     `STATUSLINE_SYNC_TOKEN` on the dotfiles project).
+   - Suggested title, parallel to the existing renovate-bot main-PAT
+     entry: `GitLab — renovate-bot statusline-sync PAT`.
+6. Go to **Project → `gitlab.com/balaji-personal-files/dotfiles` →
+   Settings → CI/CD → Variables → Add variable**, then configure:
    - **Key:** `STATUSLINE_SYNC_TOKEN`.
-   - **Value:** paste the token from step 3.
+   - **Value:** paste the token from step 4.
    - **Type:** Variable (not File).
+   - **Visibility:** Masked (hides the value from job logs).
+   - **Flags → Protect variable:** **OFF**. `renovate/statusline-*`
+     branches are not protected, so a Protected variable would be
+     invisible to the sync job and the push would fail. This is also
+     why the variable lives at *project* level rather than next to
+     `RENOVATE_TOKEN` at group level — the existing group variable is
+     Protected and only exposed to protected branches, which is correct
+     for Renovate's own scheduled pipelines but wrong for ours.
    - **Environment scope:** `*` (all environments).
-   - **Protect variable:** **OFF**. `renovate/statusline-*` branches are
-     not protected, so a protected variable would be unavailable in the
-     sync job and the push would fail.
-   - **Mask variable:** **ON**. Hides the value from job logs.
    - **Expand variable reference:** OFF.
-6. Click **Add variable**.
+7. Click **Add variable**.
 
 ### How the CI job consumes the token
 
@@ -205,18 +217,24 @@ git remote set-url origin \
 git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
 ```
 
-A push made via this Project Access Token (rather than `CI_JOB_TOKEN`)
-**does** trigger a new pipeline on the same branch — the desired
-behavior, since the new pipeline runs `assets/sync-statusline.sh --check`
-to verify the synced body and then unblocks `platformAutomerge`.
+Because the token is owned by `renovate-bot`, GitLab records the pusher
+in the project's audit log as the renovate-bot service account —
+matching the `Renovate Bot` author the CI job sets via `GIT_AUTHOR_*`
+env vars. A push made via this access token (rather than
+`CI_JOB_TOKEN`) **does** trigger a new pipeline on the same branch, the
+desired behavior since the new pipeline runs `assets/sync-statusline.sh
+--check` to verify the synced body and then unblocks
+`platformAutomerge`.
 
 ### Rotation and revocation
 
-To rotate: create a new token (steps 1–3 above), update the CI variable
-value with the new token, then revoke the old token under Settings →
-Access Tokens. No code change required.
+To rotate: create a new token via the same Group → Service Accounts →
+renovate-bot → Manage Access Tokens page (steps 1–4 above), update the
+`STATUSLINE_SYNC_TOKEN` CI variable on the dotfiles project with the
+new value, then revoke the old token from the same page. The broader
+`RENOVATE_TOKEN` is independent and is not affected.
 
-To revoke: same Settings → Access Tokens page, **Revoke** action on the
+To revoke: same Manage Access Tokens page, **Revoke** action on the
 token row. The next CI run on a `renovate/statusline-*` branch will
 fail loudly, signalling the missing token without leaking history or
 performing unwanted pushes.
