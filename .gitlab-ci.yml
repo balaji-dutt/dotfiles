@@ -8,7 +8,6 @@ stages:
 statusline-sync:
   stage: sync
   image: alpine:3.20
-  interruptible: true
   timeout: 10m
   before_script:
     - apk add --no-cache bash curl git
