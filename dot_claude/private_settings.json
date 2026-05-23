@@ -1,4 +1,100 @@
 {
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "claude-pace@claude-pace-marketplace": true,
+    "plannotator@plannotator": true,
+    "safety-net@cc-marketplace": true
+  },
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  },
+  "extraKnownMarketplaces": {
+    "cc-marketplace": {
+      "source": {
+        "repo": "kenryu42/cc-marketplace",
+        "source": "github"
+      }
+    },
+    "claude-pace-marketplace": {
+      "source": {
+        "repo": "Astro-Han/claude-pace",
+        "source": "github"
+      }
+    },
+    "plannotator": {
+      "source": {
+        "repo": "backnotprop/plannotator",
+        "source": "github"
+      }
+    }
+  },
+  "hooks": {
+    "ElicitationResult": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf waiting > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
+            "type": "command"
+          }
+        ],
+        "matcher": "permission_prompt|elicitation_dialog"
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "plannotator",
+            "timeout": 345600,
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode_DISABLED_duplicates_plannotator_plugin"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf idle > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; mkdir -p /tmp/aoe-hooks/$AOE_INSTANCE_ID && printf running > /tmp/aoe-hooks/$AOE_INSTANCE_ID/status'",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "model": "claude-opus-4-7",
   "permissions": {
     "allow": [
       "Bash(docker ps:*)",
@@ -94,6 +190,7 @@
       "TodoWrite",
       "Task"
     ],
+    "defaultMode": "plan",
     "deny": [
       "Bash(rm -rf /:*)",
       "Bash(sudo rm -rf /:*)",
@@ -175,53 +272,7 @@
       "Write(**/.envsitter/pepper)",
       "Bash(exec < /dev/tcp/:*)",
       "Bash(exec > /dev/tcp/:*)"
-    ],
-    "defaultMode": "plan"
-  },
-  "_disabled_hooks_DUPLICATES_PLANNOTATOR_PLUGIN": {
-    "PermissionRequest": [
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "plannotator",
-            "timeout": 345600
-          }
-        ]
-      }
     ]
   },
-  "enabledPlugins": {
-    "claude-pace@claude-pace-marketplace": true,
-    "safety-net@cc-marketplace": true,
-    "plannotator@plannotator": true
-  },
-  "extraKnownMarketplaces": {
-    "claude-pace-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "Astro-Han/claude-pace"
-      }
-    },
-    "cc-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "kenryu42/cc-marketplace"
-      }
-    },
-    "plannotator": {
-      "source": {
-        "source": "github",
-        "repo": "backnotprop/plannotator"
-      }
-    }
-  },
-  "model": "claude-opus-4-7",
-  "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
-  "theme": "dark",
-  "env": {
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  }
+  "theme": "dark"
 }
