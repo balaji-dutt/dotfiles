@@ -14,6 +14,7 @@ set -euo pipefail
   "ansible/tasks/debian-dev-tools.yml"
   "ansible/tasks/certificates.yml"
   "ansible/tasks/onepassword-setup.yml"
+  ".chezmoidata.yaml"
   "configs/packages.yaml"
   "configs/mise.toml"
   "configs/mise_wsl2.toml"
@@ -48,6 +49,7 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     -e "distro_id=${DISTRO_ID}" \
     -e "distro_version=${DISTRO_VERSION}" \
     -e "chezmoi_source_dir={{ .chezmoi.sourceDir }}" \
+    -e "plannotator_version={{ .plannotator_version }}" \
     {{- if .CERTPATH }}
     -e {{ printf "%q" (printf "cert_path=%s" (.CERTPATH | toJson)) }} \
     {{- end }}

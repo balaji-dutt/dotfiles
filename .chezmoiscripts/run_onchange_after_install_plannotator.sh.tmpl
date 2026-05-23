@@ -1,0 +1,83 @@
+#!/bin/bash
+# Install or upgrade the plannotator CLI to the version pinned in
+# .chezmoidata.yaml. The pinned value is interpolated below as the change
+# trigger -- bumping it (e.g. via Renovate) causes chezmoi to re-run this
+# script.
+#
+# WSL2 is handled by ansible/wsl-playbook.yml. Native Windows is handled by
+# the matching .ps1.tmpl. Dev Containers install plannotator from their
+# postCreate.sh using $PLANNOTATOR_VERSION.
+{{- if ne .chezmoi.os "darwin" }}
+exit 0
+{{- end }}
+
+set -euo pipefail
+
+# Change trigger (chezmoi re-runs on hash change):
+# plannotator_version: {{ .plannotator_version }}
+
+PLANNOTATOR_VERSION="{{ .plannotator_version }}"
+INSTALL_DIR="${HOME}/.local/bin"
+BIN_PATH="${INSTALL_DIR}/plannotator"
+REPO="backnotprop/plannotator"
+
+if [[ -z "$PLANNOTATOR_VERSION" ]]; then
+  echo "plannotator_version is empty in .chezmoidata.yaml; skipping install."
+  exit 0
+fi
+
+case "$(uname -m)" in
+  arm64|aarch64) PLANNOTATOR_ARCH="arm64" ;;
+  x86_64|amd64)  PLANNOTATOR_ARCH="x64" ;;
+  *)
+    echo "ERROR: unsupported macOS architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+ASSET="plannotator-darwin-${PLANNOTATOR_ARCH}"
+BASE_URL="https://github.com/${REPO}/releases/download/v${PLANNOTATOR_VERSION}"
+
+INSTALLED_VERSION=""
+if [[ -x "$BIN_PATH" ]]; then
+  INSTALLED_VERSION=$(
+    "$BIN_PATH" --version 2>/dev/null \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+      | head -1 \
+      || true
+  )
+fi
+
+if [[ "$INSTALLED_VERSION" == "$PLANNOTATOR_VERSION" ]]; then
+  echo "plannotator ${INSTALLED_VERSION} already installed; nothing to do."
+  exit 0
+fi
+
+if [[ -n "$INSTALLED_VERSION" ]]; then
+  echo "Updating plannotator: ${INSTALLED_VERSION} -> ${PLANNOTATOR_VERSION}"
+else
+  echo "Installing plannotator ${PLANNOTATOR_VERSION}..."
+fi
+
+mkdir -p "$INSTALL_DIR"
+
+TMP_DIR=$(mktemp -d /tmp/plannotator.XXXXXX)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+curl -fsSL "${BASE_URL}/${ASSET}.sha256" -o "${TMP_DIR}/${ASSET}.sha256"
+curl -fsSL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+
+EXPECTED_SHA=$(awk '{print $1}' "${TMP_DIR}/${ASSET}.sha256")
+ACTUAL_SHA=$(shasum -a 256 "${TMP_DIR}/${ASSET}" | awk '{print $1}')
+
+if [[ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+  echo "ERROR: SHA256 mismatch for ${ASSET}" >&2
+  echo "  expected: $EXPECTED_SHA" >&2
+  echo "  actual:   $ACTUAL_SHA" >&2
+  exit 1
+fi
+
+chmod +x "${TMP_DIR}/${ASSET}"
+mv "${TMP_DIR}/${ASSET}" "$BIN_PATH"
+
+echo "plannotator ${PLANNOTATOR_VERSION} installed to ${BIN_PATH}"

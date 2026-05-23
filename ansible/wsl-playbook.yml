@@ -101,6 +101,17 @@
       aarch64: arm64
     deb_arch: "{{ arch_map[ansible_architecture] | default('amd64') }}"
 
+    # Plannotator publishes release assets as plannotator-linux-{x64,arm64}.
+    # Map our deb_arch -> plannotator's asset arch label.
+    plannotator_arch_map:
+      amd64: x64
+      arm64: arm64
+    plannotator_arch: "{{ plannotator_arch_map[deb_arch] | default('x64') }}"
+
+    # Pinned by chezmoi (.chezmoidata.yaml) and passed via -e on the
+    # ansible-playbook command line. Renovate keeps it current.
+    plannotator_version: "{{ plannotator_version | default('') }}"
+
   pre_tasks:
     - name: Load packages configuration
       ansible.builtin.include_vars:
@@ -492,6 +503,68 @@
             path: "{{ aoe_extract_dir.path | default('') }}"
             state: absent
           when: (aoe_extract_dir.path | default('')) | length > 0
+
+    - name: Check installed plannotator version
+      ansible.builtin.command: "{{ local_bin }}/plannotator --version"
+      register: plannotator_version_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Parse installed plannotator version
+      ansible.builtin.set_fact:
+        plannotator_installed_version: >-
+          {{
+            (plannotator_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+
+    - name: Install or upgrade plannotator
+      when:
+        - plannotator_version | length > 0
+        - (plannotator_installed_version | default('')) != plannotator_version
+      block:
+        - name: Create temporary directory for plannotator download
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: plannotator
+          register: plannotator_tmp_dir
+
+        - name: Fetch plannotator SHA256 sidecar
+          ansible.builtin.get_url:
+            url: "https://github.com/backnotprop/plannotator/releases/download/v{{ plannotator_version }}/plannotator-linux-{{ plannotator_arch }}.sha256"
+            dest: "{{ plannotator_tmp_dir.path }}/plannotator-linux-{{ plannotator_arch }}.sha256"
+            mode: "0644"
+
+        - name: Read expected SHA256
+          ansible.builtin.slurp:
+            src: "{{ plannotator_tmp_dir.path }}/plannotator-linux-{{ plannotator_arch }}.sha256"
+          register: plannotator_sha_blob
+
+        - name: Parse expected SHA256
+          ansible.builtin.set_fact:
+            plannotator_expected_sha: "{{ (plannotator_sha_blob.content | b64decode).split() | first }}"
+
+        - name: Download plannotator binary (sha256-verified)
+          ansible.builtin.get_url:
+            url: "https://github.com/backnotprop/plannotator/releases/download/v{{ plannotator_version }}/plannotator-linux-{{ plannotator_arch }}"
+            dest: "{{ plannotator_tmp_dir.path }}/plannotator"
+            checksum: "sha256:{{ plannotator_expected_sha }}"
+            mode: "0755"
+
+        - name: Install plannotator binary to local bin
+          ansible.builtin.copy:
+            src: "{{ plannotator_tmp_dir.path }}/plannotator"
+            dest: "{{ local_bin }}/plannotator"
+            mode: "0755"
+            remote_src: true
+
+      always:
+        - name: Remove temporary plannotator directory
+          ansible.builtin.file:
+            path: "{{ plannotator_tmp_dir.path | default('') }}"
+            state: absent
+          when: (plannotator_tmp_dir.path | default('')) | length > 0
 
     - name: Include Ubuntu extras
       ansible.builtin.include_tasks: tasks/ubuntu-extras.yml

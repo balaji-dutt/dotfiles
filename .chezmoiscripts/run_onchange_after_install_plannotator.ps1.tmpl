@@ -1,0 +1,92 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# Install or upgrade the plannotator CLI to the version pinned in
+# .chezmoidata.yaml. The pinned value is interpolated below as the change
+# trigger -- bumping it (e.g. via Renovate) causes chezmoi to re-run this
+# script.
+#
+# WSL2 is handled by ansible/wsl-playbook.yml. macOS is handled by the
+# matching .sh.tmpl. Dev Containers install plannotator from their
+# postCreate.sh using $PLANNOTATOR_VERSION.
+#
+# Change trigger (chezmoi re-runs on hash change):
+# plannotator_version: {{ .plannotator_version }}
+
+$ErrorActionPreference = "Stop"
+
+$PlannotatorVersion = "{{ .plannotator_version }}"
+$Repo               = "backnotprop/plannotator"
+$InstallDir         = Join-Path $HOME ".local\bin"
+$BinPath            = Join-Path $InstallDir "plannotator.exe"
+
+if ([string]::IsNullOrWhiteSpace($PlannotatorVersion)) {
+  Write-Host "plannotator_version is empty in .chezmoidata.yaml; skipping install."
+  exit 0
+}
+
+# Upstream publishes only a win-x64 build. ARM64 Windows runs x64 via
+# emulation so we still install the same asset; fail loudly only if we
+# detect something genuinely unsupported.
+$Arch = $env:PROCESSOR_ARCHITECTURE
+switch ($Arch) {
+  'AMD64' { $PlannotatorArch = 'x64' }
+  'ARM64' { $PlannotatorArch = 'x64' ; Write-Host "Windows ARM64 detected; installing x64 build (runs via emulation)." }
+  default {
+    throw "Unsupported Windows architecture for plannotator: $Arch"
+  }
+}
+
+$Asset   = "plannotator-win-$PlannotatorArch.exe"
+$BaseUrl = "https://github.com/$Repo/releases/download/v$PlannotatorVersion"
+
+function Get-InstalledPlannotatorVersion {
+  if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) {
+    return ''
+  }
+  try {
+    $out = & $BinPath --version 2>$null
+  } catch {
+    return ''
+  }
+  if (-not $out) { return '' }
+  $match = [regex]::Match(($out -join "`n"), '\d+\.\d+\.\d+')
+  if ($match.Success) { return $match.Value } else { return '' }
+}
+
+$Installed = Get-InstalledPlannotatorVersion
+if ($Installed -eq $PlannotatorVersion) {
+  Write-Host "plannotator $Installed already installed; nothing to do."
+  exit 0
+}
+
+if ($Installed) {
+  Write-Host "Updating plannotator: $Installed -> $PlannotatorVersion"
+} else {
+  Write-Host "Installing plannotator $PlannotatorVersion..."
+}
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("plannotator-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
+try {
+  $TmpBin = Join-Path $TmpDir $Asset
+  $TmpSha = "$TmpBin.sha256"
+
+  Invoke-WebRequest -Uri "$BaseUrl/$Asset.sha256" -OutFile $TmpSha -UseBasicParsing
+  Invoke-WebRequest -Uri "$BaseUrl/$Asset"        -OutFile $TmpBin -UseBasicParsing
+
+  $ExpectedSha = ((Get-Content -LiteralPath $TmpSha -Raw) -split '\s+')[0].ToLower()
+  $ActualSha   = (Get-FileHash -LiteralPath $TmpBin -Algorithm SHA256).Hash.ToLower()
+
+  if ($ExpectedSha -ne $ActualSha) {
+    throw "SHA256 mismatch for $Asset (expected $ExpectedSha, got $ActualSha)"
+  }
+
+  Move-Item -Force -LiteralPath $TmpBin -Destination $BinPath
+  Write-Host "plannotator $PlannotatorVersion installed to $BinPath"
+} finally {
+  Remove-Item -Recurse -Force -LiteralPath $TmpDir -ErrorAction SilentlyContinue
+}
+{{- end }}

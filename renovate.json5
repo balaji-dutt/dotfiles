@@ -25,7 +25,10 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^configs\\/packages\\.yaml$/"],
+      "managerFilePatterns": [
+        "/^configs\\/packages\\.yaml$/",
+        "/^\\.chezmoidata\\.yaml$/"
+      ],
       "matchStrings": [
         "(?m)^\\s*\\w+:\\s*\\\"(?<currentValue>[^\\\"]+)\\\"\\s+#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*$"
       ]
@@ -243,6 +246,12 @@
       ],
       "groupName": "claude-pace statusline",
       "additionalBranchPrefix": "statusline-"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [".chezmoidata.yaml"],
+      "matchDepNames": ["backnotprop/plannotator"],
+      "groupName": "plannotator cli"
     }
   ]
 }
