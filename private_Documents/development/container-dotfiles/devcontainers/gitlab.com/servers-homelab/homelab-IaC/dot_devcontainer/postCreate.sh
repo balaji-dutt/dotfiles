@@ -615,6 +615,10 @@ ensure_opencode_persistence_links() {
   ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
 }
 
+ensure_mnemo_persistence_link() {
+  ensure_opencode_persistence_link /home/vscode/persistent-data/mnemo "$HOME/.mnemo"
+}
+
 install_opencode_env_file() {
   local src dest profile_lines tmp_file
 
@@ -656,16 +660,18 @@ install_opencode_env_file() {
   rm -f "$profile_lines" ${tmp_file:+"$tmp_file"}
 }
 
-step "Prime OpenCode/AoE persistent-data symlinks before install"
+step "Prime OpenCode/AoE/mnemo persistent-data symlinks before install"
 mkdir -p \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
+  /home/vscode/persistent-data/mnemo \
   "$HOME/.cache" \
   "$HOME/.local/share" \
   "$HOME/.local/state"
 
 ensure_agent_of_empires_persistence_link
 ensure_opencode_persistence_links
-done_step "Prime OpenCode/AoE persistent-data symlinks before install"
+ensure_mnemo_persistence_link
+done_step "Prime OpenCode/AoE/mnemo persistent-data symlinks before install"
 
 step "Install generated OpenCode env file (if present)"
 install_opencode_env_file
