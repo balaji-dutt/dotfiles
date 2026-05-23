@@ -27,12 +27,70 @@
       "*": "allow",
       "*.env": "deny",
       "*.env.*": "deny",
-      "*.env.example": "allow"
+      "*.env.example": "allow",
+
+      // Defense in depth for common credential and cloud state stores.
+      "~/.ssh": "deny",
+      "~/.ssh/**": "deny",
+      "~/.aws": "deny",
+      "~/.aws/**": "deny",
+      "~/.ansible": "deny",
+      "~/.ansible/**": "deny",
+      "~/.gnupg": "deny",
+      "~/.gnupg/**": "deny",
+      "~/.kube": "deny",
+      "~/.kube/**": "deny",
+      "~/.docker": "deny",
+      "~/.docker/**": "deny",
+      "~/.azure": "deny",
+      "~/.azure/**": "deny",
+      "~/.config/gh": "deny",
+      "~/.config/gh/**": "deny",
+      "~/.config/gcloud": "deny",
+      "~/.config/gcloud/**": "deny",
+      "~/.local/share/keyrings": "deny",
+      "~/.local/share/keyrings/**": "deny",
+      "~/.password-store": "deny",
+      "~/.password-store/**": "deny",
+      "~/.1password": "deny",
+      "~/.1password/**": "deny"
     },
 
     // Safety guards (OpenCode calls these out specifically).
     "doom_loop": "ask",
-    "external_directory": "allow",
+    "external_directory": {
+      // Ask for anything outside the launch workspace unless a trusted
+      // worktree root below matches. Last matching rule wins.
+      "*": "ask",
+      "/workspaces/**": "allow",
+      "/workspace/**": "allow",
+
+      // Never auto-enter common credential and cloud state stores.
+      "~/.ssh": "deny",
+      "~/.ssh/**": "deny",
+      "~/.aws": "deny",
+      "~/.aws/**": "deny",
+      "~/.ansible": "deny",
+      "~/.ansible/**": "deny",
+      "~/.gnupg": "deny",
+      "~/.gnupg/**": "deny",
+      "~/.kube": "deny",
+      "~/.kube/**": "deny",
+      "~/.docker": "deny",
+      "~/.docker/**": "deny",
+      "~/.azure": "deny",
+      "~/.azure/**": "deny",
+      "~/.config/gh": "deny",
+      "~/.config/gh/**": "deny",
+      "~/.config/gcloud": "deny",
+      "~/.config/gcloud/**": "deny",
+      "~/.local/share/keyrings": "deny",
+      "~/.local/share/keyrings/**": "deny",
+      "~/.password-store": "deny",
+      "~/.password-store/**": "deny",
+      "~/.1password": "deny",
+      "~/.1password/**": "deny"
+    },
 
     // Bash is pattern-matchable and supports wildcards; "last matching rule wins".
     "bash": {
