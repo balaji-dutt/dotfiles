@@ -63,3 +63,5 @@ dolt.auto-push: false
 sync.remote: "git+ssh://git@gitlab.com/balaji-personal-files/dotfiles-beads.git"
 
 backup.enabled: false
+
+export.auto: false
