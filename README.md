@@ -104,23 +104,26 @@ chezmoi doctor
 pkill -9 -f dolt 2>/dev/null; sleep 1
 bd init --server --non-interactive --skip-agents --skip-hooks --prefix dots
 
-# Remove .beads/ from .git/info/exclude if bd init added it (blocks JSONL tracking).
+# Remove .beads/ from .git/info/exclude if bd init added it.
 # No-op when not present.
 grep -q "Beads fork protection" .git/info/exclude && \
   sed -i.bak '/^# Beads fork protection (bd init)$/,/^\.beads\/$/d' .git/info/exclude && \
   rm -f .git/info/exclude.bak
 
 # Verify
-git check-ignore -v .beads/issues.jsonl   # should print nothing
 bd list                                    # should show issues
 ```
 
 The host and dev-container zsh configs source `~/.local/share/beads-helpers.zsh`.
-That helper filters dolt auto-import noise and commits `.beads/issues.jsonl`
-separately after successful `bd` write commands.
+That helper filters dolt auto-import noise and defaults `bd create` / `bd new`
+to `--assignee balaji` unless an assignee is supplied explicitly. Set
+`BD_DEFAULT_CREATE_ASSIGNEE` to override the default, or set it to an empty
+value to disable the injected assignee.
 
 ### Routine cross-machine sync
 
-`.beads/issues.jsonl` is the source of truth in git. Sync via standard `git pull`/`git push`; the next `bd` command on the other machine auto-imports any new JSONL. Avoid `bd dolt pull` — use `git pull` instead.
+Beads uses the Dolt-backed model here. Auto-export to `.beads/issues.jsonl` is
+disabled and that file is ignored to avoid repo churn, conflicts, and leaking
+git identity metadata. Sync Beads state through the configured Dolt remote.
 
 For recovery scenarios, filesystem caveats, or full context on each step, see [homelab-IaC's Beads notes](https://gitlab.com/servers-homelab/homelab-IaC/-/blob/main/README.md#beads-setup)

@@ -279,25 +279,13 @@ bd close dots-<id> \
   --actor "OpenCode"
 ```
 
-### Step 12: Refresh the JSONL export and delete the state file
+### Step 12: Delete the state file
 
-Repo history uses a separate `chore(beads): Commit updated issues.jsonl`
-commit after every closed issue. If the zsh helper already made that commit,
-skip this step. Otherwise reproduce it:
+Do not refresh or commit `.beads/issues.jsonl`. This repository uses the
+Dolt-backed Beads model, disables JSONL auto-export, and ignores
+`.beads/issues.jsonl` to avoid churn and leaking git identity metadata.
 
-```bash
-bd export -o .beads/issues.jsonl
-```
-
-The `-o` flag writes directly to the file. Do not use a plain `>`
-redirect — zsh's `noclobber` setopt (common in interactive shells)
-refuses to overwrite an existing file with `>`, and `.beads/issues.jsonl`
-already exists at this point. Then commit via the harness wrapper:
-
-- Claude Code: `cc-commit -m "chore(beads): Commit updated issues.jsonl"`.
-- OpenCode: `oc-commit -m "chore(beads): Commit updated issues.jsonl"`.
-
-Finally, remove the state file:
+Remove the state file:
 
 ```bash
 rm -f .beads/in-progress-claude.json   # Claude Code
@@ -312,8 +300,7 @@ Summarize:
 - Every commit SHA produced (8-char form is fine).
 - Verification that `bd show dots-<id>` reports `status=closed` with the
   expected close reason.
-- Confirmation that the state file was removed and `.beads/issues.jsonl`
-  was refreshed and committed.
+- Confirmation that the state file was removed.
 
 ## Edge cases
 

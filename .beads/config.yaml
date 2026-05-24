@@ -44,8 +44,7 @@
 #   git-push: false    # Disable git push (export locally only)
 #   git-repo: ""       # Separate git repo for backups (default: project repo)
 
-# Keep issues.jsonl export tracked, but leave staging to the shell helper that
-# commits this file separately after successful bd write commands.
+# Keep JSONL exports out of git-managed workflow; Dolt is the source of truth.
 export.git-add: false
 
 # Integration settings (access with 'bd config get/set')

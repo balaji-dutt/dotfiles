@@ -112,6 +112,92 @@ _bd_primary_command() {
     return 1
 }
 
+_bd_default_create_assignee() {
+    emulate -L zsh
+
+    local assignee="${BD_DEFAULT_CREATE_ASSIGNEE-balaji}"
+
+    [[ -n "$assignee" ]] || return 1
+    printf '%s\n' "$assignee"
+}
+
+_bd_create_args_have_assignee() {
+    emulate -L zsh
+
+    local primary_command_seen=0
+
+    while [[ $# -gt 0 ]]; do
+        if [[ $primary_command_seen -eq 1 ]]; then
+            case "$1" in
+                --)
+                    return 1
+                    ;;
+                --assignee|-a|--assignee=*|-a=*)
+                    return 0
+                    ;;
+            esac
+            shift
+            continue
+        fi
+
+        case "$1" in
+            --)
+                return 1
+                ;;
+            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global)
+                shift
+                ;;
+            -C|--directory|--db|--actor|--dolt-auto-commit)
+                [[ $# -gt 1 ]] || return 1
+                shift 2
+                ;;
+            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*)
+                shift
+                ;;
+            -h|--help|--version|-V)
+                return 1
+                ;;
+            -*)
+                shift
+                ;;
+            *)
+                case "$1" in
+                    create|new)
+                        primary_command_seen=1
+                        shift
+                        ;;
+                    *)
+                        return 1
+                        ;;
+                esac
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+_bd_should_default_create_assignee() {
+    emulate -L zsh
+
+    local primary_command
+
+    _bd_default_create_assignee >/dev/null || return 1
+    _bd_arg_requests_help "$@" && return 1
+
+    primary_command="$(_bd_primary_command "$@")" || return 1
+    case "$primary_command" in
+        create|new)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    _bd_create_args_have_assignee "$@" && return 1
+    return 0
+}
+
 _bd_should_refresh_issues_export() {
     emulate -L zsh
 
@@ -131,7 +217,7 @@ _bd_autocommit_issues_jsonl() {
     local repo_root issues_path issues_status conflicts
     local commit_message='chore(beads): Commit updated issues.jsonl'
 
-    [[ "${BD_AUTO_COMMIT_ISSUES_JSONL:-1}" != 0 ]] || return 0
+    [[ "${BD_AUTO_COMMIT_ISSUES_JSONL:-0}" != 0 ]] || return 0
     [[ -z "${BD_GIT_HOOK:-}" ]] || return 0
 
     if ! command git -C "$workdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -171,15 +257,33 @@ _bd_autocommit_issues_jsonl() {
 bd() {
     emulate -L zsh
 
-    local exit_code primary_command workdir
+    local default_assignee exit_code inserted primary_command workdir
+    local -a bd_args defaulted_bd_args
 
-    _bd_run_filtered "$@"
+    bd_args=("$@")
+    if _bd_should_default_create_assignee "$@"; then
+        default_assignee="$(_bd_default_create_assignee)" || return 1
+        inserted=0
+        for arg in "${bd_args[@]}"; do
+            if [[ "$arg" == -- ]] && [[ $inserted -eq 0 ]]; then
+                defaulted_bd_args+=(--assignee "$default_assignee")
+                inserted=1
+            fi
+            defaulted_bd_args+=("$arg")
+        done
+        if [[ $inserted -eq 0 ]]; then
+            defaulted_bd_args+=(--assignee "$default_assignee")
+        fi
+        bd_args=("${defaulted_bd_args[@]}")
+    fi
+
+    _bd_run_filtered "${bd_args[@]}"
     exit_code=$?
 
-    if [[ $exit_code -eq 0 ]] && ! _bd_arg_requests_help "$@"; then
-        primary_command="$(_bd_primary_command "$@")"
+    if [[ $exit_code -eq 0 ]] && ! _bd_arg_requests_help "${bd_args[@]}"; then
+        primary_command="$(_bd_primary_command "${bd_args[@]}")"
         if _bd_should_refresh_issues_export "$primary_command"; then
-            workdir="$(_bd_command_directory "$@")"
+            workdir="$(_bd_command_directory "${bd_args[@]}")"
             _bd_autocommit_issues_jsonl "$workdir"
         fi
     fi
