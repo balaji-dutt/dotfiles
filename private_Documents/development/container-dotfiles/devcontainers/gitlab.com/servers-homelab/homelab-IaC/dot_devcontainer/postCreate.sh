@@ -493,6 +493,7 @@ else
   echo "WARN: HOP_VERSION not set; skipping hop install."
 fi
 
+step "Build & Install MCP server binaries (terraform-mcp-server)"
 if [[ -n "${TF_MCP_VERSION:-}" ]]; then
   echo "[mcp] building terraform-mcp-server v${TF_MCP_VERSION} (no pre-built binaries available)"
   TF_MCP_GO_VERSION="1.24.3"
