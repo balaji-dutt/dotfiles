@@ -21,6 +21,9 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 worktrees/
 worktrees/**
 
+### Beads / Dolt runtime artifacts
+.beads/interactions.jsonl
+.beads/issues.jsonl
 
 # Beads / Dolt files (added by bd init)
 .dolt/
