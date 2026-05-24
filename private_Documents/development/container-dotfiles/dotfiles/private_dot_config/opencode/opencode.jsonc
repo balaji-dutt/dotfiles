@@ -533,7 +533,7 @@
         "websearch_cited": "allow",
         "codesearch": "allow",
         "edit": {
-          "*": "ask",
+          "*": "allow",
           "*.env": "deny",
           "*.env.*": "deny"
         }
@@ -552,7 +552,7 @@
         "websearch_cited": "allow",
         "codesearch": "allow",
         "edit": {
-          "*": "ask",
+          "*": "allow",
           "*.env": "deny",
           "*.env.*": "deny"
         }
