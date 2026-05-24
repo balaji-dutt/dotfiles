@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="{{ .chezmoi.homeDir }}/Documents/development/dotfiles"
+repo_root="${DOTFILES_REPO_ROOT:-{{ .chezmoi.homeDir }}/Documents/development/dotfiles}"
 sync_script="$repo_root/assets/sync-devcontainer-all.sh"
 
 if [[ ! -f "$sync_script" ]]; then
   printf 'sync-devcontainer-all.sh: expected script not found at %s\n' "$sync_script" >&2
-  printf 'If your dotfiles repo lives elsewhere, update this wrapper template.\n' >&2
+  printf 'Set DOTFILES_REPO_ROOT=/path/to/dotfiles if you want to sync from a worktree.\n' >&2
   exit 1
 fi
 
