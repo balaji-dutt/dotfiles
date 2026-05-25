@@ -1,5 +1,6 @@
 {{- if or (eq .chezmoi.os "darwin") (and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft")) -}}
 #!/bin/bash
+set -euo pipefail
 
 # REPO_DIR is your chezmoi source directory (the dotfiles repo itself)
 REPO_DIR="{{ .chezmoi.sourceDir }}"

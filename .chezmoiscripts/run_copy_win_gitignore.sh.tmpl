@@ -1,5 +1,6 @@
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/sh
+set -eu
 #TODO This script will need to be updated if I start to use chezmoi natively on Windows.
 cp {{ printf "%s/dot_local/config/executable_gitignore_global.txt" .chezmoi.workingTree }} /mnt/c/Users/Balaji/gitignore_global.txt
 {{ end -}}

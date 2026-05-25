@@ -1,5 +1,6 @@
 {{- if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
+set -euo pipefail
 cd $HOME/Library/Fonts
 # Find Python user bin directory for macOS
 PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
@@ -11,6 +12,7 @@ curl -sLO https://github.com/indestructible-type/Drafting/archive/refs/heads/mai
 curl -L -o NotoSansSymbols2-Regular.ttf "https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io/fonts/NotoSansSymbols2/unhinted/ttf/NotoSansSymbols2-Regular.ttf"
 {{- else if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 #!/bin/bash
+set -euo pipefail
 mkdir -p ~/.fonts && cd ~/.fonts
 # Install JetBrains Mono Nerd Font
 curl -fLo "JetBrainsMono.zip" "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"

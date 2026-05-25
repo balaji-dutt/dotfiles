@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $ansibleKey := "" -}}

@@ -1,5 +1,6 @@
 {{- if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
+set -euo pipefail
 
 # private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.user.vncmonitor.plist.tmpl" | sha256sum }}
 # private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl hash: {{ include "private_Library/LaunchAgents/com.ssh-add-keychain.plist.tmpl" | sha256sum }}
