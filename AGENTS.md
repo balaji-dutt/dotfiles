@@ -58,6 +58,29 @@ The following tools may be available, so check for their availability before exe
   4. Do not auto-commit the change. Include the approved docs commit message in
      your final response unless I explicitly ask you to commit.
 
+## Beads conventions (for the `beads-work` skill)
+
+The global `beads-work` skill defers to this section when working on issues in
+this repo.
+
+- **Prefix**: Beads issues in this repo use the `dots-` prefix (e.g.
+  `dots-go2`). The dolt database is also named `dots`, so a bare ID can be
+  resolved by reading `dolt_database` from `.beads/metadata.json`.
+- **JSONL export**: Do not refresh or commit `.beads/issues.jsonl` at close
+  time. This repository uses the Dolt-backed Beads model, disables JSONL
+  auto-export (`export.auto: false`), and ignores the file via
+  `.gitignore`/`.chezmoiignore` to avoid churn and leaking git identity
+  metadata.
+- **Commits**: Use `cc-commit` (Claude Code) or `oc-commit` (OpenCode), never
+  `git commit` directly — see **Commit message workflow (required)** below.
+  Format follows the same 50/72 rule documented below; include a
+  `Refs: dots-<id>` trailer.
+- **Post-edit verification**: After implementation, run the repo audit
+  documented under **Post-edit verification (required)** below
+  (`./assets/cz-audit.sh check <repo-relative-path>` followed by
+  `chezmoi doctor`). The skill itself does not name these commands — it
+  expects to find them here.
+
 ## Post-edit verification (required)
 
 **CRUCIALLY IMPORTANT**: Whenever you finish a task you must perform the following steps:

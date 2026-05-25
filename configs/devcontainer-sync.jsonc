@@ -65,6 +65,17 @@
           "executable_oc-commit"
         ],
         "exclude": []
+      },
+      {
+        "name": "user-share-shell-helpers",
+        "source_root": "dot_local/share",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/share",
+        "cleanup_managed": false,
+        "include": [
+          "beads-helpers.zsh",
+          "beads-helpers.bash"
+        ],
+        "exclude": []
       }
     ],
     "derived": [

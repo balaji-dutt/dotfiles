@@ -1,32 +1,34 @@
 ---
 name: beads-work
-description: Work on a Beads issue end-to-end (bd issue dots-*) — fetch with
-  bd show, claim, plan, persist plan to bd, implement, commit, close with
-  SHAs. Triggered by phrases like "work on the beads issue dots-go2",
-  "I'd like to work on dots-cdr", "plan dots-arl", "implement dots-foo",
-  or "continue work on dots-bar".
+description: Work on a Beads issue end-to-end (bd issue <prefix>-*) — fetch
+  with bd show, claim, plan, persist plan to bd, implement, commit, close
+  with SHAs. Triggered by phrases like "work on the beads issue dots-go2",
+  "I'd like to work on slab-cdr", "plan abc-arl", "implement foo-bar", or
+  "continue work on dots-bar".
 license: MIT
 compatibility: opencode
 metadata:
-  audience: dotfiles-maintainer
+  audience: agent
   workflow: beads-work
 ---
 
 # beads-work
 
-Drive the full Beads issue loop for a `dots-*` ticket: fetch, claim, plan,
-persist the approved plan back onto the issue, implement, commit, close with
-commit SHAs, and refresh the JSONL export.
+Drive the full Beads issue loop for any `<prefix>-<id>` ticket: fetch, claim,
+plan, persist the approved plan back onto the issue, implement, commit, close
+with commit SHAs. Repo-specific verification and commit format rules live in
+the repo's own `CLAUDE.md`/`AGENTS.md` — this skill defers to them rather
+than hard-coding details for any one project.
 
 ## Use this skill when
 
 - The user names a Beads issue by ID, e.g. "work on dots-go2", "let's tackle
-  the beads issue dots-cdr", "I'd like to plan dots-arl", or "implement
-  dots-foo".
-- The user says "continue work on dots-X" and `.beads/in-progress-*.json`
-  exists.
-- The user asks to close a `dots-*` ticket they have been working on in
-  this session.
+  the beads issue slab-cdr", "I'd like to plan abc-arl", or "implement
+  foo-bar".
+- The user says "continue work on <prefix>-<id>" and
+  `.beads/in-progress-*.json` exists.
+- The user asks to close a `<prefix>-<id>` ticket they have been working on
+  in this session.
 
 ## Do not use this skill when
 
@@ -49,24 +51,35 @@ once at the start of the session and reuse the answer.
 
 ## Preflight
 
-Run before step 1:
+Confirm `bd` is available and load the noise-filter wrapper:
 
 ```bash
 command -v bd >/dev/null || { echo "ERROR: bd not installed in this environment"; exit 1; }
+[ -r "$HOME/.local/share/beads-helpers.bash" ] && . "$HOME/.local/share/beads-helpers.bash"
 ```
 
-This matters inside devcontainers where `bd` may not be present. Bail with a
-clear message rather than failing opaquely on the first `bd show`.
+The first line bails out cleanly inside environments (some devcontainers)
+where `bd` isn't installed. The second line sources the bash wrapper that
+filters dolt `auto-importing`/`auto-imported` lines from `bd` output so they
+don't distract you mid-workflow. The wrapper is a no-op if it isn't present.
+
+Every `bd` invocation in the rest of this skill assumes the wrapper has been
+sourced. If you spawn a fresh non-interactive bash (e.g. via the Bash tool
+for a one-off command), re-source the helper at the top of that command.
 
 ## Workflow
 
-### Step 1: Parse the issue ID
+### Step 1: Parse and normalize the issue ID
 
-Accept any of these forms and normalize to lowercase `dots-<id>`:
+Accept any of these forms and normalize to lowercase `<prefix>-<id>`:
 
-- `dots-<id>` — use as-is, lowercased.
-- `DOTS-<ID>` — lowercase the whole token.
-- bare `<id>` (no prefix) — prepend `dots-`.
+- `<PREFIX>-<ID>` — lowercase the whole token.
+- `<prefix>-<id>` — use as-is, lowercased.
+- bare `<id>` (no prefix) — determine the project prefix:
+  1. Check `.beads/metadata.json` for `dolt_database` (Dolt-backed Beads
+     deployments use this as the prefix). If present, prepend it.
+  2. Otherwise, ask the user for the prefix once and reuse it for the rest
+     of the session.
 
 If the user invokes the skill with no ID, check for a resume state file:
 
@@ -129,7 +142,7 @@ the `<harness>` token:
 ```bash
 cat > .beads/in-progress-claude.json <<JSON
 {
-  "id": "dots-<id>",
+  "id": "<id>",
   "agent": "Claude",
   "started_sha": "${STARTED_SHA}",
   "started_at": "${STARTED_AT}"
@@ -142,7 +155,7 @@ OpenCode variant:
 ```bash
 cat > .beads/in-progress-opencode.json <<JSON
 {
-  "id": "dots-<id>",
+  "id": "<id>",
   "agent": "OpenCode",
   "started_sha": "${STARTED_SHA}",
   "started_at": "${STARTED_AT}"
@@ -156,9 +169,8 @@ OpenCode and a resume anchor across sessions. It is gitignored.
 ### Step 5: Investigate scope
 
 Read every file mentioned in the issue's description and design notes.
-Honor the project rule from `CLAUDE.md`: check for related documentation
-under `./docs/` and look at existing patterns in adjacent files before
-writing new code.
+Honor the project rules in the repo's `CLAUDE.md`/`AGENTS.md` for
+documentation lookups and existing-pattern checks before writing new code.
 
 ### Step 6: Draft a plan and request approval
 
@@ -178,7 +190,7 @@ file path on disk:
 Claude Code:
 
 ```bash
-bd update dots-<id> \
+bd update <id> \
   --design-file - \
   --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
@@ -190,7 +202,7 @@ EOF
 OpenCode:
 
 ```bash
-bd update dots-<id> \
+bd update <id> \
   --design-file - \
   --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
@@ -205,41 +217,24 @@ plan lands in the design field.
 
 ### Step 8: Implement per the approved plan
 
-Edit files as the plan specifies. Honor the post-edit verification rules
-from this repo's `CLAUDE.md` for every touched file:
-
-```bash
-./assets/cz-audit.sh check <repo-relative-path>
-```
-
-After all edits, run:
-
-```bash
-chezmoi doctor
-```
-
-Fix any audit failures before continuing. A vault error from
-`chezmoi doctor` is the documented exception and may be ignored.
+Edit files as the plan specifies. Run the project's post-edit verification
+per the repo's `CLAUDE.md`/`AGENTS.md` — the repo will document its own
+command (e.g. an audit script, a lint pass, a test command, a build).
+Fix any failures before continuing. If the repo defines no such step, run
+whatever lint/test commands are conventional for that project.
 
 ### Step 9: Commit using the harness wrapper
 
 Never call `git commit` directly. Use the wrapper for the running harness —
-`cc-commit` for Claude Code, `oc-commit` for OpenCode.
+`cc-commit` for Claude Code, `oc-commit` for OpenCode — so the commit is
+attributed to the agent rather than the human's git identity.
 
 The subject and body **format** is set by the **repo**, not the harness.
-Read the repo's `CLAUDE.md` or `AGENTS.md` for its documented commit
-workflow before drafting the message. Defaults when nothing is documented:
+Read the repo's `CLAUDE.md`/`AGENTS.md` for its documented commit workflow
+(50/72 rule, Conventional Commits, etc.) before drafting the message.
 
-- Subject ≤50 chars, imperative mood, no trailing period.
-- Blank second line.
-- Body (optional): bulleted `- ` lines, each <80 chars.
-
-Some repos (e.g. `homelab-IaC`) keep the same 50/72 body structure but use
-Conventional Commits for the subject (`type(scope): subject`). If the
-repo's docs say so, follow that.
-
-Include a `Refs: dots-<id>` trailer in the commit body so the link to the
-Beads issue survives even if state files are lost.
+Include a `Refs: <id>` trailer in the commit body so the link to the Beads
+issue survives even if state files are lost.
 
 Repeat for each logical commit the plan requires.
 
@@ -255,8 +250,7 @@ git log "${STARTED_SHA}..HEAD" --format=%h
 
 Use the OpenCode state file path when running under OpenCode. Use whatever
 short SHA `--format=%h` produces (typically 7–12 chars depending on repo
-size). Both short and full-40 forms are valid per the existing `dots-arl`
-precedent in this repo.
+size). Both short and full-40 forms are valid.
 
 ### Step 11: Close the issue with the SHAs
 
@@ -266,7 +260,7 @@ command for the harness:
 Claude Code:
 
 ```bash
-bd close dots-<id> \
+bd close <id> \
   --reason "Fixed with commit(s) <sha1>[, <sha2>...]" \
   --actor "Claude"
 ```
@@ -274,18 +268,20 @@ bd close dots-<id> \
 OpenCode:
 
 ```bash
-bd close dots-<id> \
+bd close <id> \
   --reason "Fixed with commit(s) <sha1>[, <sha2>...]" \
   --actor "OpenCode"
 ```
 
 ### Step 12: Delete the state file
 
-Do not refresh or commit `.beads/issues.jsonl`. This repository uses the
-Dolt-backed Beads model, disables JSONL auto-export, and ignores
-`.beads/issues.jsonl` to avoid churn and leaking git identity metadata.
+If the repo's Beads conventions (documented in `CLAUDE.md`/`AGENTS.md`)
+require refreshing or committing `.beads/issues.jsonl` after close, do so.
+Some repos disable JSONL auto-export entirely (e.g. Dolt-backed setups
+where Dolt is the source of truth) and ignore the file — defer to the
+repo's docs.
 
-Remove the state file:
+Remove the harness-specific state file:
 
 ```bash
 rm -f .beads/in-progress-claude.json   # Claude Code
@@ -298,7 +294,7 @@ Summarize:
 
 - The issue ID and one-line title.
 - Every commit SHA produced (8-char form is fine).
-- Verification that `bd show dots-<id>` reports `status=closed` with the
+- Verification that `bd show <id>` reports `status=closed` with the
   expected close reason.
 - Confirmation that the state file was removed.
 
@@ -323,14 +319,14 @@ Either signal triggers the release sequence:
 Claude Code:
 
 ```bash
-bd update dots-<id> --status open --assignee "" --actor "Claude"
+bd update <id> --status open --assignee "" --actor "Claude"
 rm -f .beads/in-progress-claude.json
 ```
 
 OpenCode:
 
 ```bash
-bd update dots-<id> --status open --assignee "" --actor "OpenCode"
+bd update <id> --status open --assignee "" --actor "OpenCode"
 rm -f .beads/in-progress-opencode.json
 ```
 
@@ -343,32 +339,32 @@ agent's claim before proceeding.
 
 ### Audit failure mid-implementation
 
-If `./assets/cz-audit.sh check ...` exits non-zero or prints an `ERROR:`
-line, fix or revert the offending change. Do not close the issue on a
-broken state. The state file stays in place so the work can resume.
+If the repo's post-edit verification command exits non-zero (or surfaces an
+`ERROR:` line, depending on its convention), fix or revert the offending
+change. Do not close the issue on a broken state. The state file stays in
+place so the work can resume.
 
 ### Issue not found
 
-`bd show dots-<id>` returns no such issue → stop and ask the user whether
+`bd show <id>` returns no such issue → stop and ask the user whether
 the ID is correct or whether to create a new issue first.
 
 ### OpenCode plan-to-build handoff
 
 When OpenCode switches from the Plan agent to the Build agent mid-issue,
-the Build agent re-discovers state from `bd show dots-<id>` plus
+the Build agent re-discovers state from `bd show <id>` plus
 `.beads/in-progress-opencode.json`. If the Build agent loses skill
-context, the user can re-invoke with "continue work on dots-<id>" and
+context, the user can re-invoke with "continue work on <id>" and
 the resume path in step 1 picks it up.
 
 ## Output / final report
 
 ```markdown
-## Beads issue dots-<id>: <title>
+## Beads issue <id>: <title>
 
 - Status: closed
 - Started SHA: <8-char>
 - Commits: <sha1>, <sha2>, ...
 - Close reason: Fixed with commit(s) <sha1>[, <sha2>...]
-- JSONL export refreshed: yes (commit <sha>)
 - State file removed: yes
 ```
