@@ -6,7 +6,7 @@ color_mode = "truecolor"
 idle_decay_minutes = 0
 
 [updates]
-check_enabled = false
+update_check_mode = "off"
 check_interval_hours = 24
 notify_in_cli = true
 web_poll_interval_minutes = 60
@@ -47,6 +47,10 @@ default_tool = "opencode"
 yolo_mode_default = false
 agent_status_hooks = true
 strict_hotkeys = false
+snooze_duration_minutes = 30
+restart_wake_message = "wake up: pick up what you were doing"
+row_tag = "none"
+session_id_poller_max_threads = 50
 
 [session.agent_command_override]
 opencode = "opencode-plannotator"
@@ -60,9 +64,12 @@ context_lines = 3
 enabled = false
 mode = "random"
 
+[status_hooks]
+enabled = false
+
 [app_state]
 has_seen_welcome = true
-last_seen_version = "1.7.0"
+last_seen_version = "1.8.1"
 has_seen_custom_instruction_warning = true
 has_acknowledged_agent_hooks = true
 sort_order = "z_a"
@@ -86,8 +93,17 @@ node_path = ""
 show_tool_durations = true
 queue_drain_mode = "combined"
 max_concurrent_resumes = 4
+force_end_turn_threshold_secs = 30
+silent_orphan_grace_secs = 120
+silent_orphan_fast_grace_secs = 20
 
 [logging]
 default_level = "info"
+output = "file"
+file_path = "debug.log"
+rotation = "size"
+max_size_mib = 50
+keep_count = 5
+show_spans = false
 
 [logging.targets]
