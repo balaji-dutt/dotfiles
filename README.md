@@ -114,11 +114,13 @@ grep -q "Beads fork protection" .git/info/exclude && \
 bd list                                    # should show issues
 ```
 
-The host and dev-container zsh configs source `~/.local/share/beads-helpers.zsh`.
-That helper filters dolt auto-import noise and defaults `bd create` / `bd new`
-to `--assignee balaji` unless an assignee is supplied explicitly. Set
-`BD_DEFAULT_CREATE_ASSIGNEE` to override the default, or set it to an empty
-value to disable the injected assignee.
+The host and dev-container shells source `~/.local/share/beads-helpers.zsh`
+(zsh) or `~/.local/share/beads-helpers.bash` (bash) — the bash variant lets
+agent Bash-tool invocations also pick up the filtering. Both helpers behave
+identically: they filter dolt auto-import noise and default `bd create` /
+`bd new` to `--assignee balaji` unless an assignee is supplied explicitly.
+Set `BD_DEFAULT_CREATE_ASSIGNEE` to override the default, or set it to an
+empty value to disable the injected assignee.
 
 ### Routine cross-machine sync
 
