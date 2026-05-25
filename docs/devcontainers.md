@@ -164,8 +164,9 @@ For routine use, a managed user-bin wrapper is also available:
 - `sync-devcontainer-all.sh`
 
 This wrapper runs the same three-step workflow from the canonical dotfiles repo
-path and avoids relying on repo-local `direnv` PATH injection in editor
-terminals.
+path by default and avoids relying on repo-local `direnv` PATH injection in
+editor terminals. To sync from a feature worktree instead, set
+`DOTFILES_REPO_ROOT=/path/to/dotfiles-worktree` when invoking the wrapper.
 
 ## Claude Code in Devcontainers
 
