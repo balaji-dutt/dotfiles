@@ -309,6 +309,14 @@ Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
 Runtime-managed files (for example `profiles/*/sessions.json`,
 `trusted_repos.toml`, and logs) are left intact.
 
+The managed AoE config enables status hooks for `waiting` and `error` events.
+Those hooks call `~/bin/aoe-notify`, which first tries an optional host-side
+`dev-notify-bridge` endpoint at `http://host.docker.internal:6789/notify` and
+then exits successfully if no bridge is reachable. Host bridge autostart is
+tracked separately in Beads issue `dots-vlk`; until then, start the bridge
+manually on the Docker Desktop host when container desktop notifications are
+needed.
+
 AoE is built from source in this bookworm-based devcontainer instead of using
 upstream prebuilt Linux release binaries. This avoids glibc version mismatches
 from newer upstream build environments.

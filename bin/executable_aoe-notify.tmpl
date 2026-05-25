@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEFAULT_BRIDGE_URL="http://host.docker.internal:6789/notify"
+
+debug() {
+  case "${AOE_NOTIFY_DEBUG:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      printf 'aoe-notify: %s\n' "$*" >&2
+      ;;
+  esac
+}
+
+json_escape() {
+  local value=${1-}
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\b'/\\b}
+  value=${value//$'\f'/\\f}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '%s' "$value"
+}
+
+bridge_endpoint() {
+  local raw=${1-}
+
+  if [[ -z $raw ]]; then
+    return 1
+  fi
+
+  case "$raw" in
+    1|true|TRUE|yes|YES|on|ON)
+      raw=$DEFAULT_BRIDGE_URL
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+  esac
+
+  if [[ $raw != http://* && $raw != https://* ]]; then
+    raw="http://$raw"
+  fi
+
+  raw=${raw%/}
+  if [[ $raw != */notify ]]; then
+    raw="$raw/notify"
+  fi
+
+  printf '%s' "$raw"
+}
+
+is_devcontainer() {
+  [[ ${DEVCONTAINER:-} == 1 || -f /.dockerenv || -f /run/.containerenv ]]
+}
+
+try_bridge() {
+  local url=$1
+  local title=$2
+  local message=$3
+  local timeout=${AOE_NOTIFY_TIMEOUT_SECONDS:-1}
+  local payload output rc
+
+  command -v curl >/dev/null 2>&1 || return 1
+
+  payload=$(printf '{"title":"%s","message":"%s"}' \
+    "$(json_escape "$title")" \
+    "$(json_escape "$message")")
+
+  output=$(curl \
+    --fail \
+    --silent \
+    --show-error \
+    --connect-timeout "$timeout" \
+    --max-time "$timeout" \
+    --header 'Content-Type: application/json' \
+    --data "$payload" \
+    "$url" 2>&1) || rc=$?
+  rc=${rc:-0}
+
+  if [[ $rc -eq 0 ]]; then
+    debug "sent notification through bridge: $url"
+    return 0
+  fi
+
+  debug "bridge failed ($rc): $output"
+  return 1
+}
+
+try_macos() {
+  local title=$1
+  local message=$2
+
+  [[ $(uname -s 2>/dev/null) == Darwin ]] || return 1
+  command -v osascript >/dev/null 2>&1 || return 1
+
+  osascript \
+    -e 'on run argv' \
+    -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+    -e 'end run' \
+    "$title" \
+    "$message" >/dev/null 2>&1
+}
+
+try_windows_popup() {
+  local title=$1
+  local message=$2
+
+  command -v powershell.exe >/dev/null 2>&1 || return 1
+
+  powershell.exe \
+    -NoProfile \
+    -NonInteractive \
+    -ExecutionPolicy Bypass \
+    -Command '$title = $args[0]; $message = $args[1]; $wshell = New-Object -ComObject Wscript.Shell; $null = $wshell.Popup($message, 5, $title, 0 + 64)' \
+    "$title" \
+    "$message" >/dev/null 2>&1
+}
+
+try_notify_send() {
+  local status=$1
+  local title=$2
+  local message=$3
+  local urgency=normal
+
+  command -v notify-send >/dev/null 2>&1 || return 1
+  if [[ $status == error ]]; then
+    urgency=critical
+  fi
+
+  notify-send \
+    --app-name='Agent of Empires' \
+    --urgency="$urgency" \
+    "$title" \
+    "$message" >/dev/null 2>&1
+}
+
+main() {
+  local status=${1:-${AOE_NEW_STATUS:-}}
+  local subject title message bridge_raw bridge_url
+
+  status=${status,,}
+
+  case "$status" in
+    waiting)
+      title='AoE: Waiting'
+      subject=${AOE_SESSION_TITLE:-An Agent of Empires session}
+      message="$subject is waiting for input"
+      ;;
+    error)
+      title='AoE: Error'
+      subject=${AOE_SESSION_TITLE:-An Agent of Empires session}
+      message="$subject hit an error"
+      ;;
+    *)
+      debug "ignored status: ${status:-<empty>}"
+      return 0
+      ;;
+  esac
+
+  if [[ -n ${AOE_PROJECT_PATH:-} ]]; then
+    message="$message in $(basename "$AOE_PROJECT_PATH")"
+  fi
+
+  bridge_raw=${AOE_NOTIFY_BRIDGE_URL:-${DEV_NOTIFY_BRIDGE:-}}
+  if bridge_url=$(bridge_endpoint "$bridge_raw"); then
+    try_bridge "$bridge_url" "$title" "$message" && return 0
+  elif is_devcontainer; then
+    try_bridge "$DEFAULT_BRIDGE_URL" "$title" "$message" && return 0
+  fi
+
+  try_macos "$title" "$message" && return 0
+  try_windows_popup "$title" "$message" && return 0
+  try_notify_send "$status" "$title" "$message" && return 0
+
+  debug 'no notification backend succeeded'
+  return 0
+}
+
+main "$@"

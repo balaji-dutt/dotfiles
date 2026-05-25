@@ -46,6 +46,12 @@ context_lines = 3
 enabled = false
 mode = "random"
 
+[status_hooks]
+enabled = true
+debounce_ms = 500
+on_waiting = "$HOME/bin/aoe-notify waiting"
+on_error = "$HOME/bin/aoe-notify error"
+
 [app_state]
 has_seen_welcome = true
 has_seen_custom_instruction_warning = true

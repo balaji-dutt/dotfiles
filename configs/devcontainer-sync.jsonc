@@ -59,6 +59,7 @@
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin",
         "cleanup_managed": false,
         "include": [
+          "executable_aoe-notify.tmpl",
           "executable_ai-wt.tmpl",
           "executable_cc-commit",
           "executable_oc-commit"
