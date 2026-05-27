@@ -116,11 +116,17 @@ bd list                                    # should show issues
 
 The host and dev-container shells source `~/.local/share/beads-helpers.zsh`
 (zsh) or `~/.local/share/beads-helpers.bash` (bash) — the bash variant lets
-agent Bash-tool invocations also pick up the filtering. Both helpers behave
-identically: they filter dolt auto-import noise and default `bd create` /
-`bd new` to `--assignee balaji` unless an assignee is supplied explicitly.
-Set `BD_DEFAULT_CREATE_ASSIGNEE` to override the default, or set it to an
-empty value to disable the injected assignee.
+agent Bash-tool invocations pick up the same helper behavior. Both helpers
+default `bd create` / `bd new` to `--assignee balaji` unless an assignee is
+supplied explicitly. Set `BD_DEFAULT_CREATE_ASSIGNEE` to override the default,
+or set it to an empty value to disable the injected assignee.
+
+In Dolt-backed repos, the helpers do not hide Beads auto-import diagnostics or
+refresh, stage, or commit `.beads/issues.jsonl`. Set
+`BD_FILTER_AUTO_IMPORT_NOISE=1` only when you explicitly want the old filtering
+behavior in another repo. If Beads reports auto-importing a stale
+`.beads/issues.jsonl` in this repo, quarantine or remove that file before
+syncing.
 
 ### Routine cross-machine sync
 

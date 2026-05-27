@@ -125,8 +125,9 @@ volume:
   `homelab-iac-beads-shared-server` Docker volume.
 - `.beads/config.yaml` and `.beads/metadata.json` remain in the workspace as
   project state.
-- `.beads/issues.jsonl` may exist in the workspace as a local viewing export,
-  but it is ignored by git; Dolt remains the source of truth.
+- `.beads/issues.jsonl` is ignored by git. Treat it as a disposable local
+  export only; remove or quarantine it before Beads sync/push workflows so Dolt
+  remains the source of truth.
 
 The named volume survives normal container restart, rebuild, and reopen cycles.
 It does not survive deliberate Docker volume deletion. To exercise the terminal

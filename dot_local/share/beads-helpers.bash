@@ -2,16 +2,67 @@
 #
 # Mirrors dot_local/share/beads-helpers.zsh. Sourced from dot_bashrc.tmpl so
 # non-interactive bash (e.g. agent Bash tool invocations) also benefit from
-# the auto-import noise filter and create-assignee default.
+# the create-assignee default and repository-aware auto-import noise handling.
 
 _bd_filter_auto_import_noise() {
     command grep -v -E '^auto-import(ing|ed) '
 }
 
+_bd_repo_root_from_workdir() {
+    local workdir="${1:-$PWD}"
+
+    command git -C "$workdir" rev-parse --show-toplevel 2>/dev/null
+}
+
+_bd_repo_is_dolt_source_of_truth() {
+    local repo_root="$1"
+    local metadata config
+
+    [[ -n "$repo_root" ]] || return 1
+
+    metadata="$repo_root/.beads/metadata.json"
+    config="$repo_root/.beads/config.yaml"
+
+    if [[ -f "$metadata" ]] && command grep -Eq '"(backend|database)"[[:space:]]*:[[:space:]]*"dolt"|"dolt_database"[[:space:]]*:' "$metadata"; then
+        return 0
+    fi
+
+    if [[ -f "$config" ]] && command grep -Eq '^[[:space:]]*export\.auto:[[:space:]]*false([[:space:]]*(#.*)?)?$' "$config"; then
+        return 0
+    fi
+
+    return 1
+}
+
+_bd_should_filter_auto_import_noise() {
+    local repo_root="$1"
+
+    case "${BD_FILTER_AUTO_IMPORT_NOISE-}" in
+        1|true|TRUE|yes|YES|on|ON)
+            return 0
+            ;;
+        0|false|FALSE|no|NO|off|OFF)
+            return 1
+            ;;
+    esac
+
+    _bd_repo_is_dolt_source_of_truth "$repo_root" && return 1
+    return 0
+}
+
 _bd_run_filtered() {
-    BD_EXPORT_GIT_ADD=false command bd "$@" \
-        > >(_bd_filter_auto_import_noise) \
-        2> >(_bd_filter_auto_import_noise >&2)
+    local workdir repo_root
+
+    workdir="$(_bd_command_directory "$@")"
+    repo_root="$(_bd_repo_root_from_workdir "$workdir")"
+
+    if _bd_should_filter_auto_import_noise "$repo_root"; then
+        BD_EXPORT_GIT_ADD=false command bd "$@" \
+            > >(_bd_filter_auto_import_noise) \
+            2> >(_bd_filter_auto_import_noise >&2)
+    else
+        BD_EXPORT_GIT_ADD=false command bd "$@"
+    fi
 }
 
 _bd_arg_requests_help() {
@@ -210,6 +261,11 @@ _bd_autocommit_issues_jsonl() {
 
     repo_root="$(command git -C "$workdir" rev-parse --show-toplevel 2>/dev/null)" || return 0
     issues_path='.beads/issues.jsonl'
+
+    if _bd_repo_is_dolt_source_of_truth "$repo_root"; then
+        printf '%s\n' 'bd: warning: skipping .beads/issues.jsonl auto-commit; Dolt is source of truth for this repo' >&2
+        return 0
+    fi
 
     [[ -f "$repo_root/$issues_path" ]] || return 0
 
