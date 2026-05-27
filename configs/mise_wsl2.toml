@@ -1,8 +1,5 @@
 [tools]
-# Pinned to 1.15.7 because 1.15.10 has a regression causing an endless
-# progress animation with OpenAI models. Revert to "latest" once upstream
-# fix lands. Not Renovate-tracked — manual revert required.
-opencode = "1.15.7"
+opencode = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:@devcontainers/cli" = "latest"
 "npm:@beads/bd" = "latest"
