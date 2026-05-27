@@ -51,6 +51,10 @@ snooze_duration_minutes = 30
 restart_wake_message = "wake up: pick up what you were doing"
 row_tag = "none"
 session_id_poller_max_threads = 50
+live_send_exit_chord = "C-q"
+new_session_attach_mode = "tmux"
+default_attach_mode = "tmux"
+click_action = "live_send"
 
 [session.agent_command_override]
 opencode = "opencode-plannotator"
@@ -72,7 +76,7 @@ on_error = "$HOME/bin/aoe-notify error"
 
 [app_state]
 has_seen_welcome = true
-last_seen_version = "1.8.1"
+last_seen_version = "1.9.2"
 has_seen_custom_instruction_warning = true
 has_acknowledged_agent_hooks = true
 sort_order = "z_a"
