@@ -1,0 +1,7 @@
+[
+    {
+        "keys": ["primary+shift+h"],
+        "command": "copy_to_clipboard",
+        "args": {"text": "$short_commit"}
+    }
+]

@@ -29,6 +29,7 @@ This page lists the main managed targets expected on native Windows.
 | PowerShell scripts | `~/Documents/PowerShell/Scripts/**` | `private_Documents/PowerShell/Scripts/**` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Espanso | `~/AppData/Roaming/espanso/match/**` | `AppData/Roaming/espanso/match/**` |
+| Sublime Merge | `~/AppData/Roaming/Sublime Merge/Packages/**` | `AppData/Roaming/Sublime Merge/Packages/**` |
 | Browser policies | `HKLM\Software\Policies\Google\Chrome`, `HKLM\Software\Policies\Mozilla\Firefox` | `.chezmoiscripts/run_onchange_after_browser-policies.ps1.tmpl`, `configs/browser-policies/**` |
 
 ## Notes About Scope

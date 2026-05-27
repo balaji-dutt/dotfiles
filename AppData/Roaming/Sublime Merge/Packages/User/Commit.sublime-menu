@@ -1,0 +1,7 @@
+[
+    {
+        "caption": "Copy Short Commit Hash",
+        "command": "copy_to_clipboard",
+        "args": {"text": "$short_commit"}
+    }
+]

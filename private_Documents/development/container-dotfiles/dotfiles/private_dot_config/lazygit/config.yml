@@ -4,6 +4,7 @@ gui:
   showFileTree: true
 git:
   parseEmoji: true
+  truncateCopiedCommitHashesTo: 8
   ignoreWhitespaceInDiffView: true
   pagers:
     - pager: diff-so-fancy

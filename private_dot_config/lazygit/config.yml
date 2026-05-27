@@ -3,6 +3,7 @@ gui:
   # showIcons: false #breaks in VSCode terminal :-(
 git:
   parseEmoji: true
+  truncateCopiedCommitHashesTo: 8
   ignoreWhitespaceInDiffView: true
   pagers:
     - pager: diff-so-fancy
