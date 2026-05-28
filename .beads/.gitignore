@@ -12,6 +12,9 @@ last-touched
 # Daemon runtime (lock, log, pid)
 daemon.*
 
+# Interactions log (runtime, not versioned)
+interactions.jsonl
+
 # Push state (runtime, per-machine)
 push-state.json
 
@@ -52,6 +55,9 @@ dolt-server.activity
 
 # Backup data (auto-exported JSONL, local-only)
 backup/
+
+# In-progress claim state (beads-work skill; per-harness, runtime-only)
+in-progress-*.json
 
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
