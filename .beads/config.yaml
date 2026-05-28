@@ -58,6 +58,9 @@ export.git-add: false
 
 dolt.shared-server: false
 dolt.mode: server
+dolt.host: 127.0.0.1
+dolt.port: 3308
+dolt.database: "dots"
 dolt.auto-push: false
 sync.remote: "git+ssh://git@gitlab.com/balaji-personal-files/dotfiles-beads.git"
 
