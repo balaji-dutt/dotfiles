@@ -3,7 +3,7 @@
   "name": "justthebrowser",
   "upstream": {
     "repo": "corbindavenport/just-the-browser",
-    "version": "v1.4",
+    "version": "v1.5",
     "release_url": "https://github.com/corbindavenport/just-the-browser/releases/tag/v1.4",
     "source_base_url": "https://raw.githubusercontent.com/corbindavenport/just-the-browser/v1.4/"
   },
