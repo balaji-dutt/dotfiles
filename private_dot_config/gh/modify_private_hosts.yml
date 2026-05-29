@@ -8,7 +8,7 @@
 {{- $_ := set $github "git_protocol" "ssh" -}}
 {{- $users := (get $github "users") | default dict -}}
 {{- if not (hasKey $users "balaji-dutt") -}}
-{{-   $_ = set $users "balaji-dutt" dict -}}
+{{-   $_ = set $users "balaji-dutt" (dict) -}}
 {{- end -}}
 {{- $_ = set $github "users" $users -}}
 {{- $_ = set $github "user" "balaji-dutt" -}}
