@@ -252,6 +252,45 @@
       "matchFileNames": [".chezmoidata.yaml"],
       "matchDepNames": ["backnotprop/plannotator"],
       "groupName": "plannotator cli"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": [
+        "@anthropic-ai/claude-code",
+        "uv",
+        "dolthub/dolt",
+        "backnotprop/plannotator",
+        "@plannotator/opencode",
+        "njbrake/agent-of-empires"
+      ],
+      "matchUpdateTypes": ["patch", "digest"],
+      "groupName": "fast moving tools (patch)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": [
+        "@anthropic-ai/claude-code",
+        "uv",
+        "dolthub/dolt",
+        "backnotprop/plannotator",
+        "@plannotator/opencode",
+        "njbrake/agent-of-empires"
+      ],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "fast moving tools (minor)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": [
+        "@anthropic-ai/claude-code",
+        "uv",
+        "dolthub/dolt",
+        "backnotprop/plannotator",
+        "@plannotator/opencode",
+        "njbrake/agent-of-empires"
+      ],
+      "matchUpdateTypes": ["major"],
+      "groupName": "fast moving tools (major)"
     }
   ]
 }
