@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # renovate: datasource=github-releases depName=Astro-Han/claude-pace
-CLAUDE_PACE_VERSION="v0.9.0"
+CLAUDE_PACE_VERSION="v0.9.1"
 # Claude Code statusline plugin
 # Line1: model (ctx) effort | project (branch) Nf +A -D
 # Line2: bar PCT% CL | 5h used% [⇡⇣pace] countdown  7d used% [⇡⇣pace] countdown
@@ -107,14 +107,14 @@ done
 _stale() { [ ! -f "$1" ] || [ $((NOW - $(stat -f%m "$1" 2>/dev/null || stat -c%Y "$1" 2>/dev/null || echo 0))) -gt "$2" ]; }
 
 # ── Parse stdin + settings in one jq call ──
-# Fields: MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7
+# Fields: MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7 TIN
 # Read settings into a shell var rather than process substitution so the jq
 # --argjson path works on Windows Git Bash (where /proc/<pid>/fd/N used by
 # <(...) is unavailable and --slurpfile silently fails, yielding empty fields).
 HAS_RL=0
 _SETTINGS=$(cat "$HOME/.claude/settings.json" 2>/dev/null)
 echo "$_SETTINGS" | jq -e . >/dev/null 2>&1 || _SETTINGS='{}'
-IFS=$'\t' read -r MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7 < <(
+IFS=$'\t' read -r MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7 TIN < <(
   jq -r --argjson cfg "$_SETTINGS" \
     '[(.model.display_name//"?"),(.workspace.project_dir//"."),
     (.context_window.used_percentage//0|floor),(.context_window.context_window_size//0),
@@ -124,9 +124,25 @@ IFS=$'\t' read -r MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7 < <(
     (.rate_limits.five_hour.used_percentage//null|if type=="number" then floor else "--" end),
     (.rate_limits.seven_day.used_percentage//null|if type=="number" then floor else "--" end),
     (.rate_limits.five_hour.resets_at//0),
-    (.rate_limits.seven_day.resets_at//0)]|@tsv' <<<"$input"
+    (.rate_limits.seven_day.resets_at//0),
+    (.context_window.total_input_tokens//0|floor)]|@tsv' <<<"$input"
 )
 case "${EFF:-default}" in low) EF='low' ;; high) EF='high' ;; xhigh) EF='xhigh' ;; max) EF='max' ;; *) EF='medium' ;; esac
+
+# ── Auto-compact window: track usage against the compaction threshold ──
+# When CLAUDE_CODE_AUTO_COMPACT_WINDOW is set, compaction fires at that token
+# count, not the model's full window. Recompute PCT against it and relabel CTX
+# so the bar measures "distance to compaction", matching the desktop app's bar
+# (e.g. 49.8k / 400.0k). Falls back to the full window when unset or when token
+# data is missing (early session, before the first API response).
+ACW="${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-0}"
+if [[ "$ACW" =~ ^[0-9]+$ ]] && ((ACW > 0)) && [[ "$TIN" =~ ^[0-9]+$ ]] && ((TIN > 0)); then
+  # Compaction can't exceed the real window; clamp so the label stays honest.
+  ((CTX > 0 && ACW > CTX)) && ACW=$CTX
+  PCT=$((TIN * 100 / ACW))
+  ((PCT > 100)) && PCT=100
+  CTX=$ACW
+fi
 
 # ── Context label (needed by MODEL_SHORT and line 2) ──
 if ((CTX >= 1000000)); then
