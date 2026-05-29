@@ -486,6 +486,157 @@ install_dolt_gh() {
 }
 install_dolt_gh || echo "!! dolt install failed; continuing"
 
+# GitHub CLI: install latest/pinned Linux binary from GitHub releases.
+# Supports amd64 and arm64 container architectures.
+# Set GH_VERSION as a container variable to a tag like "2.93.0" or "latest".
+gh_cli_version() {
+  gh --version 2>/dev/null | awk '/^gh version[[:space:]]+[0-9]/ { print $3; exit }'
+}
+
+install_gh_cli() {
+  local want_version="${GH_VERSION:-latest}"
+  local arch norm_arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) norm_arch="amd64" ;;
+    aarch64|arm64) norm_arch="arm64" ;;
+    *) echo "!! Unsupported arch for GitHub CLI binary: $arch"; return 1 ;;
+  esac
+
+  if [ "$want_version" = "latest" ]; then
+    if ! need_cmd jq; then
+      echo "!! jq not available; cannot resolve latest GitHub CLI. Install jq or set GH_VERSION."
+      return 1
+    fi
+    echo "==> Resolving latest GitHub CLI version from GitHub..."
+    local tag
+    tag="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest GitHub CLI version."; return 1; }
+    want_version="$tag"
+  fi
+
+  if need_cmd gh; then
+    local curr
+    curr="$(gh_cli_version)"
+    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
+      echo "==> GitHub CLI $curr already installed; skipping."
+      return 0
+    elif [ -n "$curr" ]; then
+      echo "==> GitHub CLI $curr found; upgrading to $want_version"
+    else
+      echo "==> GitHub CLI found; upgrading to $want_version"
+    fi
+  fi
+
+  local tmpd asset archive_dir url binpath
+  tmpd="$(mktemp -d)"
+  archive_dir="gh_${want_version}_linux_${norm_arch}"
+  asset="${archive_dir}.tar.gz"
+  url="https://github.com/cli/cli/releases/download/v${want_version}/${asset}"
+
+  echo "==> Installing GitHub CLI ${want_version} (${norm_arch})"
+  curl -fsSL "$url" -o "${tmpd}/gh.tgz"
+  tar -xzf "${tmpd}/gh.tgz" -C "$tmpd"
+
+  binpath="${tmpd}/${archive_dir}/bin/gh"
+  if [ ! -f "$binpath" ]; then
+    echo "!! GitHub CLI binary not found in archive: ${archive_dir}/bin/gh"
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  as_root "install -m 0755 '$binpath' /usr/local/bin/gh"
+  rm -rf "$tmpd"
+
+  if ! need_cmd gh; then
+    echo "!! GitHub CLI not found after install."
+    return 1
+  fi
+  local installed
+  installed="$(gh_cli_version)"
+  if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
+    echo "!! GitHub CLI version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
+    return 1
+  fi
+  echo "==> GitHub CLI installed: ${installed}"
+}
+install_gh_cli || echo "!! GitHub CLI install failed; continuing"
+
+# GitLab CLI: install latest/pinned Linux binary from GitLab releases.
+# Supports amd64 and arm64 container architectures.
+# Set GLAB_VERSION as a container variable to a tag like "1.100.0" or "latest".
+glab_cli_version() {
+  glab version 2>/dev/null | sed -n 's/^glab \([0-9][0-9.]*\).*/\1/p' | head -n 1
+}
+
+install_glab_gitlab() {
+  local want_version="${GLAB_VERSION:-latest}"
+  local arch norm_arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) norm_arch="amd64" ;;
+    aarch64|arm64) norm_arch="arm64" ;;
+    *) echo "!! Unsupported arch for GitLab CLI binary: $arch"; return 1 ;;
+  esac
+
+  if [ "$want_version" = "latest" ]; then
+    if ! need_cmd jq; then
+      echo "!! jq not available; cannot resolve latest GitLab CLI. Install jq or set GLAB_VERSION."
+      return 1
+    fi
+    echo "==> Resolving latest GitLab CLI version from GitLab..."
+    local tag
+    tag="$(curl -fsSL https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/releases/permalink/latest | jq -r '.tag_name' | sed 's/^v//')"
+    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest GitLab CLI version."; return 1; }
+    want_version="$tag"
+  fi
+
+  if need_cmd glab; then
+    local curr
+    curr="$(glab_cli_version)"
+    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
+      echo "==> GitLab CLI $curr already installed; skipping."
+      return 0
+    elif [ -n "$curr" ]; then
+      echo "==> GitLab CLI $curr found; upgrading to $want_version"
+    else
+      echo "==> GitLab CLI found; upgrading to $want_version"
+    fi
+  fi
+
+  local tmpd asset url binpath
+  tmpd="$(mktemp -d)"
+  asset="glab_${want_version}_linux_${norm_arch}.tar.gz"
+  url="https://gitlab.com/gitlab-org/cli/-/releases/v${want_version}/downloads/${asset}"
+
+  echo "==> Installing GitLab CLI ${want_version} (${norm_arch})"
+  curl -fsSL "$url" -o "${tmpd}/glab.tgz"
+  tar -xzf "${tmpd}/glab.tgz" -C "$tmpd"
+
+  binpath="${tmpd}/bin/glab"
+  if [ ! -f "$binpath" ]; then
+    echo "!! GitLab CLI binary not found in archive: bin/glab"
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  as_root "install -m 0755 '$binpath' /usr/local/bin/glab"
+  rm -rf "$tmpd"
+
+  if ! need_cmd glab; then
+    echo "!! GitLab CLI not found after install."
+    return 1
+  fi
+  local installed
+  installed="$(glab_cli_version)"
+  if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
+    echo "!! GitLab CLI version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
+    return 1
+  fi
+  echo "==> GitLab CLI installed: ${installed}"
+}
+install_glab_gitlab || echo "!! GitLab CLI install failed; continuing"
+
 # Helper: semantic version greater-or-equal check using sort -V.
 version_ge() {
   local a b

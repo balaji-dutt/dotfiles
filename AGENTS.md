@@ -34,6 +34,15 @@ The following tools may be available, so check for their availability before exe
 
 - jq: for processing JSON data.
 
+## Shell command hygiene
+
+- The agent shell may be `zsh`, where lowercase names such as `path` and
+  `status` are special parameters. Do not use them as loop/local variables in
+  inline validation commands; use names like `file_path`, `relpath`, or `rc`
+  instead. Accidentally assigning to `path` mutates `PATH` and can make commands
+  such as `python3`, `dirname`, or `chezmoi` disappear mid-run; assigning to
+  `status` fails because it is read-only.
+
 ## Documentation References
 
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md

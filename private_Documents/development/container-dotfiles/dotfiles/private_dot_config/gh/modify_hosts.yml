@@ -1,0 +1,16 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $input := .chezmoi.stdin | default "" -}}
+{{- $hosts := dict -}}
+{{- if gt (len (trim $input)) 0 -}}
+{{-   $hosts = ($input | fromYaml) | default dict -}}
+{{- end -}}
+{{- $github := (get $hosts "github.com") | default dict -}}
+{{- $_ := set $github "git_protocol" "ssh" -}}
+{{- $users := (get $github "users") | default dict -}}
+{{- if not (hasKey $users "balaji-dutt") -}}
+{{-   $_ = set $users "balaji-dutt" dict -}}
+{{- end -}}
+{{- $_ = set $github "users" $users -}}
+{{- $_ = set $github "user" "balaji-dutt" -}}
+{{- $_ = set $hosts "github.com" $github -}}
+{{- $hosts | toYaml -}}

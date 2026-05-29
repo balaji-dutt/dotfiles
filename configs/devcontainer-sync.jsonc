@@ -54,6 +54,26 @@
         ]
       },
       {
+        "name": "github-cli-config",
+        "source_root": "private_dot_config/gh",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/gh",
+        "cleanup_managed": true,
+        "include": [
+          "**"
+        ],
+        "exclude": []
+      },
+      {
+        "name": "gitlab-cli-config",
+        "source_root": "private_dot_config/glab-cli",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/glab-cli",
+        "cleanup_managed": true,
+        "include": [
+          "**"
+        ],
+        "exclude": []
+      },
+      {
         "name": "user-bin-selected-wrappers",
         "source_root": "bin",
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin",

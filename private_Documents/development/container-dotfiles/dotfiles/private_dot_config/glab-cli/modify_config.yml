@@ -1,0 +1,26 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $input := .chezmoi.stdin | default "" -}}
+{{- $cfg := dict -}}
+{{- if gt (len (trim $input)) 0 -}}
+{{-   $cfg = ($input | fromYaml) | default dict -}}
+{{- end -}}
+{{- $_ := set $cfg "git_protocol" "ssh" -}}
+{{- $_ = set $cfg "host" "gitlab.com" -}}
+{{- $_ = set $cfg "no_prompt" false -}}
+{{- $_ = set $cfg "telemetry" false -}}
+{{- $_ = set $cfg "display_hyperlinks" true -}}
+{{- $_ = set $cfg "check_update" false -}}
+{{- $hosts := (get $cfg "hosts") | default dict -}}
+{{- $gitlab := (get $hosts "gitlab.com") | default dict -}}
+{{- $_ = set $gitlab "api_protocol" "https" -}}
+{{- $_ = set $gitlab "api_host" "gitlab.com" -}}
+{{- $_ = set $gitlab "git_protocol" "ssh" -}}
+{{- if not (hasKey $gitlab "container_registry_domains") -}}
+{{-   $_ = set $gitlab "container_registry_domains" (list "registry.gitlab.com") -}}
+{{- end -}}
+{{- if not (hasKey $gitlab "custom_headers") -}}
+{{-   $_ = set $gitlab "custom_headers" (list) -}}
+{{- end -}}
+{{- $_ = set $hosts "gitlab.com" $gitlab -}}
+{{- $_ = set $cfg "hosts" $hosts -}}
+{{- $cfg | toYaml -}}

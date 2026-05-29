@@ -50,6 +50,10 @@
 ## Tooling policy
 
 - Only run commands when necessary.
+- The shell may be `zsh`, where lowercase names such as `path` and `status` are
+  special parameters. Do not use them as loop/local variables in inline commands;
+  use names like `file_path`, `relpath`, or `rc` instead. Assigning to `path`
+  mutates `PATH`; assigning to `status` fails because it is read-only.
 - Ask before running anything that:
   - changes the filesystem outside the repo
   - alters system settings, permissions, or security state
