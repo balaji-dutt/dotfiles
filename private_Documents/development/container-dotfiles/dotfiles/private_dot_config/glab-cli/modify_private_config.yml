@@ -27,6 +27,14 @@
 {{-     $_ = set $gitlab "container_registry_domains" (join "," $domains) -}}
 {{-   end -}}
 {{- end -}}
+{{- range $key := list "proxy" "ssh_host" "subfolder" -}}
+{{-   if hasKey $gitlab $key -}}
+{{-     $value := get $gitlab $key -}}
+{{-     if or (eq $value nil) (eq $value "") -}}
+{{-       $_ = unset $gitlab $key -}}
+{{-     end -}}
+{{-   end -}}
+{{- end -}}
 {{- $_ = set $hosts "gitlab.com" $gitlab -}}
 {{- $_ = set $cfg "hosts" $hosts -}}
 {{- $cfg | toYaml -}}
