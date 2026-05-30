@@ -6,6 +6,12 @@
 {{- end -}}
 {{- $_ := set $cfg "git_protocol" "ssh" -}}
 {{- $_ = set $cfg "host" "gitlab.com" -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   $_ = set $cfg "editor" "code --wait" -}}
+{{-   $_ = set $cfg "browser" "open -a Firefox" -}}
+{{- else if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{-   $_ = set $cfg "browser" "wslview" -}}
+{{- end -}}
 {{- $_ = set $cfg "no_prompt" false -}}
 {{- $_ = set $cfg "telemetry" false -}}
 {{- $_ = set $cfg "display_hyperlinks" true -}}
@@ -15,11 +21,11 @@
 {{- $_ = set $gitlab "api_protocol" "https" -}}
 {{- $_ = set $gitlab "api_host" "gitlab.com" -}}
 {{- $_ = set $gitlab "git_protocol" "ssh" -}}
-{{- if not (hasKey $gitlab "container_registry_domains") -}}
-{{-   $_ = set $gitlab "container_registry_domains" (list "registry.gitlab.com") -}}
-{{- end -}}
-{{- if not (hasKey $gitlab "custom_headers") -}}
-{{-   $_ = set $gitlab "custom_headers" (list) -}}
+{{- if hasKey $gitlab "container_registry_domains" -}}
+{{-   $domains := get $gitlab "container_registry_domains" -}}
+{{-   if kindIs "slice" $domains -}}
+{{-     $_ = set $gitlab "container_registry_domains" (join "," $domains) -}}
+{{-   end -}}
 {{- end -}}
 {{- $_ = set $hosts "gitlab.com" $gitlab -}}
 {{- $_ = set $cfg "hosts" $hosts -}}
