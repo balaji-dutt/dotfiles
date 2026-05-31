@@ -247,7 +247,7 @@
     "@gotgenes/opencode-agent-identity@latest",
     "cc-safety-net@latest",
     "envsitter-guard@latest",
-    "opencode-claude-bridge@1.10.10",
+    "opencode-claude-bridge@1.10.11",
     "@slkiser/opencode-quota@latest"
   ],
 
