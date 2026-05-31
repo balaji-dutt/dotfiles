@@ -289,12 +289,12 @@
         // Anthropic API-key fallback for the local websearch_cited compatibility shim.
         // OpenAI remains selected first while its provider option above exists.
         "websearch_cited": {
-          "model": "claude-haiku-4-6"
+          "model": "claude-haiku-4-5"
         }
       },
       "models": {
-        "claude-haiku-4-6": {
-          "name": "Haiku 4.6"
+        "claude-haiku-4-5": {
+          "name": "Haiku 4.5"
         },
         "claude-sonnet-4-6": {
           "name": "Sonnet 4.6",
@@ -321,23 +321,10 @@
             },
             "xhigh": {
               "effort": "xhigh"
-            }
-          }
-        },
-        "claude-haiku-4-7": {
-          "name": "Haiku 4.7"
-        },
-        "claude-sonnet-4-7": {
-          "name": "Sonnet 4.7",
-          "variants": {
-            "medium": {
-              "effort": "medium"
             },
-            "high": {
-              "effort": "high"
-            },
-            "xhigh": {
-              "effort": "xhigh"
+            "ultra": {
+              "effort": "max",
+              "max_tokens": 128000
             }
           }
         },
@@ -352,7 +339,30 @@
             },
             "xhigh": {
               "effort": "xhigh",
-              "maxOutputTokens": 64000
+              "max_tokens": 64000
+            },
+            "ultra": {
+              "effort": "max",
+              "max_tokens": 128000
+            }
+          }
+        },
+        "claude-opus-4-8": {
+          "name": "Opus 4.8",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh",
+              "max_tokens": 64000
+            },
+            "ultra": {
+              "effort": "max",
+              "max_tokens": 128000
             }
           }
         }
