@@ -173,9 +173,8 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
   - `CZ_AUDIT_STRICT=1 ./assets/cz-audit.sh check <path>`
   - or per-check strict flags (see `assets/cz-audit.env`)
 
-- Worktree mode (optional): when editing in a git worktree whose path differs from the configured chezmoi source dir, set `CHEZMOI_SOURCE_DIR` so the audit sees the worktree's edits instead of comparing the main checkout to the live target:
-  - macOS / WSL2: `CHEZMOI_SOURCE_DIR="$(pwd)" ./assets/cz-audit.sh check <path>`
-  - Windows: `$env:CHEZMOI_SOURCE_DIR = (Get-Location).Path; pwsh ./assets/cz-audit.ps1 check <path>`
+- Worktree mode: when editing in a git worktree whose path differs from the configured chezmoi source dir, run the normal audit command. `cz-audit` auto-detects this case and points chezmoi at the worktree so it sees the edited source files.
+  - Manual override: set `CHEZMOI_SOURCE_DIR` only when you need to force a different source directory.
 
 - Exception: A message that says "config file template has changed, run `chezmoi init` to regenerate config file" may be ignored.
 

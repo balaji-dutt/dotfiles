@@ -166,10 +166,62 @@ function Get-ContainerRuntime {
   return $null
 }
 
-function Invoke-Cz([string[]]$CzArgs) {
+function Get-CzExecutable {
   $exe = (Get-Command cz -ErrorAction SilentlyContinue)
   if (-not $exe) { $exe = (Get-Command chezmoi -ErrorAction SilentlyContinue) }
   if (-not $exe) { throw "Neither 'cz' nor 'chezmoi' found in PATH" }
+  return $exe
+}
+
+function Get-NormalizedDirectoryPath([string]$Path) {
+  try {
+    return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+  } catch {
+    return [IO.Path]::GetFullPath($Path)
+  }
+}
+
+function Initialize-ChezmoiSourceDir {
+  if ($env:CHEZMOI_SOURCE_DIR) {
+    Write-Info "CHEZMOI_SOURCE_DIR override: $($env:CHEZMOI_SOURCE_DIR)"
+    return
+  }
+
+  if (-not (HaveCmd 'git')) { return }
+
+  try {
+    $exe = Get-CzExecutable
+    $configuredSource = (& $exe source-path 2>$null | Out-String).Trim()
+  } catch {
+    return
+  }
+
+  if ([string]::IsNullOrEmpty($configuredSource)) { return }
+
+  try {
+    $configuredFull = Get-NormalizedDirectoryPath $configuredSource
+    $rootFull = Get-NormalizedDirectoryPath $script:ROOT
+  } catch {
+    return
+  }
+
+  $cmp = [System.StringComparison]::OrdinalIgnoreCase
+  if ([string]::Equals($configuredFull, $rootFull, $cmp)) { return }
+
+  try {
+    $inside = (& git -C $script:ROOT rev-parse --is-inside-work-tree 2>$null | Out-String).Trim()
+  } catch {
+    return
+  }
+
+  if ($inside -ne 'true') { return }
+
+  $env:CHEZMOI_SOURCE_DIR = $script:ROOT
+  Write-Info "CHEZMOI_SOURCE_DIR auto-detected: $($env:CHEZMOI_SOURCE_DIR)"
+}
+
+function Invoke-Cz([string[]]$CzArgs) {
+  $exe = Get-CzExecutable
   # Optional override: set $env:CHEZMOI_SOURCE_DIR to point chezmoi at a
   # different source directory (e.g. a feature worktree). Without this,
   # chezmoi uses its configured source dir, so edits in branch worktrees
@@ -621,10 +673,7 @@ try {
   Import-AuditEnv (Join-Path $script:ROOT 'assets/cz-audit.env')
   Ensure-AuditDefaults
   Clear-AuditLogsOnce
-
-  if ($env:CHEZMOI_SOURCE_DIR) {
-    Write-Info "CHEZMOI_SOURCE_DIR override: $($env:CHEZMOI_SOURCE_DIR)"
-  }
+  Initialize-ChezmoiSourceDir
 
   switch ($Command) {
     'classify' { Classify $RelSrc | Write-Output }

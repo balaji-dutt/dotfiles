@@ -61,20 +61,19 @@ If local tooling is unavailable, `cz-audit` can use containerized fallbacks wher
 
 ## Worktree Workflow
 
-`cz-audit` invokes `chezmoi`, which uses its configured source directory by default. When editing in a git worktree whose path differs from that source dir (e.g. `worktrees/<branch>` while chezmoi is configured for the main checkout), the audit will compare the unchanged main-worktree source to the live target and report spurious drift.
+`cz-audit` invokes `chezmoi`, which uses its configured source directory by default. When editing in a git worktree whose path differs from that source dir (e.g. `worktrees/<branch>` while chezmoi is configured for the main checkout), `cz-audit` auto-detects the mismatch and points chezmoi at the worktree.
 
-Set `CHEZMOI_SOURCE_DIR` to point chezmoi at the worktree:
+Use the normal audit command:
 
 ```sh
-CHEZMOI_SOURCE_DIR="$(pwd)" ./assets/cz-audit.sh check <repo-relative-path>
+./assets/cz-audit.sh check <repo-relative-path>
 ```
 
 ```powershell
-$env:CHEZMOI_SOURCE_DIR = (Get-Location).Path
 pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 ```
 
-When set, an `INFO: CHEZMOI_SOURCE_DIR override: <path>` line is emitted at the start of the run, and every internal `chezmoi` invocation is prefixed with `--source "$CHEZMOI_SOURCE_DIR"`. Unset → behavior is unchanged.
+When auto-detected, an `INFO: CHEZMOI_SOURCE_DIR auto-detected: <path>` line is emitted at the start of the run, and every internal `chezmoi` invocation is prefixed with `--source <path>`. To force a different source directory, set `CHEZMOI_SOURCE_DIR` manually; explicit overrides still emit `INFO: CHEZMOI_SOURCE_DIR override: <path>`.
 
 ## Typical Workflow
 

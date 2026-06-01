@@ -27,20 +27,53 @@ repo_root() {
   (cd -- "$script_dir/.." && pwd -P)
 }
 
-# Load default variables for syntax checks
-[[ -f "assets/cz-audit.env" ]] && source "assets/cz-audit.env"
-
 info(){ echo "INFO: $*" >&2; }
 
-# Optional override: set CHEZMOI_SOURCE_DIR to point chezmoi at a different
-# source directory (e.g. a feature worktree). Without this, chezmoi always
-# uses its configured source dir, so edits in branch worktrees are invisible.
-if [[ -n "${CHEZMOI_SOURCE_DIR:-}" ]]; then
-  info "CHEZMOI_SOURCE_DIR override: $CHEZMOI_SOURCE_DIR"
-  cm(){ chezmoi --source "$CHEZMOI_SOURCE_DIR" "$@"; }
-else
-  cm(){ chezmoi "$@"; }
-fi
+# Always run checks from repo root so "repo-relative paths" actually resolve.
+ROOT="$(repo_root)"
+cd "$ROOT"
+
+# Load default variables for syntax checks.
+[[ -f "assets/cz-audit.env" ]] && source "assets/cz-audit.env"
+
+normalize_dir() {
+  local dir="$1"
+  (cd -- "$dir" 2>/dev/null && pwd -P) || return 1
+}
+
+init_chezmoi_source_dir() {
+  if [[ -n "${CHEZMOI_SOURCE_DIR:-}" ]]; then
+    info "CHEZMOI_SOURCE_DIR override: $CHEZMOI_SOURCE_DIR"
+    return 0
+  fi
+
+  have chezmoi || return 0
+  have git || return 0
+
+  local configured_source configured_real root_real
+  configured_source="$(chezmoi source-path 2>/dev/null || true)"
+  [[ -n "$configured_source" ]] || return 0
+
+  configured_real="$(normalize_dir "$configured_source")" || return 0
+  root_real="$(normalize_dir "$ROOT")" || return 0
+  [[ "$configured_real" != "$root_real" ]] || return 0
+
+  git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+  CHEZMOI_SOURCE_DIR="$ROOT"
+  export CHEZMOI_SOURCE_DIR
+  info "CHEZMOI_SOURCE_DIR auto-detected: $CHEZMOI_SOURCE_DIR"
+}
+
+init_chezmoi_source_dir
+
+cm() {
+  if [[ -n "${CHEZMOI_SOURCE_DIR:-}" ]]; then
+    chezmoi --source "$CHEZMOI_SOURCE_DIR" "$@"
+  else
+    chezmoi "$@"
+  fi
+}
 
 audit_logdir() {
   local d="${CZ_AUDIT_LOGDIR:-.cz-audit}"
@@ -58,10 +91,6 @@ sanitize_key() {
   # Turn "ansible/tasks/foo.yml" into "ansible__tasks__foo.yml"
   echo "${1//[^A-Za-z0-9._-]/_}" | tr '/' '_'
 }
-
-# Always run checks from repo root so "repo-relative paths" actually resolve.
-ROOT="$(repo_root)"
-cd "$ROOT"
 
 audit_clean_logs_once
 
