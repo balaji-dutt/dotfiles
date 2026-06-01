@@ -420,12 +420,20 @@ OAuth usage endpoint used by `@slkiser/opencode-quota`.
 
 The quota config sets `minIntervalMs` to `600000` so normal provider refreshes
 are cached for ten minutes. The shim also caches successful Anthropic usage JSON
-under `~/.local/state/opencode/`, serves fresh cache for ten minutes, and serves
-last-known-good data for up to five hours on endpoint 408, 429, 5xx, timeout, or
-network failures. After one of those transient failures, it backs off live usage
-endpoint probes for thirty minutes by default and serves the last-known-good
-cache during that window. It does not store or log request headers, bearer
-tokens, or credential material.
+under `~/.local/state/opencode/`, associates it with a local one-way Claude
+OAuth token fingerprint when available, serves fresh cache for ten minutes, and
+serves last-known-good data for up to five hours on endpoint 408, 429, 5xx,
+timeout, or network failures. After one of those transient failures, it backs off
+live usage endpoint probes for thirty minutes by default and serves the
+last-known-good cache during that window.
+
+On OpenCode launch, the shim checks local Claude credentials without making an
+Anthropic network request. If the credential generation changed, it removes stale
+local Anthropic usage cache and only the `@slkiser/opencode-quota` Anthropic
+provider-cache files (`quota-provider-state/anthropic-*.json`); other provider
+caches are untouched. It does not store or log request headers, bearer tokens,
+credential JSON, or raw credential material. The local runtime state stores only
+the one-way token fingerprint needed for cache invalidation.
 
 Useful runtime overrides:
 
@@ -435,6 +443,8 @@ Useful runtime overrides:
   the five-hour stale fallback cap.
 - `OPENCODE_QUOTA_ANTHROPIC_BACKOFF_TTL_MS` changes the transient-failure
   backoff TTL, capped by the stale fallback window.
+- `OPENCODE_QUOTA_ANTHROPIC_AUTH_REFRESH=0` disables launch-time Claude
+  credential comparison and provider-cache eviction.
 - `OPENCODE_QUOTA_ANTHROPIC_COMPAT_DEBUG=1` writes count/status-only diagnostics
   to `~/.local/state/opencode/opencode-quota-anthropic-compat.log`.
 
