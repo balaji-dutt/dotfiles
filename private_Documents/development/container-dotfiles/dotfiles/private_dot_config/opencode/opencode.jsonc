@@ -492,7 +492,7 @@
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-5.5",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
+      "temperature": 0.4,
       "permission": {
         "edit": "deny",
         "webfetch": "allow",
@@ -508,9 +508,7 @@
     "build": {
       "mode": "primary",
       "description": "Default editing agent",
-      // TEMPORARY: openai/gpt-5.3-codex hangs silently on tool calls in OpenCode >= 1.14.29.
-      // Commented out until anomalyco/opencode#24899 is fixed. Restore after upgrading past the fix.
-      // "model": "openai/gpt-5.3-codex",
+      "model": "openai/gpt-5.5",
       "reasoningEffort": "high",
       "temperature": 0.2,
       "permission": {
