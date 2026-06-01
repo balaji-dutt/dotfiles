@@ -1,5 +1,5 @@
 [tools]
-opencode = "1.15.11"
+opencode = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:@devcontainers/cli" = "latest"
 "npm:@beads/bd" = "latest"

@@ -252,16 +252,7 @@
       "matchFileNames": [".chezmoidata.yaml"],
       "matchDepNames": ["backnotprop/plannotator"],
       "groupName": "plannotator cli"
-    },
-    {
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": [
-        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
-      ],
-      "matchDepNames": ["opencode-ai"],
-      "enabled": false,
-      "description": "TODO: remove once OpenCode > 1.15.12 fixes issues related to not being able to accept agent permission prompts & missing session history. Pinned to 1.15.11 as a workaround."
-    },
+    }
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
