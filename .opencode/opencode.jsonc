@@ -39,6 +39,10 @@
       "CHEZMOI_SOURCE_DIR=\"$(pwd)\" ./assets/cz-audit.sh check *": "allow",
       "pwsh ./assets/cz-audit.ps1*": "allow",
       "pwsh -NoProfile -Command \"./assets/cz-audit.ps1*\"": "allow",
+      "CHEZMOI_SOURCE_DIR=\"$(pwd)\" pwsh ./assets/cz-audit.ps1 check *": "allow",
+      "CHEZMOI_SOURCE_DIR=\"$(pwd)\" pwsh -NoProfile -Command \"./assets/cz-audit.ps1 check *\"": "allow",
+      "$env:CHEZMOI_SOURCE_DIR = (Get-Location).Path; pwsh ./assets/cz-audit.ps1 check *": "allow",
+      "$env:CHEZMOI_SOURCE_DIR = (Get-Location).Path; pwsh -NoProfile -Command \"./assets/cz-audit.ps1 check *\"": "allow",
       // deny destructive chezmoi ops (keep these after allows)
       "chezmoi destroy*": "deny",
       "chezmoi purge*": "deny",

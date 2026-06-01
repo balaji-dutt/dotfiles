@@ -136,6 +136,7 @@
       "basename *": "allow",
       "dirname *": "allow",
       "realpath *": "allow",
+      "command -v *": "allow",
 
       // (optional; safer to keep ask)
       "chown *": "ask",
