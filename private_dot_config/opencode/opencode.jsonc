@@ -159,10 +159,12 @@
       // ---- node toolchain
       "node -v*": "allow",
       "node --version*": "allow",
+      "node --check *": "allow",
       "npm install*": "allow",
       "npm run*": "allow",
       "npm test*": "allow",
       "npm list*": "allow",
+      "npm view *": "allow",
       "npx*": "allow", // if you want Claude parity; otherwise set this to "ask"
       "bun install*": "allow",
       "bun run*": "allow",
