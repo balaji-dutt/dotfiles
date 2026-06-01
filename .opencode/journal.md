@@ -22,6 +22,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-06-01
+
+- decision: `opencode-claude-bridge@1.10.11` is compatible with the local
+  `opencode-claude-bridge-compat.js` shim; upstream changed OAuth/keychain
+  refresh handling only, while the final Anthropic Messages `fetch` boundary and
+  active-tool filtering stayed compatible with the existing shim.
+
 ## 2026-05-16
 
 - decision: Container-dotfiles installer excludes `.claude/`, `.claude.json`,

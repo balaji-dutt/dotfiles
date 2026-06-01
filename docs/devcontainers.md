@@ -387,13 +387,14 @@ OpenCode also loads a local `opencode-claude-bridge-compat.js` plugin on the
 host and in the devcontainer dotfiles. The shim patches only Anthropic Messages
 requests at the final `fetch` boundary.
 
-By default, it keeps only the last prompt-cache `cache_control` marker, preserves
-upstream active-tool filtering from `opencode-claude-bridge@1.10.10`, removes
-legacy broad Claude-only stub schema injections, and removes stale
-`content-length` headers after rewriting request JSON. It still filters Claude
-`WebSearch` when it appears because this setup exposes `websearch_cited`, not a
-bridge-mapped native OpenCode `websearch` tool. It does not log prompt text,
-request bodies, request headers, or authentication values.
+By default, it keeps only the last prompt-cache `cache_control` marker,
+preserves upstream active-tool filtering validated through
+`opencode-claude-bridge@1.10.11`, removes legacy broad Claude-only stub schema
+injections, and removes stale `content-length` headers after rewriting request
+JSON. It still filters Claude `WebSearch` when it appears because this setup
+exposes `websearch_cited`, not a bridge-mapped native OpenCode `websearch` tool.
+It does not log prompt text, request bodies, request headers, or authentication
+values.
 
 The managed OpenCode shell profile and `opencode-plannotator*` wrappers also
 default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts.
