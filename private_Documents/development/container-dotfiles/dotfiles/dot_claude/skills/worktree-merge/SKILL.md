@@ -225,11 +225,36 @@ cd "$ORIG_WT"
 Always offer — never perform without confirmation:
 
 - **Worktree removal.** Detect whether the worktree was created by `ai-wt`
-  by checking for `.ai-wt/` state inside `$ORIG_WT`:
+  by matching `$ORIG_WT` against session metadata under the main
+  worktree's `.ai-wt/` state directory:
 
   ```bash
-  if [ -d "$ORIG_WT/.ai-wt" ]; then
-    echo "Suggest: ai-wt cleanup"
+  AI_WT_SESSION_ID="$(
+    ORIG_WT="$ORIG_WT" AI_WT_STATE_DIR="$MAIN_WT/.ai-wt" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+target = Path(os.environ["ORIG_WT"]).resolve()
+sessions_dir = Path(os.environ["AI_WT_STATE_DIR"]) / "sessions"
+
+for metadata_path in sorted(sessions_dir.glob("*.json")):
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        raw_worktree_path = metadata.get("worktree_path")
+        if not raw_worktree_path:
+            continue
+        worktree_path = Path(str(raw_worktree_path)).resolve()
+    except (OSError, json.JSONDecodeError):
+        continue
+    if worktree_path == target:
+        print(metadata.get("session_id") or metadata_path.stem)
+        break
+PY
+  )"
+
+  if [ -n "$AI_WT_SESSION_ID" ]; then
+    echo "Suggest: ai-wt cleanup \"$AI_WT_SESSION_ID\""
   else
     echo "Suggest: git worktree remove \"$ORIG_WT\""
   fi
