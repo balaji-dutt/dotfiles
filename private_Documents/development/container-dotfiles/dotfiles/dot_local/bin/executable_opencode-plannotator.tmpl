@@ -131,4 +131,7 @@ fi
 [ -n "$OPENCODE_BIN" ] || die "opencode not found in PATH"
 [ -x "$OPENCODE_BIN" ] || die "opencode is not executable: $OPENCODE_BIN"
 
+export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1
+export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+
 exec "$OPENCODE_BIN" "$@"
