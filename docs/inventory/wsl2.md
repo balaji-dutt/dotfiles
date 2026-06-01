@@ -42,6 +42,7 @@ This page lists the main managed targets expected on WSL2.
 | :--- | :--- | :--- |
 | VS Code wrapper | `~/bin/code` | `bin/executable_code` |
 | Devcontainer launcher (Debian only) | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
+| Devcontainer sync wrapper (Debian only) | `~/bin/sync-devcontainer-all.sh` | `bin/executable_sync-devcontainer-all.sh.tmpl` |
 | Git ignore (WSL2 off) | `~/.gitignore_global` (not applied on WSL2 by ignore rules) | `dot_gitignore_global.tmpl` |
 
 ## Container Build Sync
@@ -50,6 +51,10 @@ This page lists the main managed targets expected on WSL2.
 
 - Debian WSL2: synced
 - Ubuntu WSL2: ignored by `.chezmoiignore`
+
+The homelab VS Code workspace file under
+`~/Documents/development/vscode-workspace/` follows the same Debian-only WSL2
+policy and is removed from Ubuntu WSL2 during cleanup.
 
 See `docs/devcontainers.md` for details.
 

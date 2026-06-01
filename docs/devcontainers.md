@@ -169,6 +169,11 @@ path by default and avoids relying on repo-local `direnv` PATH injection in
 editor terminals. To sync from a feature worktree instead, set
 `DOTFILES_REPO_ROOT=/path/to/dotfiles-worktree` when invoking the wrapper.
 
+On WSL2, this workflow is intended for Debian only. Ubuntu WSL2 is the utility
+instance: Dev Container reminders and the sync/render wrapper are suppressed
+there, while host-only OpenCode Copilot profile sync remains available without
+container-dotfiles inputs. macOS keeps the full sync/render workflow.
+
 ## Claude Code in Devcontainers
 
 The `homelab-IaC` devcontainer keeps Claude runtime state under

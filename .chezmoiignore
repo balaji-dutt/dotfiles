@@ -55,9 +55,11 @@ bin/code
 .gitignore_global
 {{ end }}
 
-{{/* devcontainer-launch should exist ONLY on macOS or Debian WSL2 */}}
+{{/* Devcontainer helpers should exist ONLY on macOS or Debian WSL2 */}}
 {{ if not (or $isDarwin (and $isWSL2 (eq $osID "debian"))) }}
 bin/devcontainer-launch
+bin/sync-devcontainer-all.sh
+Documents/development/vscode-workspace/container-homelab-IaC.code-workspace
 {{ end }}
 
 {{/* container-dotfiles should NOT exist on WSL2 excluding Debian */}}

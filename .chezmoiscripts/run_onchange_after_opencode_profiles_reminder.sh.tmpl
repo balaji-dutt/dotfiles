@@ -1,11 +1,26 @@
-{{- if ne .chezmoi.os "windows" -}}
+{{- $osrel := "" -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{- $osrel = (.chezmoi.kernel.osrelease | lower) -}}
+{{- end -}}
+{{- $isWSL2 := and (eq .chezmoi.os "linux") ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
+{{- $isDevcontainerHost := or (eq .chezmoi.os "darwin") (and $isWSL2 (eq .chezmoi.osRelease.id "debian")) -}}
+{{- $isHostProfileHost := or $isDevcontainerHost (and $isWSL2 (eq .chezmoi.osRelease.id "ubuntu")) -}}
+{{- if $isHostProfileHost -}}
 #!/usr/bin/env bash
 set -euo pipefail
 
 # private_dot_config/opencode/opencode.jsonc hash: {{ include "private_dot_config/opencode/opencode.jsonc" | sha256sum }}
+{{ if $isDevcontainerHost -}}
 # private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc hash: {{ include "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc" | sha256sum }}
+{{ end -}}
 # private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
+{{ if $isDevcontainerHost -}}
 # private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc hash: {{ include "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc" | sha256sum }}
+{{ end -}}
 
+{{ if $isDevcontainerHost -}}
 echo "INFO: OpenCode profile inputs changed; run ./assets/sync-opencode-copilot-profiles.sh and review the diff."
+{{ else -}}
+echo "INFO: OpenCode host profile inputs changed; run ./assets/sync-opencode-copilot-profiles.sh and review the host profile diff."
+{{ end -}}
 {{- end -}}

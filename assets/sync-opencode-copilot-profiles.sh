@@ -97,6 +97,35 @@ def parse_jsonc(path: Path) -> dict:
     return json.loads(strip_jsonc_trailing_commas(stripped))
 
 
+def is_devcontainer_host() -> bool:
+    uname = os.uname()
+    if uname.sysname == "Darwin":
+        return True
+    if uname.sysname != "Linux":
+        return False
+
+    try:
+        osrelease = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        osrelease = ""
+
+    os_id = ""
+    try:
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+            if line.startswith("ID="):
+                os_id = line.split("=", 1)[1].strip().strip('"')
+                break
+    except OSError:
+        os_id = ""
+
+    return "microsoft" in osrelease and "wsl2" in osrelease and os_id == "debian"
+
+
+def touches_container_dotfiles(spec: dict) -> bool:
+    prefix = "private_Documents/development/container-dotfiles/"
+    return any(str(spec.get(key, "")).startswith(prefix) for key in ("source", "target"))
+
+
 def map_model(model: str, mapping: dict[str, str]) -> str | None:
     if not isinstance(model, str) or not model.startswith("openai/"):
         return None
@@ -173,6 +202,7 @@ def sync_profile(source_path: Path, target_path: Path, keep_agents: list[str], m
 repo_root = Path(sys.argv[1])
 manifest_path = Path(sys.argv[2])
 mapping = parse_mapping()
+devcontainer_host = is_devcontainer_host()
 
 manifest = parse_jsonc(manifest_path)
 specs = [
@@ -187,7 +217,12 @@ if not specs:
     )
 
 changed = False
+skipped_container_specs = 0
 for spec in specs:
+    if not devcontainer_host and touches_container_dotfiles(spec):
+        skipped_container_specs += 1
+        continue
+
     source = repo_root / spec["source"]
     target = repo_root / spec["target"]
     if not source.is_file() or not target.is_file():
@@ -197,8 +232,24 @@ for spec in specs:
     print(f"{spec['label']}: {state} -> {spec['target']}")
     changed = changed or did_change
 
-if changed:
+if skipped_container_specs:
+    print(
+        "OpenCode Copilot profile sync skipped "
+        f"{skipped_container_specs} container profile spec(s) on this host."
+    )
+
+if devcontainer_host and changed:
     print("OpenCode Copilot profile sync complete: changes written.")
-else:
+elif devcontainer_host:
     print("OpenCode Copilot profile sync complete: no changes.")
+elif changed:
+    print(
+        "OpenCode Copilot profile sync complete: host profile changes written; "
+        "container profile sync skipped on this host."
+    )
+else:
+    print(
+        "OpenCode Copilot profile sync complete: no host profile changes; "
+        "container profile sync skipped on this host."
+    )
 PY
