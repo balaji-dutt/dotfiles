@@ -91,17 +91,22 @@ start the package runner reliably on Windows.
 ## Chrome DevTools MCP
 
 `chrome-devtools` is registered as a user-scope stdio server for macOS and
-Windows only. It targets Chrome Dev via `--channel=dev`, opts out of package
-usage statistics, and requires a local Chrome Dev executable. Dev Containers are
-skipped because Chrome is not available there.
+Windows only. It targets Chrome Dev via the first matching `executablePaths`
+candidate, opts out of package usage statistics, and requires a local Chrome Dev
+executable. By default, the MCP server launches Chrome Dev on demand with its
+managed profile instead of attaching to a pre-running browser. Dev Containers
+are skipped because Chrome is not available there.
 
 WSL2 is intentionally not enabled for this entry. A safer future WSL2 setup
 would start Windows Chrome Dev with an explicit remote-debugging port and then
 configure the MCP server with `--browser-url` from WSL2.
 
-For `--autoConnect`, Chrome Dev must already be running, remote debugging must be
-enabled from `chrome://inspect/#remote-debugging`, and Chrome will show a local
-permission prompt before the MCP server can attach.
+If you opt into `--autoConnect`, Chrome Dev must already be running on Chrome
+144 or newer, remote debugging must be enabled from
+`chrome://inspect/#remote-debugging`, and Chrome will show a local permission
+prompt before the MCP server can attach. Do not combine `--autoConnect` or
+`--channel=dev` with the scripted `--executablePath` argument; upstream treats
+`--channel` and `--executablePath` as mutually exclusive.
 
 Set `CLAUDE_MCP_DRY_RUN=1` to validate what would be configured without calling
 `claude mcp add`.

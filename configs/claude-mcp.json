@@ -15,8 +15,6 @@
       "args": [
         "-y",
         "chrome-devtools-mcp@latest",
-        "--autoConnect",
-        "--channel=dev",
         "--no-usage-statistics"
       ],
       "replace": true,
