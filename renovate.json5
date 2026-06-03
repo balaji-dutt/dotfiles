@@ -252,7 +252,7 @@
       "matchFileNames": [".chezmoidata.yaml"],
       "matchDepNames": ["backnotprop/plannotator"],
       "groupName": "plannotator cli"
-    }
+    },
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
