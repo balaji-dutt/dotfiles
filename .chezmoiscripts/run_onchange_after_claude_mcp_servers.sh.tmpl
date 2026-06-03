@@ -19,6 +19,7 @@ fi
 python3 - "$config_path" <<'PY'
 import json
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +44,36 @@ valid_scopes = {"user"}
 valid_transports = {"http", "sse", "stdio"}
 
 
+def current_platform():
+    if sys.platform == "darwin":
+        return "darwin"
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        release = platform.uname().release.lower()
+        if "microsoft" in release or "wsl" in release:
+            return "wsl2"
+        return "linux"
+    return sys.platform
+
+
+def in_container():
+    return (
+        os.environ.get("DEVCONTAINER") == "1"
+        or Path("/.dockerenv").exists()
+        or Path("/.containerenv").exists()
+        or Path("/run/.containerenv").exists()
+    )
+
+
+def resolve_executable_path(candidates):
+    for candidate in candidates:
+        expanded = os.path.expandvars(os.path.expanduser(candidate))
+        if Path(expanded).is_file():
+            return expanded
+    return None
+
+
 def run_checked(command):
     return subprocess.run(
         command,
@@ -51,6 +82,10 @@ def run_checked(command):
         stderr=subprocess.STDOUT,
         text=True,
     )
+
+
+platform_name = current_platform()
+inside_container = in_container()
 
 
 for name, server in sorted(servers.items()):
@@ -73,9 +108,34 @@ for name, server in sorted(servers.items()):
     scope = server.get("scope", "user")
     transport = server.get("transport", "http")
     replace = server.get("replace", False)
+    skip_devcontainer = server.get("skipDevcontainer", False)
     if not isinstance(replace, bool):
         print(f"ERROR: Claude MCP server {name!r} replace must be a boolean.")
         sys.exit(1)
+    if not isinstance(skip_devcontainer, bool):
+        print(
+            f"ERROR: Claude MCP server {name!r} skipDevcontainer must be "
+            "a boolean."
+        )
+        sys.exit(1)
+
+    platforms = server.get("platforms")
+    if platforms is not None:
+        if not isinstance(platforms, list) or not all(
+            isinstance(item, str) for item in platforms
+        ):
+            print(f"ERROR: Claude MCP server {name!r} platforms must be a string list.")
+            sys.exit(1)
+        if platform_name not in platforms:
+            print(
+                f"INFO: Claude MCP server {name!r} is not enabled for "
+                f"platform {platform_name!r}; skipping."
+            )
+            continue
+
+    if skip_devcontainer and inside_container:
+        print(f"INFO: Claude MCP server {name!r} is skipped in devcontainers.")
+        continue
 
     if scope not in valid_scopes:
         print(f"ERROR: Claude MCP server {name!r} has invalid scope: {scope!r}")
@@ -111,6 +171,35 @@ for name, server in sorted(servers.items()):
         if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
             print(f"ERROR: Claude MCP server {name!r} args must be a string list.")
             sys.exit(1)
+        args = list(args)
+
+        executable_paths = server.get("executablePaths")
+        if executable_paths is not None:
+            if not isinstance(executable_paths, dict):
+                print(
+                    f"ERROR: Claude MCP server {name!r} executablePaths must "
+                    "be an object."
+                )
+                sys.exit(1)
+            candidates = executable_paths.get(platform_name)
+            if candidates is not None:
+                if not isinstance(candidates, list) or not all(
+                    isinstance(item, str) for item in candidates
+                ):
+                    print(
+                        f"ERROR: Claude MCP server {name!r} executablePaths "
+                        f"for {platform_name!r} must be a string list."
+                    )
+                    sys.exit(1)
+                executable_path = resolve_executable_path(candidates)
+                if executable_path is None:
+                    print(
+                        f"INFO: Claude MCP server {name!r} has no existing "
+                        f"executablePath candidates for {platform_name!r}; skipping."
+                    )
+                    continue
+                args.append(f"--executablePath={executable_path}")
+
         command.extend([name, "--", server_command, *args])
 
     if "CLAUDE_MCP_DRY_RUN" in os.environ:

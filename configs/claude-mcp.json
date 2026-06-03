@@ -6,6 +6,32 @@
       "transport": "http",
       "url": "https://mcp.deepwiki.com/mcp",
       "replace": false
+    },
+    "chrome-devtools": {
+      "enabled": true,
+      "scope": "user",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--autoConnect",
+        "--channel=dev",
+        "--no-usage-statistics"
+      ],
+      "replace": true,
+      "platforms": ["darwin", "windows"],
+      "skipDevcontainer": true,
+      "executablePaths": {
+        "darwin": [
+          "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
+        ],
+        "windows": [
+          "%LOCALAPPDATA%\\Google\\Chrome Dev\\Application\\chrome.exe",
+          "%PROGRAMFILES%\\Google\\Chrome Dev\\Application\\chrome.exe",
+          "%PROGRAMFILES(X86)%\\Google\\Chrome Dev\\Application\\chrome.exe"
+        ]
+      }
     }
   }
 }

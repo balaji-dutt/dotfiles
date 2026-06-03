@@ -1,0 +1,240 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# configs/claude-mcp.json hash: {{ include "configs/claude-mcp.json" | sha256sum }}
+
+$ErrorActionPreference = "Stop"
+
+$ConfigPath = Join-Path "{{ .chezmoi.sourceDir }}" "configs\claude-mcp.json"
+$CurrentPlatform = "windows"
+
+if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+  Write-Host "INFO: claude command not found; skipping Claude MCP configuration."
+  exit 0
+}
+
+function Get-JsonProperty {
+  param(
+    [Parameter(Mandatory=$true)] $Object,
+    [Parameter(Mandatory=$true)] [string] $Name,
+    $Default = $null
+  )
+
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $Default }
+  return $property.Value
+}
+
+function Test-StringList {
+  param([Parameter(Mandatory=$true)] $Value)
+
+  if ($Value -is [string]) { return $false }
+  if ($Value -isnot [System.Collections.IEnumerable]) { return $false }
+
+  foreach ($item in $Value) {
+    if ($item -isnot [string]) { return $false }
+  }
+  return $true
+}
+
+function Test-InDevcontainer {
+  return (
+    $env:DEVCONTAINER -eq "1" -or
+    (Test-Path -LiteralPath "/.dockerenv") -or
+    (Test-Path -LiteralPath "/.containerenv") -or
+    (Test-Path -LiteralPath "/run/.containerenv")
+  )
+}
+
+function Resolve-ExecutablePath {
+  param([Parameter(Mandatory=$true)] [object[]] $Candidates)
+
+  foreach ($candidate in $Candidates) {
+    $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
+    if ($expanded.StartsWith("~\") -or $expanded.StartsWith("~/")) {
+      $expanded = Join-Path $HOME $expanded.Substring(2)
+    }
+    if (Test-Path -LiteralPath $expanded -PathType Leaf) {
+      return $expanded
+    }
+  }
+  return $null
+}
+
+function Invoke-Claude {
+  param([Parameter(Mandatory=$true)] [string[]] $Arguments)
+
+  $output = & claude @Arguments 2>&1
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
+
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    Output = (($output | Out-String).TrimEnd())
+  }
+}
+
+try {
+  $config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+} catch {
+  Write-Host "ERROR: Invalid Claude MCP JSON config: $($_.Exception.Message)"
+  exit 1
+}
+
+$servers = Get-JsonProperty $config "servers"
+if ($null -eq $servers -or $servers -is [array]) {
+  Write-Host 'ERROR: Claude MCP config must contain an object at key "servers".'
+  exit 1
+}
+
+$validScopes = @("user")
+$validTransports = @("http", "sse", "stdio")
+$insideContainer = Test-InDevcontainer
+
+foreach ($entry in ($servers.PSObject.Properties | Sort-Object Name)) {
+  $name = $entry.Name
+  $server = $entry.Value
+
+  if ($null -eq $server -or $server -is [array]) {
+    Write-Host "ERROR: Claude MCP server '$name' must be an object."
+    exit 1
+  }
+
+  $enabled = Get-JsonProperty $server "enabled" $true
+  if ($enabled -isnot [bool]) {
+    Write-Host "ERROR: Claude MCP server '$name' enabled must be a boolean."
+    exit 1
+  }
+  if (-not $enabled) { continue }
+
+  if ([string]::IsNullOrWhiteSpace($name) -or $name -match "\s") {
+    Write-Host "ERROR: Invalid Claude MCP server name: '$name'"
+    exit 1
+  }
+
+  $scope = Get-JsonProperty $server "scope" "user"
+  $transport = Get-JsonProperty $server "transport" "http"
+  $replace = Get-JsonProperty $server "replace" $false
+  $skipDevcontainer = Get-JsonProperty $server "skipDevcontainer" $false
+
+  if ($replace -isnot [bool]) {
+    Write-Host "ERROR: Claude MCP server '$name' replace must be a boolean."
+    exit 1
+  }
+  if ($skipDevcontainer -isnot [bool]) {
+    Write-Host "ERROR: Claude MCP server '$name' skipDevcontainer must be a boolean."
+    exit 1
+  }
+
+  $platforms = Get-JsonProperty $server "platforms"
+  if ($null -ne $platforms) {
+    if (-not (Test-StringList $platforms)) {
+      Write-Host "ERROR: Claude MCP server '$name' platforms must be a string list."
+      exit 1
+    }
+    if ($CurrentPlatform -notin @($platforms)) {
+      Write-Host "INFO: Claude MCP server '$name' is not enabled for platform '$CurrentPlatform'; skipping."
+      continue
+    }
+  }
+
+  if ($skipDevcontainer -and $insideContainer) {
+    Write-Host "INFO: Claude MCP server '$name' is skipped in devcontainers."
+    continue
+  }
+
+  if ($scope -notin $validScopes) {
+    Write-Host "ERROR: Claude MCP server '$name' has invalid scope: '$scope'"
+    exit 1
+  }
+
+  if ($transport -notin $validTransports) {
+    Write-Host "ERROR: Claude MCP server '$name' has invalid transport: '$transport'"
+    exit 1
+  }
+
+  $command = @("mcp", "add", "--transport", $transport, "--scope", $scope)
+
+  if ($transport -in @("http", "sse")) {
+    $url = Get-JsonProperty $server "url"
+    if ($url -isnot [string] -or [string]::IsNullOrWhiteSpace($url)) {
+      Write-Host "ERROR: Claude MCP server '$name' requires a non-empty url for transport '$transport'."
+      exit 1
+    }
+    $command += @($name, $url)
+  } else {
+    $serverCommand = Get-JsonProperty $server "command"
+    $configuredArgs = Get-JsonProperty $server "args" @()
+    if ($serverCommand -isnot [string] -or [string]::IsNullOrWhiteSpace($serverCommand)) {
+      Write-Host "ERROR: Claude MCP server '$name' requires a non-empty command for stdio transport."
+      exit 1
+    }
+    if (-not (Test-StringList $configuredArgs)) {
+      Write-Host "ERROR: Claude MCP server '$name' args must be a string list."
+      exit 1
+    }
+
+    $serverArgs = @($configuredArgs)
+    $executablePaths = Get-JsonProperty $server "executablePaths"
+    if ($null -ne $executablePaths) {
+      if ($executablePaths -is [array]) {
+        Write-Host "ERROR: Claude MCP server '$name' executablePaths must be an object."
+        exit 1
+      }
+
+      $candidateProperty = $executablePaths.PSObject.Properties[$CurrentPlatform]
+      if ($null -ne $candidateProperty) {
+        $candidates = $candidateProperty.Value
+        if (-not (Test-StringList $candidates)) {
+          Write-Host "ERROR: Claude MCP server '$name' executablePaths for '$CurrentPlatform' must be a string list."
+          exit 1
+        }
+
+        $executablePath = Resolve-ExecutablePath -Candidates @($candidates)
+        if ($null -eq $executablePath) {
+          Write-Host "INFO: Claude MCP server '$name' has no existing executablePath candidates for '$CurrentPlatform'; skipping."
+          continue
+        }
+        $serverArgs += "--executablePath=$executablePath"
+      }
+    }
+
+    if ($serverCommand -eq "npx") {
+      $command += @($name, "--", "cmd", "/c", "npx")
+    } else {
+      $command += @($name, "--", $serverCommand)
+    }
+    $command += $serverArgs
+  }
+
+  if ($env:CLAUDE_MCP_DRY_RUN) {
+    Write-Host "INFO: Would configure Claude MCP server '$name' ($transport, $scope)."
+    continue
+  }
+
+  $existing = Invoke-Claude -Arguments @("mcp", "get", $name)
+  if ($existing.ExitCode -eq 0) {
+    if (-not $replace) {
+      Write-Host "INFO: Claude MCP server '$name' already exists in Claude; set replace=true to reapply it."
+      continue
+    }
+
+    $remove = Invoke-Claude -Arguments @("mcp", "remove", "--scope", $scope, $name)
+    if ($remove.ExitCode -ne 0) {
+      Write-Host "ERROR: Failed to remove Claude MCP server '$name'."
+      if ($remove.Output) { Write-Host $remove.Output }
+      exit $remove.ExitCode
+    }
+  }
+
+  Write-Host "INFO: Configuring Claude MCP server '$name' ($transport, $scope)."
+  $add = Invoke-Claude -Arguments $command
+  if ($add.ExitCode -ne 0) {
+    Write-Host "ERROR: Failed to configure Claude MCP server '$name'."
+    if ($add.Output) { Write-Host $add.Output }
+    exit $add.ExitCode
+  }
+
+  Write-Host "INFO: Configured Claude MCP server '$name'."
+}
+{{- end -}}
