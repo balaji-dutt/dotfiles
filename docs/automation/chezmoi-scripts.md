@@ -39,6 +39,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
+| `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | non-WSL package installs |
 | `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload, including NFS dot-clean |
 | `run_onchange_after_ansible_syntax_image.sh.tmpl` | onchange | Ansible syntax image update |

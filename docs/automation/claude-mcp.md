@@ -10,11 +10,12 @@
 # Claude MCP Management
 
 Global Claude MCP intent is managed through `configs/claude-mcp.json` and the
-chezmoi script `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl`.
+chezmoi scripts `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl`
+and `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`.
 
 The repo does not manage `~/.claude.json` directly because that file is
 stateful and may contain Claude session, project, or authentication state.
-Instead, the script uses the `claude mcp` CLI to add configured servers.
+Instead, the scripts use the `claude mcp` CLI to add configured servers.
 
 This config is only for globally registered user-scope Claude MCP servers such
 as DeepWiki. Agent-scoped MCP servers can be declared in Claude subagent
@@ -49,6 +50,14 @@ Each entry under `servers` is keyed by the MCP server name:
 - `replace`: when `true`, remove and re-add an existing user-scope server with
   the same name. Leave this `false` unless you intentionally want to rewrite an
   existing Claude MCP entry.
+- `platforms`: optional list of platforms where the entry should apply. Current
+  values are `darwin`, `linux`, `wsl2`, and `windows`.
+- `skipDevcontainer`: optional boolean. When `true`, skip the entry inside a
+  Dev Container or container runtime.
+- `executablePaths`: optional per-platform candidate paths for `stdio` servers.
+  The first existing path for the current platform is appended as
+  `--executablePath=<path>`. If no candidate exists, the server is skipped
+  instead of registering a broken command.
 
 Claude's `mcp get` command is name-only, so this script treats MCP names as
 globally unique across scopes when checking whether a server already exists,
@@ -60,18 +69,39 @@ design a runtime secret flow before adding it here.
 
 ## Script behavior
 
-The script runs on non-Windows chezmoi applies when its rendered contents change.
-It includes a hash of `configs/claude-mcp.json`, so config edits retrigger it.
+The scripts run on macOS, Linux/WSL2, and Windows chezmoi applies when their
+rendered contents change. They include a hash of `configs/claude-mcp.json`, so
+config edits retrigger them.
 
-On each run it:
+On each run, the scripts:
 
-1. skips if `claude` is unavailable;
-2. skips if `python3` is unavailable;
-3. validates the JSON config;
-4. validates each enabled entry's fields;
-5. skips disabled entries;
-6. skips existing entries unless `replace` is `true`;
-7. calls `claude mcp add` for enabled entries.
+1. skip if `claude` is unavailable;
+2. skip if `python3` is unavailable on non-Windows platforms;
+3. validate the JSON config;
+4. validate each enabled entry's fields;
+5. skip disabled entries;
+6. skip entries excluded by `platforms` or `skipDevcontainer`;
+7. resolve configured executable candidates;
+8. skip existing entries unless `replace` is `true`;
+9. call `claude mcp add` for enabled entries.
+
+The Windows script stores `npx` stdio servers as `cmd /c npx ...` so Claude can
+start the package runner reliably on Windows.
+
+## Chrome DevTools MCP
+
+`chrome-devtools` is registered as a user-scope stdio server for macOS and
+Windows only. It targets Chrome Dev via `--channel=dev`, opts out of package
+usage statistics, and requires a local Chrome Dev executable. Dev Containers are
+skipped because Chrome is not available there.
+
+WSL2 is intentionally not enabled for this entry. A safer future WSL2 setup
+would start Windows Chrome Dev with an explicit remote-debugging port and then
+configure the MCP server with `--browser-url` from WSL2.
+
+For `--autoConnect`, Chrome Dev must already be running, remote debugging must be
+enabled from `chrome://inspect/#remote-debugging`, and Chrome will show a local
+permission prompt before the MCP server can attach.
 
 Set `CLAUDE_MCP_DRY_RUN=1` to validate what would be configured without calling
 `claude mcp add`.
