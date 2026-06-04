@@ -662,7 +662,7 @@ install_aoe_from_source() {
     fi
     echo "==> Resolving latest aoe version from GitHub..."
     local tag
-    tag="$(curl -fsSL https://api.github.com/repos/njbrake/agent-of-empires/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+    tag="$(curl -fsSL https://api.github.com/repos/agent-of-empires/agent-of-empires/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
     [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest aoe version."; return 1; }
     want_version="$tag"
   fi
@@ -693,7 +693,7 @@ install_aoe_from_source() {
   mkdir -p "$build_cargo_home" "$build_rustup_home" "$build_npm_cache"
 
   echo "==> Building aoe ${want_version} from source"
-  if ! curl -fsSL "https://github.com/njbrake/agent-of-empires/archive/refs/tags/v${want_version}.tar.gz" -o "${tmpd}/aoe-src.tgz"; then
+  if ! curl -fsSL "https://github.com/agent-of-empires/agent-of-empires/archive/refs/tags/v${want_version}.tar.gz" -o "${tmpd}/aoe-src.tgz"; then
     rm -rf "$tmpd"
     echo "!! Failed to download aoe source tarball for v${want_version}."
     return 1

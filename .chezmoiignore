@@ -25,7 +25,7 @@ bin/nfs_dot_clean.sh
 .agent-of-empires/**
 {{ end }}
 
-{{/* Keep Linux/XDG AoE config off macOS */}}
+{{/* AoE currently uses ~/.agent-of-empires on macOS; keep its XDG path off macOS. */}}
 {{ if $isDarwin }}
 .config/agent-of-empires
 .config/agent-of-empires/**

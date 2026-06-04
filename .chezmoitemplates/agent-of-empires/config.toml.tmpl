@@ -1,0 +1,116 @@
+default_profile = "default"
+
+[theme]
+name = ""
+color_mode = "truecolor"
+idle_decay_minutes = 0
+
+[updates]
+update_check_mode = "off"
+check_interval_hours = 24
+notify_in_cli = true
+web_poll_interval_minutes = 60
+
+[worktree]
+enabled = true
+path_template = "./worktrees/{branch}-{session-id}"
+bare_repo_path_template = "./{branch}"
+auto_cleanup = true
+show_branch_in_tui = true
+delete_branch_on_cleanup = false
+workspace_path_template = "../{branch}-workspace-{session-id}"
+init_submodules = true
+
+[sandbox]
+enabled_by_default = false
+default_image = "ghcr.io/agent-of-empires/aoe-sandbox:latest"
+extra_volumes = []
+environment = [
+    "TERM",
+    "COLORTERM",
+    "FORCE_COLOR",
+    "NO_COLOR",
+]
+auto_cleanup = true
+default_terminal_mode = "host"
+volume_ignores = []
+mount_ssh = false
+container_runtime = "docker"
+
+[tmux]
+status_bar = "auto"
+mouse = "auto"
+clipboard = "auto"
+
+[session]
+default_tool = "opencode"
+yolo_mode_default = false
+agent_status_hooks = true
+strict_hotkeys = false
+snooze_duration_minutes = 30
+restart_wake_message = "wake up: pick up what you were doing"
+row_tag = "none"
+session_id_poller_max_threads = 50
+live_send_exit_chord = "C-q"
+new_session_attach_mode = "tmux"
+default_attach_mode = "tmux"
+click_action = "live_send"
+
+[session.agent_command_override]
+opencode = "opencode-plannotator"
+
+[diff]
+context_lines = 3
+
+[hooks]
+
+[sound]
+enabled = false
+mode = "random"
+
+[status_hooks]
+enabled = true
+debounce_ms = 500
+on_waiting = "$HOME/bin/aoe-notify waiting"
+on_error = "$HOME/bin/aoe-notify error"
+
+[app_state]
+has_seen_welcome = true
+last_seen_version = "1.10.0"
+has_seen_custom_instruction_warning = true
+has_acknowledged_agent_hooks = true
+sort_order = "z_a"
+group_by = "manual"
+
+[web]
+notifications_enabled = true
+notify_on_waiting = true
+notify_on_idle = false
+notify_on_error = true
+notify_on_wake_fire = true
+
+[cockpit]
+enabled = false
+default_for_claude = true
+default_agent = "aoe-agent"
+max_concurrent_workers = 5
+replay_events = 0
+replay_bytes = 5242880
+node_path = ""
+show_tool_durations = true
+queue_drain_mode = "combined"
+max_concurrent_resumes = 4
+force_end_turn_threshold_secs = 30
+silent_orphan_grace_secs = 120
+silent_orphan_fast_grace_secs = 20
+
+[logging]
+default_level = "info"
+output = "file"
+file_path = "debug.log"
+rotation = "size"
+max_size_mib = 50
+keep_count = 5
+show_spans = false
+
+[logging.targets]

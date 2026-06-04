@@ -486,7 +486,7 @@
 
         - name: Download and extract aoe release archive
           ansible.builtin.unarchive:
-            src: "https://github.com/njbrake/agent-of-empires/releases/download/v{{ versions.aoe }}/aoe-linux-{{ deb_arch }}.tar.gz"
+            src: "https://github.com/agent-of-empires/agent-of-empires/releases/download/v{{ versions.aoe }}/aoe-linux-{{ deb_arch }}.tar.gz"
             dest: "{{ aoe_extract_dir.path }}"
             remote_src: true
 
