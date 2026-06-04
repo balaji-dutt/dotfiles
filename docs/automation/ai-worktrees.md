@@ -25,8 +25,19 @@ ai-wt run opencode docs/update-notes -- --agent build
 
 If no branch is passed and stdin is interactive, `ai-wt` prompts for a branch
 type and description, then builds a branch name such as `feat/add-widget`.
+The branch-type prompt accepts up/down arrows, number keys, and Enter; the
+description prompt uses normal terminal line editing for backspace/delete where
+available.
 The Espanso `:aoens` expansion can still be used to paste a branch name, but
 it is not required.
+
+Each command has its own help output:
+
+```sh
+ai-wt opencode --help
+ai-wt resume --help
+ai-wt cleanup --help
+```
 
 Name generation can also be used directly:
 
@@ -61,6 +72,20 @@ On normal tool exit, `ai-wt` removes a clean managed worktree, deletes its
 session metadata, and keeps the branch. Clean completed sessions do not appear
 in `ai-wt list`. If the worktree has uncommitted changes, it is left on disk
 and the metadata remains available for later cleanup.
+
+Retained sessions can be resumed in the same worktree and branch context:
+
+```sh
+ai-wt resume list
+ai-wt resume <session-id>
+ai-wt resume <session-id> -- --agent build
+```
+
+By default, `resume` reuses the command recorded in the session metadata. Tool
+arguments passed after `--` replace those recorded tool arguments for that
+launch. After the resumed tool exits, normal automatic cleanup runs again: clean
+worktrees are removed, while dirty worktrees stay retained for another resume or
+manual cleanup.
 
 Manual cleanup accepts a session ID, exact branch name, or exact worktree path:
 

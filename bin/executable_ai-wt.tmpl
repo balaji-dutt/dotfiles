@@ -21,6 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:  # Best-effort line editing for interactive prompts on POSIX systems.
+    import readline  # noqa: F401
+except ImportError:  # pragma: no cover - platform dependent fallback
+    pass
+
 
 SCRIPT_NAME = Path(sys.argv[0]).name
 VERSION = 1
@@ -236,9 +241,7 @@ def build_session_name(repo_root: Path, branch_type: str, description: str) -> s
     return ref_name
 
 
-def prompt_for_branch(repo_root: Path) -> str:
-    if not sys.stdin.isatty():
-        die("branch is required when stdin is not interactive")
+def prompt_for_branch_type_numbered() -> str:
     print("Branch type:")
     for index, branch_type in enumerate(BRANCH_TYPES, start=1):
         print(f"  {index}. {branch_type}")
@@ -248,6 +251,92 @@ def prompt_for_branch(repo_root: Path) -> str:
         if position < 1 or position > len(BRANCH_TYPES):
             die("branch type selection is out of range")
         raw_type = BRANCH_TYPES[position - 1]
+    return raw_type
+
+
+def read_escape_sequence() -> str:
+    try:
+        import select
+    except ImportError:
+        return "\x1b"
+
+    sequence = "\x1b"
+    while True:
+        ready, _, _ = select.select([sys.stdin], [], [], 0.02)
+        if not ready:
+            return sequence
+        sequence += sys.stdin.read(1)
+
+
+def prompt_for_branch_type_tty() -> str | None:
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    try:
+        import termios
+        import tty
+    except ImportError:
+        return None
+
+    fd = sys.stdin.fileno()
+    try:
+        old_settings = termios.tcgetattr(fd)
+    except termios.error:
+        return None
+
+    selected = 0
+    prompt = f"Branch type (↑/↓, 1-{len(BRANCH_TYPES)}, Enter; Ctrl-C to cancel): "
+
+    def render() -> None:
+        sys.stdout.write(f"\r\033[K{prompt}{BRANCH_TYPES[selected]}")
+        sys.stdout.flush()
+
+    try:
+        tty.setraw(fd)
+        render()
+        while True:
+            char = sys.stdin.read(1)
+            if char in {"\r", "\n"}:
+                sys.stdout.write("\n")
+                return BRANCH_TYPES[selected]
+            if char == "\x03":
+                raise KeyboardInterrupt
+            if char == "\x04":
+                die("branch prompt cancelled")
+            if char == "\x1b":
+                sequence = read_escape_sequence()
+                if sequence in {"\x1b[A", "\x1b[D"}:
+                    selected = (selected - 1) % len(BRANCH_TYPES)
+                    render()
+                elif sequence in {"\x1b[B", "\x1b[C"}:
+                    selected = (selected + 1) % len(BRANCH_TYPES)
+                    render()
+                continue
+            if char.isdigit() and char != "0":
+                position = int(char)
+                if position <= len(BRANCH_TYPES):
+                    selected = position - 1
+                    render()
+            elif char.lower() in {branch_type[0] for branch_type in BRANCH_TYPES}:
+                start = (selected + 1) % len(BRANCH_TYPES)
+                for offset in range(len(BRANCH_TYPES)):
+                    candidate = (start + offset) % len(BRANCH_TYPES)
+                    if BRANCH_TYPES[candidate].startswith(char.lower()):
+                        selected = candidate
+                        render()
+                        break
+    except KeyboardInterrupt:
+        sys.stdout.write("\n")
+        die("branch prompt cancelled")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def prompt_for_branch(repo_root: Path) -> str:
+    if not sys.stdin.isatty():
+        die("branch is required when stdin is not interactive")
+    raw_type = prompt_for_branch_type_tty()
+    if raw_type is None:
+        raw_type = prompt_for_branch_type_numbered()
     description = input("Description: ").strip()
     return build_session_name(repo_root, raw_type, description)
 
@@ -474,6 +563,20 @@ def load_sessions(config: Config) -> list[dict[str, Any]]:
     return sessions
 
 
+def print_sessions(sessions: list[dict[str, Any]]) -> None:
+    if not sessions:
+        print("No ai-wt sessions found.")
+        return
+    print("SESSION ID                 TOOL      BRANCH                         STATUS        WORKTREE")
+    for item in sessions:
+        session_id = str(item.get("session_id", ""))
+        tool = str(item.get("tool", ""))[:8]
+        branch = str(item.get("branch", ""))[:30]
+        status = str(item.get("cleanup_status", ""))[:13]
+        path = str(item.get("worktree_path", ""))
+        print(f"{session_id:26} {tool:8} {branch:30} {status:13} {path}")
+
+
 def parse_command(value: str) -> list[str]:
     try:
         command = shlex.split(value)
@@ -625,30 +728,60 @@ def split_passthrough(args: list[str]) -> tuple[list[str], list[str]]:
 
 
 def add_run_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--worktree-parent")
-    parser.add_argument("--path-template")
-    parser.add_argument("--state-dir")
-    parser.add_argument("--base-ref")
-    parser.add_argument("--cleanup-dirty", choices=("keep", "delete"))
-    parser.add_argument("--delete-branch-on-cleanup", action="store_true", default=None)
-    parser.add_argument("--no-update-exclude", action="store_true")
-    parser.add_argument("--opencode-command")
-    parser.add_argument("--claude-command")
-    parser.add_argument("--submodule-init", dest="submodule_init_flag", action="store_true")
-    parser.add_argument("--no-submodule-init", action="store_true")
+    parser.add_argument("--worktree-parent", help="parent directory for new managed worktrees")
+    parser.add_argument("--path-template", help="template used to name new worktree paths")
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
+    parser.add_argument("--base-ref", help="base ref used when creating a new branch")
+    parser.add_argument(
+        "--cleanup-dirty",
+        choices=("keep", "delete"),
+        help="whether automatic cleanup keeps or removes dirty worktrees",
+    )
+    parser.add_argument(
+        "--delete-branch-on-cleanup",
+        action="store_true",
+        default=None,
+        help="delete branches created by ai-wt during successful cleanup",
+    )
+    parser.add_argument(
+        "--no-update-exclude",
+        action="store_true",
+        help="do not add local-only ignore entries for state/worktree paths",
+    )
+    parser.add_argument("--opencode-command", help="override the OpenCode command")
+    parser.add_argument("--claude-command", help="override the Claude command")
+    parser.add_argument(
+        "--submodule-init",
+        dest="submodule_init_flag",
+        action="store_true",
+        help="initialize submodules after creating a worktree",
+    )
+    parser.add_argument("--no-submodule-init", action="store_true", help="skip submodule initialization")
 
 
-def parse_run_args(tool: str, raw_args: list[str]) -> tuple[argparse.Namespace, str | None, list[str]]:
+def parse_run_args(
+    tool: str,
+    raw_args: list[str],
+    *,
+    prog: str | None = None,
+) -> tuple[argparse.Namespace, str | None, list[str]]:
     head, tool_args = split_passthrough(raw_args)
-    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} {tool}")
+    parser = argparse.ArgumentParser(
+        prog=prog or f"{SCRIPT_NAME} {tool}",
+        description=f"Create a managed worktree and launch {tool} inside it.",
+    )
     add_run_options(parser)
-    parser.add_argument("branch", nargs="?")
+    parser.add_argument(
+        "branch",
+        nargs="?",
+        help="branch name to create or reuse; prompts interactively when omitted",
+    )
     parsed = parser.parse_args(head)
     return parsed, parsed.branch, tool_args
 
 
-def cmd_run(tool: str, raw_args: list[str]) -> int:
-    parsed, branch, tool_args = parse_run_args(tool, raw_args)
+def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
+    parsed, branch, tool_args = parse_run_args(tool, raw_args, prog=prog)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
     ensure_state(config)
@@ -698,10 +831,33 @@ def cmd_run(tool: str, raw_args: list[str]) -> int:
     return exit_status
 
 
+def cmd_run_dispatch(raw_args: list[str]) -> int:
+    if raw_args and raw_args[0] in {"-h", "--help"}:
+        parser = argparse.ArgumentParser(
+            prog=f"{SCRIPT_NAME} run",
+            description="Create a managed worktree and launch an AI tool inside it.",
+        )
+        parser.add_argument("tool", choices=("opencode", "claude"), help="AI tool to launch")
+        parser.add_argument("branch", nargs="?", help="branch name to create or reuse")
+        add_run_options(parser)
+        parser.epilog = "Use '--' after the branch to pass arguments to the selected tool."
+        parser.print_help()
+        return 0
+    if not raw_args:
+        die("run requires a tool: opencode or claude")
+    tool = raw_args[0]
+    if tool not in {"opencode", "claude"}:
+        die("run tool must be opencode or claude")
+    return cmd_run(tool, raw_args[1:], prog=f"{SCRIPT_NAME} run {tool}")
+
+
 def cmd_name(raw_args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} name")
-    parser.add_argument("--type", required=True, choices=BRANCH_TYPES)
-    parser.add_argument("--description", required=True)
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} name",
+        description="Build a valid ai-wt branch name from a type and description.",
+    )
+    parser.add_argument("--type", required=True, choices=BRANCH_TYPES, help="branch type prefix")
+    parser.add_argument("--description", required=True, help="short branch description to slugify")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     print(build_session_name(repo_root, parsed.type, parsed.description))
@@ -709,23 +865,15 @@ def cmd_name(raw_args: list[str]) -> int:
 
 
 def cmd_list(raw_args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} list")
-    parser.add_argument("--state-dir")
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} list",
+        description="List active or retained ai-wt sessions.",
+    )
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
-    sessions = load_sessions(config)
-    if not sessions:
-        print("No ai-wt sessions found.")
-        return 0
-    print("SESSION ID                 TOOL      BRANCH                         STATUS        WORKTREE")
-    for item in sessions:
-        session_id = str(item.get("session_id", ""))
-        tool = str(item.get("tool", ""))[:8]
-        branch = str(item.get("branch", ""))[:30]
-        status = str(item.get("cleanup_status", ""))[:13]
-        path = str(item.get("worktree_path", ""))
-        print(f"{session_id:26} {tool:8} {branch:30} {status:13} {path}")
+    print_sessions(load_sessions(config))
     return 0
 
 
@@ -753,17 +901,111 @@ def find_session(config: Config, target: str) -> dict[str, Any]:
         die(f"no managed session matches: {target}")
     unique = {item.get("session_id"): item for item in matches}
     if len(unique) > 1:
-        die(f"ambiguous cleanup target: {target}")
+        die(f"ambiguous session target: {target}")
     return next(iter(unique.values()))
 
 
+def stored_tool_command(metadata: dict[str, Any]) -> list[str]:
+    command = metadata.get("tool_command")
+    if not isinstance(command, list) or not all(isinstance(item, str) for item in command):
+        die("session metadata does not contain a usable tool command")
+    if not command:
+        die("session metadata contains an empty tool command")
+    return command
+
+
+def next_resume_count(metadata: dict[str, Any]) -> int:
+    try:
+        return int(metadata.get("resume_count", 0) or 0) + 1
+    except (TypeError, ValueError):
+        return 1
+
+
+def cmd_resume_list(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} resume list",
+        description="List sessions that can be resumed.",
+    )
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    print_sessions(load_sessions(config))
+    return 0
+
+
+def cmd_resume(raw_args: list[str]) -> int:
+    if raw_args and raw_args[0] == "list":
+        return cmd_resume_list(raw_args[1:])
+
+    head, tool_args = split_passthrough(raw_args)
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} resume",
+        description="Resume a retained ai-wt session in its existing worktree.",
+    )
+    add_run_options(parser)
+    parser.add_argument(
+        "target",
+        help="session ID, exact branch name, or exact worktree path to resume",
+    )
+    parser.epilog = "Use 'resume list' to show resumable sessions."
+    parsed = parser.parse_args(head)
+
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    ensure_state(config)
+    metadata = find_session(config, parsed.target)
+    raw_worktree_path = str(metadata.get("worktree_path", "")).strip()
+    if not raw_worktree_path:
+        die("session metadata does not contain a worktree path")
+    worktree_path = Path(raw_worktree_path)
+    if not worktree_path.exists():
+        die(f"session worktree is missing: {worktree_path}; run '{SCRIPT_NAME} prune'")
+    if not worktree_path.is_dir():
+        die(f"session worktree is not a directory: {worktree_path}")
+
+    tool = str(metadata.get("tool", ""))
+    if tool not in {"opencode", "claude"}:
+        die(f"session uses unsupported tool: {tool or '<missing>'}")
+    if tool_args:
+        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+    else:
+        command = stored_tool_command(metadata)
+        cwd = worktree_path
+
+    metadata["last_resumed_at"] = now_iso()
+    metadata["resume_count"] = next_resume_count(metadata)
+    metadata["cleanup_status"] = "resumed"
+    write_metadata(config, metadata)
+
+    exit_status = 125
+    try:
+        exit_status = launch_child(command, cwd)
+        metadata["child_exit_status"] = exit_status
+        write_metadata(config, metadata)
+    finally:
+        force_cleanup = config.cleanup_dirty == "delete"
+        cleanup_session(
+            config,
+            metadata,
+            delete=config.delete_branch_on_cleanup,
+            force=force_cleanup,
+            dry_run=False,
+            auto=True,
+        )
+    return exit_status
+
+
 def cmd_cleanup(raw_args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} cleanup")
-    parser.add_argument("target")
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} cleanup",
+        description="Remove a retained ai-wt worktree and optionally delete its branch.",
+    )
+    parser.add_argument("target", help="session ID, exact branch name, or exact worktree path")
     parser.add_argument("--delete", action="store_true", help="delete the branch after removing the worktree")
     parser.add_argument("--force", action="store_true", help="remove dirty worktrees and force branch deletion with --delete")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--state-dir")
+    parser.add_argument("--dry-run", action="store_true", help="print actions without removing anything")
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
@@ -773,10 +1015,13 @@ def cmd_cleanup(raw_args: list[str]) -> int:
 
 
 def cmd_prune(raw_args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} prune")
-    parser.add_argument("--force", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--state-dir")
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} prune",
+        description="Clean stale ai-wt metadata and remove clean retained worktrees.",
+    )
+    parser.add_argument("--force", action="store_true", help="remove dirty retained worktrees too")
+    parser.add_argument("--dry-run", action="store_true", help="print actions without removing anything")
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
@@ -802,10 +1047,24 @@ def usage() -> str:
   {SCRIPT_NAME} opencode [branch] [-- tool args...]
   {SCRIPT_NAME} claude [branch] [-- tool args...]
   {SCRIPT_NAME} run <opencode|claude> [branch] [-- tool args...]
+  {SCRIPT_NAME} resume list
+  {SCRIPT_NAME} resume <session-id|branch|path> [-- tool args...]
   {SCRIPT_NAME} list
   {SCRIPT_NAME} cleanup <session-id|branch|path> [--delete] [--force] [--dry-run]
   {SCRIPT_NAME} prune [--dry-run] [--force]
   {SCRIPT_NAME} name --type <type> --description <text>
+
+Commands:
+  opencode  Create a managed worktree and launch OpenCode.
+  claude    Create a managed worktree and launch Claude.
+  run       Choose the tool explicitly before creating a worktree.
+  resume    Relaunch a retained session in its existing worktree.
+  list      Show retained session metadata.
+  cleanup   Remove retained worktrees and optionally delete branches.
+  prune     Remove stale metadata and clean retained worktrees.
+  name      Build a valid branch name from a type and description.
+
+Run '{SCRIPT_NAME} <command> --help' for command-specific options.
 """
 
 
@@ -818,16 +1077,13 @@ def main(argv: list[str]) -> int:
         if command in {"opencode", "claude"}:
             return cmd_run(command, argv[1:])
         if command == "run":
-            if len(argv) < 2:
-                die("run requires a tool: opencode or claude")
-            tool = argv[1]
-            if tool not in {"opencode", "claude"}:
-                die("run tool must be opencode or claude")
-            return cmd_run(tool, argv[2:])
+            return cmd_run_dispatch(argv[1:])
         if command == "name":
             return cmd_name(argv[1:])
         if command == "list":
             return cmd_list(argv[1:])
+        if command == "resume":
+            return cmd_resume(argv[1:])
         if command == "cleanup":
             return cmd_cleanup(argv[1:])
         if command == "prune":
