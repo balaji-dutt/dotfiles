@@ -11,4 +11,4 @@ plannotator_ports:
   devcontainer:
     build: [9997, 9998, 9999]
     custom: [10007, 10008, 10009]
-plannotator_version: "0.19.23" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
+plannotator_version: "0.19.24" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
