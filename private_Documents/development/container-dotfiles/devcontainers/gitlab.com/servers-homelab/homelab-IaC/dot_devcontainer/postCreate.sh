@@ -389,7 +389,7 @@ done_step "Install python3-pip + python3-venv + ripgrep"
 
 # --- 2) uv install ---
 step "Install uv (user) and ensure PATH"
-python3 -m pip install --user "uv==0.11.16" # renovate: datasource=pypi depName=uv versioning=pep440
+python3 -m pip install --user "uv==0.11.17" # renovate: datasource=pypi depName=uv versioning=pep440
 export PATH="$HOME/.local/bin:$PATH"
 hash -r
 command -v uv
