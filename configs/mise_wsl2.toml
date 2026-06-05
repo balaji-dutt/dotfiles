@@ -2,4 +2,4 @@
 opencode = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:@devcontainers/cli" = "latest"
-"npm:@beads/bd" = "latest"
+"npm:@beads/bd" = "1.0.4"

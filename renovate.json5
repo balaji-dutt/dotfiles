@@ -101,6 +101,11 @@
   "packageRules": [
     {
       "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@beads/bd"],
+      "allowedVersions": "!/^1\\.0\\.5$/"
+    },
+    {
+      "matchManagers": ["custom.regex"],
       "matchUpdateTypes": ["patch", "digest"],
       "automerge": true,
       "automergeType": "pr",
