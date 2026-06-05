@@ -6,9 +6,11 @@ browser_policies:
 plannotator_port: 8999
 plannotator_ports:
   host:
-    build: [8997, 8998, 8999]
+    build: [8996, 8997, 8998]
+    claude: [9017, 9018, 9019]
     custom: [9007, 9008, 9009]
   devcontainer:
-    build: [9997, 9998, 9999]
+    build: [9996, 9997, 9998]
+    claude: [10017, 10018, 10019]
     custom: [10007, 10008, 10009]
 plannotator_version: "0.19.24" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$

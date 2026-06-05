@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_NAME="${0##*/}"
+: "${CLAUDE_PLANNOTATOR_VERBOSE:=1}"
+: "${CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS:=1}"
+RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}"
+RUNTIME_ROOT="${RUNTIME_ROOT%/}"
+LOCK_ROOT="$RUNTIME_ROOT/claude-plannotator-${UID:-$(id -u)}"
+DEFAULT_HOST_CLAUDE='{{ .plannotator_ports.host.claude | join "," }}'
+DEFAULT_DEVCONTAINER_CLAUDE='{{ .plannotator_ports.devcontainer.claude | join "," }}'
+
+die() {
+  printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
+  exit 1
+}
+
+is_devcontainer() {
+  [ "${DEVCONTAINER:-}" = "1" ] || [ -n "${REMOTE_CONTAINERS:-}" ] || [ -n "${CODESPACES:-}" ]
+}
+
+port_is_listening() {
+  local port
+  port="$1"
+
+  (: >"/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1 || \
+    (: >"/dev/tcp/localhost/$port") >/dev/null 2>&1
+}
+
+select_pool() {
+  local default_pool
+
+  if is_devcontainer; then
+    default_pool="$DEFAULT_DEVCONTAINER_CLAUDE"
+  else
+    default_pool="$DEFAULT_HOST_CLAUDE"
+  fi
+
+  printf '%s' "${PLANNOTATOR_PORTS_CLAUDE:-$default_pool}"
+}
+
+select_lock_backend() {
+  if command -v flock >/dev/null 2>&1; then
+    printf 'flock'
+  elif command -v lockf >/dev/null 2>&1; then
+    printf 'lockf'
+  else
+    die "flock or lockf is required for Plannotator port locking"
+  fi
+}
+
+lock_port_fd() {
+  case "$LOCK_BACKEND" in
+    flock)
+      flock -n "$LOCK_FD"
+      ;;
+    lockf)
+      # macOS/BSD lockf can lock an already-open shell fd; the lock is held
+      # until fd 9 is closed, including after the final exec into Claude Code.
+      lockf -s -t 0 "$LOCK_FD"
+      ;;
+    *)
+      die "unknown lock backend: $LOCK_BACKEND"
+      ;;
+  esac
+}
+
+release_port_fd() {
+  if [ "${LOCK_BACKEND:-}" = "flock" ]; then
+    flock -u "$LOCK_FD" || true
+  fi
+  # LOCK_FD is fixed at 9; closing it releases lockf locks as well.
+  exec 9>&-
+}
+
+POOL_NAME="claude"
+POOL="$(select_pool)"
+[ -n "$POOL" ] || die "empty port pool for $POOL_NAME"
+LOCK_BACKEND="$(select_lock_backend)"
+
+IFS=',' read -r -a PORTS <<<"$POOL"
+[ "${#PORTS[@]}" -gt 0 ] || die "empty port pool for $POOL_NAME"
+
+mkdir -p "$LOCK_ROOT"
+
+CHOSEN_PORT=""
+LOCK_FD="9"
+LOCK_PATH=""
+
+for raw_port in "${PORTS[@]}"; do
+  port="${raw_port//[[:space:]]/}"
+  [[ "$port" =~ ^[0-9]+$ ]] || die "invalid port in $POOL_NAME pool: $raw_port"
+
+  lock_path="$LOCK_ROOT/port-$port.lock"
+  exec 9>"$lock_path"
+
+  if ! lock_port_fd; then
+    release_port_fd
+    continue
+  fi
+
+  if port_is_listening "$port"; then
+    release_port_fd
+    continue
+  fi
+
+  CHOSEN_PORT="$port"
+  LOCK_PATH="$lock_path"
+  break
+done
+
+[ -n "$CHOSEN_PORT" ] || die "no available Plannotator port in $POOL_NAME pool: $POOL"
+
+export PLANNOTATOR_PORT="$CHOSEN_PORT"
+export CLAUDE_PLANNOTATOR_POOL="$POOL_NAME"
+export CLAUDE_PLANNOTATOR_LOCK="$LOCK_PATH"
+
+if [ "${CLAUDE_PLANNOTATOR_VERBOSE:-}" = "1" ] || [ "${CLAUDE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
+  printf '%s: pool=%s port=%s lock=%s\n' "$SCRIPT_NAME" "$POOL_NAME" "$CHOSEN_PORT" "$LOCK_PATH" >&2
+fi
+
+if [ "${CLAUDE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
+  sleep "${CLAUDE_PLANNOTATOR_HOLD_SECONDS:-0}"
+  release_port_fd
+  exit 0
+fi
+
+if [ "$CLAUDE_PLANNOTATOR_VERBOSE" = "1" ] && \
+  [ "$CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS" != "0" ]; then
+  sleep "$CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS"
+fi
+
+CLAUDE_BIN="${CLAUDE_BIN:-}"
+if [ -z "$CLAUDE_BIN" ]; then
+  CLAUDE_BIN="$(command -v claude || true)"
+fi
+
+[ -n "$CLAUDE_BIN" ] || die "claude not found in PATH"
+[ -x "$CLAUDE_BIN" ] || die "claude is not executable: $CLAUDE_BIN"
+
+exec "$CLAUDE_BIN" "$@"

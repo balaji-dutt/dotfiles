@@ -615,9 +615,9 @@ def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args
         if config.claude_command:
             command = parse_command(config.claude_command)
         else:
-            claude = command_path("claude")
+            claude = command_path("claude-plannotator") or command_path("claude")
             if not claude:
-                die("claude not found in PATH")
+                die("claude-plannotator or claude not found in PATH")
             command = [claude]
         return [*command, *tool_args], worktree_path
 

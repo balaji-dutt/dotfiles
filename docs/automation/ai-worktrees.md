@@ -130,9 +130,10 @@ The wrapper prefers `opencode-plannotator` when it is available and falls back
 to `opencode`. Custom OpenCode commands may still use an explicit `{worktree}`
 placeholder when they need the absolute worktree path as an argument.
 
-Claude launches with its current working directory set to the worktree path.
-Do not pass Claude's `--worktree` or `-w` flags through `ai-wt`; the wrapper
-has already created the worktree.
+Claude launches with its current working directory set to the worktree path. The
+wrapper prefers `claude-plannotator` when it is available and falls back to
+`claude`. Do not pass Claude's `--worktree` or `-w` flags through `ai-wt`; the
+wrapper has already created the worktree.
 
 The wrapper runs the tool as a foreground child process instead of using
 `exec`, so it can run cleanup after the tool exits. Cleanup is best-effort;

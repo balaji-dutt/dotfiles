@@ -29,6 +29,7 @@
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "9999",
     "PLANNOTATOR_PORTS_BUILD": "{{ .plannotator_ports.devcontainer.build | join "," }}",
+    "PLANNOTATOR_PORTS_CLAUDE": "{{ .plannotator_ports.devcontainer.claude | join "," }}",
     "PLANNOTATOR_PORTS_CUSTOM": "{{ .plannotator_ports.devcontainer.custom | join "," }}",
     "OPENSPEC_TELEMETRY": "0",
     {{- if eq .chezmoi.os "darwin" }}

@@ -36,8 +36,10 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 | `onepassword.email` | 1Password account email | 1Password setup |
 | `plannotator_port` | Plannotator direct-session fallback port | host shell env defaults |
 | `plannotator_ports.host.build` | Host build-handoff Plannotator pool | `opencode-plannotator` |
+| `plannotator_ports.host.claude` | Host Claude Code Plannotator pool | `claude-plannotator` |
 | `plannotator_ports.host.custom` | Host stay-current custom Plannotator pool | `opencode-plannotator-custom` |
 | `plannotator_ports.devcontainer.build` | Devcontainer build-handoff Plannotator pool | devcontainer env + wrapper defaults |
+| `plannotator_ports.devcontainer.claude` | Devcontainer Claude Code Plannotator pool | devcontainer env + wrapper defaults |
 | `plannotator_ports.devcontainer.custom` | Devcontainer stay-current custom Plannotator pool | devcontainer env + wrapper defaults |
 
 ## Safety
