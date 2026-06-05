@@ -1,14 +1,15 @@
-tap "1password/tap"
-tap "anomalyco/tap"
-tap "buo/cask-upgrade"
-tap "edouard-claude/tap"
+tap "1password/tap", trusted: true
+tap "anomalyco/tap", trusted: true
+tap "buo/cask-upgrade", trusted: true
+tap "edouard-claude/tap", trusted: true
+tap "gastownhall/beads"
 tap "homebrew/bundle"
-tap "janekbaraniewski/tap"
-tap "jesseduffield/lazygit"
-tap "opgginc/tap"
-tap "pilan-ai/tap"
-tap "railwaycat/emacsmacport"
-tap "wyne/tap"
+tap "janekbaraniewski/tap", trusted: true
+tap "jesseduffield/lazygit", trusted: true
+tap "opgginc/tap", trusted: true
+tap "pilan-ai/tap", trusted: true
+tap "railwaycat/emacsmacport", trusted: true
+tap "wyne/tap", trusted: true
 brew "antidote"
 brew "tmux"
 brew "aoe"
