@@ -54,18 +54,6 @@
         "matcher": "permission_prompt|elicitation_dialog"
       }
     ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "command": "plannotator",
-            "timeout": 345600,
-            "type": "command"
-          }
-        ],
-        "matcher": "ExitPlanMode_DISABLED_duplicates_plannotator_plugin"
-      }
-    ],
     "PreToolUse": [
       {
         "hooks": [
