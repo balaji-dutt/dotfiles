@@ -220,7 +220,84 @@ in the right place:
 cd "$ORIG_WT"
 ```
 
-### Step 8: Offer cleanup (never silent, never automatic)
+### Step 8: Close matching Beads issue after the merge
+
+Close Beads only after the merge has succeeded and the work is now on
+`main`/`master`. Never close an issue after a feature-branch commit alone.
+
+Use the harness-specific state file in the original worktree:
+
+```bash
+STATE_FILE="$ORIG_WT/.beads/in-progress-opencode.json" # OpenCode
+# STATE_FILE="$ORIG_WT/.beads/in-progress-claude.json" # Claude Code
+```
+
+If the file is absent, report that no Beads issue was closed and continue to
+cleanup offers. If it exists, read its metadata and verify it matches the
+work just merged:
+
+- `id` is present.
+- `branch`, when present, equals `$FEATURE_BRANCH`.
+- `worktree_path`, when present, resolves to `$ORIG_WT`.
+- `started_sha`, when present, is usable for commit collection.
+
+Use a small parser rather than assuming `jq` is installed:
+
+```bash
+ISSUE_ID="$(STATE_FILE="$STATE_FILE" python3 - <<'PY'
+import json, os
+with open(os.environ["STATE_FILE"], encoding="utf-8") as handle:
+    print(json.load(handle).get("id", ""))
+PY
+)"
+STARTED_SHA="$(STATE_FILE="$STATE_FILE" python3 - <<'PY'
+import json, os
+with open(os.environ["STATE_FILE"], encoding="utf-8") as handle:
+    print(json.load(handle).get("started_sha", ""))
+PY
+)"
+STATE_BRANCH="$(STATE_FILE="$STATE_FILE" python3 - <<'PY'
+import json, os
+with open(os.environ["STATE_FILE"], encoding="utf-8") as handle:
+    print(json.load(handle).get("branch", ""))
+PY
+)"
+STATE_WORKTREE_PATH="$(STATE_FILE="$STATE_FILE" python3 - <<'PY'
+import json, os
+with open(os.environ["STATE_FILE"], encoding="utf-8") as handle:
+    print(json.load(handle).get("worktree_path", ""))
+PY
+)"
+```
+
+If metadata is missing, mismatched, or ambiguous, do not guess. Report the
+state and ask the user before closing anything.
+
+When state matches, collect merged commit SHAs from the main worktree. Prefer
+the state `started_sha`; otherwise use the merge range recorded in steps 5/6:
+
+```bash
+cd "$MAIN_WT" && git log "${STARTED_SHA}..HEAD" --format=%h
+```
+
+Then close from the original worktree so Beads resolves the right repo:
+
+```bash
+cd "$ORIG_WT" && bd close "$ISSUE_ID" \
+  --reason "Fixed with commit(s) ${MERGED_SHAS}" \
+  --actor "OpenCode"
+```
+
+For Claude Code, use `--actor "Claude"`. Remove the matching state file only
+after `bd close` succeeds:
+
+```bash
+rm -f "$STATE_FILE"
+```
+
+If `bd close` fails, leave the state file in place and report the failure.
+
+### Step 9: Offer cleanup (never silent, never automatic)
 
 Always offer — never perform without confirmation:
 
@@ -328,6 +405,7 @@ Unusual configuration. Abort in step 2 and ask the user which to target.
 - Commits merged: <n>
 - Merge commit (no-ff only): <short> — author <Claude|OpenCode>
 - Returned to worktree: <orig-worktree-path>
+- Beads issue closed: <id | no, reason>
 - Cleanup offered: worktree removal (<ai-wt cleanup | git worktree remove>),
   branch -d <feature-branch>
 - Pushed: no

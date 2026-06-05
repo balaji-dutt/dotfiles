@@ -1,6 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": [".opencode/instructions/mcp-usage.md"],
+  "instructions": [
+    ".opencode/instructions/mcp-usage.md",
+    ".opencode/instructions/beads-plan-handoff.md"
+  ],
   // ----------------------------
   // Project specific plugins
   // ----------------------------
@@ -98,7 +101,8 @@
         },
         "task": {
           "*": "deny",
-          "dotfiles-reviewer": "allow"
+          "dotfiles-reviewer": "allow",
+          "beads-issue-author": "allow"
         }
       }
     },
@@ -118,7 +122,8 @@
         },
         "task": {
           "*": "deny",
-          "dotfiles-reviewer": "allow"
+          "dotfiles-reviewer": "allow",
+          "beads-issue-author": "allow"
         }
       }
     },
@@ -138,7 +143,8 @@
         },
         "task": {
           "*": "deny",
-          "dotfiles-reviewer": "allow"
+          "dotfiles-reviewer": "allow",
+          "beads-issue-author": "allow"
         }
       }
     },
