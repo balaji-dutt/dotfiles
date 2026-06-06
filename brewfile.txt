@@ -1,6 +1,5 @@
 tap "1password/tap", trusted: true
 tap "anomalyco/tap", trusted: true
-tap "buo/cask-upgrade", trusted: true
 tap "edouard-claude/tap", trusted: true
 tap "gastownhall/beads", trusted: true
 tap "homebrew/bundle"
@@ -30,7 +29,7 @@ brew "pandoc"
 brew "yt-dlp"
 brew "anomalyco/tap/opencode"
 brew "gastownhall/beads/bd", trusted: true
-brew "janekbaraniewski/tap/openusage"
+brew "janekbaraniewski/tap/openusage", link: false
 brew "pilan-ai/tap/mnemo"
 brew "wyne/tap/fasder"
 cask "1password-cli"
