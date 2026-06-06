@@ -12,32 +12,32 @@
       "path": "dot_claude/agents/agent-engineer.md",
       "platform": "claude",
       "source": "agents/agent-engineer.yaml",
-      "sourceDigest": "sha256:d704eec94daa5f1a24514a1addbfda9db11c3360100db99b5556299508198f97",
-      "digest": "sha256:fa7841ba6c07a815b35bcb7f82965eeef3030fe5ec50ff123bb3564002f18e47"
+      "sourceDigest": "sha256:b49d1664e595f74daf8d7c1f21c72ec25ce882eeb81982f861b7c11e2dec0f26",
+      "digest": "sha256:f386abf5af92a8120cc3d60c4807a87073e48b63febfd47d4097a65004af67d2"
     },
     {
       "kind": "agent",
       "path": "private_dot_config/opencode/prompts/generated/agent-engineer.md",
       "platform": "opencode",
       "source": "agents/agent-engineer.yaml",
-      "sourceDigest": "sha256:d704eec94daa5f1a24514a1addbfda9db11c3360100db99b5556299508198f97",
-      "digest": "sha256:fd6c74d0a23cc96cc4b08e5d0d1b288cc8e25fd34f5edfc61b19d8b1a58b9871"
+      "sourceDigest": "sha256:b49d1664e595f74daf8d7c1f21c72ec25ce882eeb81982f861b7c11e2dec0f26",
+      "digest": "sha256:298b03fc6d59ec46b38b53585e87f323f6db270d06af1d1fb4fce6c1cc663635"
     },
     {
       "kind": "agent",
       "path": "dot_claude/agents/special-builder.md",
       "platform": "claude",
       "source": "agents/special-builder.yaml",
-      "sourceDigest": "sha256:73eb28b4d1d749fa72dc48d80c0021362786cee1925508937648a456af946e27",
-      "digest": "sha256:1425a61e7b98a406bd1a269a00f28523c63aef7b5a7c58e7a07f7b7925ede206"
+      "sourceDigest": "sha256:96be11b85662cb869bf25e5321e9796b6e5fc7c53807352fcac342fbcd516cf3",
+      "digest": "sha256:d416306dc9712a948cec9144fe4326d6c46798eaef1a8257d5292e92bbe10139"
     },
     {
       "kind": "agent",
       "path": "private_dot_config/opencode/prompts/generated/special-builder.md",
       "platform": "opencode",
       "source": "agents/special-builder.yaml",
-      "sourceDigest": "sha256:73eb28b4d1d749fa72dc48d80c0021362786cee1925508937648a456af946e27",
-      "digest": "sha256:2bd112381b4f28e34b4f0e6de174f76682fdcd01e1ee9583deb30aa82e2b80a2"
+      "sourceDigest": "sha256:96be11b85662cb869bf25e5321e9796b6e5fc7c53807352fcac342fbcd516cf3",
+      "digest": "sha256:358c039c1238cc3b594b8aee60f814220313718060c676d4a0146e2b45708aa7"
     },
     {
       "kind": "skill",
