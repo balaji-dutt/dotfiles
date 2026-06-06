@@ -2,7 +2,7 @@ tap "1password/tap", trusted: true
 tap "anomalyco/tap", trusted: true
 tap "buo/cask-upgrade", trusted: true
 tap "edouard-claude/tap", trusted: true
-tap "gastownhall/beads"
+tap "gastownhall/beads", trusted: true
 tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
