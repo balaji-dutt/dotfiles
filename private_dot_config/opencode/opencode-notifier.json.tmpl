@@ -9,24 +9,38 @@
   {{- $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
 {{- end -}}
 {{- $useWindowsWorkaround := or $isWindows $isWSL2 -}}
+{{- /* macOS uses terminal-notifier via the command path for the same reason
+       aoe-notify does: osascript-based notifications attribute to
+       "Script Editor", which never registers in System Settings >
+       Notifications, so banners silently no-op. */ -}}
+{{- $useCommandPath := or $useWindowsWorkaround $isDarwin -}}
 {
   "sound": false,
-  "notification": {{ if $useWindowsWorkaround }}false{{ else }}true{{ end }},
+  "notification": {{ if $useCommandPath }}false{{ else }}true{{ end }},
   "bell": false,
   "showProjectName": true,
   "showSessionTitle": true,
-  "suppressWhenFocused": true,
-{{- if $isDarwin }}
-  "notificationSystem": "osascript",
-{{- end }}
+  "suppressWhenFocused": {{ if $isDarwin }}false{{ else }}true{{ end }},
   "command": {
-    "enabled": {{ if $useWindowsWorkaround }}true{{ else }}false{{ end }},
+    "enabled": {{ if $useCommandPath }}true{{ else }}false{{ end }},
+{{- if $isDarwin }}
+    "path": "terminal-notifier",
+    "args": [
+      "-title",
+      "OpenCode - {event}",
+      "-message",
+      "{message}",
+      "-group",
+      "opencode"
+    ],
+{{- else }}
     "path": "powershell.exe",
     "args": [
       "-NoProfile",
       "-Command",
       "$wshell = New-Object -ComObject Wscript.Shell; $wshell.Popup('{message}', 5, 'OpenCode - {event}', 0+64)"
     ],
+{{- end }}
     "minDuration": 0
   },
   "events": {

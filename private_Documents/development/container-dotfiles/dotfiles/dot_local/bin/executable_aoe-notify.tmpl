@@ -11,6 +11,32 @@ debug() {
   esac
 }
 
+# Portable lowercase for bash 3.2 (macOS /bin/bash) compatibility.
+to_lower() {
+  printf '%s' "${1-}" | tr '[:upper:]' '[:lower:]'
+}
+
+# Append a single line per invocation so we can prove AoE actually fires the
+# hook. Useful when banners do not appear: a missing line means the hook was
+# never invoked, a present line with backend=none means every backend failed.
+log_finish() {
+  local backend=$1
+  local rc=$2
+  local status=$3
+  local path
+  path=${XDG_CACHE_HOME:-$HOME/.cache}/aoe-notify.log
+  mkdir -p "${path%/*}" 2>/dev/null || return 0
+  printf '%s status=%s backend=%s rc=%s pid=%s ppid=%s instance=%s session=%q project=%q new_status=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$status" "$backend" "$rc" \
+    "$$" "$PPID" \
+    "${AOE_INSTANCE_ID:-}" \
+    "${AOE_SESSION_TITLE:-}" \
+    "${AOE_PROJECT_PATH:-}" \
+    "${AOE_NEW_STATUS:-}" \
+    >> "$path" 2>/dev/null || true
+}
+
 json_escape() {
   local value=${1-}
   value=${value//\\/\\\\}
@@ -88,6 +114,32 @@ try_bridge() {
   return 1
 }
 
+# Preferred macOS backend. Unlike osascript, terminal-notifier has its own
+# bundle ID, so it registers in System Settings > Notifications and can be
+# granted permission. osascript notifications attribute to "Script Editor",
+# which does not appear in the Notifications list until it is launched as the
+# foreground app -- a chicken-and-egg problem when invoked from a child
+# process like aoe-notify.
+try_terminal_notifier() {
+  local status=$1
+  local title=$2
+  local message=$3
+
+  [[ $(uname -s 2>/dev/null) == Darwin ]] || return 1
+  command -v terminal-notifier >/dev/null 2>&1 || return 1
+
+  local -a args=(
+    -title "$title"
+    -message "$message"
+    -group "agent-of-empires"
+  )
+  if [[ $status == error ]]; then
+    args+=(-sound Basso)
+  fi
+
+  terminal-notifier "${args[@]}" >/dev/null 2>&1
+}
+
 try_macos() {
   local title=$1
   local message=$2
@@ -140,7 +192,7 @@ main() {
   local status=${1:-${AOE_NEW_STATUS:-}}
   local subject title message bridge_raw bridge_url
 
-  status=${status,,}
+  status=$(to_lower "$status")
 
   case "$status" in
     waiting)
@@ -155,6 +207,7 @@ main() {
       ;;
     *)
       debug "ignored status: ${status:-<empty>}"
+      log_finish ignored 0 "${status:-}"
       return 0
       ;;
   esac
@@ -165,16 +218,36 @@ main() {
 
   bridge_raw=${AOE_NOTIFY_BRIDGE_URL:-${DEV_NOTIFY_BRIDGE:-}}
   if bridge_url=$(bridge_endpoint "$bridge_raw"); then
-    try_bridge "$bridge_url" "$title" "$message" && return 0
+    if try_bridge "$bridge_url" "$title" "$message"; then
+      log_finish bridge 0 "$status"
+      return 0
+    fi
   elif is_devcontainer; then
-    try_bridge "$DEFAULT_BRIDGE_URL" "$title" "$message" && return 0
+    if try_bridge "$DEFAULT_BRIDGE_URL" "$title" "$message"; then
+      log_finish bridge 0 "$status"
+      return 0
+    fi
   fi
 
-  try_macos "$title" "$message" && return 0
-  try_windows_popup "$title" "$message" && return 0
-  try_notify_send "$status" "$title" "$message" && return 0
+  if try_terminal_notifier "$status" "$title" "$message"; then
+    log_finish terminal-notifier 0 "$status"
+    return 0
+  fi
+  if try_macos "$title" "$message"; then
+    log_finish osascript 0 "$status"
+    return 0
+  fi
+  if try_windows_popup "$title" "$message"; then
+    log_finish powershell 0 "$status"
+    return 0
+  fi
+  if try_notify_send "$status" "$title" "$message"; then
+    log_finish notify-send 0 "$status"
+    return 0
+  fi
 
   debug 'no notification backend succeeded'
+  log_finish none 1 "$status"
   return 0
 }
 

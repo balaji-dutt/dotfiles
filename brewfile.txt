@@ -27,6 +27,7 @@ brew "lazygit"
 brew "mas"
 brew "mise"
 brew "pandoc"
+brew "terminal-notifier"
 brew "yt-dlp"
 brew "anomalyco/tap/opencode"
 brew "gastownhall/beads/bd", trusted: true
