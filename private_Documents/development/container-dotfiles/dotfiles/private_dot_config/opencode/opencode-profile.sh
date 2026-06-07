@@ -275,7 +275,7 @@ opencode_profile() {
       printf 'Switched OpenCode profiles to %s\n' "$next_profiles"
       printf 'OPENCODE_CONFIG_DIR=%s\n' "${OPENCODE_CONFIG_DIR:-<unset>}"
       ;;
-    chatgpt|defaults|copilot|anthropic-api|api-fallback)
+    chatgpt|defaults|anthropic-api|api-fallback)
       if ! next_profiles="$(_opencode_normalize_profile_args "$action")"; then
         printf 'Invalid OpenCode profile: %s\n' "$action" >&2
         return 1
@@ -292,7 +292,7 @@ opencode_profile() {
       printf 'OPENCODE_CONFIG_DIR=%s\n' "${OPENCODE_CONFIG_DIR:-<unset>}"
       ;;
     *)
-      printf 'Usage: opencode-profile {show|set <profiles...>|defaults|chatgpt|copilot|anthropic-api|api-fallback}\n' >&2
+      printf 'Usage: opencode-profile {show|set <profiles...>|defaults|chatgpt|anthropic-api|api-fallback}\n' >&2
       return 1
       ;;
   esac

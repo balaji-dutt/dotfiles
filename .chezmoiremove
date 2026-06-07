@@ -2,3 +2,5 @@
 .claude/commands/sc
 .claude/commands/todo.md
 .claude/commit-docs.sh
+.config/opencode/profiles/copilot/opencode.jsonc
+Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc
