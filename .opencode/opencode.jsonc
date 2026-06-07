@@ -96,6 +96,7 @@
       },
       "permission": {
         "bash": {
+          "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
@@ -116,6 +117,7 @@
       },
       "permission": {
         "bash": {
+          "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
@@ -136,6 +138,7 @@
       },
       "permission": {
         "bash": {
+          "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
