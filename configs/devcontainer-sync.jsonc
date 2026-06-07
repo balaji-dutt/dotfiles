@@ -98,33 +98,7 @@
         "exclude": []
       }
     ],
-    "derived": [
-      {
-        "name": "opencode-copilot-host",
-        "type": "opencode-copilot-profile",
-        "label": "host",
-        "source": "private_dot_config/opencode/opencode.jsonc",
-        "target": "private_dot_config/opencode/profiles/copilot/opencode.jsonc",
-        "keep_agents": [
-          "plan",
-          "plan-GPT-xhigh",
-          "build",
-          "coder"
-        ]
-      },
-      {
-        "name": "opencode-copilot-container",
-        "type": "opencode-copilot-profile",
-        "label": "container",
-        "source": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
-        "target": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc",
-        "keep_agents": [
-          "plan",
-          "plan-GPT-xhigh",
-          "build"
-        ]
-      }
-    ],
+    "derived": [],
     "renders": [
       {
         "name": "container-env",

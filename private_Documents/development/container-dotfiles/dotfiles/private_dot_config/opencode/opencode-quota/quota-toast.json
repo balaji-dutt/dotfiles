@@ -1,6 +1,5 @@
 {
     "enabledProviders": [
-      "copilot",
       "openai",
       "anthropic",
       "opencode-go"

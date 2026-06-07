@@ -138,7 +138,6 @@ export OPENCODE_WORKSPACE_CONFIG="$workspace_opencode_json"
 export OPENCODE_GLOBAL_CONFIG="$global_opencode_json"
 export OPENCODE_PROFILES_STACK="$profiles_joined"
 export OPENCODE_CONFIG_HOME="$config_home"
-export OPENCODE_MODEL_MAP="${OPENCODE_MODEL_MAP:-gpt-5.5=gpt-5.4,gpt-5.4=gpt-5.4,gpt-5.3-codex=gpt-5.3-codex,gpt-5.2=gpt-5.2,gpt-5.2-high=gpt-5.2-high,gpt-5.2-xhigh=gpt-5.2-xhigh}"
 
 python3 <<'PY'
 import json
@@ -266,19 +265,6 @@ def deep_merge(dst: dict, src: dict) -> dict:
     return dst
 
 
-def remap_openai_to_copilot(agent_cfg: dict, mapping: dict) -> None:
-    for _name, cfg in agent_cfg.items():
-        if not isinstance(cfg, dict):
-            continue
-        model = cfg.get("model")
-        if not isinstance(model, str) or not model.startswith("openai/"):
-            continue
-        model_id = model.split("/", 1)[1]
-        mapped = mapping.get(model_id)
-        if mapped:
-            cfg["model"] = f"github-copilot/{mapped}"
-
-
 def remap_anthropic_to_api(agent_cfg: dict) -> None:
     for _name, cfg in agent_cfg.items():
         if not isinstance(cfg, dict):
@@ -315,17 +301,6 @@ runtime_dir = active_path.parent.resolve(strict=False)
 
 global_path = Path(global_raw) if global_raw else None
 base_source = global_path if global_path and global_path.is_file() else base_path
-
-mapping = {}
-for pair in os.environ.get("OPENCODE_MODEL_MAP", "").split(","):
-    pair = pair.strip()
-    if not pair or "=" not in pair:
-        continue
-    src, dst = pair.split("=", 1)
-    src = src.strip()
-    dst = dst.strip()
-    if src and dst:
-        mapping[src] = dst
 
 try:
     merged = parse_jsonc_rebased(base_source, runtime_dir)
@@ -391,9 +366,6 @@ agents_cfg = merged.setdefault("agent", {})
 if not isinstance(agents_cfg, dict):
     merged["agent"] = {}
     agents_cfg = merged["agent"]
-
-if "copilot" in profiles:
-    remap_openai_to_copilot(agents_cfg, mapping)
 
 if "anthropic-api" in profiles:
     remap_anthropic_to_api(agents_cfg)

@@ -157,22 +157,20 @@ Run the render step before rebuilding containers so runtime values are injected 
 The current recommended order when updating container inputs is:
 
 1. `./assets/sync-devcontainer-assets.sh`
-2. `./assets/sync-opencode-copilot-profiles.sh`
-3. `./assets/render-container-configs.sh`
+2. `./assets/render-container-configs.sh`
 
 For routine use, a managed user-bin wrapper is also available:
 
 - `sync-devcontainer-all.sh`
 
-This wrapper runs the same three-step workflow from the canonical dotfiles repo
+This wrapper runs the same sync/render workflow from the canonical dotfiles repo
 path by default and avoids relying on repo-local `direnv` PATH injection in
 editor terminals. To sync from a feature worktree instead, set
 `DOTFILES_REPO_ROOT=/path/to/dotfiles-worktree` when invoking the wrapper.
 
 On WSL2, this workflow is intended for Debian only. Ubuntu WSL2 is the utility
 instance: Dev Container reminders and the sync/render wrapper are suppressed
-there, while host-only OpenCode Copilot profile sync remains available without
-container-dotfiles inputs. macOS keeps the full sync/render workflow.
+there. macOS keeps the full sync/render workflow.
 
 ## Claude Code in Devcontainers
 
@@ -225,9 +223,9 @@ OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
 
 - Container user profiles are sourced from
   `private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/**/opencode.jsonc`
-  (for example `defaults`, `copilot`, `anthropic-api`, `api-fallback`).
+  (for example `defaults`, `anthropic-api`, `api-fallback`).
 - `dot_zshrc` loads `~/.config/opencode/opencode-profile.sh`, which provides
-  `opencode-profile {show|set <profiles...>|defaults|copilot|anthropic-api|api-fallback}`
+  `opencode-profile {show|set <profiles...>|defaults|anthropic-api|api-fallback}`
   and exports `OPENCODE_CONFIG_DIR` based on `OPENCODE_PROFILES` (legacy
   `OPENCODE_PROFILE` remains supported for compatibility).
 - `postStart.sh`, `postCreate.sh`, and the profile switch hook run

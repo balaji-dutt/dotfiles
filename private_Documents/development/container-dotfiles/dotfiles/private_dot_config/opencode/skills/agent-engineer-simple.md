@@ -1,7 +1,7 @@
 # Agent Engineer (Simplified)
 
-A self-contained agent engineering prompt for constrained environments (GitHub
-Copilot, ChatGPT, or any platform without custom skills/plugins/tools).
+A self-contained agent engineering prompt for constrained environments (web-based
+coding assistants, ChatGPT, or any platform without custom skills/plugins/tools).
 
 ## How to use
 

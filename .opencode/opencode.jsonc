@@ -96,7 +96,6 @@
       },
       "permission": {
         "bash": {
-          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
@@ -117,7 +116,6 @@
       },
       "permission": {
         "bash": {
-          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
@@ -138,7 +136,6 @@
       },
       "permission": {
         "bash": {
-          "./assets/sync-opencode-copilot-profiles.sh*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
         },
         "task": {
