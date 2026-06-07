@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Shim used by opencode-notifier's command.path on macOS.
+# Suppresses notifications when running inside an AoE-managed tmux
+# session (session name starts with "aoe_"); otherwise forwards to
+# terminal-notifier. AoE fires its own status_hooks (~/bin/aoe-notify)
+# for the same waiting/error events, so this avoids duplicate banners.
+# Accepted edge case: a standalone `opencode` run inside an attached
+# leftover aoe_* tmux session will be silently suppressed.
+set -Eeuo pipefail
+
+if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  session=$(tmux display-message -p '#S' 2>/dev/null) || session=""
+  case "$session" in
+    aoe_*) exit 0 ;;
+  esac
+fi
+
+exec terminal-notifier "$@"

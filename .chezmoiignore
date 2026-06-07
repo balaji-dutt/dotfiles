@@ -21,6 +21,7 @@
 Library
 bin/vnc_monitor.sh
 bin/nfs_dot_clean.sh
+bin/opencode-notifier-bridge
 .agent-of-empires
 .agent-of-empires/**
 {{ end }}

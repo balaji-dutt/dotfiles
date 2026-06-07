@@ -24,7 +24,7 @@
   "command": {
     "enabled": {{ if $useCommandPath }}true{{ else }}false{{ end }},
 {{- if $isDarwin }}
-    "path": "terminal-notifier",
+    "path": "opencode-notifier-bridge",
     "args": [
       "-title",
       "OpenCode - {event}",
