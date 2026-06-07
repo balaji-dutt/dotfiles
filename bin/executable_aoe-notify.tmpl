@@ -132,6 +132,7 @@ try_terminal_notifier() {
     -title "$title"
     -message "$message"
     -group "agent-of-empires"
+    -sender com.apple.Terminal
   )
   if [[ $status == error ]]; then
     args+=(-sound Basso)
