@@ -159,10 +159,23 @@ try_macos() {
 try_windows_popup() {
   local title=$1
   local message=$2
+  local powershell_bin
 
-  command -v powershell.exe >/dev/null 2>&1 || return 1
+  # On WSL2, AoE's status_hook child shell does not always inherit the
+  # Windows-interop PATH additions, so command -v powershell.exe fails
+  # even when the interop binary is reachable. Fall through to the
+  # standard absolute paths before giving up.
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell_bin=powershell.exe
+  elif [[ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ]]; then
+    powershell_bin=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+  elif [[ -x /mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe ]]; then
+    powershell_bin=/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe
+  else
+    return 1
+  fi
 
-  powershell.exe \
+  "$powershell_bin" \
     -NoProfile \
     -NonInteractive \
     -ExecutionPolicy Bypass \

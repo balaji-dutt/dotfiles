@@ -75,3 +75,31 @@ Windows/WSL2 — calling `terminal-notifier` directly. `suppressWhenFocused`
 is also forced `false` on macOS because the upstream focus-detection path
 is marked "untested" in the plugin README and almost certainly
 contributes to the "no banner appears" symptom even outside AoE.
+
+## WSL2 status: known limitations
+
+Verified 2026-06-08 against `aoe 1.10.1`:
+
+- **AoE classifies OpenCode panes on WSL2 as
+  `starting` → `running` ↔ `unknown`, never `waiting` or `idle`.**
+  Consequence: the `[status_hooks] on_waiting` chain never fires for
+  OpenCode on WSL2, no matter what `aoe-notify` does. This was proven
+  via a temporary `on_change` diagnostic hook (since reverted) that
+  captured every transition into `~/.cache/aoe-notify.log`. Right fix
+  is upstream in AoE — `running ↔ unknown` while a pane sits at the
+  prompt is misclassification, not something a wrapper can correct.
+  Upstream issue: _TBD — link added after Mr. Dutt files it._
+- **For OpenCode notifications on WSL2, the
+  `@mohak34/opencode-notifier` plugin via `powershell.exe` popup is the
+  working path.** Its `command.enabled = true` block in the non-Darwin
+  branch of `opencode-notifier.json.tmpl` runs inside the OpenCode
+  process tree, which inherits the user's interactive PATH and can
+  reach `powershell.exe` reliably. Permission prompts, completion
+  banners, and errors all surface this way.
+- **For Claude sessions on WSL2 the `[status_hooks]` chain should work
+  end-to-end** after the `powershell.exe` PATH fallback was added to
+  `try_windows_popup`. Claude state comes from `.claude/settings.json`
+  hooks writing to `/tmp/aoe-hooks/$ID/status`, which AoE classifies
+  cleanly into `running` / `waiting` / `idle`. The PATH fallback covers
+  the case where AoE's status_hook child shell doesn't inherit the
+  Windows-interop PATH additions.
