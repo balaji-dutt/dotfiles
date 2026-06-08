@@ -88,7 +88,8 @@ Verified 2026-06-08 against `aoe 1.10.1`:
   captured every transition into `~/.cache/aoe-notify.log`. Right fix
   is upstream in AoE — `running ↔ unknown` while a pane sits at the
   prompt is misclassification, not something a wrapper can correct.
-  Upstream issue: _TBD — link added after Mr. Dutt files it._
+  Upstream issue:
+  [agent-of-empires/agent-of-empires#2022](https://github.com/agent-of-empires/agent-of-empires/issues/2022).
 - **For OpenCode notifications on WSL2, the
   `@mohak34/opencode-notifier` plugin via `powershell.exe` popup is the
   working path.** Its `command.enabled = true` block in the non-Darwin
