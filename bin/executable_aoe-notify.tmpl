@@ -175,9 +175,12 @@ try_windows_popup() {
     return 1
   fi
 
+  # -NonInteractive blocks Wscript.Shell.Popup from completing on WSL2
+  # (the call hangs until external interrupt), so we omit it. -ExecutionPolicy
+  # Bypass stays as a defence against corporate Windows policies enforcing
+  # execution policy even for -Command invocations.
   "$powershell_bin" \
     -NoProfile \
-    -NonInteractive \
     -ExecutionPolicy Bypass \
     -Command '$title = $args[0]; $message = $args[1]; $wshell = New-Object -ComObject Wscript.Shell; $null = $wshell.Popup($message, 5, $title, 0 + 64)' \
     "$title" \
