@@ -90,6 +90,9 @@ Verified 2026-06-08 against `aoe 1.10.1`:
   prompt is misclassification, not something a wrapper can correct.
   Upstream issue:
   [agent-of-empires/agent-of-empires#2022](https://github.com/agent-of-empires/agent-of-empires/issues/2022).
+  Upstream fix merged in
+  [`ce6d11c`](https://github.com/agent-of-empires/agent-of-empires/commit/ce6d11cdc2c91381c71350cd1c43ce768a1438cd);
+  awaiting the next tagged AoE release.
 - **For OpenCode notifications on WSL2, the
   `@mohak34/opencode-notifier` plugin via `powershell.exe` popup is the
   working path.** Its `command.enabled = true` block in the non-Darwin
