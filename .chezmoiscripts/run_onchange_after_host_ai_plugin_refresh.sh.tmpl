@@ -1,0 +1,308 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# configs/host-ai-plugin-refresh.jsonc hash: {{ include "configs/host-ai-plugin-refresh.jsonc" | sha256sum }}
+
+config_path={{ printf "%s/configs/host-ai-plugin-refresh.jsonc" .chezmoi.sourceDir | quote }}
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "INFO: python3 command not found; skipping host AI plugin refresh."
+  exit 0
+fi
+
+python3 - "$config_path" <<'PY'
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+dry_run = bool(os.environ.get("HOST_AI_PLUGIN_REFRESH_DRY_RUN"))
+
+
+def strip_jsonc(text):
+    result = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+
+        if char == '"':
+            in_string = True
+            result.append(char)
+            index += 1
+            continue
+
+        if char == "/" and next_char == "/":
+            index += 2
+            while index < len(text) and text[index] not in "\r\n":
+                index += 1
+            continue
+
+        if char == "/" and next_char == "*":
+            index += 2
+            while index + 1 < len(text) and not (
+                text[index] == "*" and text[index + 1] == "/"
+            ):
+                index += 1
+            index += 2
+            continue
+
+        result.append(char)
+        index += 1
+
+    return "".join(result)
+
+
+def run_checked(command):
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+def command_exists(command):
+    return shutil.which(command) is not None
+
+
+def require_object(value, name):
+    if not isinstance(value, dict):
+        print(f"ERROR: {name} must be an object.")
+        sys.exit(1)
+    return value
+
+
+def require_list(value, name):
+    if not isinstance(value, list):
+        print(f"ERROR: {name} must be a list.")
+        sys.exit(1)
+    return value
+
+
+def load_manifest():
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"ERROR: Host AI plugin refresh config not found: {config_path}")
+        sys.exit(1)
+
+    try:
+        return json.loads(strip_jsonc(text))
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: Invalid host AI plugin refresh JSONC: {exc}")
+        sys.exit(1)
+
+
+def claude_plugins(manifest):
+    claude = require_object(manifest.get("claude", {}), "claude")
+    plugins = require_list(claude.get("plugins", []), "claude.plugins")
+    parsed = []
+    for index, plugin in enumerate(plugins, start=1):
+        plugin = require_object(plugin, f"claude.plugins[{index}]")
+        plugin_id = plugin.get("id")
+        scope = plugin.get("scope", "user")
+        enabled = plugin.get("enabled", True)
+        if not isinstance(plugin_id, str) or not plugin_id.strip():
+            print(f"ERROR: claude.plugins[{index}].id must be a non-empty string.")
+            sys.exit(1)
+        if not isinstance(scope, str) or not scope.strip():
+            print(f"ERROR: claude.plugins[{index}].scope must be a non-empty string.")
+            sys.exit(1)
+        if not isinstance(enabled, bool):
+            print(f"ERROR: claude.plugins[{index}].enabled must be a boolean.")
+            sys.exit(1)
+        if enabled:
+            parsed.append({"id": plugin_id, "scope": scope})
+    return parsed
+
+
+def opencode_packages(manifest):
+    opencode = require_object(manifest.get("opencode", {}), "opencode")
+    plugins = require_list(opencode.get("plugins", []), "opencode.plugins")
+    parsed = []
+    for index, plugin in enumerate(plugins, start=1):
+        plugin = require_object(plugin, f"opencode.plugins[{index}]")
+        package = plugin.get("package")
+        enabled = plugin.get("enabled", True)
+        if not isinstance(package, str) or not package.strip():
+            print(f"ERROR: opencode.plugins[{index}].package must be a non-empty string.")
+            sys.exit(1)
+        if not isinstance(enabled, bool):
+            print(f"ERROR: opencode.plugins[{index}].enabled must be a boolean.")
+            sys.exit(1)
+        if enabled:
+            parsed.append(package)
+    return parsed
+
+
+def refresh_claude(plugins):
+    if not plugins:
+        print("INFO: No Claude Code plugins configured for refresh.")
+        return
+    if not command_exists("claude"):
+        print("INFO: claude command not found; skipping Claude Code plugin refresh.")
+        return
+
+    if dry_run:
+        print("INFO: Would run: claude plugin marketplace update")
+    else:
+        print("INFO: Updating Claude Code plugin marketplaces.")
+        result = run_checked(["claude", "plugin", "marketplace", "update"])
+        if result.returncode != 0:
+            print("ERROR: Failed to update Claude Code plugin marketplaces.")
+            if result.stdout.strip():
+                print(result.stdout.rstrip())
+            sys.exit(result.returncode)
+
+    for plugin in plugins:
+        command = [
+            "claude",
+            "plugin",
+            "update",
+            "--scope",
+            plugin["scope"],
+            plugin["id"],
+        ]
+        if dry_run:
+            print("INFO: Would run: " + " ".join(command))
+            continue
+
+        print(f"INFO: Updating Claude Code plugin {plugin['id']!r}.")
+        result = run_checked(command)
+        if result.returncode != 0:
+            print(f"ERROR: Failed to update Claude Code plugin {plugin['id']!r}.")
+            if result.stdout.strip():
+                print(result.stdout.rstrip())
+            sys.exit(result.returncode)
+
+    print("INFO: Restart Claude Code to use refreshed plugins.")
+
+
+def opencode_cache_root():
+    fallback = Path.home() / ".cache" / "opencode"
+    if command_exists("opencode"):
+        result = run_checked(["opencode", "debug", "paths"])
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                parts = line.split(maxsplit=1)
+                if len(parts) == 2 and parts[0] == "cache" and parts[1].strip():
+                    return Path(parts[1].strip()).expanduser()
+        elif result.stdout.strip():
+            print("INFO: Could not read OpenCode debug paths; using default cache path.")
+            print(result.stdout.rstrip())
+    else:
+        print("INFO: opencode command not found; using default OpenCode cache path.")
+    return fallback
+
+
+def opencode_running():
+    proc_root = Path("/proc")
+    if proc_root.is_dir():
+        current_pid = os.getpid()
+        for proc_dir in proc_root.iterdir():
+            if not proc_dir.name.isdigit() or int(proc_dir.name) == current_pid:
+                continue
+            try:
+                comm = (proc_dir / "comm").read_text(encoding="utf-8").strip()
+                raw_cmdline = (proc_dir / "cmdline").read_bytes()
+            except (OSError, UnicodeDecodeError):
+                continue
+            args = [arg.decode("utf-8", "ignore") for arg in raw_cmdline.split(b"\0") if arg]
+            if comm == "opencode" or any(Path(arg).name == "opencode" for arg in args):
+                return True
+
+    if command_exists("pgrep"):
+        result = run_checked(["pgrep", "-x", "opencode"])
+        return result.returncode == 0
+
+    print("INFO: Could not determine OpenCode running state; assuming not running.")
+    return False
+
+
+def detect_cached_versions(packages_dir, package_names):
+    detections = []
+    missing = []
+    for package_name in package_names:
+        package_path = Path(*package_name.split("/"))
+        pattern = f"**/node_modules/{package_path.as_posix()}/package.json"
+        matches = sorted(packages_dir.glob(pattern)) if packages_dir.is_dir() else []
+        if not matches:
+            missing.append(package_name)
+            continue
+        seen = set()
+        for package_json in matches:
+            try:
+                data = json.loads(package_json.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                print(f"INFO: Could not read cached package metadata {package_json}: {exc}")
+                continue
+            name = data.get("name", package_name)
+            version = data.get("version", "unknown")
+            key = (name, version)
+            if key not in seen:
+                detections.append((name, version, package_json))
+                seen.add(key)
+    return detections, missing
+
+
+def refresh_opencode(package_names):
+    cache_root = opencode_cache_root()
+    packages_dir = cache_root / "packages"
+    running = opencode_running()
+
+    print(f"INFO: OpenCode cache root: {cache_root}")
+    print(f"INFO: OpenCode packages cache exists: {'yes' if packages_dir.is_dir() else 'no'}")
+    print(f"INFO: OpenCode running: {'yes' if running else 'no'}")
+
+    detections, missing = detect_cached_versions(packages_dir, package_names)
+    if detections:
+        print("INFO: Detected cached OpenCode plugin versions:")
+        for name, version, package_json in detections:
+            print(f"INFO:   {name}@{version} ({package_json})")
+    else:
+        print("INFO: No cached OpenCode plugin package versions detected.")
+    for package_name in missing:
+        print(f"INFO: No cached OpenCode package metadata found for {package_name!r}.")
+
+    if running:
+        print("INFO: OpenCode appears to be running; not removing package cache.")
+        return
+
+    if not packages_dir.exists():
+        print("INFO: OpenCode packages cache is absent; nothing to remove.")
+        return
+
+    if dry_run:
+        print(f"INFO: Would remove OpenCode packages cache: {packages_dir}")
+        return
+
+    print(f"INFO: Removing OpenCode packages cache: {packages_dir}")
+    shutil.rmtree(packages_dir)
+    print("INFO: Launch or restart OpenCode to repopulate the plugin cache.")
+
+
+manifest = require_object(load_manifest(), "manifest")
+refresh_claude(claude_plugins(manifest))
+refresh_opencode(opencode_packages(manifest))
+PY
+
+{{ end -}}

@@ -1,0 +1,283 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# configs/host-ai-plugin-refresh.jsonc hash: {{ include "configs/host-ai-plugin-refresh.jsonc" | sha256sum }}
+
+$ErrorActionPreference = "Stop"
+
+$ConfigPath = Join-Path '{{ .chezmoi.sourceDir }}' 'configs\host-ai-plugin-refresh.jsonc'
+$DryRun = -not [string]::IsNullOrWhiteSpace($env:HOST_AI_PLUGIN_REFRESH_DRY_RUN)
+
+function ConvertFrom-JsoncText {
+  param([Parameter(Mandatory=$true)] [string] $Text)
+
+  $withoutBlocks = [regex]::Replace($Text, "/\*.*?\*/", "", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  $withoutLines = [regex]::Replace($withoutBlocks, "(?m)^([^`"\r\n]*(?:`"(?:\\.|[^`"\\])*`"[^`"\r\n]*)*?)//.*$", '$1')
+  return $withoutLines | ConvertFrom-Json
+}
+
+function Get-JsonProperty {
+  param(
+    [Parameter(Mandatory=$true)] $Object,
+    [Parameter(Mandatory=$true)] [string] $Name,
+    $Default = $null
+  )
+
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { return $Default }
+  return $property.Value
+}
+
+function Test-ObjectList {
+  param([Parameter(Mandatory=$true)] $Value)
+
+  if ($Value -is [string]) { return $false }
+  if ($Value -isnot [System.Collections.IEnumerable]) { return $false }
+  return $true
+}
+
+function Invoke-External {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Command,
+    [Parameter(Mandatory=$true)] [string[]] $Arguments
+  )
+
+  $output = & $Command @Arguments 2>&1
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
+
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    Output = (($output | Out-String).TrimEnd())
+  }
+}
+
+function Get-ClaudePlugins {
+  param([Parameter(Mandatory=$true)] $Manifest)
+
+  $claude = Get-JsonProperty $Manifest "claude"
+  if ($null -eq $claude -or $claude -is [array]) {
+    Write-Host "ERROR: claude must be an object."
+    exit 1
+  }
+
+  $plugins = Get-JsonProperty $claude "plugins" @()
+  if (-not (Test-ObjectList $plugins)) {
+    Write-Host "ERROR: claude.plugins must be a list."
+    exit 1
+  }
+
+  $parsed = @()
+  foreach ($plugin in @($plugins)) {
+    $pluginId = Get-JsonProperty $plugin "id"
+    $scope = Get-JsonProperty $plugin "scope" "user"
+    $enabled = Get-JsonProperty $plugin "enabled" $true
+    if ($pluginId -isnot [string] -or [string]::IsNullOrWhiteSpace($pluginId)) {
+      Write-Host "ERROR: Claude plugin id must be a non-empty string."
+      exit 1
+    }
+    if ($scope -isnot [string] -or [string]::IsNullOrWhiteSpace($scope)) {
+      Write-Host "ERROR: Claude plugin scope must be a non-empty string."
+      exit 1
+    }
+    if ($enabled -isnot [bool]) {
+      Write-Host "ERROR: Claude plugin enabled must be a boolean."
+      exit 1
+    }
+    if ($enabled) {
+      $parsed += [pscustomobject]@{ Id = $pluginId; Scope = $scope }
+    }
+  }
+  return $parsed
+}
+
+function Get-OpenCodePackages {
+  param([Parameter(Mandatory=$true)] $Manifest)
+
+  $opencode = Get-JsonProperty $Manifest "opencode"
+  if ($null -eq $opencode -or $opencode -is [array]) {
+    Write-Host "ERROR: opencode must be an object."
+    exit 1
+  }
+
+  $plugins = Get-JsonProperty $opencode "plugins" @()
+  if (-not (Test-ObjectList $plugins)) {
+    Write-Host "ERROR: opencode.plugins must be a list."
+    exit 1
+  }
+
+  $packages = @()
+  foreach ($plugin in @($plugins)) {
+    $package = Get-JsonProperty $plugin "package"
+    $enabled = Get-JsonProperty $plugin "enabled" $true
+    if ($package -isnot [string] -or [string]::IsNullOrWhiteSpace($package)) {
+      Write-Host "ERROR: OpenCode package must be a non-empty string."
+      exit 1
+    }
+    if ($enabled -isnot [bool]) {
+      Write-Host "ERROR: OpenCode package enabled must be a boolean."
+      exit 1
+    }
+    if ($enabled) { $packages += $package }
+  }
+  return $packages
+}
+
+function Update-ClaudePlugins {
+  param([Parameter(Mandatory=$true)] [object[]] $Plugins)
+
+  if ($Plugins.Count -eq 0) {
+    Write-Host "INFO: No Claude Code plugins configured for refresh."
+    return
+  }
+  if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+    Write-Host "INFO: claude command not found; skipping Claude Code plugin refresh."
+    return
+  }
+
+  if ($DryRun) {
+    Write-Host "INFO: Would run: claude plugin marketplace update"
+  } else {
+    Write-Host "INFO: Updating Claude Code plugin marketplaces."
+    $marketplace = Invoke-External -Command "claude" -Arguments @("plugin", "marketplace", "update")
+    if ($marketplace.ExitCode -ne 0) {
+      Write-Host "ERROR: Failed to update Claude Code plugin marketplaces."
+      if ($marketplace.Output) { Write-Host $marketplace.Output }
+      exit $marketplace.ExitCode
+    }
+  }
+
+  foreach ($plugin in $Plugins) {
+    $arguments = @("plugin", "update", "--scope", $plugin.Scope, $plugin.Id)
+    if ($DryRun) {
+      Write-Host "INFO: Would run: claude $($arguments -join ' ')"
+      continue
+    }
+
+    Write-Host "INFO: Updating Claude Code plugin '$($plugin.Id)'."
+    $update = Invoke-External -Command "claude" -Arguments $arguments
+    if ($update.ExitCode -ne 0) {
+      Write-Host "ERROR: Failed to update Claude Code plugin '$($plugin.Id)'."
+      if ($update.Output) { Write-Host $update.Output }
+      exit $update.ExitCode
+    }
+  }
+
+  Write-Host "INFO: Restart Claude Code to use refreshed plugins."
+}
+
+function Get-OpenCodeCacheRoot {
+  $fallback = Join-Path $HOME ".cache\opencode"
+  if (Get-Command opencode -ErrorAction SilentlyContinue) {
+    $paths = Invoke-External -Command "opencode" -Arguments @("debug", "paths")
+    if ($paths.ExitCode -eq 0) {
+      foreach ($line in ($paths.Output -split "`r?`n")) {
+        if ($line -match "^cache\s+(.+)$") {
+          return $Matches[1].Trim()
+        }
+      }
+    } else {
+      Write-Host "INFO: Could not read OpenCode debug paths; using default cache path."
+      if ($paths.Output) { Write-Host $paths.Output }
+    }
+  } else {
+    Write-Host "INFO: opencode command not found; using default OpenCode cache path."
+  }
+  return $fallback
+}
+
+function Test-OpenCodeRunning {
+  $processes = Get-Process -Name "opencode" -ErrorAction SilentlyContinue
+  return $null -ne $processes
+}
+
+function Get-CachedOpenCodeVersions {
+  param(
+    [Parameter(Mandatory=$true)] [string] $PackagesDir,
+    [Parameter(Mandatory=$true)] [string[]] $Packages
+  )
+
+  $detections = @()
+  $missing = @()
+  foreach ($package in $Packages) {
+    $segments = @("node_modules") + ($package -split "/") + @("package.json")
+    $tail = [System.IO.Path]::Combine([string[]]$segments)
+    $found = $false
+    if (Test-Path -LiteralPath $PackagesDir -PathType Container) {
+      foreach ($packageJson in Get-ChildItem -LiteralPath $PackagesDir -Recurse -Filter package.json -File -ErrorAction SilentlyContinue) {
+        $normalized = $packageJson.FullName.Replace("/", "\")
+        if (-not $normalized.EndsWith($tail, [System.StringComparison]::OrdinalIgnoreCase)) {
+          continue
+        }
+        $found = $true
+        try {
+          $data = Get-Content -Raw -LiteralPath $packageJson.FullName | ConvertFrom-Json
+          $detections += [pscustomobject]@{
+            Name = (Get-JsonProperty $data "name" $package)
+            Version = (Get-JsonProperty $data "version" "unknown")
+            Path = $packageJson.FullName
+          }
+        } catch {
+          Write-Host "INFO: Could not read cached package metadata $($packageJson.FullName): $($_.Exception.Message)"
+        }
+      }
+    }
+    if (-not $found) { $missing += $package }
+  }
+  return [pscustomobject]@{ Detections = $detections; Missing = $missing }
+}
+
+function Update-OpenCodeCache {
+  param([Parameter(Mandatory=$true)] [string[]] $Packages)
+
+  $cacheRoot = Get-OpenCodeCacheRoot
+  $packagesDir = Join-Path $cacheRoot "packages"
+  $running = Test-OpenCodeRunning
+
+  Write-Host "INFO: OpenCode cache root: $cacheRoot"
+  Write-Host "INFO: OpenCode packages cache exists: $(if (Test-Path -LiteralPath $packagesDir -PathType Container) { 'yes' } else { 'no' })"
+  Write-Host "INFO: OpenCode running: $(if ($running) { 'yes' } else { 'no' })"
+
+  $versions = Get-CachedOpenCodeVersions -PackagesDir $packagesDir -Packages $Packages
+  if ($versions.Detections.Count -gt 0) {
+    Write-Host "INFO: Detected cached OpenCode plugin versions:"
+    foreach ($detection in $versions.Detections) {
+      Write-Host "INFO:   $($detection.Name)@$($detection.Version) ($($detection.Path))"
+    }
+  } else {
+    Write-Host "INFO: No cached OpenCode plugin package versions detected."
+  }
+  foreach ($package in $versions.Missing) {
+    Write-Host "INFO: No cached OpenCode package metadata found for '$package'."
+  }
+
+  if ($running) {
+    Write-Host "INFO: OpenCode appears to be running; not removing package cache."
+    return
+  }
+
+  if (-not (Test-Path -LiteralPath $packagesDir)) {
+    Write-Host "INFO: OpenCode packages cache is absent; nothing to remove."
+    return
+  }
+
+  if ($DryRun) {
+    Write-Host "INFO: Would remove OpenCode packages cache: $packagesDir"
+    return
+  }
+
+  Write-Host "INFO: Removing OpenCode packages cache: $packagesDir"
+  Remove-Item -LiteralPath $packagesDir -Recurse -Force
+  Write-Host "INFO: Launch or restart OpenCode to repopulate the plugin cache."
+}
+
+try {
+  $manifest = ConvertFrom-JsoncText -Text (Get-Content -Raw -LiteralPath $ConfigPath)
+} catch {
+  Write-Host "ERROR: Invalid host AI plugin refresh JSONC: $($_.Exception.Message)"
+  exit 1
+}
+
+Update-ClaudePlugins -Plugins @(Get-ClaudePlugins -Manifest $manifest)
+Update-OpenCodeCache -Packages @(Get-OpenCodePackages -Manifest $manifest)
+{{- end -}}

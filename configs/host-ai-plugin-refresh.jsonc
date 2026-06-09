@@ -1,0 +1,70 @@
+{
+  // Renovate-managed host refresh sentinels for Claude Code and OpenCode
+  // plugins. These versions are notification triggers only; runtime configs
+  // remain authoritative and may still use @latest.
+  //
+  // OpenCode sentinel versions are initialized from the host package cache at
+  // ~/.cache/opencode/packages when available, not from devcontainer pins.
+  // Update this manifest when host Claude/OpenCode plugin entries change; it
+  // is the only onchange trigger for host plugin refreshes.
+  "schemaVersion": 1,
+  "claude": {
+    "plugins": [
+      {
+        "id": "claude-pace@claude-pace-marketplace",
+        "scope": "user",
+        "version": "0.9.1" // renovate: datasource=github-releases depName=Astro-Han/claude-pace extractVersion=^v?(?<version>.*)$
+      },
+      {
+        "id": "plannotator@plannotator",
+        "scope": "user",
+        "version": "0.19.27" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
+      },
+      {
+        "id": "safety-net@cc-marketplace",
+        "scope": "user",
+        "version": "1.0.1" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
+      }
+    ]
+  },
+  "opencode": {
+    "plugins": [
+      {
+        "package": "@franlol/opencode-md-table-formatter",
+        "version": "0.0.6" // renovate: datasource=npm depName=@franlol/opencode-md-table-formatter
+      },
+      {
+        "package": "@tarquinen/opencode-dcp",
+        "version": "3.1.12" // renovate: datasource=npm depName=@tarquinen/opencode-dcp
+      },
+      {
+        "package": "@mohak34/opencode-notifier",
+        "version": "0.2.8" // renovate: datasource=npm depName=@mohak34/opencode-notifier
+      },
+      {
+        "package": "@plannotator/opencode",
+        "version": "0.19.27" // renovate: datasource=npm depName=@plannotator/opencode
+      },
+      {
+        "package": "@gotgenes/opencode-agent-identity",
+        "version": "3.1.1" // renovate: datasource=npm depName=@gotgenes/opencode-agent-identity
+      },
+      {
+        "package": "cc-safety-net",
+        "version": "1.0.1" // renovate: datasource=npm depName=cc-safety-net
+      },
+      {
+        "package": "envsitter-guard",
+        "version": "0.0.4" // renovate: datasource=npm depName=envsitter-guard
+      },
+      {
+        "package": "opencode-claude-bridge",
+        "version": "1.10.11" // renovate: datasource=npm depName=opencode-claude-bridge
+      },
+      {
+        "package": "@slkiser/opencode-quota",
+        "version": "3.8.7" // renovate: datasource=npm depName=@slkiser/opencode-quota
+      }
+    ]
+  }
+}

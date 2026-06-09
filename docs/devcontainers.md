@@ -65,6 +65,23 @@ Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
 Do not add comments to that file; the installer loop treats each non-blank line
 as an npm package spec.
 
+## Host AI Plugin Refresh Signals
+
+Host Claude Code and OpenCode plugin refreshes are tracked separately from
+container package pins in `configs/host-ai-plugin-refresh.jsonc`.
+
+- The file is a Renovate trigger/sentinel only; host runtime configs may still
+  use `@latest`.
+- OpenCode sentinel versions should come from the host package cache (or npm
+  latest), not from devcontainer pins.
+- Update the manifest when host Claude/OpenCode plugin entries change; runtime
+  config edits alone do not trigger plugin refreshes.
+- Keep each manifest `version` and its `// renovate:` comment on one line so
+  Renovate can match it.
+- Chezmoi onchange scripts refresh Claude plugins and clear only the OpenCode
+  packages cache when OpenCode is not running.
+- Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
+
 `@ansible/ansible-mcp-server` is installed from this npm package list. During
 `postCreate`, the devcontainer also installs `ansible-mcp-server-fixed`, which
 resolves the package's `dist/cli.cjs` from the global npm root and runs it with
