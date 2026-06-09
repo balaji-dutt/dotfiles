@@ -64,6 +64,22 @@ return a `Blocked` result — do not infer, do not guess.
 - You are a leaf subagent. Do not invoke the Agent tool. Do not load
   skills.
 
+## Beads CLI hygiene
+
+- Prefer plain `bd show <id>` for existence and refresh checks. Avoid
+  ad-hoc inspection pipelines such as
+  `bd show <id> --json 2>&1 | python3 -c ...` when plain output is enough;
+  those pipelines create broader permission prompts without improving the
+  handoff.
+- If `bd show --json` is needed, remember it may return an array when command
+  filters are used. Normalize list-vs-object output before reading fields.
+- For long create/update content, prefer temporary files under `/tmp` with
+  `--design-file`, or stdin-compatible `bd` patterns, instead of large inline
+  shell one-liners.
+- Do not invent Beads flags, follow-up issue IDs, or close reasons that refer
+  to issues that do not exist. This subagent must not create follow-up issues
+  or close issues.
+
 ## Workflow
 
 ### Step 1 — Preflight
