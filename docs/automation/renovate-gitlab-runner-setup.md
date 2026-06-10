@@ -106,6 +106,22 @@ Verify:
 - `renovate` job targets only the intended repository.
 - Renovate loads checked-in repo config and opens expected MRs only.
 
+### Local config validation
+
+macOS and WSL2 hosts install the Renovate npm package through the shared
+`configs/mise.toml` tool manifest. After running `mise install -y` (or the
+normal `chezmoi apply` provisioning path), validate repo config with:
+
+```sh
+mise exec -- renovate-config-validator renovate.json5 --no-global
+```
+
+If your shell has already activated mise shims, this is equivalent:
+
+```sh
+renovate-config-validator renovate.json5 --no-global
+```
+
 ## 8) MVP operating mode recommendation
 
 - Keep explicit single-repo targeting first.
