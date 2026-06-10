@@ -186,9 +186,58 @@ function Get-OpenCodeCacheRoot {
   return $fallback
 }
 
-function Test-OpenCodeRunning {
-  $processes = Get-Process -Name "opencode" -ErrorAction SilentlyContinue
-  return $null -ne $processes
+function Get-OpenCodeProcessDetails {
+  $details = @()
+
+  if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+    try {
+      foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name = 'opencode.exe'" -ErrorAction Stop)) {
+        $details += [pscustomobject]@{
+          Id = $process.ProcessId
+          SessionId = $process.SessionId
+          ParentProcessId = $process.ParentProcessId
+          Path = $process.ExecutablePath
+          CommandLine = $process.CommandLine
+        }
+      }
+      return $details
+    } catch {
+      Write-Host "INFO: Could not read OpenCode process command lines: $($_.Exception.Message)"
+    }
+  }
+
+  foreach ($process in @(Get-Process -Name "opencode" -ErrorAction SilentlyContinue)) {
+    $path = $null
+    try { $path = $process.Path } catch { $path = $null }
+    $details += [pscustomobject]@{
+      Id = $process.Id
+      SessionId = $process.SessionId
+      ParentProcessId = $null
+      Path = $path
+      CommandLine = $null
+    }
+  }
+  return $details
+}
+
+function Write-OpenCodeProcessDetails {
+  param([Parameter(Mandatory=$true)] [object[]] $Processes)
+
+  if ($Processes.Count -eq 0) {
+    Write-Host "INFO: No OpenCode processes detected."
+    return
+  }
+
+  foreach ($process in $Processes) {
+    $parts = @(
+      "pid=$($process.Id)",
+      "session=$($process.SessionId)"
+    )
+    if ($null -ne $process.ParentProcessId) { $parts += "parent=$($process.ParentProcessId)" }
+    if (-not [string]::IsNullOrWhiteSpace($process.Path)) { $parts += "path=$($process.Path)" }
+    if (-not [string]::IsNullOrWhiteSpace($process.CommandLine)) { $parts += "command=$($process.CommandLine)" }
+    Write-Host "INFO: Blocking OpenCode process: $($parts -join ' ')"
+  }
 }
 
 function Get-CachedOpenCodeVersions {
@@ -232,11 +281,13 @@ function Update-OpenCodeCache {
 
   $cacheRoot = Get-OpenCodeCacheRoot
   $packagesDir = Join-Path $cacheRoot "packages"
-  $running = Test-OpenCodeRunning
+  $processes = @(Get-OpenCodeProcessDetails)
+  $running = $processes.Count -gt 0
 
   Write-Host "INFO: OpenCode cache root: $cacheRoot"
   Write-Host "INFO: OpenCode packages cache exists: $(if (Test-Path -LiteralPath $packagesDir -PathType Container) { 'yes' } else { 'no' })"
-  Write-Host "INFO: OpenCode running: $(if ($running) { 'yes' } else { 'no' })"
+  Write-Host "INFO: OpenCode blocking session: $(if ($running) { 'yes' } else { 'no' })"
+  Write-OpenCodeProcessDetails -Processes $processes
 
   $versions = Get-CachedOpenCodeVersions -PackagesDir $packagesDir -Packages $Packages
   if ($versions.Detections.Count -gt 0) {
@@ -252,7 +303,7 @@ function Update-OpenCodeCache {
   }
 
   if ($running) {
-    Write-Host "INFO: OpenCode appears to be running; not removing package cache."
+    Write-Host "INFO: OpenCode blocking session detected; not removing package cache."
     return
   }
 

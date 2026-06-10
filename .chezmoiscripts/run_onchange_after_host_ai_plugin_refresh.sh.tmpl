@@ -214,28 +214,174 @@ def opencode_cache_root():
     return fallback
 
 
-def opencode_running():
+OPENCODE_PROCESS_NAMES = {"opencode", "opencode.exe"}
+NO_TTY_VALUES = {"", "?", "??", "-", "none"}
+
+
+def basename(value):
+    return Path(value).name.lower()
+
+
+def is_opencode_process(args, comm=""):
+    if args and basename(args[0]) in OPENCODE_PROCESS_NAMES:
+        return True
+    return comm.lower() in OPENCODE_PROCESS_NAMES
+
+
+def read_proc_status(proc_dir):
+    name = ""
+    state = ""
+    try:
+        for line in (proc_dir / "status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("Name:"):
+                name = line.split(":", 1)[1].strip()
+            elif line.startswith("State:"):
+                value = line.split(":", 1)[1].strip()
+                state = value[:1]
+    except (OSError, UnicodeDecodeError):
+        pass
+    return name, state
+
+
+def read_proc_tty_nr(proc_dir):
+    try:
+        stat_text = (proc_dir / "stat").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    close_paren = stat_text.rfind(")")
+    if close_paren == -1:
+        return None
+    fields = stat_text[close_paren + 2 :].split()
+    if len(fields) < 5:
+        return None
+    try:
+        return int(fields[4])
+    except ValueError:
+        return None
+
+
+def read_proc_cwd(proc_dir):
+    try:
+        return os.readlink(proc_dir / "cwd")
+    except OSError:
+        return ""
+
+
+def classify_opencode_process(pid, stat, tty, command, cwd=""):
+    stat = stat or ""
+    tty = tty or ""
+    if "Z" in stat.upper():
+        reason = "zombie"
+        blocking = False
+    elif tty in NO_TTY_VALUES:
+        reason = "detached"
+        blocking = False
+    else:
+        reason = "blocking"
+        blocking = True
+    return {
+        "pid": str(pid),
+        "stat": stat or "unknown",
+        "tty": tty or "unknown",
+        "command": command or "opencode",
+        "cwd": cwd,
+        "reason": reason,
+        "blocking": blocking,
+    }
+
+
+def proc_opencode_processes():
+    proc_root = Path("/proc")
+    current_pid = os.getpid()
+    processes = []
+    for proc_dir in proc_root.iterdir():
+        if not proc_dir.name.isdigit() or int(proc_dir.name) == current_pid:
+            continue
+        try:
+            raw_cmdline = (proc_dir / "cmdline").read_bytes()
+        except OSError:
+            continue
+        args = [arg.decode("utf-8", "ignore") for arg in raw_cmdline.split(b"\0") if arg]
+        comm, state = read_proc_status(proc_dir)
+        if not is_opencode_process(args, comm):
+            continue
+        tty_nr = read_proc_tty_nr(proc_dir)
+        tty = "none" if tty_nr == 0 else f"tty_nr={tty_nr}" if tty_nr is not None else "unknown"
+        command = " ".join(args) if args else comm
+        processes.append(classify_opencode_process(proc_dir.name, state, tty, command, read_proc_cwd(proc_dir)))
+    return processes
+
+
+def lsof_cwd(pid):
+    if not command_exists("lsof"):
+        return ""
+    result = run_checked(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"])
+    if result.returncode != 0:
+        return ""
+    for line in result.stdout.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return ""
+
+
+def ps_opencode_processes():
+    if not command_exists("ps"):
+        print("INFO: Could not determine OpenCode process details; ps command not found.")
+        return []
+    result = run_checked(["ps", "-axo", "pid=,stat=,tty=,args=", "-ww"])
+    if result.returncode != 0:
+        print("INFO: Could not determine OpenCode process details from ps output.")
+        if result.stdout.strip():
+            print(result.stdout.rstrip())
+        return []
+
+    current_pid = str(os.getpid())
+    processes = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) != 4:
+            continue
+        pid, stat, tty, command = parts
+        if pid == current_pid:
+            continue
+        args = command.split()
+        if not is_opencode_process(args):
+            continue
+        processes.append(classify_opencode_process(pid, stat, tty, command, lsof_cwd(pid)))
+    return processes
+
+
+def opencode_processes():
     proc_root = Path("/proc")
     if proc_root.is_dir():
-        current_pid = os.getpid()
-        for proc_dir in proc_root.iterdir():
-            if not proc_dir.name.isdigit() or int(proc_dir.name) == current_pid:
-                continue
-            try:
-                comm = (proc_dir / "comm").read_text(encoding="utf-8").strip()
-                raw_cmdline = (proc_dir / "cmdline").read_bytes()
-            except (OSError, UnicodeDecodeError):
-                continue
-            args = [arg.decode("utf-8", "ignore") for arg in raw_cmdline.split(b"\0") if arg]
-            if comm == "opencode" or any(Path(arg).name == "opencode" for arg in args):
-                return True
+        return proc_opencode_processes()
+    return ps_opencode_processes()
 
-    if command_exists("pgrep"):
-        result = run_checked(["pgrep", "-x", "opencode"])
-        return result.returncode == 0
 
-    print("INFO: Could not determine OpenCode running state; assuming not running.")
-    return False
+def opencode_process_detail(process):
+    parts = [
+        f"pid={process['pid']}",
+        f"stat={process['stat']}",
+        f"tty={process['tty']}",
+    ]
+    if process["cwd"]:
+        parts.append(f"cwd={process['cwd']}")
+    parts.append(f"command={process['command']}")
+    return " ".join(parts)
+
+
+def log_opencode_processes(processes):
+    if not processes:
+        print("INFO: No OpenCode processes detected.")
+        return
+    for process in processes:
+        if process["blocking"]:
+            print("INFO: Blocking OpenCode process: " + opencode_process_detail(process))
+        else:
+            print(
+                f"INFO: Ignoring {process['reason']} OpenCode process: "
+                + opencode_process_detail(process)
+            )
 
 
 def detect_cached_versions(packages_dir, package_names):
@@ -267,11 +413,13 @@ def detect_cached_versions(packages_dir, package_names):
 def refresh_opencode(package_names):
     cache_root = opencode_cache_root()
     packages_dir = cache_root / "packages"
-    running = opencode_running()
+    processes = opencode_processes()
+    running = any(process["blocking"] for process in processes)
 
     print(f"INFO: OpenCode cache root: {cache_root}")
     print(f"INFO: OpenCode packages cache exists: {'yes' if packages_dir.is_dir() else 'no'}")
-    print(f"INFO: OpenCode running: {'yes' if running else 'no'}")
+    print(f"INFO: OpenCode blocking session: {'yes' if running else 'no'}")
+    log_opencode_processes(processes)
 
     detections, missing = detect_cached_versions(packages_dir, package_names)
     if detections:
@@ -284,7 +432,7 @@ def refresh_opencode(package_names):
         print(f"INFO: No cached OpenCode package metadata found for {package_name!r}.")
 
     if running:
-        print("INFO: OpenCode appears to be running; not removing package cache.")
+        print("INFO: OpenCode blocking session detected; not removing package cache.")
         return
 
     if not packages_dir.exists():

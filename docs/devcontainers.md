@@ -79,7 +79,8 @@ container package pins in `configs/host-ai-plugin-refresh.jsonc`.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
 - Chezmoi onchange scripts refresh Claude plugins and clear only the OpenCode
-  packages cache when OpenCode is not running.
+  packages cache when no blocking OpenCode session is detected. Detached or
+  zombie OpenCode server processes are logged and ignored.
 - Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
 
 `@ansible/ansible-mcp-server` is installed from this npm package list. During
