@@ -77,6 +77,8 @@ cask "carbon-copy-cloner"
 cask "citrix-workspace"
 # Anthropic's official Claude AI desktop app
 cask "claude"
+# Terminal-based AI coding assistant
+cask "claude-code@latest"
 # Screen capturing tool
 cask "cleanshot"
 # Disk space visualiser
