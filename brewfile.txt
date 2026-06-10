@@ -85,8 +85,6 @@ cask "cleanshot"
 cask "daisydisk"
 # API documentation browser and code snippet manager
 cask "dash"
-# YAMAMOTO Mitsuharu's Mac port of GNU Emacs
-cask "railwaycat/emacsmacport/emacs-mac"
 # Cross-platform Text Expander written in Rust
 cask "espanso"
 # Web browser
