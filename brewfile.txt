@@ -6,7 +6,6 @@ tap "gastownhall/beads", trusted: true
 tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
-tap "opgginc/tap", trusted: true
 tap "pilan-ai/tap", trusted: true
 tap "railwaycat/emacsmacport", trusted: true
 tap "wyne/tap", trusted: true
