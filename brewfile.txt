@@ -10,78 +10,150 @@ tap "opgginc/tap", trusted: true
 tap "pilan-ai/tap", trusted: true
 tap "railwaycat/emacsmacport", trusted: true
 tap "wyne/tap", trusted: true
+# Plugin manager for zsh, inspired by antigen and antibody
 brew "antidote"
+# Terminal multiplexer
 brew "tmux"
+# Terminal session manager for AI coding agents
 brew "aoe"
+# Manage your dotfiles across multiple diverse machines, securely
 brew "chezmoi"
+# Good-lookin' diffs with diff-highlight and more
 brew "diff-so-fancy"
+# Load/unload environment variables based on $PWD
 brew "direnv"
+# Git for Data
+brew "dolt"
+# Modern, maintained replacement for ls
 brew "eza"
+# Play, record, convert, and stream select audio and video codecs
 brew "ffmpeg"
+# Tool to install, manage and use Progressive Web Apps in Mozilla Firefox
 brew "firefoxpwa"
+# Command-line fuzzy finder written in Go
 brew "fzf"
+# GitHub command-line tool
 brew "gh"
+# Open-source GitLab command-line tool
 brew "glab"
+# Spell checker and morphological analyzer
 brew "hunspell"
+# Simple terminal UI for git commands
 brew "lazygit"
+# Mac App Store command-line interface
 brew "mas"
+# Polyglot runtime manager (asdf rust clone)
 brew "mise"
+# Swiss-army knife of markup format conversion
 brew "pandoc"
+# Send macOS User Notifications from the command-line
 brew "terminal-notifier"
+# Feature-rich command-line audio/video downloader
 brew "yt-dlp"
+# The AI coding agent built for the terminal.
 brew "anomalyco/tap/opencode"
+# AI-supervised issue tracker for coding workflows
 brew "gastownhall/beads/bd", trusted: true
-brew "janekbaraniewski/tap/openusage", link: false
+# Monitor your AI coding tool quotas from a single TUI dashboard
+brew "janekbaraniewski/tap/openusage"
+# Memory for AI-assisted development. Search your AI coding sessions.
 brew "pilan-ai/tap/mnemo"
+# Modern version of fasd productivity booster, offering quick access to files and directories
 brew "wyne/tap/fasder"
+# Command-line interface for 1Password
 cask "1password-cli"
+# Collection of apps and services for photography, design, video, web, and UX
 cask "adobe-creative-cloud"
+# AirPods companion app
 cask "airbuddy"
+# Utility to add Dynamic Island like features to notch area
 cask "alcove"
+# Enable Windows-like alt-tab
 cask "alt-tab"
+# CPU management application
 cask "app-tamer"
+# Hard disk backup and cloning utility
 cask "carbon-copy-cloner"
+# Managed desktop virtualization solution
 cask "citrix-workspace"
+# Anthropic's official Claude AI desktop app
 cask "claude"
+# Terminal-based AI coding assistant
 cask "claude-code"
+# Screen capturing tool
 cask "cleanshot"
+# Disk space visualiser
 cask "daisydisk"
+# API documentation browser and code snippet manager
 cask "dash"
+# YAMAMOTO Mitsuharu's Mac port of GNU Emacs
 cask "railwaycat/emacsmacport/emacs-mac"
+# Cross-platform Text Expander written in Rust
 cask "espanso"
+# Web browser
 cask "firefox"
 cask "font-consolas-for-powerline"
 cask "font-jetbrains-mono-nerd-font"
 cask "font-sauce-code-pro-nerd-font"
+# Web browser
 cask "google-chrome"
+# Web browser
 cask "google-chrome@dev"
+# System monitoring app
 cask "istat-menus"
+# Terminal emulator as alternative to Apple's Terminal app
 cask "iterm2"
+# Menu bar manager
 cask "jordanbaird-ice"
+# Finds, learns and remembers keyboard shortcuts
 cask "keycue"
+# Provides updates to various Microsoft products
 cask "microsoft-auto-update"
+# Office suite
 cask "microsoft-office"
+# Word processor
 cask "notebooks"
+# App to write, plan, collaborate, and get organised
 cask "notion"
+# MikroTik Winbox
 cask "nrlquaker-winbox"
+# Knowledge base that works on top of a local folder of plain text Markdown files
 cask "obsidian"
+# Monitor AI provider usage from OpenCode in the macOS menu bar
 cask "opgginc/tap/opencode-bar"
+# AI usage tracker for Cursor, Claude Code, Codex, Copilot and more
 cask "openusage"
+# Replacement for Docker Desktop
 cask "orbstack"
+# Desktop syncing client for ownCloud
 cask "owncloud"
+# Graphical user interface for the 'defaults' command
 cask "prefs-editor"
+# Control your tools with a few keystrokes
 cask "raycast"
+# Remote management solution
 cask "royal-tsx"
+# CLI proxy that reduces LLM token consumption by 60-90% by filtering shell output
 cask "edouard-claude/tap/snip"
+# Music streaming service
 cask "spotify"
+# Git client
 cask "sublime-merge"
+# Text editor for code, markup and prose
 cask "sublime-text"
+# Control windows and applications right from your trackpad
 cask "swish"
+# Customizable email client
 cask "thunderbird"
+# Open-source code editor
 cask "visual-studio-code"
+# Multimedia player
 cask "vlc"
+# Web browser
 cask "waterfox"
+# VPN client for secure internet access and private browsing
 cask "windscribe"
+# Collect, organise, cite, and share research sources
 cask "zotero"
 mas "GarageBand", id: 682658836
 mas "iMovie", id: 408981434
