@@ -119,8 +119,6 @@ cask "notion"
 cask "nrlquaker-winbox"
 # Knowledge base that works on top of a local folder of plain text Markdown files
 cask "obsidian"
-# Monitor AI provider usage from OpenCode in the macOS menu bar
-cask "opgginc/tap/opencode-bar"
 # AI usage tracker for Cursor, Claude Code, Codex, Copilot and more
 cask "openusage"
 # Replacement for Docker Desktop
