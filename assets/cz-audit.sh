@@ -360,7 +360,11 @@ check_chezmoi_config() {
 
   # If templated, ensure it renders on THIS machine.
   if [[ "$relsrc" == *.tmpl ]]; then
-    cm execute-template -f "$abs" >/dev/null
+    if [[ "$relsrc" == ".chezmoi.toml.tmpl" ]]; then
+      cm execute-template --init -f "$abs" >/dev/null
+    else
+      cm execute-template -f "$abs" >/dev/null
+    fi
     info "Template renders OK: $relsrc"
   fi
 

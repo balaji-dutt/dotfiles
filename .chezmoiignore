@@ -36,11 +36,6 @@ bin/opencode-notifier-bridge
 {{ if $isLinux }}
 {{ end }}
 
-{{/* Section 1a: Ignore Doom files if NOT on macOS or Ubuntu WSL2 */}}
-{{ if and (not $isDarwin) (not (and $isWSL2 (eq $osID "ubuntu"))) }}
-.config/doom
-{{ end }}
-
 {{/* Ignore Linux specific files if NOT on Linux (macOS/Windows) */}}
 {{ if not $isLinux }}
 .config/lazygit
@@ -114,8 +109,6 @@ Documents/PowerShell
 !/.config/opencode/
 !/.config/opencode/**
 # Keep non-Windows Linux/macOS config trees ignored.
-.config/doom
-.config/doom/**
 .config/direnv
 .config/direnv/**
 .config/lazygit

@@ -50,7 +50,6 @@ Task files under `ansible/tasks/`:
 - `zsh-setup.yml`
 - `system-config.yml`
 - `ubuntu-extras.yml`
-- `emacs.yml`
 - `debian-dev-tools.yml`
 - `certificates.yml`
 - `onepassword-setup.yml`

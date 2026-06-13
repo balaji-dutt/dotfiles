@@ -550,7 +550,10 @@ function Check-ChezmoiConfig([string]$relsrc) {
   Write-Info "Validating chezmoi config file: $relsrc"
 
   if ($relsrc -like '*.tmpl') {
-    Invoke-Cz @('execute-template', '-f', $abs) | Out-Null
+    $templateArgs = @('execute-template')
+    if ($relsrc -eq '.chezmoi.toml.tmpl') { $templateArgs += '--init' }
+    $templateArgs += @('-f', $abs)
+    Invoke-Cz $templateArgs | Out-Null
     Write-Info "Template renders OK: $relsrc"
   }
 

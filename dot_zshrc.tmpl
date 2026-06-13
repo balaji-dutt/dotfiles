@@ -200,7 +200,7 @@ export LANGUAGE=en_GB:en_US
 
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 {{- if eq .chezmoi.osRelease.id "ubuntu" }}
-# Set Browser variable (enables xdg-open with Emacs)
+# Set Browser variable for WSL browser integration
 export BROWSER=wslview
 {{- end }}
 {{- end }}
@@ -903,7 +903,7 @@ fi
 
 # Custom aliases
 alias czp='cz --config "$HOME/.config/chezmoi-private/chezmoi.toml" --source "$HOME/Documents/development/private-dotfiles"'
-alias dotupdate='cz apply && czp apply && antidote update && { if command -v doom >/dev/null 2>&1; then doom upgrade; else echo "dotupdate: doom not installed; skipping doom upgrade" >&2; fi } && mise upgrade'
+alias dotupdate='cz apply && czp apply && antidote update && mise upgrade'
 {{- if eq .chezmoi.os "darwin" }}
 brew-update-all() {
     brew update && brew upgrade || return $?
@@ -939,9 +939,9 @@ PYTHON_USER_BIN="$HOME/.local/bin"
 {{- end }}
 # Update $PATH (platform-specific)
 {{- if eq .chezmoi.os "darwin" }}
-export PATH=$HOME/bin:$HOME/Applications:$HOME/.emacs.d/bin/:$PYTHON_USER_BIN:$PATH
+export PATH=$HOME/bin:$HOME/Applications:$PYTHON_USER_BIN:$PATH
 {{- else }}
-export PATH=$HOME/bin:$HOME/.config/emacs/bin/:$PYTHON_USER_BIN:$PATH
+export PATH=$HOME/bin:$PYTHON_USER_BIN:$PATH
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}

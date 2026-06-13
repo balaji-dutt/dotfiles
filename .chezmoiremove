@@ -4,3 +4,8 @@
 .claude/commit-docs.sh
 .config/opencode/profiles/copilot/opencode.jsonc
 Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc
+
+# Retired Emacs/Doom managed directories.
+.emacs.d
+.config/emacs
+.config/doom
