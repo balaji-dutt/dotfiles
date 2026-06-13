@@ -3,6 +3,10 @@
 This repo opts into creating Beads issues from approved Plannotator plans at
 implementation handoff time.
 
+This file is for implementation handoff only. For backlog-only, story-only,
+ticket-only, planning-only, or existing-Bead enrichment requests, use
+`.opencode/instructions/beads-backlog-workflow.md` instead.
+
 ## Scope
 
 These instructions apply only to build-capable entrypoints in this repo:
@@ -14,6 +18,8 @@ These instructions apply only to build-capable entrypoints in this repo:
 
 Planning agents (`plan`, `plan-GPT-xhigh`, and any Plan-mode equivalent) must
 not create Beads issues, call `beads-issue-author`, or mutate Beads state.
+They must also not call `beads-backlog-manager`; backlog-only mutations require
+an approved `submit_plan` handoff to a build-capable entrypoint.
 
 ## Startup check
 
@@ -45,7 +51,8 @@ branch/worktree, treat it as ambiguous and ask or skip.
 
 ## Delegation
 
-After the user chooses create or attach, delegate to `beads-issue-author`.
+After the user chooses create or attach for implementation work, delegate to
+`beads-issue-author`.
 Pass only one explicit plan source:
 
 - the approved plan text already present in the current chat, or

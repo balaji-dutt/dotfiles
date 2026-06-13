@@ -63,9 +63,22 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
   handoff.
 - If `bd show --json` is needed, remember it may return an array when command
   filters are used. Normalize list-vs-object output before reading fields.
-- For long create/update content, prefer temporary files under `/tmp` with
-  `--design-file`, or stdin-compatible `bd` patterns, instead of large inline
-  shell one-liners.
+- Do not use editor-opening commands such as `bd edit`.
+- Prefer stable direct flags over shell-shaped transports.
+- Use `--type`, not invented aliases such as `--issue-type`.
+- Use `--assignee`, not invented aliases such as `--owner`.
+- Do not pass JSON objects to `create --stdin`; stdin is description body text,
+  while title, type, parent, priority, and assignee remain CLI flags.
+- Do not create `/tmp` description files with heredocs, pipe `cat` into
+  `create --stdin`, or invent temporary JSON files for Beads operations.
+- Use `--body-file <existing-file>` or `--design-file <existing-file>` only when
+  the file already exists or the caller explicitly approved a one-off file
+  workflow.
+- If content is too large for direct flags and no approved file workflow exists,
+  return a `Needs body transport decision` section with the proposed title,
+  type, priority, assignee, body/design preview, and options. If invoked as a
+  subagent, return that section to the caller instead of asking the human
+  directly.
 - Do not invent Beads flags, follow-up issue IDs, or close reasons that refer
   to issues that do not exist. This subagent must not create follow-up issues
   or close issues.
@@ -93,10 +106,15 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
    - Infer type conservatively: `bug` for fixes/root cause, `feature` for new
      behavior, otherwise `task`.
    - Run `bd create` with `--actor "OpenCode"`, `--assignee "OpenCode"`, a
-      concise description, acceptance summary, and the full approved plan as
-      design content.
-   - Use `--design-file` for design content. Do not use `--design-notes`,
-     `--description-file`, or `--body-file`.
+     concise description, acceptance summary, and the approved plan as design
+     content.
+   - Prefer direct `--design` for short design content. Use `--design-file`
+     only when the caller provided an existing approved plan file path or
+     explicitly approved a one-off file workflow. Do not use
+     `--design-notes`, `--description-file`, or invented body-file flags.
+   - If the design content is too large for safe direct flags and no approved
+     file path/workflow exists, return `Needs body transport decision` instead
+     of forcing a heredoc, `cat` pipeline, or temporary file.
 4. If attaching to an existing issue:
    - Run `bd show <id>` first and verify the issue exists.
    - Preserve title, type, labels, priority, description/body, and external

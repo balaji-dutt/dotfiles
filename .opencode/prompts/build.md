@@ -5,6 +5,13 @@ In short: if implementation starts from an approved Plannotator plan and no
 Beads issue is explicit, ask whether to create, attach, or skip a Beads issue
 before running `bd create` or delegating to `beads-issue-author`.
 
+If an approved Plannotator plan includes a `## Beads backlog handoff` block with
+`No implementation: true`, follow
+`.opencode/instructions/beads-backlog-workflow.md`: delegate to
+`beads-backlog-manager`, return the Beads result, and stop without source edits.
+If the plan appears backlog-only but lacks `No implementation: true`, ask for
+clarification before delegating or implementing.
+
 Follow normal implementation flow for requested work, but treat the post-review
 docs phase below as required completion criteria for tasks that changed files.
 
