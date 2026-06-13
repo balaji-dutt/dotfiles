@@ -34,7 +34,6 @@ This page lists the main managed targets expected on WSL2.
 | Agent of Empires | `~/.config/agent-of-empires/config.toml` | `private_dot_config/agent-of-empires/config.toml.tmpl` wrapper; canonical template in `.chezmoitemplates/agent-of-empires/config.toml.tmpl` |
 | LazyGit | `~/.config/lazygit/config.yml` | `private_dot_config/lazygit/config.yml` |
 | Sublime Merge | `~/.config/sublime-merge/Packages/**` | `private_dot_config/private_sublime-merge/private_Packages/**` |
-| Doom Emacs (Ubuntu only) | `~/.config/doom/**` | `private_dot_config/doom/**` |
 
 ## WSL2-Specific Targets
 

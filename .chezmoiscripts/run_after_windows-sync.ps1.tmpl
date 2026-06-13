@@ -100,6 +100,8 @@ foreach ($m in $Mappings) {
 
 # Remove stale non-Windows config trees if they were applied previously.
 $cleanupPaths = @(
+  ".emacs.d",
+  ".config\emacs",
   ".config\doom",
   ".config\lazygit",
   ".config\sublime-merge"

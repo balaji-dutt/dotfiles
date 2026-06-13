@@ -289,10 +289,6 @@
     - name: Include ZSH and Antidote setup
       ansible.builtin.include_tasks: tasks/zsh-setup.yml
 
-    - name: Include Emacs setup (Ubuntu only)
-      ansible.builtin.include_tasks: tasks/emacs.yml
-      when: is_ubuntu | bool
-
     - name: Include Debian dev tools
       ansible.builtin.include_tasks: tasks/debian-dev-tools.yml
       when: is_debian | bool

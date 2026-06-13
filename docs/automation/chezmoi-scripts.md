@@ -24,11 +24,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | Script | Trigger | Typical Scope |
 | :--- | :--- | :--- |
 | `run_onchange_before_00-wsl-provision.sh.tmpl` | onchange | WSL Ansible provisioning inputs |
-| `run_once_before_00_install_custom_fonts.sh.tmpl` | once | font installation |
 | `run_once_before_copy_ansible_key.sh.tmpl` | once | ansible key placement |
 | `run_once_before_copy_sublime_merge_packages.sh.tmpl` | once | Sublime Merge package sync |
 | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once | Windows Sublime Merge sync |
-| `run_once_after_emacs_spellcheck.sh.tmpl` | once | Emacs spellcheck setup |
 | `run_once_after_99-cleanup-wrong-apply.sh.tmpl` | once | cleanup after wrong apply |
 | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once | Windows cleanup variant |
 | `run_after_10-dotfiles-commit-template.sh.tmpl` | after | commit template helper |
