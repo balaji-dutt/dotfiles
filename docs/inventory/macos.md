@@ -31,7 +31,8 @@ This page lists the main managed targets expected on macOS.
 | :--- | :--- | :--- |
 | Claude | `~/.claude/**` | `dot_claude/**` |
 | OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
-| Agent of Empires | `~/.agent-of-empires/config.toml` | `dot_agent-of-empires/config.toml.tmpl` wrapper; canonical template in `.chezmoitemplates/agent-of-empires/config.toml.tmpl` |
+| Agent of Empires | `~/.config/agent-of-empires/config.toml` | `private_dot_config/agent-of-empires/config.toml.tmpl` |
+| Doom Emacs | `~/.config/doom/**` | `private_dot_config/doom/**` |
 | LazyGit | `~/Library/Application Support/lazygit/config.yml` | `private_Library/private_Application Support/lazygit/config.yml` |
 | Sublime Merge | `~/Library/Application Support/Sublime Merge/Packages/**` | `private_Library/private_Application Support/Sublime Merge/Packages/**` |
 | Espanso | `~/Library/Application Support/espanso/match/**` | `private_Library/private_Application Support/espanso/match/**` |
