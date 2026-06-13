@@ -74,6 +74,16 @@
         "exclude": []
       },
       {
+        "name": "agent-of-empires-config",
+        "source_root": "private_dot_config/agent-of-empires",
+        "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/agent-of-empires",
+        "cleanup_managed": true,
+        "include": [
+          "**"
+        ],
+        "exclude": []
+      },
+      {
         "name": "user-bin-selected-wrappers",
         "source_root": "bin",
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin",

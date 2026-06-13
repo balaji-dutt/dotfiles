@@ -133,11 +133,6 @@ rm_rel "Documents/development/vscode-workspace/container-homelab-IaC.code-worksp
 rm_rel ".config/doom"
 {{ end }}
 
-# AoE currently uses ~/.agent-of-empires on macOS; remove stale XDG config there.
-{{ if $isDarwin }}
-rm_rel ".config/agent-of-empires"
-{{ end }}
-
 # On WSL2 (excluding Debian), remove entire container-dotfiles tree
 {{ if and $isWSL2 (ne $osID "debian") }}
 rm_rel "Documents/development/container-dotfiles"

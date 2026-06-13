@@ -26,12 +26,6 @@ bin/opencode-notifier-bridge
 .agent-of-empires/**
 {{ end }}
 
-{{/* AoE currently uses ~/.agent-of-empires on macOS; keep its XDG path off macOS. */}}
-{{ if $isDarwin }}
-.config/agent-of-empires
-.config/agent-of-empires/**
-{{ end }}
-
 {{/*  Placeholder for Linux */}}
 {{ if $isLinux }}
 {{ end }}

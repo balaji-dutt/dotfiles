@@ -39,9 +39,10 @@ Manifest-driven source mirroring for shared container-dotfiles is handled by:
 
 Run the sync script after changing canonical host-side sources that are mirrored
 into `private_Documents/development/container-dotfiles/dotfiles/**`.
-Host bin wrappers are mirrored only when explicitly listed in the manifest;
-`ai-wt` uses this selective mirror so container-specific wrappers can continue
-to diverge when needed.
+AoE config is mirrored from `private_dot_config/agent-of-empires/**`; do not
+hand-edit the generated container copy. Host bin wrappers are mirrored only when
+explicitly listed in the manifest; `ai-wt` uses this selective mirror so
+container-specific wrappers can continue to diverge when needed.
 
 ## homelab-IaC: package pins
 
