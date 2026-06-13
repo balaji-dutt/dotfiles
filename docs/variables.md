@@ -41,10 +41,31 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 | `plannotator_ports.devcontainer.claude` | Devcontainer Claude Code Plannotator pool | devcontainer env + wrapper defaults |
 | `plannotator_ports.devcontainer.custom` | Devcontainer stay-current custom Plannotator pool | devcontainer env + wrapper defaults |
 
+## macOS Variables
+
+| Variable | Purpose | Used By |
+| :--- | :--- | :--- |
+| `macos_vdi.enabled` | Enables Citrix/Zoom VDI drift management | macOS VDI hook |
+| `macos_vdi.install` | Allows the VDI hook to install, not just report | macOS VDI hook |
+| `macos_vdi.allow_downgrade` | Allows explicit VDI downgrades when true | macOS VDI hook |
+| `macos_vdi.zoom.desired_pkg_version` | Desired full Zoom VDI `pkgutil` version | macOS VDI hook |
+| `macos_vdi.zoom.pkg_url_op_ref` | Local 1Password ref for Zoom VDI `.pkg` URL | macOS VDI hook |
+| `macos_vdi.zoom.pkg_sha256` | Optional Zoom VDI package checksum | macOS VDI hook |
+| `macos_vdi.zoom.pkg_sha256_op_ref` | Optional local 1Password ref for Zoom checksum | macOS VDI hook |
+| `macos_vdi.citrix.desired_family` | Desired Citrix Workspace version family | macOS VDI hook |
+| `macos_vdi.citrix.display_version` | Human-readable Citrix desired version | macOS VDI hook |
+| `macos_vdi.citrix.dmg_url_op_ref` | Local 1Password ref for Citrix `.dmg` URL | macOS VDI hook |
+| `macos_vdi.citrix.dmg_path` | Local Citrix DMG fallback path | macOS VDI hook |
+| `macos_vdi.citrix.default_dmg_path` | Public Citrix DMG fallback path | macOS VDI hook |
+| `macos_vdi.citrix.dmg_sha256` | Optional Citrix DMG checksum | macOS VDI hook |
+| `macos_vdi.citrix.dmg_sha256_op_ref` | Optional local 1Password ref for Citrix checksum | macOS VDI hook |
+
 ## Safety
 
 - Keep secrets out of git.
 - Prefer 1Password/runtime injection for sensitive values.
 - Do not commit rendered files containing tokens/keys.
+- Keep employer VDI portal hosts, private installer URLs, and private
+  1Password item names in local config or 1Password only.
 - macOS NFS AppleDouble cleanup paths intentionally live in runtime local
   config at `~/.config/nfs-dot-clean/paths`, not chezmoi template data.

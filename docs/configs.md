@@ -47,7 +47,10 @@ they change.
 ## Related Top-Level Manifest
 
 - `brewfile.txt`: Homebrew bundle manifest for macOS, including tap-scoped
-  formulae such as `Pilan-AI/tap/mnemo`.
+  formulae such as `Pilan-AI/tap/mnemo`. Citrix Workspace is intentionally not
+  listed there; see `docs/automation/macos-vdi-apps.md`.
+- `.chezmoidata.yaml`: public template data, including non-secret macOS VDI
+  version policy under `macos_vdi`.
 
 ## Validation
 

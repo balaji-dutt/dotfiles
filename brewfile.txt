@@ -72,8 +72,6 @@ cask "alt-tab"
 cask "app-tamer"
 # Hard disk backup and cloning utility
 cask "carbon-copy-cloner"
-# Managed desktop virtualization solution
-cask "citrix-workspace"
 # Anthropic's official Claude AI desktop app
 cask "claude"
 # Terminal-based AI coding assistant
