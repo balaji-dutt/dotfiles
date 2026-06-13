@@ -1,0 +1,376 @@
+{{- if eq .chezmoi.os "darwin" -}}
+{{- $macosVdi := (get . "macos_vdi" | default dict) -}}
+{{- $citrix := (get $macosVdi "citrix" | default dict) -}}
+{{- $zoom := (get $macosVdi "zoom" | default dict) -}}
+#!/bin/bash
+
+# macos_vdi config hash: {{ $macosVdi | toJson | sha256sum }}
+
+set -euo pipefail
+
+VDI_ENABLED={{ (get $macosVdi "enabled" | default false) | toJson }}
+INSTALL_ENABLED={{ (get $macosVdi "install" | default false) | toJson }}
+ALLOW_DOWNGRADE={{ (get $macosVdi "allow_downgrade" | default false) | toJson }}
+
+CITRIX_DESIRED_FAMILY={{ (get $citrix "desired_family" | default "25.11.1") | toJson }}
+CITRIX_DISPLAY_VERSION={{ (get $citrix "display_version" | default "25.11.1") | toJson }}
+CITRIX_DMG_URL_OP_REF={{ (get $citrix "dmg_url_op_ref" | default "") | toJson }}
+CITRIX_DMG_PATH={{ (get $citrix "dmg_path" | default "") | toJson }}
+CITRIX_DEFAULT_DMG_PATH={{ (get $citrix "default_dmg_path" | default "/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg") | toJson }}
+CITRIX_DMG_SHA256={{ (get $citrix "dmg_sha256" | default "") | toJson }}
+CITRIX_DMG_SHA256_OP_REF={{ (get $citrix "dmg_sha256_op_ref" | default "") | toJson }}
+
+ZOOM_DESIRED_PACKAGE_VERSION={{ (get $zoom "desired_pkg_version" | default "6.4.17.26900") | toJson }}
+ZOOM_PKG_URL_OP_REF={{ (get $zoom "pkg_url_op_ref" | default "") | toJson }}
+ZOOM_PKG_SHA256={{ (get $zoom "pkg_sha256" | default "") | toJson }}
+ZOOM_PKG_SHA256_OP_REF={{ (get $zoom "pkg_sha256_op_ref" | default "") | toJson }}
+
+WORK_DIR=""
+CITRIX_MOUNT_POINT=""
+
+log() {
+  printf 'INFO: %s\n' "$*"
+}
+
+warn() {
+  printf 'WARN: %s\n' "$*" >&2
+}
+
+cleanup() {
+  if [[ -n "$CITRIX_MOUNT_POINT" ]]; then
+    /usr/bin/hdiutil detach "$CITRIX_MOUNT_POINT" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$WORK_DIR" ]]; then
+    /bin/rm -rf "$WORK_DIR"
+  fi
+}
+
+trap cleanup EXIT
+
+pkg_version() {
+  local package_id
+  package_id="$1"
+
+  /usr/sbin/pkgutil --pkg-info "$package_id" 2>/dev/null \
+    | /usr/bin/awk -F': ' '$1 == "version" { print $2; exit }'
+}
+
+app_info_value() {
+  local info_plist key_name
+  info_plist="$1"
+  key_name="$2"
+
+  /usr/bin/defaults read "$info_plist" "$key_name" 2>/dev/null || true
+}
+
+normalize_component() {
+  local value
+  value="$1"
+  value="${value%%[^0-9]*}"
+  if [[ -z "$value" ]]; then
+    value="0"
+  fi
+  printf '%s\n' "$value"
+}
+
+compare_versions() {
+  local left right max_parts index left_component right_component
+  local left_parts right_parts
+  left="$1"
+  right="$2"
+
+  IFS=. read -r -a left_parts <<< "$left"
+  IFS=. read -r -a right_parts <<< "$right"
+
+  max_parts="${#left_parts[@]}"
+  if (( ${#right_parts[@]} > max_parts )); then
+    max_parts="${#right_parts[@]}"
+  fi
+
+  for ((index = 0; index < max_parts; index += 1)); do
+    left_component="$(normalize_component "${left_parts[$index]:-0}")"
+    right_component="$(normalize_component "${right_parts[$index]:-0}")"
+    if (( 10#$left_component < 10#$right_component )); then
+      printf '%s\n' "-1"
+      return 0
+    fi
+    if (( 10#$left_component > 10#$right_component )); then
+      printf '%s\n' "1"
+      return 0
+    fi
+  done
+
+  printf '%s\n' "0"
+}
+
+version_is_newer() {
+  local installed desired
+  installed="$1"
+  desired="$2"
+
+  [[ -n "$installed" && -n "$desired" ]] || return 1
+  [[ "$(compare_versions "$installed" "$desired")" == "1" ]]
+}
+
+matches_version_family() {
+  local installed family
+  installed="$1"
+  family="$2"
+
+  [[ -n "$installed" && -n "$family" ]] || return 1
+  [[ "$installed" == "$family" || "$installed" == "$family."* || "$installed" == "$family "* || "$installed" == "$family-"* ]]
+}
+
+prepare_work_dir() {
+  if [[ -z "$WORK_DIR" ]]; then
+    WORK_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/macos-vdi.XXXXXX")"
+  fi
+}
+
+read_op_value() {
+  local op_ref label value
+  op_ref="$1"
+  label="$2"
+
+  if [[ -z "$op_ref" ]]; then
+    return 1
+  fi
+
+  if ! command -v op >/dev/null 2>&1; then
+    warn "1Password CLI is not available; cannot read $label."
+    return 1
+  fi
+
+  if ! value="$(op read "$op_ref" 2>/dev/null)"; then
+    warn "Could not read $label from 1Password; continuing without it."
+    return 1
+  fi
+
+  if [[ -z "$value" ]]; then
+    warn "1Password returned an empty $label; continuing without it."
+    return 1
+  fi
+
+  printf '%s\n' "$value"
+}
+
+resolve_checksum() {
+  local direct_value op_ref label op_value
+  direct_value="$1"
+  op_ref="$2"
+  label="$3"
+
+  if [[ -n "$direct_value" ]]; then
+    printf '%s\n' "$direct_value"
+    return 0
+  fi
+
+  if op_value="$(read_op_value "$op_ref" "$label")"; then
+    printf '%s\n' "$op_value"
+    return 0
+  fi
+
+  return 1
+}
+
+verify_sha256() {
+  local file_path expected actual actual_lower expected_lower
+  file_path="$1"
+  expected="$2"
+
+  [[ -n "$expected" ]] || return 0
+  actual="$(/usr/bin/shasum -a 256 "$file_path" | /usr/bin/awk '{ print $1 }')"
+  actual_lower="$(printf '%s' "$actual" | /usr/bin/tr '[:upper:]' '[:lower:]')"
+  expected_lower="$(printf '%s' "$expected" | /usr/bin/tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$actual_lower" != "$expected_lower" ]]; then
+    printf 'ERROR: SHA-256 mismatch for %s\n' "$(/usr/bin/basename "$file_path")" >&2
+    return 1
+  fi
+}
+
+download_url_to_file() {
+  local source_url suffix label output_file
+  source_url="$1"
+  suffix="$2"
+  label="$3"
+
+  prepare_work_dir
+  output_file="$WORK_DIR/$label.$suffix"
+  log "Downloading $label installer." >&2
+  if ! /usr/bin/curl -fsSL --retry 3 --output "$output_file" "$source_url"; then
+    warn "Could not download $label installer; continuing without installing it."
+    return 1
+  fi
+
+  printf '%s\n' "$output_file"
+}
+
+install_pkg() {
+  local package_file label
+  package_file="$1"
+  label="$2"
+
+  log "Installing $label package."
+  /usr/bin/sudo /usr/sbin/installer -pkg "$package_file" -target /
+}
+
+find_citrix_pkg() {
+  local mount_point package_file
+  mount_point="$1"
+
+  package_file="$(/usr/bin/find "$mount_point" -maxdepth 5 -type f -iname '*Citrix*.pkg' -print -quit 2>/dev/null || true)"
+  if [[ -z "$package_file" ]]; then
+    package_file="$(/usr/bin/find "$mount_point" -maxdepth 5 -type f -iname '*.pkg' -print -quit 2>/dev/null || true)"
+  fi
+
+  [[ -n "$package_file" ]] || return 1
+  printf '%s\n' "$package_file"
+}
+
+install_citrix_dmg() {
+  local dmg_file checksum package_file
+  dmg_file="$1"
+
+  if checksum="$(resolve_checksum "$CITRIX_DMG_SHA256" "$CITRIX_DMG_SHA256_OP_REF" "Citrix DMG SHA-256")"; then
+    verify_sha256 "$dmg_file" "$checksum"
+  fi
+
+  prepare_work_dir
+  CITRIX_MOUNT_POINT="$(/usr/bin/mktemp -d "$WORK_DIR/citrix-mount.XXXXXX")"
+  log "Mounting Citrix Workspace DMG."
+  /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$CITRIX_MOUNT_POINT" "$dmg_file" >/dev/null
+
+  if ! package_file="$(find_citrix_pkg "$CITRIX_MOUNT_POINT")"; then
+    printf 'ERROR: Could not find a Citrix package inside the DMG.\n' >&2
+    return 1
+  fi
+
+  install_pkg "$package_file" "Citrix Workspace"
+}
+
+install_zoom_pkg_from_config() {
+  local package_url package_file checksum
+
+  if ! package_url="$(read_op_value "$ZOOM_PKG_URL_OP_REF" "Zoom VDI package URL")"; then
+    warn "Zoom VDI install mode is enabled, but no usable package URL is configured."
+    warn "Add a local 1Password ref in chezmoi data, then rerun chezmoi apply."
+    return 0
+  fi
+
+  if ! package_file="$(download_url_to_file "$package_url" "pkg" "zoom-vdi")"; then
+    return 0
+  fi
+
+  if checksum="$(resolve_checksum "$ZOOM_PKG_SHA256" "$ZOOM_PKG_SHA256_OP_REF" "Zoom VDI package SHA-256")"; then
+    verify_sha256 "$package_file" "$checksum"
+  fi
+
+  install_pkg "$package_file" "Zoom VDI"
+}
+
+install_citrix_from_config() {
+  local dmg_url dmg_file candidate_path
+
+  if dmg_url="$(read_op_value "$CITRIX_DMG_URL_OP_REF" "Citrix DMG URL")"; then
+    if dmg_file="$(download_url_to_file "$dmg_url" "dmg" "citrix-workspace")"; then
+      install_citrix_dmg "$dmg_file"
+      return $?
+    fi
+  fi
+
+  for candidate_path in "$CITRIX_DMG_PATH" "$CITRIX_DEFAULT_DMG_PATH"; do
+    [[ -n "$candidate_path" ]] || continue
+    if [[ -f "$candidate_path" ]]; then
+      log "Installing Citrix Workspace from local DMG path."
+      install_citrix_dmg "$candidate_path"
+      return $?
+    fi
+  done
+
+  warn "Citrix install mode is enabled, but no usable DMG source was found."
+  warn "Configure a local 1Password DMG URL ref or place the approved DMG at the local fallback path."
+  return 0
+}
+
+main() {
+  local citrix_pkg_version citrix_app_short_version citrix_app_bundle_version
+  local zoom_pkg_version zoom_auto_upgrade_version zoom_app_short_version zoom_app_bundle_version
+  local citrix_satisfied zoom_satisfied result_rc citrix_compare_version
+
+  log "Checking macOS VDI app versions."
+
+  citrix_pkg_version="$(pkg_version com.citrix.ICAClient || true)"
+  citrix_app_short_version="$(app_info_value "/Applications/Citrix Workspace.app/Contents/Info" CFBundleShortVersionString)"
+  citrix_app_bundle_version="$(app_info_value "/Applications/Citrix Workspace.app/Contents/Info" CFBundleVersion)"
+
+  zoom_pkg_version="$(pkg_version us.zoom.ZoomVDI || true)"
+  zoom_auto_upgrade_version="$(pkg_version us.zoom.ZoomVDIAutoUpgradePlugin || true)"
+  zoom_app_short_version="$(app_info_value "/Applications/ZoomVDI.app/Contents/Info" CFBundleShortVersionString)"
+  zoom_app_bundle_version="$(app_info_value "/Applications/ZoomVDI.app/Contents/Info" CFBundleVersion)"
+
+  log "Citrix desired family: $CITRIX_DISPLAY_VERSION"
+  log "Citrix installed package version: ${citrix_pkg_version:-missing}"
+  log "Citrix app short version: ${citrix_app_short_version:-missing}"
+  log "Citrix app bundle version: ${citrix_app_bundle_version:-missing}"
+  log "Zoom VDI desired package version: $ZOOM_DESIRED_PACKAGE_VERSION"
+  log "Zoom VDI installed package version: ${zoom_pkg_version:-missing}"
+  log "Zoom VDI auto-upgrade package version: ${zoom_auto_upgrade_version:-missing}"
+  log "Zoom VDI app short version: ${zoom_app_short_version:-missing}"
+  log "Zoom VDI app bundle version: ${zoom_app_bundle_version:-missing}"
+
+  citrix_satisfied=false
+  if matches_version_family "$citrix_pkg_version" "$CITRIX_DESIRED_FAMILY" \
+    || matches_version_family "$citrix_app_short_version" "$CITRIX_DESIRED_FAMILY"; then
+    citrix_satisfied=true
+  fi
+
+  zoom_satisfied=false
+  if [[ -n "$zoom_pkg_version" && "$zoom_pkg_version" == "$ZOOM_DESIRED_PACKAGE_VERSION" ]]; then
+    zoom_satisfied=true
+  fi
+
+  if [[ "$VDI_ENABLED" != "true" ]]; then
+    log "macOS VDI management is disabled; reporting only."
+    return 0
+  fi
+
+  if [[ "$citrix_satisfied" != "true" ]]; then
+    warn "Citrix Workspace does not match the desired family."
+  fi
+  if [[ "$zoom_satisfied" != "true" ]]; then
+    warn "Zoom VDI does not match the desired package version."
+  fi
+
+  if [[ "$INSTALL_ENABLED" != "true" ]]; then
+    log "macOS VDI install mode is disabled; reporting drift only."
+    return 0
+  fi
+
+  result_rc=0
+
+  if [[ "$zoom_satisfied" != "true" ]]; then
+    if version_is_newer "$zoom_pkg_version" "$ZOOM_DESIRED_PACKAGE_VERSION" && [[ "$ALLOW_DOWNGRADE" != "true" ]]; then
+      warn "Installed Zoom VDI is newer than desired; refusing downgrade."
+    else
+      install_zoom_pkg_from_config || result_rc=$?
+    fi
+  fi
+
+  if [[ "$citrix_satisfied" != "true" ]]; then
+    citrix_compare_version="$citrix_pkg_version"
+    if [[ -z "$citrix_compare_version" ]]; then
+      citrix_compare_version="$citrix_app_short_version"
+    fi
+    if version_is_newer "$citrix_compare_version" "$CITRIX_DESIRED_FAMILY" && [[ "$ALLOW_DOWNGRADE" != "true" ]]; then
+      warn "Installed Citrix Workspace is newer than desired; refusing downgrade."
+    else
+      install_citrix_from_config || result_rc=$?
+    fi
+  fi
+
+  return "$result_rc"
+}
+
+main "$@"
+{{- end }}

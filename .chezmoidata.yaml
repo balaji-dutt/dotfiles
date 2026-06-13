@@ -3,6 +3,16 @@ browser_policies:
   justthebrowser:
     enabled: true
     macos_open_profiles_on_update: true
+macos_vdi:
+  enabled: false
+  install: false
+  allow_downgrade: false
+  citrix:
+    desired_family: "25.11.1"
+    display_version: "25.11.1"
+    default_dmg_path: /Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg
+  zoom:
+    desired_pkg_version: "6.4.17.26900"
 plannotator_port: 8999
 plannotator_ports:
   host:

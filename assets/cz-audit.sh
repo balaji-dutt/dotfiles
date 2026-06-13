@@ -360,7 +360,16 @@ check_chezmoi_config() {
 
   # If templated, ensure it renders on THIS machine.
   if [[ "$relsrc" == *.tmpl ]]; then
-    cm execute-template -f "$abs" >/dev/null
+    if [[ "$relsrc" == ".chezmoi.toml.tmpl" ]]; then
+      local config_file
+      config_file="$(mktemp "${TMPDIR:-/tmp}/cz-audit-chezmoi-config.XXXXXX.toml")"
+      # Remove mktemp's placeholder so chezmoi init can create the config file.
+      rm -f "$config_file"
+      cm init --dry-run --promptDefaults --config-path "$config_file" >/dev/null
+      rm -f "$config_file"
+    else
+      cm execute-template -f "$abs" >/dev/null
+    fi
     info "Template renders OK: $relsrc"
   fi
 

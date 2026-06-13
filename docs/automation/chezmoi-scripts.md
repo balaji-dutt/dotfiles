@@ -41,6 +41,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | non-WSL package installs |
+| `run_onchange_after_macos-vdi-apps.sh.tmpl` | onchange | macOS Citrix/Zoom VDI version reporting and opt-in installs |
 | `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload, including NFS dot-clean |
 | `run_onchange_after_ansible_syntax_image.sh.tmpl` | onchange | Ansible syntax image update |
 | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange | Windows bootstrap flow |
@@ -52,4 +53,6 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - Follow `docs/agents/ADDING_SCRIPTS.md` when adding new scripts.
 - User-scope Claude MCP server registration is configured by
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
+- Citrix Workspace and Zoom VDI are handled outside Homebrew; see
+  `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.

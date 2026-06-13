@@ -19,6 +19,15 @@
 {{- /* Windows specific prompts */ -}}
 {{- $windowsPuttyKeysDir := "" -}}
 {{- $windowsPageantKeysAllowlist := "" -}}
+{{- $macosVdiEnabledRaw := "false" -}}
+{{- $macosVdiInstallRaw := "false" -}}
+{{- $macosVdiZoomPkgURLRef := "" -}}
+{{- $macosVdiCitrixDmgURLRef := "" -}}
+{{- $macosVdiCitrixDmgPath := "" -}}
+{{- $macosVdiZoomPkgSHA256 := "" -}}
+{{- $macosVdiZoomPkgSHA256Ref := "" -}}
+{{- $macosVdiCitrixDmgSHA256 := "" -}}
+{{- $macosVdiCitrixDmgSHA256Ref := "" -}}
 
 {{- $isWSL := false -}}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
@@ -41,7 +50,22 @@
 
 {{- if eq .chezmoi.os "darwin" -}}
 {{-   $SSH_ADD_KEYFILES_RAW = promptStringOnce . "SSH_ADD_KEYFILES_RAW" "SSH key filenames for ssh-add (comma-separated, e.g. id_ed25519, prod_rsa)" "" -}}
+{{-   $macosVdiData := (get . "macos_vdi" | default dict) -}}
+{{-   $macosVdiCitrixData := (get $macosVdiData "citrix" | default dict) -}}
+{{-   $defaultCitrixDmgPath := (get $macosVdiCitrixData "default_dmg_path" | default "/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg") -}}
+{{-   $macosVdiEnabledRaw = promptStringOnce . "macos_vdi.enabled" "Manage macOS Citrix/Zoom VDI apps? (true/false)" "false" -}}
+{{-   $macosVdiInstallRaw = promptStringOnce . "macos_vdi.install" "Install/update macOS VDI apps, not just report drift? (true/false)" "false" -}}
+{{-   $macosVdiZoomPkgURLRef = promptStringOnce . "macos_vdi.zoom.pkg_url_op_ref" "1Password ref for Zoom VDI direct .pkg URL (leave empty to skip)" "" -}}
+{{-   $macosVdiCitrixDmgURLRef = promptStringOnce . "macos_vdi.citrix.dmg_url_op_ref" "1Password ref for Citrix Workspace direct .dmg URL (leave empty for local DMG fallback)" "" -}}
+{{-   $macosVdiCitrixDmgPath = promptStringOnce . "macos_vdi.citrix.dmg_path" "Local Citrix Workspace DMG path fallback" $defaultCitrixDmgPath -}}
+{{-   $macosVdiZoomPkgSHA256 = promptStringOnce . "macos_vdi.zoom.pkg_sha256" "Zoom VDI .pkg SHA-256 (optional)" "" -}}
+{{-   $macosVdiZoomPkgSHA256Ref = promptStringOnce . "macos_vdi.zoom.pkg_sha256_op_ref" "1Password ref for Zoom VDI .pkg SHA-256 (optional)" "" -}}
+{{-   $macosVdiCitrixDmgSHA256 = promptStringOnce . "macos_vdi.citrix.dmg_sha256" "Citrix Workspace .dmg SHA-256 (optional)" "" -}}
+{{-   $macosVdiCitrixDmgSHA256Ref = promptStringOnce . "macos_vdi.citrix.dmg_sha256_op_ref" "1Password ref for Citrix Workspace .dmg SHA-256 (optional)" "" -}}
 {{- end -}}
+
+{{- $macosVdiEnabled := or (eq ($macosVdiEnabledRaw | lower) "true") (eq ($macosVdiEnabledRaw | lower) "yes") (eq ($macosVdiEnabledRaw | lower) "y") (eq $macosVdiEnabledRaw "1") -}}
+{{- $macosVdiInstall := or (eq ($macosVdiInstallRaw | lower) "true") (eq ($macosVdiInstallRaw | lower) "yes") (eq ($macosVdiInstallRaw | lower) "y") (eq $macosVdiInstallRaw "1") -}}
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
 {{- $defaultSourceDir := "" -}}
@@ -146,4 +170,21 @@ command = "op.exe"
     wsl_agent_sock = {{ (joinPath .chezmoi.homeDir ".wsl-ssh-pageant" "ssh-agent.sock") | toToml }}
     putty_keys_dir = {{ $windowsPuttyKeysDir | toToml }}
     pageant_keys_allowlist = {{ $windowsPageantKeysAllowlist | toToml }}
+{{- end }}
+
+{{- if eq .chezmoi.os "darwin" }}
+[data.macos_vdi]
+    enabled = {{ $macosVdiEnabled }}
+    install = {{ $macosVdiInstall }}
+
+[data.macos_vdi.zoom]
+    pkg_url_op_ref = {{ $macosVdiZoomPkgURLRef | toToml }}
+    pkg_sha256 = {{ $macosVdiZoomPkgSHA256 | toToml }}
+    pkg_sha256_op_ref = {{ $macosVdiZoomPkgSHA256Ref | toToml }}
+
+[data.macos_vdi.citrix]
+    dmg_url_op_ref = {{ $macosVdiCitrixDmgURLRef | toToml }}
+    dmg_path = {{ $macosVdiCitrixDmgPath | toToml }}
+    dmg_sha256 = {{ $macosVdiCitrixDmgSHA256 | toToml }}
+    dmg_sha256_op_ref = {{ $macosVdiCitrixDmgSHA256Ref | toToml }}
 {{- end }}
