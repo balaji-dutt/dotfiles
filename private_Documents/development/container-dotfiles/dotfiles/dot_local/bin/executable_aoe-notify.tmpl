@@ -179,12 +179,21 @@ try_windows_popup() {
   # (the call hangs until external interrupt), so we omit it. -ExecutionPolicy
   # Bypass stays as a defence against corporate Windows policies enforcing
   # execution policy even for -Command invocations.
+  #
+  # PowerShell -Command does not populate $args from CLI positional args
+  # (only -File does). Positional tokens after -Command get parsed as bare
+  # script content and PowerShell rejects them with "Unexpected token".
+  # Interpolate title and message into the command string here and escape
+  # any embedded single quotes by doubling so they land cleanly inside
+  # PowerShell single-quoted literals.
+  local ps_title=${title//\'/\'\'}
+  local ps_message=${message//\'/\'\'}
+
   "$powershell_bin" \
     -NoProfile \
     -ExecutionPolicy Bypass \
-    -Command '$title = $args[0]; $message = $args[1]; $wshell = New-Object -ComObject Wscript.Shell; $null = $wshell.Popup($message, 5, $title, 0 + 64)' \
-    "$title" \
-    "$message" >/dev/null 2>&1
+    -Command "\$wshell = New-Object -ComObject Wscript.Shell; \$null = \$wshell.Popup('$ps_message', 5, '$ps_title', 0 + 64)" \
+    >/dev/null 2>&1
 }
 
 try_notify_send() {
