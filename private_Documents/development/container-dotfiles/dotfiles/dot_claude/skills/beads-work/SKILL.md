@@ -37,6 +37,11 @@ than hard-coding details for any one project.
 - The work item is tracked elsewhere (GitHub issue, Jira) and not in `bd`.
 - The user only wants to inspect issues without claiming or modifying them
   (just run `bd show` or `bd list` directly).
+- The work originated from a Claude Code plan-mode session with no
+  pre-existing issue ID. Use the repo's "Beads plan handoff" protocol
+  (in `.claude/CLAUDE.md`) and the `beads-issue-author` subagent instead
+  — that flow creates or attaches the issue, then this skill can pick up
+  the resulting ID for closure.
 
 ## Harness identity
 
