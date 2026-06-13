@@ -64,6 +64,7 @@ new_session_attach_mode = "tmux"
 default_attach_mode = "tmux"
 click_action = "select_only"
 confirm_before_quit = false
+tie_workdir_to_name = true
 
 [session.agent_command_override]
 opencode = "opencode-plannotator"
@@ -94,6 +95,7 @@ show_preview_info = false
 has_responded_to_telemetry = true
 has_seen_custom_instruction_warning = true
 has_acknowledged_agent_hooks = true
+has_acknowledged_volume_ignores_globs = false
 sort_order = "z_a"
 group_by = "manual"
 
@@ -103,6 +105,9 @@ notify_on_waiting = true
 notify_on_idle = false
 notify_on_error = true
 notify_on_wake_fire = true
+
+[auth]
+persist_sessions = true
 
 [acp]
 default_agent = "aoe-agent"
