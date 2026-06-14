@@ -7,6 +7,7 @@ tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
 tap "pilan-ai/tap", trusted: true
+tap "railwaycat/emacsmacport", trusted: true
 tap "wyne/tap", trusted: true
 # Plugin manager for zsh, inspired by antigen and antibody
 brew "antidote"
@@ -53,7 +54,7 @@ brew "anomalyco/tap/opencode"
 # AI-supervised issue tracker for coding workflows
 brew "gastownhall/beads/bd", trusted: true
 # Monitor your AI coding tool quotas from a single TUI dashboard
-brew "janekbaraniewski/tap/openusage"
+brew "janekbaraniewski/tap/openusage", trusted: true
 # Memory for AI-assisted development. Search your AI coding sessions.
 brew "pilan-ai/tap/mnemo"
 # Modern version of fasd productivity booster, offering quick access to files and directories
@@ -72,10 +73,10 @@ cask "alt-tab"
 cask "app-tamer"
 # Hard disk backup and cloning utility
 cask "carbon-copy-cloner"
+# Managed desktop virtualization solution
+cask "citrix-workspace"
 # Anthropic's official Claude AI desktop app
 cask "claude"
-# Terminal-based AI coding assistant
-cask "claude-code@latest"
 # Screen capturing tool
 cask "cleanshot"
 # Disk space visualiser
