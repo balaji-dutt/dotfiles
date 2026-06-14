@@ -7,7 +7,6 @@ tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
 tap "pilan-ai/tap", trusted: true
-tap "railwaycat/emacsmacport", trusted: true
 tap "wyne/tap", trusted: true
 # Plugin manager for zsh, inspired by antigen and antibody
 brew "antidote"
