@@ -141,6 +141,11 @@ crashes, reboots, `SIGKILL`, or detached child processes can leave a managed
 worktree behind. Use `ai-wt list`, `ai-wt cleanup`, and `ai-wt prune` for
 recovery.
 
+Agent-driven merges are handled by the repo-local `assets/agent-wt-merge`
+helper instead of extra `ai-wt` subcommands. The helper supports `ai-wt` and
+non-`ai-wt` worktrees and only uses `.ai-wt` metadata for cleanup suggestions.
+See `docs/agents/worktree-merge-helper.md`.
+
 ## Configuration
 
 Configuration precedence is:

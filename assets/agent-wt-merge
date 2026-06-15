@@ -1,0 +1,737 @@
+#!/usr/bin/env python3
+"""Agent-facing helper for inspecting and landing Git worktrees."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+SCRIPT_NAME = Path(sys.argv[0]).name
+MAIN_BRANCH_CANDIDATES = ("main", "master")
+
+ACTORS = {
+    "opencode": {
+        "name": "OpenCode",
+        "email": "noreply@opencode.ai",
+        "state_file": "in-progress-opencode.json",
+    },
+    "claude": {
+        "name": "Claude",
+        "email": "noreply@anthropic.com",
+        "state_file": "in-progress-claude.json",
+    },
+}
+
+
+class AgentWtMergeError(Exception):
+    """User-facing helper error."""
+
+
+@dataclass
+class WorktreeEntry:
+    path: Path
+    branch: str | None = None
+    head: str | None = None
+    bare: bool = False
+    detached: bool = False
+
+
+@dataclass
+class MergeContext:
+    original_worktree: Path
+    main_worktree: Path
+    main_branch: str
+    feature_branch: str
+    main_sha: str
+    feature_sha: str
+    commits_ahead: int
+    fast_forward_possible: bool
+    main_dirty_paths: list[str]
+    origin_ref: str | None
+    origin_behind_count: int | None
+    fetch_attempted: bool
+    fetch_ok: bool | None
+    fetch_message: str | None
+    ai_wt_session: dict[str, Any] | None
+    cleanup: dict[str, Any]
+    beads: dict[str, Any]
+
+
+def eprint(message: str) -> None:
+    print(f"{SCRIPT_NAME}: {message}", file=sys.stderr)
+
+
+def die(message: str) -> None:
+    raise AgentWtMergeError(message)
+
+
+def run_git(
+    cwd: Path,
+    args: list[str],
+    *,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        check=check,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def git_output(cwd: Path, args: list[str]) -> str:
+    result = run_git(cwd, args)
+    return result.stdout.strip()
+
+
+def git_returncode(cwd: Path, args: list[str]) -> int:
+    return run_git(cwd, args, check=False).returncode
+
+
+def resolve_repo_root() -> Path:
+    try:
+        return Path(git_output(Path.cwd(), ["rev-parse", "--show-toplevel"])).resolve()
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "not a Git repository").strip()
+        die(detail)
+
+
+def local_branch_exists(repo_root: Path, branch: str) -> bool:
+    return git_returncode(repo_root, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"]) == 0
+
+
+def resolve_main_branch(repo_root: Path) -> str:
+    for branch in MAIN_BRANCH_CANDIDATES:
+        if local_branch_exists(repo_root, branch):
+            return branch
+    die("neither main nor master exists locally")
+
+
+def current_branch(repo_root: Path) -> str:
+    branch = git_output(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    if branch == "HEAD":
+        die("detached HEAD; there is no feature branch to merge")
+    return branch
+
+
+def parse_worktrees(repo_root: Path) -> list[WorktreeEntry]:
+    raw = git_output(repo_root, ["worktree", "list", "--porcelain"])
+    entries: list[WorktreeEntry] = []
+    current: dict[str, Any] = {}
+
+    def flush() -> None:
+        if "path" not in current:
+            return
+        entries.append(
+            WorktreeEntry(
+                path=Path(str(current["path"])).resolve(),
+                branch=current.get("branch"),
+                head=current.get("head"),
+                bare=bool(current.get("bare", False)),
+                detached=bool(current.get("detached", False)),
+            )
+        )
+        current.clear()
+
+    for line in raw.splitlines():
+        if not line:
+            flush()
+            continue
+        if line.startswith("worktree "):
+            flush()
+            current["path"] = line.removeprefix("worktree ")
+        elif line.startswith("HEAD "):
+            current["head"] = line.removeprefix("HEAD ")
+        elif line.startswith("branch "):
+            current["branch"] = line.removeprefix("branch ")
+        elif line == "bare":
+            current["bare"] = True
+        elif line == "detached":
+            current["detached"] = True
+    flush()
+    return entries
+
+
+def resolve_main_worktree(repo_root: Path, main_branch: str) -> Path:
+    wanted = f"refs/heads/{main_branch}"
+    matches = [entry for entry in parse_worktrees(repo_root) if entry.branch == wanted]
+    if len(matches) > 1:
+        locations = ", ".join(str(entry.path) for entry in matches)
+        die(f"multiple worktrees are checked out on {main_branch}: {locations}")
+    if not matches:
+        die(f"{main_branch} is not checked out in any worktree")
+    return matches[0].path
+
+
+def commit_exists(repo_root: Path, ref: str) -> bool:
+    return git_returncode(
+        repo_root, ["cat-file", "-e", f"{ref}^{{commit}}"]
+    ) == 0
+
+
+def is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    return git_returncode(repo_root, ["merge-base", "--is-ancestor", ancestor, descendant]) == 0
+
+
+def count_range(repo_root: Path, commit_range: str) -> int:
+    raw = git_output(repo_root, ["rev-list", "--count", commit_range])
+    try:
+        return int(raw)
+    except ValueError:
+        die(f"git rev-list returned a non-integer count for {commit_range}: {raw}")
+
+
+def list_range(repo_root: Path, commit_range: str, fmt: str = "%h") -> list[str]:
+    raw = git_output(repo_root, ["log", commit_range, f"--format={fmt}"])
+    return [line for line in raw.splitlines() if line]
+
+
+def dirty_paths(worktree: Path) -> list[str]:
+    result = run_git(worktree, ["status", "--porcelain", "--untracked-files=all"], check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git status failed").strip()
+        die(detail)
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def origin_status(main_worktree: Path, main_branch: str) -> tuple[str | None, int | None]:
+    origin_ref = f"origin/{main_branch}"
+    if git_returncode(main_worktree, ["show-ref", "--verify", "--quiet", f"refs/remotes/{origin_ref}"]) != 0:
+        return None, None
+    behind_count = count_range(main_worktree, f"{main_branch}..{origin_ref}")
+    return origin_ref, behind_count
+
+
+def maybe_fetch(main_worktree: Path) -> tuple[bool, str | None]:
+    result = run_git(main_worktree, ["fetch"], check=False)
+    message = (result.stderr or result.stdout).strip() or None
+    return result.returncode == 0, message
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"_read_error": str(exc)}
+    return value if isinstance(value, dict) else {"_read_error": "JSON root is not an object"}
+
+
+def resolve_state_worktree(raw_path: Any) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    return Path(raw_path).expanduser().resolve()
+
+
+def inspect_beads_state(
+    *,
+    state_file: Path,
+    expected_issue_id: str | None,
+    feature_branch: str,
+    original_worktree: Path,
+    repo_root: Path,
+    target_ref: str,
+) -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "state_file": str(state_file),
+        "exists": state_file.exists(),
+        "issue_id": None,
+        "branch": None,
+        "worktree_path": None,
+        "started_sha": None,
+        "matches": False,
+        "problems": [],
+    }
+    data = read_json(state_file)
+    if data is None:
+        info["problems"].append("state file is absent")
+        return info
+    if "_read_error" in data:
+        info["problems"].append(f"could not read state file: {data['_read_error']}")
+        return info
+
+    issue_id = str(data.get("id", "")).strip()
+    info["issue_id"] = issue_id or None
+    if not issue_id:
+        info["problems"].append("state file has no issue id")
+    elif expected_issue_id is not None and issue_id != expected_issue_id:
+        info["problems"].append(f"state issue id is {issue_id}, expected {expected_issue_id}")
+
+    state_branch = str(data.get("branch", "")).strip()
+    info["branch"] = state_branch or None
+    if not state_branch:
+        info["problems"].append("state file has no branch")
+    elif state_branch != feature_branch:
+        info["problems"].append(f"state branch is {state_branch}, expected {feature_branch}")
+
+    state_worktree = resolve_state_worktree(data.get("worktree_path"))
+    info["worktree_path"] = str(state_worktree) if state_worktree else None
+    if state_worktree is None:
+        info["problems"].append("state file has no worktree_path")
+    elif state_worktree != original_worktree.resolve():
+        info["problems"].append(f"state worktree is {state_worktree}, expected {original_worktree}")
+
+    started_sha = str(data.get("started_sha", "")).strip()
+    info["started_sha"] = started_sha or None
+    if not started_sha:
+        info["problems"].append("state file has no started_sha")
+    elif not commit_exists(repo_root, started_sha):
+        info["problems"].append(f"started_sha is not a commit: {started_sha}")
+    elif not is_ancestor(repo_root, started_sha, target_ref):
+        info["problems"].append(f"started_sha {started_sha} is not an ancestor of {target_ref}")
+
+    info["matches"] = not info["problems"]
+    return info
+
+
+def inspect_all_beads(
+    *,
+    original_worktree: Path,
+    repo_root: Path,
+    feature_branch: str,
+    target_ref: str,
+) -> dict[str, Any]:
+    return {
+        actor: inspect_beads_state(
+            state_file=original_worktree / ".beads" / spec["state_file"],
+            expected_issue_id=None,
+            feature_branch=feature_branch,
+            original_worktree=original_worktree,
+            repo_root=repo_root,
+            target_ref=target_ref,
+        )
+        for actor, spec in ACTORS.items()
+    }
+
+
+def find_ai_wt_session(main_worktree: Path, original_worktree: Path) -> dict[str, Any] | None:
+    sessions_dir = main_worktree / ".ai-wt" / "sessions"
+    if not sessions_dir.exists():
+        return None
+    target = original_worktree.resolve()
+    for metadata_path in sorted(sessions_dir.glob("*.json")):
+        data = read_json(metadata_path)
+        if not data or "_read_error" in data:
+            continue
+        raw_worktree_path = data.get("worktree_path")
+        worktree_path = resolve_state_worktree(raw_worktree_path)
+        if worktree_path != target:
+            continue
+        session_id = str(data.get("session_id") or metadata_path.stem)
+        return {
+            "session_id": session_id,
+            "metadata_path": str(metadata_path),
+            "branch_created": bool(data.get("branch_created", False)),
+        }
+    return None
+
+
+def shell_command(parts: list[str]) -> str:
+    return shlex.join(parts)
+
+
+def cleanup_suggestion(
+    *,
+    main_worktree: Path,
+    original_worktree: Path,
+    feature_branch: str,
+    ai_wt_session: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if ai_wt_session:
+        command = ["ai-wt", "cleanup", str(ai_wt_session["session_id"]), "--delete"]
+        return {
+            "workdir": str(main_worktree),
+            "commands": [shell_command(command)],
+            "note": "Ask the user before running cleanup. Do not add --force unless explicitly requested.",
+        }
+    return {
+        "workdir": str(main_worktree),
+        "commands": [
+            shell_command(["git", "worktree", "remove", str(original_worktree)]),
+            shell_command(["git", "branch", "-d", feature_branch]),
+        ],
+        "note": "Ask the user before running cleanup. Never use git branch -D for this workflow.",
+    }
+
+
+def build_context(*, fetch: bool) -> MergeContext:
+    original_worktree = resolve_repo_root()
+    main_branch = resolve_main_branch(original_worktree)
+    feature_branch = current_branch(original_worktree)
+    if feature_branch in MAIN_BRANCH_CANDIDATES:
+        die(f"already on {feature_branch}; there is nothing to merge")
+    main_worktree = resolve_main_worktree(original_worktree, main_branch)
+
+    fetch_attempted = False
+    fetch_ok: bool | None = None
+    fetch_message: str | None = None
+    if fetch:
+        fetch_attempted = True
+        fetch_ok, fetch_message = maybe_fetch(main_worktree)
+
+    main_sha = git_output(main_worktree, ["rev-parse", "HEAD"])
+    feature_sha = git_output(original_worktree, ["rev-parse", feature_branch])
+    commits_ahead = count_range(original_worktree, f"{main_branch}..{feature_branch}")
+    fast_forward_possible = is_ancestor(original_worktree, main_branch, feature_branch)
+    dirty = dirty_paths(main_worktree)
+    origin_ref, behind_count = origin_status(main_worktree, main_branch)
+    ai_wt_session = find_ai_wt_session(main_worktree, original_worktree)
+    cleanup = cleanup_suggestion(
+        main_worktree=main_worktree,
+        original_worktree=original_worktree,
+        feature_branch=feature_branch,
+        ai_wt_session=ai_wt_session,
+    )
+    beads = inspect_all_beads(
+        original_worktree=original_worktree,
+        repo_root=original_worktree,
+        feature_branch=feature_branch,
+        target_ref=feature_branch,
+    )
+    return MergeContext(
+        original_worktree=original_worktree,
+        main_worktree=main_worktree,
+        main_branch=main_branch,
+        feature_branch=feature_branch,
+        main_sha=main_sha,
+        feature_sha=feature_sha,
+        commits_ahead=commits_ahead,
+        fast_forward_possible=fast_forward_possible,
+        main_dirty_paths=dirty,
+        origin_ref=origin_ref,
+        origin_behind_count=behind_count,
+        fetch_attempted=fetch_attempted,
+        fetch_ok=fetch_ok,
+        fetch_message=fetch_message,
+        ai_wt_session=ai_wt_session,
+        cleanup=cleanup,
+        beads=beads,
+    )
+
+
+def context_dict(ctx: MergeContext) -> dict[str, Any]:
+    return {
+        "original_worktree": str(ctx.original_worktree),
+        "main_worktree": str(ctx.main_worktree),
+        "main_branch": ctx.main_branch,
+        "feature_branch": ctx.feature_branch,
+        "main_sha": ctx.main_sha,
+        "feature_sha": ctx.feature_sha,
+        "feature": {
+            "commits_ahead": ctx.commits_ahead,
+            "fast_forward_possible": ctx.fast_forward_possible,
+            "commits": list_range(ctx.original_worktree, f"{ctx.main_branch}..{ctx.feature_branch}", "%h %s"),
+        },
+        "main_dirty": bool(ctx.main_dirty_paths),
+        "main_dirty_paths": ctx.main_dirty_paths,
+        "origin": {
+            "ref": ctx.origin_ref,
+            "behind_count": ctx.origin_behind_count,
+        },
+        "fetch": {
+            "attempted": ctx.fetch_attempted,
+            "ok": ctx.fetch_ok,
+            "message": ctx.fetch_message,
+        },
+        "ai_wt": ctx.ai_wt_session,
+        "beads": ctx.beads,
+        "cleanup": ctx.cleanup,
+    }
+
+
+def print_context_text(ctx: MergeContext) -> None:
+    print("Worktree merge inspection")
+    print(f"- Feature branch: {ctx.feature_branch} ({ctx.feature_sha[:12]})")
+    print(f"- Main branch: {ctx.main_branch} ({ctx.main_sha[:12]})")
+    print(f"- Original worktree: {ctx.original_worktree}")
+    print(f"- Main worktree: {ctx.main_worktree}")
+    print(f"- Commits ahead of {ctx.main_branch}: {ctx.commits_ahead}")
+    print(f"- Fast-forward possible: {'yes' if ctx.fast_forward_possible else 'no'}")
+    if ctx.main_dirty_paths:
+        print("- Main dirty: yes")
+        for item in ctx.main_dirty_paths:
+            print(f"  - {item}")
+    else:
+        print("- Main dirty: no")
+    if ctx.origin_ref is None:
+        print("- Origin status: no origin/<main> ref")
+    else:
+        print(f"- Origin status: {ctx.origin_ref} is {ctx.origin_behind_count} commit(s) ahead of local {ctx.main_branch}")
+    if ctx.fetch_attempted and not ctx.fetch_ok:
+        print(f"- Fetch warning: {ctx.fetch_message or 'git fetch failed'}")
+    if ctx.ai_wt_session:
+        print(f"- ai-wt session: {ctx.ai_wt_session['session_id']}")
+    else:
+        print("- ai-wt session: none")
+    for actor, info in ctx.beads.items():
+        issue = info.get("issue_id") or "none"
+        matches = "matches" if info.get("matches") else "not matching"
+        print(f"- Beads ({actor}): {issue} ({matches})")
+        for problem in info.get("problems", []):
+            if problem != "state file is absent":
+                print(f"  - {problem}")
+    print("- Cleanup suggestion (ask before running; run from workdir below):")
+    print(f"  workdir: {ctx.cleanup['workdir']}")
+    for command in ctx.cleanup["commands"]:
+        print(f"  command: {command}")
+
+
+def update_main_from_origin(ctx: MergeContext) -> MergeContext:
+    if ctx.origin_ref is None:
+        die(f"cannot update {ctx.main_branch}: origin/{ctx.main_branch} does not exist")
+    fetch_ok, fetch_message = maybe_fetch(ctx.main_worktree)
+    if not fetch_ok:
+        die(f"git fetch failed before updating {ctx.main_branch}: {fetch_message or 'unknown error'}")
+    result = run_git(ctx.main_worktree, ["merge", "--ff-only", ctx.origin_ref], check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git merge --ff-only failed").strip()
+        die(f"could not fast-forward {ctx.main_branch} from {ctx.origin_ref}: {detail}")
+    return build_context(fetch=False)
+
+
+def ensure_merge_preconditions(ctx: MergeContext, *, update_main: bool) -> MergeContext:
+    if ctx.main_dirty_paths:
+        paths = "\n".join(ctx.main_dirty_paths)
+        die(f"main worktree is dirty; refusing to merge:\n{paths}")
+    if ctx.origin_behind_count and ctx.origin_behind_count > 0:
+        if not update_main:
+            die(
+                f"{ctx.main_branch} is behind {ctx.origin_ref} by {ctx.origin_behind_count} commit(s); "
+                "rerun with --update-main only after user approval"
+            )
+        ctx = update_main_from_origin(ctx)
+        if ctx.main_dirty_paths:
+            paths = "\n".join(ctx.main_dirty_paths)
+            die(f"main worktree is dirty after updating from origin:\n{paths}")
+    if ctx.commits_ahead == 0:
+        die(f"{ctx.feature_branch} has no commits ahead of {ctx.main_branch}")
+    return ctx
+
+
+def actor_env(actor: str) -> dict[str, str]:
+    spec = ACTORS[actor]
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": spec["name"],
+            "GIT_AUTHOR_EMAIL": spec["email"],
+            "GIT_COMMITTER_NAME": spec["name"],
+            "GIT_COMMITTER_EMAIL": spec["email"],
+        }
+    )
+    return env
+
+
+def merge_failure_message(ctx: MergeContext, result: subprocess.CompletedProcess[str]) -> str:
+    detail = (result.stderr or result.stdout or "git merge failed").strip()
+    conflicts = run_git(ctx.main_worktree, ["diff", "--name-only", "--diff-filter=U"], check=False)
+    conflict_paths = [line for line in conflicts.stdout.splitlines() if line]
+    if conflict_paths:
+        detail = f"{detail}\nconflicted paths:\n" + "\n".join(conflict_paths)
+    return detail
+
+
+def close_beads_issue(
+    *,
+    ctx: MergeContext,
+    actor: str,
+    issue_id: str | None,
+    before_sha: str,
+) -> dict[str, Any]:
+    if issue_id is None:
+        return {"requested": False, "closed": False, "reason": "not requested"}
+
+    spec = ACTORS[actor]
+    state_file = ctx.original_worktree / ".beads" / spec["state_file"]
+    state = inspect_beads_state(
+        state_file=state_file,
+        expected_issue_id=issue_id,
+        feature_branch=ctx.feature_branch,
+        original_worktree=ctx.original_worktree,
+        repo_root=ctx.original_worktree,
+        target_ref="HEAD",
+    )
+    if not state["matches"]:
+        return {
+            "requested": True,
+            "closed": False,
+            "state_file": str(state_file),
+            "reason": "state did not validate",
+            "problems": state["problems"],
+        }
+
+    started_sha = str(state["started_sha"])
+    merged_shas = list_range(ctx.main_worktree, f"{started_sha}..HEAD", "%h")
+    if not merged_shas:
+        merged_shas = list_range(ctx.main_worktree, f"{before_sha}..HEAD", "%h")
+    reason = f"Fixed with commit(s) {' '.join(merged_shas) or git_output(ctx.main_worktree, ['rev-parse', '--short', 'HEAD'])}"
+    result = subprocess.run(
+        ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]],
+        cwd=str(ctx.original_worktree),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {
+            "requested": True,
+            "closed": False,
+            "state_file": str(state_file),
+            "reason": "bd close failed",
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+    try:
+        state_file.unlink()
+    except OSError as exc:
+        return {
+            "requested": True,
+            "closed": True,
+            "state_file": str(state_file),
+            "reason": reason,
+            "warning": f"could not remove state file: {exc}",
+        }
+    return {"requested": True, "closed": True, "state_file": str(state_file), "reason": reason}
+
+
+def print_merge_report(report: dict[str, Any]) -> None:
+    print(f"Merged {report['feature_branch']} into {report['main_branch']}")
+    print(f"- Merge type: {report['merge_type']}")
+    print(f"- Main SHA before: {report['main_sha_before'][:12]}")
+    print(f"- Main SHA after: {report['main_sha_after'][:12]}")
+    print(f"- Commits merged: {report['commits_merged']}")
+    if report.get("merge_commit_author"):
+        print(f"- Merge commit author: {report['merge_commit_author']}")
+    beads = report["beads"]
+    if beads.get("closed"):
+        print(f"- Beads issue closed: yes ({report['close_beads']})")
+    elif beads.get("requested"):
+        print(f"- Beads issue closed: no ({beads.get('reason', 'unknown reason')})")
+        for problem in beads.get("problems", []):
+            print(f"  - {problem}")
+    else:
+        print("- Beads issue closed: no (not requested)")
+    print("- Cleanup suggestion (not run; ask before running; run from workdir below):")
+    print(f"  workdir: {report['cleanup']['workdir']}")
+    for command in report["cleanup"]["commands"]:
+        print(f"  command: {command}")
+    print("- Pushed: no")
+
+
+def perform_merge(raw_args: list[str], *, merge_type: str) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} {merge_type}")
+    parser.add_argument("--actor", required=True, choices=tuple(ACTORS), help="agent identity for merge commits")
+    parser.add_argument("--update-main", action="store_true", help="fast-forward main from origin/main before merging")
+    parser.add_argument("--close-beads", metavar="ISSUE_ID", help="close a matching Beads issue after a successful merge")
+    if merge_type == "no-ff":
+        parser.add_argument("-m", "--message", action="append", required=True, help="merge commit message paragraph")
+    parsed = parser.parse_args(raw_args)
+
+    ctx = ensure_merge_preconditions(build_context(fetch=False), update_main=parsed.update_main)
+    before_sha = ctx.main_sha
+    if merge_type == "ff":
+        if not ctx.fast_forward_possible:
+            die("fast-forward is not possible; use the no-ff command after drafting a merge message")
+        result = run_git(ctx.main_worktree, ["merge", "--ff-only", ctx.feature_branch], check=False)
+    else:
+        if ctx.fast_forward_possible:
+            die("fast-forward is possible; use the ff command instead of creating a no-ff merge commit")
+        merge_args = ["merge", "--no-ff"]
+        for paragraph in parsed.message:
+            merge_args.extend(["-m", paragraph])
+        merge_args.append(ctx.feature_branch)
+        result = run_git(ctx.main_worktree, merge_args, check=False, env=actor_env(parsed.actor))
+    if result.returncode != 0:
+        die(merge_failure_message(ctx, result))
+
+    after_sha = git_output(ctx.main_worktree, ["rev-parse", "HEAD"])
+    commits_merged = count_range(ctx.main_worktree, f"{before_sha}..HEAD")
+    merge_commit_author = None
+    if merge_type == "no-ff":
+        merge_commit_author = git_output(ctx.main_worktree, ["log", "-1", "--format=%an <%ae>"])
+
+    post_ctx = build_context(fetch=False)
+    beads_result = close_beads_issue(
+        ctx=post_ctx,
+        actor=parsed.actor,
+        issue_id=parsed.close_beads,
+        before_sha=before_sha,
+    )
+    report = {
+        "merge_type": merge_type,
+        "main_branch": ctx.main_branch,
+        "feature_branch": ctx.feature_branch,
+        "main_sha_before": before_sha,
+        "main_sha_after": after_sha,
+        "commits_merged": commits_merged,
+        "merge_commit_author": merge_commit_author,
+        "close_beads": parsed.close_beads,
+        "beads": beads_result,
+        "cleanup": post_ctx.cleanup,
+    }
+    print_merge_report(report)
+    if beads_result.get("requested") and not beads_result.get("closed") and beads_result.get("reason") == "bd close failed":
+        return 1
+    return 0
+
+
+def cmd_inspect(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} inspect")
+    parser.add_argument("--fetch", action="store_true", help="run best-effort git fetch before reporting origin status")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    parsed = parser.parse_args(raw_args)
+    ctx = build_context(fetch=parsed.fetch)
+    if parsed.json:
+        print(json.dumps(context_dict(ctx), indent=2, sort_keys=True))
+    else:
+        print_context_text(ctx)
+    return 0
+
+
+def usage() -> str:
+    return f"""Usage:
+  ./assets/{SCRIPT_NAME} inspect [--fetch] [--json]
+  ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>]
+  ./assets/{SCRIPT_NAME} no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>]
+
+Commands:
+  inspect  Report merge target facts and cleanup suggestions.
+  ff       Fast-forward main/master to the current feature branch.
+  no-ff    Create a no-ff merge commit on main/master.
+"""
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in {"-h", "--help"}:
+        print(usage(), end="")
+        return 0
+    command, raw_args = argv[0], argv[1:]
+    try:
+        if command == "inspect":
+            return cmd_inspect(raw_args)
+        if command == "ff":
+            return perform_merge(raw_args, merge_type="ff")
+        if command == "no-ff":
+            return perform_merge(raw_args, merge_type="no-ff")
+        die(f"unknown command: {command}")
+    except AgentWtMergeError as exc:
+        eprint(str(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

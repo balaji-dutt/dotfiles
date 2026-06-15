@@ -40,8 +40,16 @@
       "chezmoi --use-builtin-diff --no-pager diff*": "allow",
       "chezmoi target-path*": "allow",
       "./assets/cz-audit.sh*": "allow",
+      "bash ./assets/sync-devcontainer-assets.sh*": "allow",
       "pwsh ./assets/cz-audit.ps1*": "allow",
       "pwsh -NoProfile -Command \"./assets/cz-audit.ps1*\"": "allow",
+      // agent worktree merge helper; cleanup remains ask-gated
+      "./assets/agent-wt-merge inspect*": "allow",
+      "./assets/agent-wt-merge ff*": "allow",
+      "./assets/agent-wt-merge no-ff*": "allow",
+      "ai-wt cleanup*": "ask",
+      "git worktree remove*": "ask",
+      "git branch -d *": "ask",
       // deny destructive chezmoi ops (keep these after allows)
       "chezmoi destroy*": "deny",
       "chezmoi purge*": "deny",
@@ -119,6 +127,13 @@
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
+          "bash ./assets/sync-devcontainer-assets.sh*": "allow",
+          "./assets/agent-wt-merge inspect*": "allow",
+          "./assets/agent-wt-merge ff*": "allow",
+          "./assets/agent-wt-merge no-ff*": "allow",
+          "ai-wt cleanup*": "ask",
+          "git worktree remove*": "ask",
+          "git branch -d *": "ask",
         },
         "task": {
           "*": "deny",
@@ -141,6 +156,13 @@
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
+          "bash ./assets/sync-devcontainer-assets.sh*": "allow",
+          "./assets/agent-wt-merge inspect*": "allow",
+          "./assets/agent-wt-merge ff*": "allow",
+          "./assets/agent-wt-merge no-ff*": "allow",
+          "ai-wt cleanup*": "ask",
+          "git worktree remove*": "ask",
+          "git branch -d *": "ask",
         },
         "task": {
           "*": "deny",
@@ -163,6 +185,13 @@
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
+          "bash ./assets/sync-devcontainer-assets.sh*": "allow",
+          "./assets/agent-wt-merge inspect*": "allow",
+          "./assets/agent-wt-merge ff*": "allow",
+          "./assets/agent-wt-merge no-ff*": "allow",
+          "ai-wt cleanup*": "ask",
+          "git worktree remove*": "ask",
+          "git branch -d *": "ask",
         },
         "task": {
           "*": "deny",

@@ -2,11 +2,11 @@
 name: worktree-merge
 description: Merge the current feature branch worktree into main —
   fast-forward when possible, otherwise create a descriptive no-ff merge
-  commit attributed to the agent, then offer worktree and branch
-  cleanup. Triggered by phrases like "merge this branch into main",
-  "fast-forward into main", or "merge the worktree back to main".
+  commit attributed to Claude, then offer worktree and branch cleanup.
+  Triggered by phrases like "merge this branch into main", "fast-forward
+  into main", or "merge the worktree back to main".
 license: MIT
-compatibility: opencode
+compatibility: claude-code
 metadata:
   audience: dotfiles-maintainer
   workflow: worktree-merge
@@ -14,310 +14,128 @@ metadata:
 
 # worktree-merge
 
-Merge the feature branch in the current worktree into `main` (or `master`
-if that is the repo's primary branch). Try `--ff-only` first. Fall back to
-a descriptive `--no-ff` merge commit authored as the agent. Stop on
-conflict. Offer cleanup of the worktree and branch after the merge lands.
+Merge the current feature branch into `main` (or `master`) without making each
+agent rediscover the same Git/worktree/Beads facts. In this dotfiles repo,
+prefer the repo-local helper `./assets/agent-wt-merge`.
 
-## Use this skill when
+The helper works for direct Claude Code, Plannotator, Agent of Empires, manual
+Git worktrees, and `ai-wt` worktrees. Treat `.ai-wt` metadata as optional; it
+only improves cleanup suggestions.
 
-- The user says "merge this branch into main", "fast-forward into main",
-  "merge the worktree back to main", or "land this on main".
-- The current session is inside an ai-wt-created worktree and the user
-  signals the feature is done.
+## Guardrails
 
-## Do not use this skill when
+- Never push.
+- Never run cleanup automatically.
+- Never use `git branch -D` in this workflow.
+- Never pass `--update-main` unless the user approved updating local
+  `main`/`master` from `origin/<main>`.
+- Pass `--close-beads <issue-id>` only when inspect reports a matching Claude
+  Beads state for that exact issue.
+- If the helper reports dirty `main`/`master`, detached HEAD, missing main
+  worktree, no commits to merge, or mismatched Beads state, stop and report the
+  reason instead of guessing.
 
-- The user wants to push or open a PR — this skill never pushes.
-- The user is already on `main`/`master` — abort, there is nothing to
-  merge.
-- The user wants a rebase-and-merge or squash-merge — those are different
-  workflows; ask what they prefer instead of guessing.
-- The repo has no `main` or `master` branch — surface and ask.
+## Primary workflow: helper available
 
-## Author identity (harness-scoped)
+### 1. Inspect the merge state
 
-The merge commit must be attributed to the running agent. Use the literal
-env-var values from the harness's commit wrapper
-(`bin/executable_cc-commit`, `bin/executable_oc-commit`):
-
-- Claude Code: `Claude` / `noreply@anthropic.com`.
-- OpenCode: `OpenCode` / `noreply@opencode.ai`.
-
-## Subject/body format (repo-scoped)
-
-The commit message **format** is set by the repo, not the harness. Read the
-repo's `CLAUDE.md` or `AGENTS.md` for its documented commit workflow before
-drafting the merge subject and body. Defaults when nothing is documented:
-
-- Subject ≤50 chars, imperative mood, no trailing period.
-- Blank second line.
-- Body bulleted `- ` lines, each <80 chars.
-
-Some repos (e.g. `homelab-IaC`) keep the same 50/72 body structure but use
-Conventional Commits for the subject (`type(scope): subject`). If the
-repo's docs say so, follow that.
-
-See `references/merge-message-templates.md` for one example of each
-convention, with both Claude and OpenCode invocations of the same message.
-
-## Workflow
-
-### Step 1: Sanity check
-
-Confirm the session is inside a git repo and on a non-main branch:
+From the feature worktree root, run:
 
 ```bash
-git rev-parse --is-inside-work-tree
-git rev-parse --abbrev-ref HEAD
+./assets/agent-wt-merge inspect --fetch --json
 ```
 
-Abort with a clear message if:
+Use the returned JSON as the source of truth:
 
-- The command fails (not a git repo).
-- `HEAD` is detached (output is `HEAD`).
-- The current branch is already `main` or `master`.
+- `feature_branch`, `main_branch`, and `main_worktree` identify what will be
+  merged and where.
+- `main_dirty` / `main_dirty_paths` must be clean before merge.
+- `origin.behind_count > 0` means you must ask before using `--update-main`.
+- `feature.commits_ahead == 0` means there is nothing to merge.
+- `feature.fast_forward_possible` chooses `ff` vs `no-ff`.
+- `beads.claude.matches == true` identifies the only issue ID safe to pass to
+  `--close-beads`.
+- `cleanup.workdir` and `cleanup.commands` are suggestions only; do not run
+  them until after the merge and explicit user approval.
 
-### Step 2: Resolve the main branch name and the main worktree path
+If `fetch.ok` is false, surface the warning. Do not fail solely because the
+network fetch failed unless the merge requires `--update-main`.
 
-Prefer `main` if it exists locally; otherwise use `master`:
+### 2. Decide optional flags
+
+- Add `--update-main` only after asking the user when inspect shows local
+  `main`/`master` is behind `origin/<main>`.
+- Add `--close-beads <issue-id>` only when `beads.claude.matches` is true. If
+  the state is absent or mismatched, omit the flag and report why the issue was
+  not closed.
+
+### 3. Fast-forward when possible
+
+If `feature.fast_forward_possible` is true, run:
 
 ```bash
-if git show-ref --verify --quiet refs/heads/main; then
-  MAIN_BRANCH="main"
-elif git show-ref --verify --quiet refs/heads/master; then
-  MAIN_BRANCH="master"
-else
-  echo "ERROR: neither main nor master exists locally"
-  exit 1
-fi
+./assets/agent-wt-merge ff --actor claude [--update-main] [--close-beads <issue-id>]
 ```
 
-Locate main's checkout by parsing `git worktree list --porcelain` for the
-entry whose `branch` value is `refs/heads/${MAIN_BRANCH}`. Store as
-`MAIN_WT`. If `main` is not checked out anywhere, fall back to the repo's
-primary working directory (the first entry in `git worktree list`).
+Use only the optional flags justified in step 2.
 
-If more than one worktree has `main` checked out, abort and ask — that is
-an unusual configuration and silent guesses are risky.
+### 4. Use no-ff only when fast-forward is not possible
 
-### Step 3: Save state, then cd into the main worktree
-
-Save the feature branch name and the original worktree path to shell
-variables before changing directory, so step 7 can return cleanly:
+If fast-forward is not possible, gather message context with simple Git
+commands, then draft a descriptive merge commit message:
 
 ```bash
-FEATURE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-ORIG_WT="$(pwd)"
-cd "$MAIN_WT"
+git log "<main-branch>..<feature-branch>" --oneline
+git diff --stat "<main-branch>...<feature-branch>"
 ```
 
-Do not use `git -C "$MAIN_WT" <verb> ...`. The harness allowlists in this
-repo match against the literal command prefix (`Bash(git merge:*)` for
-Claude Code, `git merge*` for OpenCode); `git -C <path> merge ...` starts
-with `git -C`, not `git merge`, so it would be punted to the ask tier on
-every invocation. A single `cd` followed by plain `git <verb>` matches
-the existing allowlist entries.
+Use the repo's documented commit format (`AGENTS.md`/`CLAUDE.md`). The subject
+should describe what the branch did, not say only "Merge branch X".
 
-**Important: cwd persistence is not guaranteed.** Some harness shell
-sessions (notably Claude Code) reset cwd to the project root between
-Bash invocations. Treat `cd "$MAIN_WT"` as a per-invocation prefix, not
-a one-shot setup. Either:
-
-- Chain the related steps in a single Bash invocation that starts with
-  `cd "$MAIN_WT" && <commands>`, **or**
-- Re-issue `cd "$MAIN_WT"` at the top of every subsequent Bash call
-  that needs to operate on the main worktree (preconditions, ff
-  attempt, no-ff fallback, log inspection, return).
-
-A bare `cd "$MAIN_WT"` in step 3 alone does **not** carry forward.
-
-### Step 4: Verify preconditions
-
-Inside `$MAIN_WT`:
+Then run:
 
 ```bash
-git status --porcelain
+./assets/agent-wt-merge no-ff --actor claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
 ```
 
-Abort if the output is non-empty. List the dirty paths to the user.
+The helper sets Claude authorship on the merge commit.
 
-Fetch from origin best-effort. Surface failure but do not abort if offline:
+### 5. Report and offer cleanup
 
-```bash
-git fetch || echo "WARN: git fetch failed; proceeding with local state"
-```
+After a successful helper run, report:
 
-If `main` is behind `origin/${MAIN_BRANCH}`, ask the user whether to
-fast-forward main from origin first before merging the feature branch in.
+- merge type;
+- main SHA before/after;
+- whether a Beads issue was closed;
+- that nothing was pushed;
+- cleanup suggestions from the helper.
 
-### Step 5: Attempt fast-forward
+Ask before cleanup. If approved, run the suggested cleanup commands from the
+reported `cleanup.workdir`. Keep cleanup permission-gated; do not broaden
+permissions to make cleanup silent.
 
-```bash
-git merge --ff-only "$FEATURE_BRANCH"
-```
+## Fallback: helper absent
 
-On success, record the merged SHA range with:
+If `./assets/agent-wt-merge` is absent in another repository, do not invent a
+large heredoc or dynamic parser. Ask whether to proceed manually. If approved,
+use the minimal manual workflow:
 
-```bash
-git log "@{1}..HEAD" --oneline
-```
+1. Confirm the current branch is not `main`/`master` and not detached.
+2. Resolve `main`/`master` and its checked-out worktree with
+   `git worktree list --porcelain`.
+3. Verify the main worktree is clean.
+4. Fetch best-effort; ask before updating local main from origin.
+5. Try `git merge --ff-only <feature-branch>` from the main worktree.
+6. If fast-forward fails, draft a descriptive no-ff message and run
+   `git merge --no-ff` with Claude author/committer env vars.
+7. Close Beads only after merge lands and only after validating an explicit
+   matching `.beads/in-progress-claude.json` state file.
+8. Offer cleanup, but never run it without confirmation.
 
-Then jump to step 7.
+If any step would require non-trivial parsing, stop and ask the user to copy or
+install the helper instead of recreating it inline.
 
-### Step 6: Fall back to a no-ff merge commit (if ff fails)
-
-Build a descriptive message body from the branch's commit history and diff
-stat:
-
-```bash
-git log "${MAIN_BRANCH}..${FEATURE_BRANCH}" --oneline
-git diff --stat "${MAIN_BRANCH}...${FEATURE_BRANCH}"
-```
-
-Draft a subject that describes **what the branch did**, not "Merge branch
-X" boilerplate. Use the repo's commit format (see the "Subject/body format"
-section above). See `references/merge-message-templates.md` for one worked
-example per convention, each shown for both Claude and OpenCode.
-
-Then run the merge with the agent's authorship env vars. Use the literal
-form for the running harness.
-
-Claude Code:
-
-```bash
-GIT_AUTHOR_NAME="Claude" GIT_AUTHOR_EMAIL="noreply@anthropic.com" \
-GIT_COMMITTER_NAME="Claude" GIT_COMMITTER_EMAIL="noreply@anthropic.com" \
-  git merge --no-ff -m "<subject>" -m "<body>" "$FEATURE_BRANCH"
-```
-
-OpenCode:
-
-```bash
-GIT_AUTHOR_NAME="OpenCode" GIT_AUTHOR_EMAIL="noreply@opencode.ai" \
-GIT_COMMITTER_NAME="OpenCode" GIT_COMMITTER_EMAIL="noreply@opencode.ai" \
-  git merge --no-ff -m "<subject>" -m "<body>" "$FEATURE_BRANCH"
-```
-
-Verify attribution after the merge:
-
-```bash
-git log -1 --format='%an <%ae>'
-```
-
-Expect `Claude <noreply@anthropic.com>` or `OpenCode <noreply@opencode.ai>`
-matching the harness.
-
-### Step 7: Report and return to the original worktree
-
-Print whether the merge was `ff` or `no-ff`, the resulting `main` SHA, and
-`git log -1 --stat` of the merge commit.
-
-Return to the feature branch worktree so the rest of the session resumes
-in the right place:
-
-```bash
-cd "$ORIG_WT"
-```
-
-### Step 8: Offer cleanup (never silent, never automatic)
-
-Always offer — never perform without confirmation:
-
-- **Worktree removal.** Detect whether the worktree was created by `ai-wt`
-  by matching `$ORIG_WT` against session metadata under the main
-  worktree's `.ai-wt/` state directory:
-
-  ```bash
-  AI_WT_SESSION_ID="$(
-    ORIG_WT="$ORIG_WT" AI_WT_STATE_DIR="$MAIN_WT/.ai-wt" python3 <<'PY'
-import json
-import os
-from pathlib import Path
-
-target = Path(os.environ["ORIG_WT"]).resolve()
-sessions_dir = Path(os.environ["AI_WT_STATE_DIR"]) / "sessions"
-
-for metadata_path in sorted(sessions_dir.glob("*.json")):
-    try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        raw_worktree_path = metadata.get("worktree_path")
-        if not raw_worktree_path:
-            continue
-        worktree_path = Path(str(raw_worktree_path)).resolve()
-    except (OSError, json.JSONDecodeError):
-        continue
-    if worktree_path == target:
-        print(metadata.get("session_id") or metadata_path.stem)
-        break
-PY
-  )"
-
-  if [ -n "$AI_WT_SESSION_ID" ]; then
-    echo "Suggest: ai-wt cleanup \"$AI_WT_SESSION_ID\""
-  else
-    echo "Suggest: git worktree remove \"$ORIG_WT\""
-  fi
-  ```
-
-  Surface the suggested command and wait for the user's go-ahead.
-
-- **Branch deletion.** Propose only the safe form:
-
-  ```bash
-  git branch -d "$FEATURE_BRANCH"
-  ```
-
-  Never propose `-D`. If `-d` refuses because the branch is not fully
-  merged, that is a real signal that something is off — surface it to
-  the user rather than forcing the delete.
-
-- **Push.** Do not offer. The user can push manually if they want to.
-
-## Edge cases
-
-### Detached HEAD
-
-If step 1 detects detached HEAD, abort. There is no feature branch name to
-merge from.
-
-### Feature branch has no new commits
-
-If `git log "${MAIN_BRANCH}..${FEATURE_BRANCH}" --oneline` is empty, tell
-the user there is nothing to merge and stop before step 5.
-
-### Main worktree dirty
-
-If `git status --porcelain` in step 4 is non-empty, abort with the concrete
-file list. Do not stash silently.
-
-### Merge conflict on no-ff
-
-If `git merge --no-ff ...` exits with a conflict in step 6, stop. List the
-conflicted paths:
-
-```bash
-git diff --name-only --diff-filter=U
-```
-
-Point the user at two options:
-
-- `git merge --abort` to back out cleanly.
-- Manual resolution followed by `git commit` (still using the agent
-  authorship env vars).
-
-Do not attempt to auto-resolve.
-
-### Branch not pushed to origin
-
-Local merge is fine. The skill never requires the branch to exist on
-origin.
-
-### Multiple worktrees checked out on main
-
-Unusual configuration. Abort in step 2 and ask the user which to target.
-
-## Output / final report
+## Final response template
 
 ```markdown
 ## Merged <feature-branch> into <main-branch>
@@ -326,9 +144,7 @@ Unusual configuration. Abort in step 2 and ask the user which to target.
 - Main SHA before: <short>
 - Main SHA after: <short>
 - Commits merged: <n>
-- Merge commit (no-ff only): <short> — author <Claude|OpenCode>
-- Returned to worktree: <orig-worktree-path>
-- Cleanup offered: worktree removal (<ai-wt cleanup | git worktree remove>),
-  branch -d <feature-branch>
+- Beads issue closed: <id | no, reason>
+- Cleanup offered: <commands, not run>
 - Pushed: no
 ```

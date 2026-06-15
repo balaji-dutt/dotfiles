@@ -31,6 +31,9 @@
       "Bash(git merge:*)",
       "Bash(git worktree:*)",
       "Bash(git rev-parse:*)",
+      "Bash(./assets/agent-wt-merge inspect:*)",
+      "Bash(./assets/agent-wt-merge ff:*)",
+      "Bash(./assets/agent-wt-merge no-ff:*)",
       "Bash(bd:*)",
       "Bash(ls:*)",
       "Bash(ll:*)",
@@ -173,6 +176,9 @@
       "Bash(exec > /dev/tcp/:*)"
     ],
     "ask": [
+      "Bash(ai-wt cleanup:*)",
+      "Bash(git worktree remove:*)",
+      "Bash(git branch -d:*)",
       "Bash(cc-commit:*)"
     ],
     "defaultMode": "plan"
