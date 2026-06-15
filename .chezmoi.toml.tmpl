@@ -17,8 +17,8 @@
 {{- /* Windows specific prompts */ -}}
 {{- $windowsPuttyKeysDir := "" -}}
 {{- $windowsPageantKeysAllowlist := "" -}}
-{{- $macosVdiEnabledRaw := "false" -}}
-{{- $macosVdiInstallRaw := "false" -}}
+{{- $macosVdiEnabled := false -}}
+{{- $macosVdiInstall := false -}}
 {{- $macosVdiZoomPkgURLRef := "" -}}
 {{- $macosVdiCitrixDmgURLRef := "" -}}
 {{- $macosVdiCitrixDmgPath := "" -}}
@@ -51,8 +51,8 @@
 {{-   $macosVdiData := (get . "macos_vdi" | default dict) -}}
 {{-   $macosVdiCitrixData := (get $macosVdiData "citrix" | default dict) -}}
 {{-   $defaultCitrixDmgPath := (get $macosVdiCitrixData "default_dmg_path" | default "/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg") -}}
-{{-   $macosVdiEnabledRaw = promptStringOnce . "macos_vdi.enabled" "Manage macOS Citrix/Zoom VDI apps? (true/false)" "false" -}}
-{{-   $macosVdiInstallRaw = promptStringOnce . "macos_vdi.install" "Install/update macOS VDI apps, not just report drift? (true/false)" "false" -}}
+{{-   $macosVdiEnabled = promptBoolOnce . "macos_vdi.enabled" "Manage macOS Citrix/Zoom VDI apps?" false -}}
+{{-   $macosVdiInstall = promptBoolOnce . "macos_vdi.install" "Install/update macOS VDI apps, not just report drift?" false -}}
 {{-   $macosVdiZoomPkgURLRef = promptStringOnce . "macos_vdi.zoom.pkg_url_op_ref" "1Password ref for Zoom VDI direct .pkg URL (leave empty to skip)" "" -}}
 {{-   $macosVdiCitrixDmgURLRef = promptStringOnce . "macos_vdi.citrix.dmg_url_op_ref" "1Password ref for Citrix Workspace direct .dmg URL (leave empty for local DMG fallback)" "" -}}
 {{-   $macosVdiCitrixDmgPath = promptStringOnce . "macos_vdi.citrix.dmg_path" "Local Citrix Workspace DMG path fallback" $defaultCitrixDmgPath -}}
@@ -61,9 +61,6 @@
 {{-   $macosVdiCitrixDmgSHA256 = promptStringOnce . "macos_vdi.citrix.dmg_sha256" "Citrix Workspace .dmg SHA-256 (optional)" "" -}}
 {{-   $macosVdiCitrixDmgSHA256Ref = promptStringOnce . "macos_vdi.citrix.dmg_sha256_op_ref" "1Password ref for Citrix Workspace .dmg SHA-256 (optional)" "" -}}
 {{- end -}}
-
-{{- $macosVdiEnabled := or (eq ($macosVdiEnabledRaw | lower) "true") (eq ($macosVdiEnabledRaw | lower) "yes") (eq ($macosVdiEnabledRaw | lower) "y") (eq $macosVdiEnabledRaw "1") -}}
-{{- $macosVdiInstall := or (eq ($macosVdiInstallRaw | lower) "true") (eq ($macosVdiInstallRaw | lower) "yes") (eq ($macosVdiInstallRaw | lower) "y") (eq $macosVdiInstallRaw "1") -}}
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
 {{- $defaultSourceDir := "" -}}
