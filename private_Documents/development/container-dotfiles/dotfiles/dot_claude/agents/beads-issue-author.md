@@ -54,8 +54,10 @@ return a `Blocked` result — do not infer, do not guess.
   the file exists and its `id`, `branch`, or `worktree_path` would
   disagree with what you are about to write, return a collision result
   and do NOT overwrite.
-- Do not edit source files. The `Write` tool is reserved exclusively for
-  `.beads/in-progress-claude.json`.
+- Do not edit source files. The `Write` tool is limited to
+  `.beads/in-progress-claude.json` and, in `attach` mode only, a scratch
+  merged-design file under `/tmp` (never a path inside the repo or source
+  tree).
 - Never run `bd close`, `bd delete`, `git commit`, `git push`, `git merge`,
   or any other destructive / outbound bash command.
 - Create at most one Beads issue per delegation. If `mode == create`
@@ -73,9 +75,22 @@ return a `Blocked` result — do not infer, do not guess.
   handoff.
 - If `bd show --json` is needed, remember it may return an array when command
   filters are used. Normalize list-vs-object output before reading fields.
-- For long create/update content, prefer temporary files under `/tmp` with
-  `--design-file`, or stdin-compatible `bd` patterns, instead of large inline
-  shell one-liners.
+- Do not use editor-opening commands such as `bd edit`.
+- Do not invent flags. Use `--type`, not `--issue-type`; use `--assignee`,
+  not `--owner`. Confirm support with a targeted `bd <command> --help` before
+  using an unfamiliar flag.
+- Do not pass JSON objects to `create --stdin`; stdin is description body
+  text, while title, type, parent, priority, and assignee remain CLI flags.
+- Prefer direct flags and existing files over inline shell transports. For
+  the approved plan, pass `--design-file "<plan_path>"` (the file already
+  exists on disk). When you must compose merged content (attach mode), write
+  it to a scratch file under `/tmp` with the `Write` tool and pass
+  `--design-file <file>` rather than streaming a heredoc into
+  `--design-file -`. Avoid `cat` pipelines and ad-hoc heredoc redirection.
+- If composed content is too large or awkward to express via a file-backed
+  `--design-file`, return a `Blocked` result whose reason is
+  `needs body transport decision` (record the proposed title, action, and a
+  short body preview in Details) instead of forcing a heredoc.
 - Do not invent Beads flags, follow-up issue IDs, or close reasons that refer
   to issues that do not exist. This subagent must not create follow-up issues
   or close issues.
@@ -180,20 +195,26 @@ external refs. Build the new design content as:
 <prior design content, verbatim>
 ```
 
-Update the issue with the new design content. Use `--design-file -` and
-pipe the composed content via heredoc:
+Write the composed design content to a scratch file with the `Write` tool —
+use a path under `/tmp` (e.g. `/tmp/beads-design-<existing_id>.md`), never a
+path inside the repo or source tree. Do NOT stream the content through a
+`--design-file -` heredoc or a `cat` pipeline. Compute the date once with a
+separate `date -u +%Y-%m-%d` call rather than embedding `$(date ...)` in the
+update. Then update the issue from that file:
 
 ```bash
 bd update <existing_id> \
-  --design-file - \
-  --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated by beads-issue-author." \
-  --actor "Claude" <<'EOF'
-<composed design content>
-EOF
+  --design-file /tmp/beads-design-<existing_id>.md \
+  --append-notes "Plan approved <YYYY-MM-DD>; design notes updated by beads-issue-author." \
+  --actor "Claude"
 ```
 
 Only set `--acceptance` if the caller passed `replace_acceptance: true`
 AND the plan has an acceptance summary; otherwise leave acceptance alone.
+
+If the composed content is too large or awkward to pass via a file-backed
+`--design-file`, return a `Blocked — needs body transport decision` result
+instead of forcing a heredoc.
 
 If `bd update` exits non-zero, return
 `Blocked — bd update <existing_id> failed: <message>` and stop.
