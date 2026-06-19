@@ -88,28 +88,64 @@ On each run, the scripts:
 The Windows script stores `npx` stdio servers as `cmd /c npx ...` so Claude can
 start the package runner reliably on Windows.
 
+## claude.ai account connectors
+
+When Claude Code authenticates with a Claude.ai subscription, it also loads the
+MCP connectors authorized in the claude.ai web app (for example Adobe, Canva,
+Zapier, and Notion). These are not registered through this repo's
+`configs/claude-mcp.json`; they come from the account.
+
+This repo disables them by default by setting the
+`ENABLE_CLAUDEAI_MCP_SERVERS` environment variable to `false` in the `env`
+block of `dot_claude/private_settings.json` (which becomes
+`~/.claude/settings.json`). This is an all-or-nothing switch: there is no
+per-connector toggle and no equivalent settings.json field. To use a connector
+ad hoc, start Claude Code with `ENABLE_CLAUDEAI_MCP_SERVERS=true claude`.
+
+The same setting propagates to the Dev Container because the devcontainer sync
+mirrors `dot_claude/private_settings.json` verbatim.
+
 ## Chrome DevTools MCP
 
-`chrome-devtools` is registered as a user-scope stdio server for macOS and
-Windows only. It targets Chrome Dev via the first matching `executablePaths`
-candidate, opts out of package usage statistics, and requires a local Chrome Dev
-executable. By default, the MCP server launches Chrome Dev on demand with its
-managed profile instead of attaching to a pre-running browser. Dev Containers
-are skipped because Chrome is not available there.
+`chrome-devtools` is intentionally **not** a globally managed user-scope server.
+It is useful only in specific repos, so it is registered manually as a
+**local-scope** server in the single repo that needs it, instead of loading
+everywhere. Local scope is stored in `~/.claude.json` keyed by that repo's
+absolute path, stays private to the machine, and is never committed.
 
-WSL2 is intentionally not enabled for this entry. A safer future WSL2 setup
-would start Windows Chrome Dev with an explicit remote-debugging port and then
-configure the MCP server with `--browser-url` from WSL2.
+To register it locally (macOS, Chrome Dev installed):
+
+```sh
+cd /Users/balaji/Documents/development/Beads-Kanban
+claude mcp add chrome-devtools --scope local -- \
+  npx -y chrome-devtools-mcp@latest --no-usage-statistics \
+  "--executablePath=/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
+```
+
+Adjust `--executablePath` for the local Chrome Dev install (on Windows, the
+`%LOCALAPPDATA%`/`%PROGRAMFILES%` `Chrome Dev\Application\chrome.exe` paths). The
+server launches Chrome Dev on demand with its managed profile; it is not
+available in Dev Containers because Chrome is not installed there.
+
+If `chrome-devtools` was previously registered at user scope by this repo's
+scripts, remove that global entry once so it no longer loads everywhere (and to
+avoid a name collision with the local-scope registration above):
+
+```sh
+claude mcp remove --scope user chrome-devtools
+```
 
 If you opt into `--autoConnect`, Chrome Dev must already be running on Chrome
 144 or newer, remote debugging must be enabled from
 `chrome://inspect/#remote-debugging`, and Chrome will show a local permission
 prompt before the MCP server can attach. Do not combine `--autoConnect` or
-`--channel=dev` with the scripted `--executablePath` argument; upstream treats
+`--channel=dev` with the `--executablePath` argument; upstream treats
 `--channel` and `--executablePath` as mutually exclusive.
 
-Set `CLAUDE_MCP_DRY_RUN=1` to validate what would be configured without calling
-`claude mcp add`.
+Set `CLAUDE_MCP_DRY_RUN=1` when running the chezmoi MCP scripts to validate which
+user-scope servers they would configure without calling `claude mcp add`. This
+gates the scripts only; it has no effect on manual `claude mcp` CLI invocations
+like the local-scope registration above.
 
 Verify the configured servers with:
 
