@@ -209,10 +209,13 @@ From the plan + handoff block, extract:
   path under the allowed roots — that file already exists on disk and is
   the permitted existing-file case. Do not synthesize new files.
 
-Example shape (adapt to handoff specifics):
+Example shape (adapt to handoff specifics). The single positional argument is
+the **title**; the issue type is the `--type` flag. Never pass the type as a
+bare positional — `bd create epic "Foo"` sets the title to the literal `epic`
+and silently leaves `--type` defaulted to `task`:
 
 ```bash
-bd create <type> "<title>" \
+bd create "<title>" --type <type> \
   --actor "Claude" \
   --assignee "Claude" \
   --priority <priority> \
@@ -223,7 +226,7 @@ bd create <type> "<title>" \
 #### `create-linked`
 
 - Verify the parent / related issue exists with `bd show <id>` first.
-- Prefer `bd create <type> "<title>" --parent <id>` for child work when
+- Prefer `bd create "<title>" --type <type> --parent <id>` for child work when
   the handoff names a parent.
 - Use supported `bd link` / `bd dep` forms for other relationships. If
   the requested relationship cannot be represented by a supported flag,
@@ -260,7 +263,11 @@ bd create <type> "<title>" \
 ### Step 4 — Refresh and return
 
 Run `bd show <id>` for each changed issue and use it to populate the
-result. Then return a structured result per the format below. Do not
+result. Confirm each issue's stored **title** and **type** match what the
+handoff requested. If `bd show` reports the title as a bare type word (e.g.
+`epic`/`feature`) or the type defaulted to `task`, the positional was misused —
+fix it with `bd update <id> --title "<title>" --type <type>` before returning.
+Then return a structured result per the format below. Do not
 write `.beads/in-progress-claude.json`. Do not claim. Do not edit source.
 
 ## Output format

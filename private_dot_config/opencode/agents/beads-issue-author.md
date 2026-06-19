@@ -107,7 +107,13 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
      behavior, otherwise `task`.
    - Run `bd create` with `--actor "OpenCode"`, `--assignee "OpenCode"`, a
      concise description, acceptance summary, and the approved plan as design
-     content.
+     content. The title is the single positional argument; pass the type via
+     `--type`, never as a bare positional (`bd create feature "Foo"` would set
+     the title to the literal `feature` and default the type to `task`).
+   - After creating, run `bd show <id>` and confirm the stored title and type
+     match the request; if the title came through as a bare type word or the
+     type defaulted to `task`, correct it with
+     `bd update <id> --title "<title>" --type <type>`.
    - Prefer direct `--design` for short design content. Use `--design-file`
      only when the caller provided an existing approved plan file path or
      explicitly approved a one-off file workflow. Do not use

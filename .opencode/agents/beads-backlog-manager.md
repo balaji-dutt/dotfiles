@@ -79,8 +79,11 @@ Use stable `bd` command forms that minimize permission prompts.
 - Do not invent flags. Confirm support with targeted `bd <command> --help`
   before using unfamiliar flags.
 - Prefer direct flags over shell-shaped transports:
-  - create: positional title, `--type`, `--priority`, `--parent`,
-    `--description`, `--acceptance`, `--design`, `--labels`, `--deps`
+  - create: the title is the single positional argument; the type is the
+    `--type` flag. Never pass the type as a bare positional — `bd create epic
+    "Foo"` sets the title to the literal `epic` and defaults `--type` to `task`.
+    Also `--priority`, `--parent`, `--description`, `--acceptance`, `--design`,
+    `--labels`, `--deps`.
   - update: `--description`, `--acceptance`, `--design`, `--append-notes`,
     `--priority`, `--parent`, `--status`, `--title`, label flags
   - close: `bd close <id> --reason <text>`
@@ -133,7 +136,8 @@ Use stable `bd` command forms that minimize permission prompts.
      acceptance, design, labels, parent, and dependencies.
 5. For `create-linked`:
    - Verify the parent/related issue exists with `bd show <id>`.
-   - Prefer `bd create <title> --parent <id>` for child work when appropriate.
+   - Prefer `bd create "<title>" --type <type> --parent <id>` for child work
+     when appropriate.
    - Use supported `bd link`/`bd dep` forms for other relationships. If the
      requested relationship cannot be represented safely, record it in the new
      Bead content instead of inventing flags.
@@ -146,7 +150,11 @@ Use stable `bd` command forms that minimize permission prompts.
    - For close, use `bd close <id> --reason <text>`.
    - Do not use `--commit`; include commit SHAs in the reason only if the
      approved handoff provided them.
-8. Refresh with `bd show <id>` for changed issues and return a concise result.
+8. Refresh with `bd show <id>` for changed issues. Confirm each stored title and
+   type match the request — if a title came through as a bare type word
+   (`epic`/`feature`) or the type defaulted to `task`, fix it with
+   `bd update <id> --title "<title>" --type <type>` before returning a concise
+   result.
 
 ## Output format
 

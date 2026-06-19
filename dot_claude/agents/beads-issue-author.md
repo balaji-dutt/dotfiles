@@ -156,13 +156,16 @@ Infer the issue type conservatively from the plan content:
 - `task` — anything else (refactors, infra, docs, internal cleanup,
   ambiguous cases). When uncertain, prefer `task`.
 
-Compose and run the create call. Quote the title with double quotes;
-escape any embedded `"` as `\"`. Use `--design-file` only — never
-`--description-file` or `--body-file`, so the approved plan lands in the
-design field while the description stays a short summary:
+Compose and run the create call. The single positional argument is the
+**title**; pass the issue type via `--type`, never as a bare positional
+(`bd create feature "Foo"` would set the title to the literal `feature` and
+default the type to `task`). Quote the title with double quotes; escape any
+embedded `"` as `\"`. Use `--design-file` only — never `--description-file` or
+`--body-file`, so the approved plan lands in the design field while the
+description stays a short summary:
 
 ```bash
-bd create <type> "<title>" \
+bd create "<title>" --type <type> \
   --actor "Claude" \
   --assignee "Claude" \
   --description "<one-paragraph summary, 1–3 sentences>" \
@@ -171,7 +174,10 @@ bd create <type> "<title>" \
 
 Capture the new issue ID from stdout. If `bd create` exits non-zero or
 the ID cannot be parsed, return
-`Blocked — bd create failed: <message>` and stop. Do not retry.
+`Blocked — bd create failed: <message>` and stop. Do not retry. Then run
+`bd show <id>` and confirm the stored title and type match the request; if the
+title came through as a bare type word or the type defaulted to `task`, correct
+it with `bd update <id> --title "<title>" --type <type>` before returning.
 
 #### Step 3b — `mode: attach`
 
