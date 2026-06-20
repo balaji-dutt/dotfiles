@@ -71,39 +71,39 @@ Set `AOE_NOTIFY_DEBUG=1` for extra stderr output on bridge failures.
 
 `opencode-notifier.json.tmpl` switches macOS off of
 `notificationSystem: "osascript"` and uses the same `command` mechanism as
-Windows/WSL2 — calling `terminal-notifier` directly. `suppressWhenFocused`
-is also forced `false` on macOS because the upstream focus-detection path
-is marked "untested" in the plugin README and almost certainly
-contributes to the "no banner appears" symptom even outside AoE.
+Windows/WSL2 — routing through `opencode-notifier-bridge`, which calls
+`terminal-notifier` outside AoE. `suppressWhenFocused` is also forced `false`
+on macOS because the upstream focus-detection path is marked "untested" in the
+plugin README and almost certainly contributes to the "no banner appears"
+symptom even outside AoE.
 
-## WSL2 status: known limitations
+## OpenCode inside AoE on WSL2
 
-Verified 2026-06-08 against `aoe 1.10.1`:
+AoE's WSL2 OpenCode status detection was fixed upstream after
+[agent-of-empires/agent-of-empires#2022](https://github.com/agent-of-empires/agent-of-empires/issues/2022)
+and
+[`ce6d11c`](https://github.com/agent-of-empires/agent-of-empires/commit/ce6d11cdc2c91381c71350cd1c43ce768a1438cd).
+That means both AoE status hooks and `@mohak34/opencode-notifier` can see the
+same waiting/error moment. To avoid duplicate banners, this dotfiles setup uses
+one notification owner per runtime:
 
-- **AoE classifies OpenCode panes on WSL2 as
-  `starting` → `running` ↔ `unknown`, never `waiting` or `idle`.**
-  Consequence: the `[status_hooks] on_waiting` chain never fires for
-  OpenCode on WSL2, no matter what `aoe-notify` does. This was proven
-  via a temporary `on_change` diagnostic hook (since reverted) that
-  captured every transition into `~/.cache/aoe-notify.log`. Right fix
-  is upstream in AoE — `running ↔ unknown` while a pane sits at the
-  prompt is misclassification, not something a wrapper can correct.
-  Upstream issue:
-  [agent-of-empires/agent-of-empires#2022](https://github.com/agent-of-empires/agent-of-empires/issues/2022).
-  Upstream fix merged in
-  [`ce6d11c`](https://github.com/agent-of-empires/agent-of-empires/commit/ce6d11cdc2c91381c71350cd1c43ce768a1438cd);
-  awaiting the next tagged AoE release.
-- **For OpenCode notifications on WSL2, the
-  `@mohak34/opencode-notifier` plugin via `powershell.exe` popup is the
-  working path.** Its `command.enabled = true` block in the non-Darwin
-  branch of `opencode-notifier.json.tmpl` runs inside the OpenCode
-  process tree, which inherits the user's interactive PATH and can
-  reach `powershell.exe` reliably. Permission prompts, completion
-  banners, and errors all surface this way.
-- **For Claude sessions on WSL2 the `[status_hooks]` chain should work
-  end-to-end** after the `powershell.exe` PATH fallback was added to
-  `try_windows_popup`. Claude state comes from `.claude/settings.json`
-  hooks writing to `/tmp/aoe-hooks/$ID/status`, which AoE classifies
-  cleanly into `running` / `waiting` / `idle`. The PATH fallback covers
-  the case where AoE's status_hook child shell doesn't inherit the
-  Windows-interop PATH additions.
+- **Inside AoE:** AoE owns waiting/error banners through `[status_hooks]` and
+  `~/bin/aoe-notify`.
+- **Native OpenCode:** `@mohak34/opencode-notifier` owns OpenCode banners.
+
+On WSL2, `opencode-notifier.json.tmpl` routes the plugin command through
+`~/bin/opencode-notifier-bridge` instead of calling `powershell.exe` directly.
+The bridge exits successfully without sending a popup when `AOE_INSTANCE_ID` is
+set or the current tmux session name starts with `aoe_`; otherwise it uses the
+same PowerShell popup fallback path as `aoe-notify`.
+
+Accepted edge case: a standalone `opencode` launched inside an attached
+leftover `aoe_*` tmux session is treated as AoE-owned and its plugin popup is
+suppressed.
+
+For Claude sessions on WSL2, the `[status_hooks]` chain should work end-to-end.
+Claude state comes from `.claude/settings.json` hooks writing to
+`/tmp/aoe-hooks/$ID/status`, which AoE classifies cleanly into `running` /
+`waiting` / `idle`. The `powershell.exe` PATH fallback in `aoe-notify` covers
+the case where AoE's status-hook child shell does not inherit Windows-interop
+PATH additions.

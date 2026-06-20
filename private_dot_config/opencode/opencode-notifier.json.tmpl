@@ -9,10 +9,13 @@
   {{- $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
 {{- end -}}
 {{- $useWindowsWorkaround := or $isWindows $isWSL2 -}}
+{{- $useBridge := or $isDarwin $isWSL2 -}}
 {{- /* macOS uses terminal-notifier via the command path for the same reason
-       aoe-notify does: osascript-based notifications attribute to
-       "Script Editor", which never registers in System Settings >
-       Notifications, so banners silently no-op. */ -}}
+        aoe-notify does: osascript-based notifications attribute to
+        "Script Editor", which never registers in System Settings >
+        Notifications, so banners silently no-op. WSL2 uses the same bridge so
+        OpenCode notifications can be suppressed inside AoE while staying
+        enabled for native OpenCode runs. */ -}}
 {{- $useCommandPath := or $useWindowsWorkaround $isDarwin -}}
 {
   "sound": false,
@@ -23,17 +26,15 @@
   "suppressWhenFocused": {{ if $isDarwin }}false{{ else }}true{{ end }},
   "command": {
     "enabled": {{ if $useCommandPath }}true{{ else }}false{{ end }},
-{{- if $isDarwin }}
+{{- if $useBridge }}
     "path": "opencode-notifier-bridge",
     "args": [
-      "-title",
+      "--title",
       "OpenCode - {event}",
-      "-message",
+      "--message",
       "{message}",
-      "-group",
-      "opencode",
-      "-sender",
-      "com.apple.Terminal"
+      "--event",
+      "{event}"
     ],
 {{- else }}
     "path": "powershell.exe",

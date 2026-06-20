@@ -1,18 +1,128 @@
 #!/usr/bin/env bash
-# Shim used by opencode-notifier's command.path on macOS.
-# Suppresses notifications when running inside an AoE-managed tmux
-# session (session name starts with "aoe_"); otherwise forwards to
-# terminal-notifier. AoE fires its own status_hooks (~/bin/aoe-notify)
-# for the same waiting/error events, so this avoids duplicate banners.
+# Shim used by opencode-notifier's command.path on macOS and WSL2.
+# Suppresses notifications when running inside AoE; otherwise forwards to the
+# platform notifier. AoE fires its own status_hooks (~/bin/aoe-notify) for the
+# same waiting/error events, so this avoids duplicate banners.
 # Accepted edge case: a standalone `opencode` run inside an attached
 # leftover aoe_* tmux session will be silently suppressed.
 set -Eeuo pipefail
 
-if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
-  session=$(tmux display-message -p '#S' 2>/dev/null) || session=""
-  case "$session" in
-    aoe_*) exit 0 ;;
-  esac
-fi
+die() {
+  printf 'opencode-notifier-bridge: %s\n' "$*" >&2
+  exit 1
+}
 
-exec terminal-notifier "$@"
+is_aoe_session() {
+  local session
+
+  if [[ -n ${AOE_INSTANCE_ID:-} ]]; then
+    return 0
+  fi
+
+  if [[ -n ${TMUX:-} ]] && command -v tmux >/dev/null 2>&1; then
+    session=$(tmux display-message -p '#S' 2>/dev/null) || session=""
+    case "$session" in
+      aoe_*) return 0 ;;
+    esac
+  fi
+
+  return 1
+}
+
+is_wsl2() {
+  local osrelease
+
+  [[ $(uname -s 2>/dev/null) == Linux ]] || return 1
+  [[ -r /proc/sys/kernel/osrelease ]] || return 1
+  osrelease=$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/osrelease 2>/dev/null || true)
+  [[ $osrelease == *microsoft* && $osrelease == *wsl2* ]]
+}
+
+parse_args() {
+  title=""
+  message=""
+  event=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --title|-title)
+        shift
+        [[ $# -gt 0 ]] || die 'missing value for --title'
+        title=$1
+        ;;
+      --message|-message)
+        shift
+        [[ $# -gt 0 ]] || die 'missing value for --message'
+        message=$1
+        ;;
+      --event|-event)
+        shift
+        [[ $# -gt 0 ]] || die 'missing value for --event'
+        event=$1
+        ;;
+    esac
+    shift || true
+  done
+
+  if [[ -z $title ]]; then
+    title='OpenCode'
+    if [[ -n $event ]]; then
+      title="OpenCode - $event"
+    fi
+  fi
+}
+
+try_terminal_notifier() {
+  [[ $(uname -s 2>/dev/null) == Darwin ]] || return 1
+  command -v terminal-notifier >/dev/null 2>&1 || return 1
+
+  terminal-notifier \
+    -title "$title" \
+    -message "$message" \
+    -group opencode \
+    -sender com.apple.Terminal \
+    >/dev/null 2>&1
+}
+
+try_windows_popup() {
+  local powershell_bin ps_title ps_message
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell_bin=powershell.exe
+  elif [[ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ]]; then
+    powershell_bin=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+  elif [[ -x /mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe ]]; then
+    powershell_bin=/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe
+  else
+    return 1
+  fi
+
+  ps_title=${title//\'/\'\'}
+  ps_message=${message//\'/\'\'}
+
+  "$powershell_bin" \
+    -NoProfile \
+    -ExecutionPolicy Bypass \
+    -Command "\$wshell = New-Object -ComObject Wscript.Shell; \$null = \$wshell.Popup('$ps_message', 5, '$ps_title', 0 + 64)" \
+    >/dev/null 2>&1
+}
+
+main() {
+  if is_aoe_session; then
+    exit 0
+  fi
+
+  parse_args "$@"
+
+  if try_terminal_notifier; then
+    exit 0
+  fi
+
+  if is_wsl2 && try_windows_popup; then
+    exit 0
+  fi
+
+  exit 0
+}
+
+main "$@"

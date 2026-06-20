@@ -21,9 +21,13 @@
 Library
 bin/vnc_monitor.sh
 bin/nfs_dot_clean.sh
-bin/opencode-notifier-bridge
 .agent-of-empires
 .agent-of-empires/**
+{{ end }}
+
+{{/* OpenCode notifier bridge is used on macOS and WSL2 only. */}}
+{{ if not (or $isDarwin $isWSL2) }}
+bin/opencode-notifier-bridge
 {{ end }}
 
 {{/*  Placeholder for Linux */}}
