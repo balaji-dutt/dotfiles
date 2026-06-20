@@ -1,9 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
     "BASH_MAX_OUTPUT_LENGTH": "20000",
+    "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "4000",
     "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
   },
@@ -209,19 +209,19 @@
     ],
     "PreToolUse": [
       {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; case \"$AOE_INSTANCE_ID\" in *[!0-9a-zA-Z_-]*) exit 0 ;; esac; mkdir -p \"/tmp/aoe-hooks/$AOE_INSTANCE_ID\" 2>/dev/null; printf running > \"/tmp/aoe-hooks/$AOE_INSTANCE_ID/status\" 2>/dev/null; exit 0'"
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/gate-bd-destructive.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"$AOE_INSTANCE_ID\" ] || exit 0; case \"$AOE_INSTANCE_ID\" in *[!0-9a-zA-Z_-]*) exit 0 ;; esac; mkdir -p \"/tmp/aoe-hooks/$AOE_INSTANCE_ID\" 2>/dev/null; printf running > \"/tmp/aoe-hooks/$AOE_INSTANCE_ID/status\" 2>/dev/null; exit 0'"
           }
         ]
       }

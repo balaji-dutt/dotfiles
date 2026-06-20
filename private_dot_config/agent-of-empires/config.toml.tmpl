@@ -51,6 +51,7 @@ clipboard = "auto"
 default_tool = "opencode"
 yolo_mode_default = false
 agent_status_hooks = true
+smart_rename = true
 mouse_capture = true
 strict_hotkeys = false
 snooze_duration_minutes = 30
@@ -67,14 +68,16 @@ confirm_before_quit = false
 tie_workdir_to_name = true
 
 [session.agent_command_override]
-opencode = "opencode-plannotator"
 claude = "claude-plannotator"
+opencode = "opencode-plannotator"
 
 [diff]
 context_lines = 3
 split_view = false
 
 [hooks]
+
+[host_hooks]
 
 [sound]
 enabled = false
@@ -89,11 +92,12 @@ on_error = "$HOME/bin/aoe-notify error"
 [app_state]
 has_seen_welcome = true
 has_seen_web_tour = false
-last_seen_version = "1.11.0"
+last_seen_version = "1.11.1"
 home_list_width = 40
 show_preview_info = false
 has_responded_to_telemetry = true
 has_seen_custom_instruction_warning = true
+has_seen_non_git_project_warning = false
 has_acknowledged_agent_hooks = true
 has_acknowledged_volume_ignores_globs = false
 sort_order = "z_a"
@@ -124,6 +128,7 @@ silent_orphan_fast_grace_secs = 20
 auto_stop_idle_secs = 0
 rate_limit_auto_resume = false
 rate_limit_auto_resume_grace_secs = 15
+allow_agent_install = false
 
 [logging]
 default_level = "info"
