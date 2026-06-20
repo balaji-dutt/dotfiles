@@ -16,6 +16,11 @@ After Claude Code's plan mode is approved via `ExitPlanMode`, the top-level
 agent — and the `agent-engineer` and `special-builder` subagents — must
 offer to capture the plan as a Beads issue before the first edit.
 
+This offer is enforced by the `PostToolUse` / `ExitPlanMode` hook
+`.claude/hooks/remind-beads-on-plan-approval.sh`, which fires on plan
+approval and blocks with the create/attach/skip prompt (silent once
+`.beads/in-progress-claude.json` exists).
+
 ### When this applies
 
 - The current repo is Beads-enabled (`.beads/metadata.json` exists).
