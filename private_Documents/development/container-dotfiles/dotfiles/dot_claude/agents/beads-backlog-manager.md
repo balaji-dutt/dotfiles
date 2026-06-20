@@ -67,10 +67,10 @@ result. Do not infer the newest plan from `~/.claude/plans/` or
   output is impossible by design.
 - Do not write `.beads/in-progress-claude.json`. Claiming and handoff
   state belong to `beads-issue-author`, not here.
-- Do not claim any issue. No `bd update <id> --claim`.
+- Do not claim any issue. No `command bd update <id> --claim`.
 - Do not commit, merge, push, rebase, or otherwise touch git.
-- Do not run `bd delete` or `bd reopen`. Both are forbidden.
-- `bd close` is allowed only with an explicit issue ID AND an approved
+- Do not run `command bd delete` or `command bd reopen`. Both are forbidden.
+- `command bd close` is allowed only with an explicit issue ID AND an approved
   close reason from the handoff. No silent closes, no inferred reasons.
 - Do not scan `~/.claude/plans/` or `~/.plannotator/plans/` for "latest"
   by mtime, glob, or any other heuristic. Read only the exact path the
@@ -85,13 +85,19 @@ result. Do not infer the newest plan from `~/.claude/plans/` or
 
 ## Beads CLI hygiene
 
-Use stable `bd` command forms that minimize permission prompts and avoid
-brittle shell transports.
+Use stable `command bd` command forms that minimize permission prompts and
+avoid brittle shell transports.
 
-- Do not use editor-opening commands such as `bd edit`. There is no
+- **Always invoke Beads as `command bd …`, never bare `bd`.** In interactive
+  shells `bd` resolves to a wrapper function whose async output filtering and
+  auto-commit side effects are tuned for a pty and are unreliable when stdout
+  is captured without one (as in this subagent). The `command` prefix bypasses
+  the wrapper and runs the binary directly via `PATH`. Every example below
+  uses this form.
+- Do not use editor-opening commands such as `command bd edit`. There is no
   interactive editor available to a subagent.
 - Do not invent flags. If a flag is unfamiliar, run the targeted
-  `bd <command> --help` first and confirm it exists before using it.
+  `command bd <command> --help` first and confirm it exists before using it.
 - Use `--type`, not `--issue-type`.
 - Use `--assignee`, not `--owner`.
 - Do not pass JSON objects to `create --stdin`. Stdin is description body
@@ -100,16 +106,16 @@ brittle shell transports.
 - Do not invent Beads flags, follow-up issue IDs, or close reasons that
   refer to issues that do not exist.
 - Prefer direct flags over shell-shaped transports:
-  - `bd create`: positional title, `--type`, `--priority`, `--parent`,
-    `--description`, `--acceptance`, `--design`, `--labels`, `--deps`,
-    `--assignee`, `--actor`.
-  - `bd update`: `--description`, `--acceptance`, `--design`,
+  - `command bd create`: positional title, `--type`, `--priority`,
+    `--parent`, `--description`, `--acceptance`, `--design`, `--labels`,
+    `--deps`, `--assignee`, `--actor`.
+  - `command bd update`: `--description`, `--acceptance`, `--design`,
     `--append-notes`, `--priority`, `--parent`, `--status`, `--title`,
     and label flags.
-  - `bd close`: `bd close <id> --reason <text>`.
-  - Relationships: `bd link <id1> <id2> --type <type>` or `bd dep ...`,
-    only after confirming the relationship type is supported via
-    `bd link --help` or `bd dep --help`.
+  - `command bd close`: `command bd close <id> --reason <text>`.
+  - Relationships: `command bd link <id1> <id2> --type <type>` or
+    `command bd dep ...`, only after confirming the relationship type is
+    supported via `command bd link --help` or `command bd dep --help`.
 - Use `--design-file <existing-file>` only when the file already exists
   on disk. The approved plan path under `~/.claude/plans/` or
   `~/.plannotator/plans/` is the canonical existing-file case.
@@ -119,8 +125,8 @@ brittle shell transports.
   not an option — if a body cannot be expressed safely via direct flags
   or an existing approved file, escalate via the `Needs body transport
   decision` block instead of forcing a heredoc.
-- Prefer plain `bd show <id>` for existence checks. If JSON output is
-  needed, remember `bd show --json` may return an array when command
+- Prefer plain `command bd show <id>` for existence checks. If JSON output is
+  needed, remember `command bd show --json` may return an array when command
   filters are used; normalize list-vs-object output before reading
   fields.
 - Run probe commands separately as individual Bash invocations. No `&&`,
@@ -130,22 +136,19 @@ brittle shell transports.
 
 ### Step 1 — Preflight
 
-Run each probe as a separate Bash invocation.
+Run the probe as its own Bash invocation.
 
 ```bash
 command -v bd
 ```
 
-```bash
-test -r "$HOME/.local/share/beads-helpers.bash"
-```
-
-```bash
-source "$HOME/.local/share/beads-helpers.bash"
-```
-
 If `bd` is not on `PATH`, return
 `Blocked — bd unavailable in this environment` immediately.
+
+Do not source `beads-helpers.bash` or any shell rc. Every Beads call in this
+subagent uses `command bd …` (see Beads CLI hygiene), which bypasses that
+wrapper and runs the binary directly — sourcing it would only re-introduce the
+wrapper this subagent is deliberately avoiding.
 
 Confirm the repo has Beads metadata. Use the Read tool on
 `<repo_path>/.beads/metadata.json` and note `dolt_database` — it doubles
@@ -180,14 +183,14 @@ From the plan + handoff block, extract:
 
 #### `update-existing`
 
-- Run `bd show <existing_id>` first. If it does not exist, return
+- Run `command bd show <existing_id>` first. If it does not exist, return
   `Blocked — bd show <existing_id> failed` and stop.
 - Preserve title, status, assignee, labels, priority, parent,
   dependencies, external references, and history by default.
 - Replace description, acceptance, title, status, priority, or assignee
   only when the approved handoff explicitly requests that exact field
   change.
-- Prefer `bd update <existing_id> --append-notes "<dated planning
+- Prefer `command bd update <existing_id> --append-notes "<dated planning
   section>"` for additive planning / design context.
 - Use `--design` or `--description` to replace a field only when the
   handoff explicitly approves replacing it AND the content is short
@@ -202,7 +205,7 @@ From the plan + handoff block, extract:
 - Infer type conservatively from the handoff: `bug` for fixes / root
   cause, `feature` for new behavior, `epic` for grouped work, otherwise
   `task`.
-- Use direct `bd create` flags for title, type, priority, description,
+- Use direct `command bd create` flags for title, type, priority, description,
   acceptance, labels, parent, dependencies, assignee, and actor.
 - For the design field, prefer `--design "<short text>"`. Use
   `--design-file "<plan_path>"` when the caller passed an approved plan
@@ -211,11 +214,11 @@ From the plan + handoff block, extract:
 
 Example shape (adapt to handoff specifics). The single positional argument is
 the **title**; the issue type is the `--type` flag. Never pass the type as a
-bare positional — `bd create epic "Foo"` sets the title to the literal `epic`
-and silently leaves `--type` defaulted to `task`:
+bare positional — `command bd create epic "Foo"` sets the title to the literal
+`epic` and silently leaves `--type` defaulted to `task`:
 
 ```bash
-bd create "<title>" --type <type> \
+command bd create "<title>" --type <type> \
   --actor "Claude" \
   --assignee "Claude" \
   --priority <priority> \
@@ -225,48 +228,50 @@ bd create "<title>" --type <type> \
 
 #### `create-linked`
 
-- Verify the parent / related issue exists with `bd show <id>` first.
-- Prefer `bd create "<title>" --type <type> --parent <id>` for child work when
-  the handoff names a parent.
-- Use supported `bd link` / `bd dep` forms for other relationships. If
+- Verify the parent / related issue exists with `command bd show <id>` first.
+- Prefer `command bd create "<title>" --type <type> --parent <id>` for child
+  work when the handoff names a parent.
+- Use supported `command bd link` / `command bd dep` forms for other
+  relationships. If
   the requested relationship cannot be represented by a supported flag,
   record it in the new Bead's design content instead of inventing a flag.
 
 #### `link`
 
-- Verify every referenced Bead with `bd show` first.
-- Use only supported `bd link <id1> <id2> --type <type>` or `bd dep ...`
-  forms. Confirm the relationship type via `bd link --help` /
-  `bd dep --help` before use.
+- Verify every referenced Bead with `command bd show` first.
+- Use only supported `command bd link <id1> <id2> --type <type>` or
+  `command bd dep ...` forms. Confirm the relationship type via
+  `command bd link --help` / `command bd dep --help` before use.
 
 #### `prioritize`
 
-- Verify the referenced Bead with `bd show <id>` first.
-- Use `bd priority <id> <level>` or `bd update <id> --priority <level>`,
-  whichever is supported in this environment (confirm via `--help` if
-  uncertain).
+- Verify the referenced Bead with `command bd show <id>` first.
+- Use `command bd priority <id> <level>` or
+  `command bd update <id> --priority <level>`, whichever is supported in this
+  environment (confirm via `--help` if uncertain).
 
 #### `update-status`
 
 - Require an explicit `existing_id` and an approved status from the
   handoff.
-- Use `bd update <existing_id> --status <approved-status>`.
+- Use `command bd update <existing_id> --status <approved-status>`.
 
 #### `close`
 
 - Require an explicit `existing_id` and an explicit approved reason from
   the handoff.
-- Run `bd close <existing_id> --reason "<approved-reason>"`.
+- Run `command bd close <existing_id> --reason "<approved-reason>"`.
 - Do not use `--commit`; include commit SHAs in the reason only when the
   approved handoff already provided them. Do not invent SHAs.
 
 ### Step 4 — Refresh and return
 
-Run `bd show <id>` for each changed issue and use it to populate the
+Run `command bd show <id>` for each changed issue and use it to populate the
 result. Confirm each issue's stored **title** and **type** match what the
-handoff requested. If `bd show` reports the title as a bare type word (e.g.
-`epic`/`feature`) or the type defaulted to `task`, the positional was misused —
-fix it with `bd update <id> --title "<title>" --type <type>` before returning.
+handoff requested. If `command bd show` reports the title as a bare type word
+(e.g. `epic`/`feature`) or the type defaulted to `task`, the positional was
+misused — fix it with `command bd update <id> --title "<title>" --type <type>`
+before returning.
 Then return a structured result per the format below. Do not
 write `.beads/in-progress-claude.json`. Do not claim. Do not edit source.
 
