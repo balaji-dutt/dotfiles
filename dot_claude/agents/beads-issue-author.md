@@ -58,8 +58,8 @@ return a `Blocked` result — do not infer, do not guess.
   `.beads/in-progress-claude.json` and, in `attach` mode only, a scratch
   merged-design file under `/tmp` (never a path inside the repo or source
   tree).
-- Never run `bd close`, `bd delete`, `git commit`, `git push`, `git merge`,
-  or any other destructive / outbound bash command.
+- Never run `command bd close`, `command bd delete`, `git commit`, `git push`,
+  `git merge`, or any other destructive / outbound bash command.
 - Create at most one Beads issue per delegation. If `mode == create`
   and a relevant issue may already exist, surface the ambiguity in
   `Notes` and stop rather than creating a second one.
@@ -68,17 +68,24 @@ return a `Blocked` result — do not infer, do not guess.
 
 ## Beads CLI hygiene
 
-- Prefer plain `bd show <id>` for existence and refresh checks. Avoid
+- **Always invoke Beads as `command bd …`, never bare `bd`.** In interactive
+  shells `bd` resolves to a wrapper function whose async output filtering and
+  auto-commit side effects are tuned for a pty and are unreliable when stdout
+  is captured without one (as in this subagent — e.g. parsing the new ID out
+  of `command bd create`). The `command` prefix bypasses the wrapper and runs
+  the binary directly via `PATH`. Every example below uses this form.
+- Prefer plain `command bd show <id>` for existence and refresh checks. Avoid
   ad-hoc inspection pipelines such as
-  `bd show <id> --json 2>&1 | python3 -c ...` when plain output is enough;
-  those pipelines create broader permission prompts without improving the
-  handoff.
-- If `bd show --json` is needed, remember it may return an array when command
-  filters are used. Normalize list-vs-object output before reading fields.
-- Do not use editor-opening commands such as `bd edit`.
+  `command bd show <id> --json 2>&1 | python3 -c ...` when plain output is
+  enough; those pipelines create broader permission prompts without improving
+  the handoff.
+- If `command bd show --json` is needed, remember it may return an array when
+  command filters are used. Normalize list-vs-object output before reading
+  fields.
+- Do not use editor-opening commands such as `command bd edit`.
 - Do not invent flags. Use `--type`, not `--issue-type`; use `--assignee`,
-  not `--owner`. Confirm support with a targeted `bd <command> --help` before
-  using an unfamiliar flag.
+  not `--owner`. Confirm support with a targeted `command bd <command> --help`
+  before using an unfamiliar flag.
 - Do not pass JSON objects to `create --stdin`; stdin is description body
   text, while title, type, parent, priority, and assignee remain CLI flags.
 - Prefer direct flags and existing files over inline shell transports. For
@@ -99,23 +106,20 @@ return a `Blocked` result — do not infer, do not guess.
 
 ### Step 1 — Preflight
 
-Run each probe as a separate Bash invocation. No `&&`, `||`, `;`,
-pipelines, or heredocs in probe calls.
+Run the probe as its own Bash invocation. No `&&`, `||`, `;`, pipelines, or
+heredocs in probe calls.
 
 ```bash
 command -v bd
 ```
 
-```bash
-test -r "$HOME/.local/share/beads-helpers.bash"
-```
-
-```bash
-source "$HOME/.local/share/beads-helpers.bash"
-```
-
 If `bd` is not on `PATH`, return
 `Blocked — bd unavailable in this environment` immediately.
+
+Do not source `beads-helpers.bash` or any shell rc. Every Beads call in this
+subagent uses `command bd …` (see Beads CLI hygiene), which bypasses that
+wrapper and runs the binary directly — sourcing it would only re-introduce the
+wrapper this subagent is deliberately avoiding.
 
 If `.beads/metadata.json` exists at `repo_path`, read it with the Read
 tool to confirm Beads is configured in this repo. Note `dolt_database` if
@@ -158,36 +162,37 @@ Infer the issue type conservatively from the plan content:
 
 Compose and run the create call. The single positional argument is the
 **title**; pass the issue type via `--type`, never as a bare positional
-(`bd create feature "Foo"` would set the title to the literal `feature` and
-default the type to `task`). Quote the title with double quotes; escape any
-embedded `"` as `\"`. Use `--design-file` only — never `--description-file` or
-`--body-file`, so the approved plan lands in the design field while the
-description stays a short summary:
+(`command bd create feature "Foo"` would set the title to the literal
+`feature` and default the type to `task`). Quote the title with double quotes;
+escape any embedded `"` as `\"`. Use `--design-file` only — never
+`--description-file` or `--body-file`, so the approved plan lands in the design
+field while the description stays a short summary:
 
 ```bash
-bd create "<title>" --type <type> \
+command bd create "<title>" --type <type> \
   --actor "Claude" \
   --assignee "Claude" \
   --description "<one-paragraph summary, 1–3 sentences>" \
   --design-file "<plan_path>"
 ```
 
-Capture the new issue ID from stdout. If `bd create` exits non-zero or
+Capture the new issue ID from stdout. If `command bd create` exits non-zero or
 the ID cannot be parsed, return
 `Blocked — bd create failed: <message>` and stop. Do not retry. Then run
-`bd show <id>` and confirm the stored title and type match the request; if the
-title came through as a bare type word or the type defaulted to `task`, correct
-it with `bd update <id> --title "<title>" --type <type>` before returning.
+`command bd show <id>` and confirm the stored title and type match the request;
+if the title came through as a bare type word or the type defaulted to `task`,
+correct it with `command bd update <id> --title "<title>" --type <type>` before
+returning.
 
 #### Step 3b — `mode: attach`
 
 Verify the existing issue first:
 
 ```bash
-bd show <existing_id>
+command bd show <existing_id>
 ```
 
-If `bd show` fails or the issue does not exist, return
+If `command bd show` fails or the issue does not exist, return
 `Blocked — bd show <existing_id> failed` and stop.
 
 Preserve the existing title, type, labels, priority, dependencies, and
@@ -209,7 +214,7 @@ separate `date -u +%Y-%m-%d` call rather than embedding `$(date ...)` in the
 update. Then update the issue from that file:
 
 ```bash
-bd update <existing_id> \
+command bd update <existing_id> \
   --design-file /tmp/beads-design-<existing_id>.md \
   --append-notes "Plan approved <YYYY-MM-DD>; design notes updated by beads-issue-author." \
   --actor "Claude"
@@ -222,7 +227,7 @@ If the composed content is too large or awkward to pass via a file-backed
 `--design-file`, return a `Blocked — needs body transport decision` result
 instead of forcing a heredoc.
 
-If `bd update` exits non-zero, return
+If `command bd update` exits non-zero, return
 `Blocked — bd update <existing_id> failed: <message>` and stop.
 
 ### Step 4 — Claim the issue
@@ -230,7 +235,7 @@ If `bd update` exits non-zero, return
 Run only after Step 3 succeeded:
 
 ```bash
-bd update <id> --claim --actor "Claude" --assignee "Claude"
+command bd update <id> --claim --actor "Claude" --assignee "Claude"
 ```
 
 If claim fails (e.g. the issue is already claimed by a different actor),
