@@ -1,0 +1,91 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install the forked Beads-Kanban VSIX release used for local bd work.
+# Change trigger (chezmoi re-runs on hash change):
+# tag: bd-fixes-v2.1.4-bd.1-13ed786
+# sha256: 7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79
+
+REPO="balaji-dutt/Beads-Kanban"
+TAG="bd-fixes-v2.1.4-bd.1-13ed786"
+ASSET="beads-kanban-bd-fixes-2.1.4-bd.1-integration-bd-fixes-13ed786.vsix"
+EXPECTED_SHA="7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79"
+FORK_EXTENSION_ID="balaji-dutt.beads-kanban-bd-fixes"
+FORK_VERSION="2.1.4-bd.1"
+UPSTREAM_EXTENSION_ID="davidcforbes.beads-kanban"
+
+if ! command -v code >/dev/null 2>&1; then
+  echo "INFO: code command not found; skipping Beads Kanban VSIX install."
+  exit 0
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "INFO: curl command not found; skipping Beads Kanban VSIX install."
+  exit 0
+fi
+
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/dotfiles/beads-kanban-vsix"
+mkdir -p "$cache_root"
+
+vsix_path="$cache_root/$ASSET"
+marker_path="$cache_root/$TAG.installed"
+download_url="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
+
+sha256_file() {
+  local file_path=$1
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | cut -d ' ' -f 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file_path" | cut -d ' ' -f 1
+  else
+    echo "ERROR: neither shasum nor sha256sum is available." >&2
+    return 1
+  fi
+}
+
+extension_installed() {
+  while IFS= read -r extension_line; do
+    if [[ "$extension_line" == "${FORK_EXTENSION_ID}@${FORK_VERSION}" ]]; then
+      return 0
+    fi
+  done < <(code --list-extensions --show-versions 2>/dev/null)
+
+  return 1
+}
+
+# Avoid duplicate command/configuration contributions if upstream was present.
+code --uninstall-extension "$UPSTREAM_EXTENSION_ID" >/dev/null 2>&1 || true
+
+if [[ -f "$marker_path" ]] && [[ "$(cat "$marker_path")" == "$EXPECTED_SHA" ]]; then
+  if extension_installed; then
+    echo "INFO: ${FORK_EXTENSION_ID}@${FORK_VERSION} already installed."
+    exit 0
+  fi
+fi
+
+if [[ ! -f "$vsix_path" ]] || [[ "$(sha256_file "$vsix_path")" != "$EXPECTED_SHA" ]]; then
+  echo "INFO: Downloading ${ASSET}."
+  curl -fL --retry 3 --retry-delay 2 -o "$vsix_path" "$download_url"
+fi
+
+actual_sha=$(sha256_file "$vsix_path")
+if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+  echo "ERROR: SHA256 mismatch for ${ASSET}." >&2
+  echo "  expected: ${EXPECTED_SHA}" >&2
+  echo "  actual:   ${actual_sha}" >&2
+  exit 1
+fi
+
+echo "INFO: Installing ${FORK_EXTENSION_ID}@${FORK_VERSION}."
+code --install-extension "$vsix_path" --force
+
+if ! extension_installed; then
+  echo "ERROR: ${FORK_EXTENSION_ID}@${FORK_VERSION} was not reported after install." >&2
+  exit 1
+fi
+
+printf '%s' "$EXPECTED_SHA" > "$marker_path"
+echo "INFO: Installed ${FORK_EXTENSION_ID}@${FORK_VERSION}."
+{{- end }}
