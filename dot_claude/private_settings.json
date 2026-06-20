@@ -140,6 +140,7 @@
       "Bash(./assets/agent-wt-merge ff:*)",
       "Bash(./assets/agent-wt-merge no-ff:*)",
       "Bash(bd:*)",
+      "Bash(command bd:*)",
       "Bash(ls:*)",
       "Bash(ll:*)",
       "Bash(pwd:*)",
