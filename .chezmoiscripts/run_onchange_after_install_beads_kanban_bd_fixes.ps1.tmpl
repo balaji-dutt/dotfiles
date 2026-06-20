@@ -1,0 +1,89 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# Install the forked Beads-Kanban VSIX release used for local bd work.
+# Change trigger (chezmoi re-runs on hash change):
+# tag: bd-fixes-v2.1.4-bd.1-13ed786
+# sha256: 7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79
+
+$ErrorActionPreference = "Stop"
+
+$Repo                = "balaji-dutt/Beads-Kanban"
+$Tag                 = "bd-fixes-v2.1.4-bd.1-13ed786"
+$Asset               = "beads-kanban-bd-fixes-2.1.4-bd.1-integration-bd-fixes-13ed786.vsix"
+$ExpectedSha         = "7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79"
+$ForkExtensionId     = "balaji-dutt.beads-kanban-bd-fixes"
+$ForkVersion         = "2.1.4-bd.1"
+$UpstreamExtensionId = "davidcforbes.beads-kanban"
+
+if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+  Write-Host "INFO: code command not found; skipping Beads Kanban VSIX install."
+  exit 0
+}
+
+$CacheBase = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME ".cache" }
+$CacheRoot = Join-Path $CacheBase "dotfiles\beads-kanban-vsix"
+New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
+
+$VsixPath = Join-Path $CacheRoot $Asset
+$MarkerPath = Join-Path $CacheRoot "$Tag.installed"
+$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Asset"
+
+function Invoke-Code {
+  param([Parameter(Mandatory=$true)] [string[]] $Arguments)
+
+  $output = & code @Arguments 2>&1
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
+
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    Output = (($output | Out-String).TrimEnd())
+  }
+}
+
+function Test-ForkExtensionInstalled {
+  $result = Invoke-Code -Arguments @("--list-extensions", "--show-versions")
+  if ($result.ExitCode -ne 0) { return $false }
+
+  foreach ($line in ($result.Output -split "`r?`n")) {
+    if ($line.Trim() -eq "$ForkExtensionId@$ForkVersion") { return $true }
+  }
+  return $false
+}
+
+# Avoid duplicate command/configuration contributions if upstream was present.
+$null = Invoke-Code -Arguments @("--uninstall-extension", $UpstreamExtensionId)
+
+if ((Test-Path -LiteralPath $MarkerPath -PathType Leaf) -and
+    ((Get-Content -LiteralPath $MarkerPath -Raw).Trim() -eq $ExpectedSha) -and
+    (Test-ForkExtensionInstalled)) {
+  Write-Host "INFO: $ForkExtensionId@$ForkVersion already installed."
+  exit 0
+}
+
+if (-not (Test-Path -LiteralPath $VsixPath -PathType Leaf) -or
+    ((Get-FileHash -LiteralPath $VsixPath -Algorithm SHA256).Hash.ToLower() -ne $ExpectedSha)) {
+  Write-Host "INFO: Downloading $Asset."
+  Invoke-WebRequest -Uri $DownloadUrl -OutFile $VsixPath -UseBasicParsing
+}
+
+$ActualSha = (Get-FileHash -LiteralPath $VsixPath -Algorithm SHA256).Hash.ToLower()
+if ($ActualSha -ne $ExpectedSha) {
+  throw "SHA256 mismatch for $Asset (expected $ExpectedSha, got $ActualSha)"
+}
+
+Write-Host "INFO: Installing $ForkExtensionId@$ForkVersion."
+$install = Invoke-Code -Arguments @("--install-extension", $VsixPath, "--force")
+if ($install.ExitCode -ne 0) {
+  if ($install.Output) { Write-Host $install.Output }
+  exit $install.ExitCode
+}
+
+if (-not (Test-ForkExtensionInstalled)) {
+  throw "$ForkExtensionId@$ForkVersion was not reported after install."
+}
+
+Set-Content -LiteralPath $MarkerPath -Value $ExpectedSha -NoNewline
+Write-Host "INFO: Installed $ForkExtensionId@$ForkVersion."
+{{- end }}
