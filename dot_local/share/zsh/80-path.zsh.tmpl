@@ -1,0 +1,12 @@
+# Update $PATH
+{{- if eq .chezmoi.os "darwin" }}
+PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
+{{- else }}
+PYTHON_USER_BIN="$HOME/.local/bin"
+{{- end }}
+# Update $PATH (platform-specific)
+{{- if eq .chezmoi.os "darwin" }}
+export PATH=$HOME/bin:$HOME/Applications:$PYTHON_USER_BIN:$PATH
+{{- else }}
+export PATH=$HOME/bin:$PYTHON_USER_BIN:$PATH
+{{- end }}

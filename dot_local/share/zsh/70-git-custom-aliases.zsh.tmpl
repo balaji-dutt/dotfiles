@@ -1,0 +1,8 @@
+# Shared Git helper aliases/functions.
+if [ -r "${HOME}/.local/share/git-helpers.zsh" ]; then
+    source "${HOME}/.local/share/git-helpers.zsh"
+fi
+
+# Custom aliases
+alias czp='cz --config "$HOME/.config/chezmoi-private/chezmoi.toml" --source "$HOME/Documents/development/private-dotfiles"'
+alias dotupdate='cz apply && czp apply && antidote update && mise upgrade'

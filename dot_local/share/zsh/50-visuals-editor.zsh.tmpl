@@ -1,0 +1,36 @@
+{{- /* Visuals: Eza/Ls Configuration */ -}}
+{{- $hasEza := false -}}
+{{- if lookPath "eza" -}}
+{{-   $hasEza = true -}}
+{{- end -}}
+{{- if $hasEza }}
+alias ls=" eza -l --group-directories-first"
+alias ll=" eza -la --group-directories-first"
+alias lt=" eza -la --sort=modified --reverse --color=always"
+alias tree=" eza --tree"
+{{ else }}
+# Fallback to standard ls aliases
+alias ls="ls --color=always"
+alias ll="LC_COLLATE=C ls -lah --color=always"
+alias lt="LC_COLLATE=C ls -lahtr --color=always"
+{{- end }}
+
+{{- /* Editor Configuration */ -}}
+# Set $EDITOR to nano if available else fallback to vi
+{{- $hasNano := false -}}
+{{- if lookPath "nano" -}}
+{{-   $hasNano = true -}}
+{{- end }}
+EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
+
+# Set $EDITOR & $VISUAL to VSCode
+{{- $hasCode := false -}}
+{{- if lookPath "code" -}}
+{{-   $hasCode = true -}}
+{{- end -}}
+{{- if $hasCode }}
+if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
+  export VISUAL="$(command -v code) --wait"
+  EDITOR="$VISUAL"
+fi
+{{- end }}

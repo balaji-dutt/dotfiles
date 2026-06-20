@@ -1,0 +1,38 @@
+# Hook to filter command history before it is written
+zshaddhistory() {
+    emulate -L zsh
+    local line="${1%%$'\n'}"
+    local cmd="${line%% *}"
+
+    # 1. Resolve the command if it is an alias
+    local real_cmd="$cmd"
+    if [[ -n "${aliases[$cmd]}" ]]; then
+        # If it's an alias, grab the definition (e.g., "ls -la")
+        # and extract just the first word ("ls")
+        local alias_def="${aliases[$cmd]}"
+        real_cmd="${alias_def%% *}"
+    fi
+
+    # 2. Check the RESOLVED command against cd/ls
+    if [[ "$real_cmd" == "cd" || "$real_cmd" == "ls" ]]; then
+        return 1
+    fi
+
+    # 3. Exclude commands that don't exist (using the original typed command)
+    if ! whence "$cmd" > /dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Universal custom aliases
+alias cd=" cd"
+{{- if ne .chezmoi.os "darwin" }}
+alias less="less -R"
+alias more="less -R -X"
+{{- end }}
+
+alias cz="chezmoi"
+# Prompt for 1Password sign-in
+alias ops=' eval $(op signin)'

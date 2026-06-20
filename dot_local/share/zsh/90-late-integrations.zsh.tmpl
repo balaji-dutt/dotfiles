@@ -1,0 +1,46 @@
+{{- if eq .chezmoi.os "darwin" }}
+# Disable Fork Safety as it tends to break Ansible
+# export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+{{- end }}
+
+# Initialize fasd with smartcache if available, or directly if only fasd is available
+{{- $hasFasder := false -}}
+{{- if lookPath "fasder" -}}
+{{-   $hasFasder = true -}}
+{{- end -}}
+{{- if $hasFasder }}
+if command -v smartcache >/dev/null 2>&1; then
+    smartcache eval fasder --init auto aliases
+else
+    eval "$(fasder --init auto aliases)"
+fi
+{{- end }}
+
+# This is added at the end of the file to avoid potential conflicts
+{{- $hasDirenv := false -}}
+{{- if lookPath "direnv" -}}
+{{-   $hasDirenv = true -}}
+{{- end -}}
+{{- if $hasDirenv }}
+(( ${+commands[direnv]} )) && eval "$(direnv hook zsh)"
+{{- end }}
+
+# 1. Bind the Up Arrow to the fzf_history_search widget
+#    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
+#    current command line buffer and uses it as the FZF query.
+bind_fzf_history() {
+    if zle -l fzf_history_search; then
+        # 1. Bind Up Arrow to FZF (Search Mode)
+        bindkey '^[[A' fzf_history_search
+        bindkey '^[OA' fzf_history_search
+        if [[ -n "${terminfo[kcuu1]}" ]]; then
+            bindkey "${terminfo[kcuu1]}" fzf_history_search
+        fi
+# 2. Bind Ctrl+P/N to Standard History (Navigation Mode)
+#    This allows you to just grab the last command without opening the FZF window.
+        bindkey '^P' up-line-or-history
+        bindkey '^N' down-line-or-history
+    fi
+}
+# 3. Ensure this runs AFTER antidote loads plugins.
+bind_fzf_history

@@ -1,0 +1,21 @@
+# fzf integration
+# - Newer fzf versions support `fzf --zsh`.
+# - Debian/Ubuntu packaged fzf can be older; fall back to distro-provided scripts.
+if (( ${+commands[fzf]} )); then
+  if fzf --help 2>/dev/null | grep -q -- '--zsh'; then
+    source <(fzf --zsh)
+  else
+    [ -r /usr/share/doc/fzf/examples/key-bindings.zsh ] && source /usr/share/doc/fzf/examples/key-bindings.zsh
+    [ -r /usr/share/doc/fzf/examples/completion.zsh ] && source /usr/share/doc/fzf/examples/completion.zsh
+  fi
+fi
+
+{{- if eq .chezmoi.os "darwin" }}
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
+#Fix for Window Title
+# precmd () {
+# print -Pn "\e]2;%n@%m: %2c\a"
+# print -Pn "\e]1;%l\a"
+# }
+{{- end }}

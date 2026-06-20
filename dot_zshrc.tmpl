@@ -1,41 +1,8 @@
-# Hook to filter command history before it is written
-zshaddhistory() {
-    emulate -L zsh
-    local line="${1%%$'\n'}"
-    local cmd="${line%% *}"
-
-    # 1. Resolve the command if it is an alias
-    local real_cmd="$cmd"
-    if [[ -n "${aliases[$cmd]}" ]]; then
-        # If it's an alias, grab the definition (e.g., "ls -la")
-        # and extract just the first word ("ls")
-        local alias_def="${aliases[$cmd]}"
-        real_cmd="${alias_def%% *}"
-    fi
-
-    # 2. Check the RESOLVED command against cd/ls
-    if [[ "$real_cmd" == "cd" || "$real_cmd" == "ls" ]]; then
-        return 1
-    fi
-
-    # 3. Exclude commands that don't exist (using the original typed command)
-    if ! whence "$cmd" > /dev/null; then
-        return 1
-    fi
-
-    return 0
-}
-
-# Universal custom aliases
-alias cd=" cd"
-{{- if ne .chezmoi.os "darwin" }}
-alias less="less -R"
-alias more="less -R -X"
-{{- end }}
-
-alias cz="chezmoi"
-# Prompt for 1Password sign-in
-alias ops=' eval $(op signin)'
+_zsh_helper="${HOME}/.local/share/zsh/01-history-and-aliases.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
+fi
+unset _zsh_helper
 
 # Modern CLI habit helpers (ripgrep aliases, rgf file picker, antipattern nudges)
 _modern_cli_hints="${HOME}/.local/share/zsh-modern-cli-hints.zsh"
@@ -66,80 +33,17 @@ fi
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-# fzf integration
-# - Newer fzf versions support `fzf --zsh`.
-# - Debian/Ubuntu packaged fzf can be older; fall back to distro-provided scripts.
-if (( ${+commands[fzf]} )); then
-  if fzf --help 2>/dev/null | grep -q -- '--zsh'; then
-    source <(fzf --zsh)
-  else
-    [ -r /usr/share/doc/fzf/examples/key-bindings.zsh ] && source /usr/share/doc/fzf/examples/key-bindings.zsh
-    [ -r /usr/share/doc/fzf/examples/completion.zsh ] && source /usr/share/doc/fzf/examples/completion.zsh
-  fi
+_zsh_helper="${HOME}/.local/share/zsh/20-fzf-and-macos.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
 fi
+unset _zsh_helper
 
-{{- if eq .chezmoi.os "darwin" }}
-test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
-
-#Fix for Window Title
-# precmd () {
-# print -Pn "\e]2;%n@%m: %2c\a"
-# print -Pn "\e]1;%l\a"
-# }
-{{- end }}
-
-{{- if or (eq .chezmoi.os "darwin")
-          (and (eq .chezmoi.os "linux")
-               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
-# OpenCode env (trusted file)
-case $- in
-  *a*)
-    set +a
-    _opencode_restore_allexport=1
-    ;;
-  *)
-    unset _opencode_restore_allexport
-    ;;
-esac
-
-OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
-if [ -n "${_opencode_restore_allexport:-}" ]; then
-  export OPENCODE_ENV_FILE
+_zsh_helper="${HOME}/.local/share/zsh/30-opencode-env.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
 fi
-
-if [ -r "$OPENCODE_ENV_FILE" ]; then
-  set -a
-  . "$OPENCODE_ENV_FILE"
-
-  if [ -z "${_opencode_restore_allexport:-}" ]; then
-    set +a
-  fi
-elif [ -n "${_opencode_restore_allexport:-}" ]; then
-  set -a
-fi
-
-: "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
-export PLANNOTATOR_PORT
-
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-: "${PLANNOTATOR_REMOTE:=1}"
-export PLANNOTATOR_REMOTE
-
-{{- end }}
-
-: "${PLANNOTATOR_PORTS_BUILD:={{ .plannotator_ports.host.build | join "," }}}"
-: "${PLANNOTATOR_PORTS_CLAUDE:={{ .plannotator_ports.host.claude | join "," }}}"
-: "${PLANNOTATOR_PORTS_CUSTOM:={{ .plannotator_ports.host.custom | join "," }}}"
-export PLANNOTATOR_PORTS_BUILD PLANNOTATOR_PORTS_CLAUDE PLANNOTATOR_PORTS_CUSTOM
-
-_opencode_profile_helpers="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-profile.sh"
-if [ -r "$_opencode_profile_helpers" ]; then
-  . "$_opencode_profile_helpers"
-fi
-unset _opencode_profile_helpers
-
-unset _opencode_restore_allexport
-{{- end }}
+unset _zsh_helper
 
 # source antidote from brew (macOS) or ~/.antidote (WSL2)
 if [ -d "$HOME/.antidote" ]; then
@@ -178,85 +82,17 @@ fi
 # initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
 antidote load
 
-# Set HISTFILE with platform-specific naming
-{{- if eq .chezmoi.os "darwin" }}
-HISTFILE=${ZDOTDIR:-$HOME}/.m4mbp_zsh_history
-{{- else if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-HISTFILE=${ZDOTDIR:-$HOME}/.ubuntuwsl2_zsh_history
-{{- else if and (eq .chezmoi.osRelease.id "debian") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-HISTFILE=${ZDOTDIR:-$HOME}/.debianwsl2_zsh_history
-{{- else }}
-HISTFILE=${ZDOTDIR:-$HOME}/.${(%):-%n}_zsh_history
-{{- end }}
-
-# Set language variables
-export LC_ALL=en_GB.UTF-8
-export LANG=en_GB.UTF-8
-export LC_MESSAGES=en_GB.UTF-8
-export LC_TIME=en_SG.UTF-8
-export LC_NUMERIC=en_SG.UTF-8
-export LC_MONETARY=en_SG.UTF-8
-export LANGUAGE=en_GB:en_US
-
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
-{{- if eq .chezmoi.osRelease.id "ubuntu" }}
-# Set Browser variable for WSL browser integration
-export BROWSER=wslview
-{{- end }}
-{{- end }}
-
-# Set parameters for zsh-autosuggestions
-export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
-
-# Set autoload for ZSH prompt
-autoload -Uz promptinit && promptinit
-# Set prompt to powerlevel10k
-prompt powerlevel10k
-
-# Plugin customizations
-# Customize MichaelAquilina/zsh-you-should-use message position
-export YSU_MESSAGE_POSITION="after"
-# Remove ISO8601 timestamps in search when using joshskidmore/zsh-fzf-history-search
-export ZSH_FZF_HISTORY_SEARCH_DATES_IN_SEARCH=0
-# Set keywords to be excluded from ZSH History using MichaelAquilina/zsh-history-filter
-export HISTORY_FILTER_EXCLUDE=("_KEY" "Bearer")
-
-{{- /* Visuals: Eza/Ls Configuration */ -}}
-{{- $hasEza := false -}}
-{{- if lookPath "eza" -}}
-{{-   $hasEza = true -}}
-{{- end -}}
-{{- if $hasEza }}
-alias ls=" eza -l --group-directories-first"
-alias ll=" eza -la --group-directories-first"
-alias lt=" eza -la --sort=modified --reverse --color=always"
-alias tree=" eza --tree"
-{{ else }}
-# Fallback to standard ls aliases
-alias ls="ls --color=always"
-alias ll="LC_COLLATE=C ls -lah --color=always"
-alias lt="LC_COLLATE=C ls -lahtr --color=always"
-{{- end }}
-
-{{- /* Editor Configuration */ -}}
-# Set $EDITOR to nano if available else fallback to vi
-{{- $hasNano := false -}}
-{{- if lookPath "nano" -}}
-{{-   $hasNano = true -}}
-{{- end }}
-EDITOR="{{ if $hasNano }}$(command -v nano){{ else }}$(command -v vi){{ end }}"
-
-# Set $EDITOR & $VISUAL to VSCode
-{{- $hasCode := false -}}
-{{- if lookPath "code" -}}
-{{-   $hasCode = true -}}
-{{- end -}}
-{{- if $hasCode }}
-if [ "$SSH_TTY$DISPLAY" = "${DISPLAY#*:[1-9][0-9]}" ]; then
-  export VISUAL="$(command -v code) --wait"
-  EDITOR="$VISUAL"
+_zsh_helper="${HOME}/.local/share/zsh/40-session-env.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
 fi
-{{- end }}
+unset _zsh_helper
+
+_zsh_helper="${HOME}/.local/share/zsh/50-visuals-editor.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
+fi
+unset _zsh_helper
 
 # Dotfiles repository path (parameterized)
 DOTFILES_REPO="{{ .chezmoi.sourceDir }}"
@@ -896,14 +732,11 @@ bunx() {
     return $exit_code
 }
 
-# Shared Git helper aliases/functions.
-if [ -r "${HOME}/.local/share/git-helpers.zsh" ]; then
-    source "${HOME}/.local/share/git-helpers.zsh"
+_zsh_helper="${HOME}/.local/share/zsh/70-git-custom-aliases.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
 fi
-
-# Custom aliases
-alias czp='cz --config "$HOME/.config/chezmoi-private/chezmoi.toml" --source "$HOME/Documents/development/private-dotfiles"'
-alias dotupdate='cz apply && czp apply && antidote update && mise upgrade'
+unset _zsh_helper
 {{- if eq .chezmoi.os "darwin" }}
 brew-update-all() {
     brew update && brew upgrade || return $?
@@ -931,62 +764,14 @@ brew-update-all() {
 }
 {{- end }}
 
-# Update $PATH
-{{- if eq .chezmoi.os "darwin" }}
-PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
-{{- else }}
-PYTHON_USER_BIN="$HOME/.local/bin"
-{{- end }}
-# Update $PATH (platform-specific)
-{{- if eq .chezmoi.os "darwin" }}
-export PATH=$HOME/bin:$HOME/Applications:$PYTHON_USER_BIN:$PATH
-{{- else }}
-export PATH=$HOME/bin:$PYTHON_USER_BIN:$PATH
-{{- end }}
-
-{{- if eq .chezmoi.os "darwin" }}
-# Disable Fork Safety as it tends to break Ansible
-# export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-{{- end }}
-
-# Initialize fasd with smartcache if available, or directly if only fasd is available
-{{- $hasFasder := false -}}
-{{- if lookPath "fasder" -}}
-{{-   $hasFasder = true -}}
-{{- end -}}
-{{- if $hasFasder }}
-if command -v smartcache >/dev/null 2>&1; then
-    smartcache eval fasder --init auto aliases
-else
-    eval "$(fasder --init auto aliases)"
+_zsh_helper="${HOME}/.local/share/zsh/80-path.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
 fi
-{{- end }}
+unset _zsh_helper
 
-# This is added at the end of the file to avoid potential conflicts
-{{- $hasDirenv := false -}}
-{{- if lookPath "direnv" -}}
-{{-   $hasDirenv = true -}}
-{{- end -}}
-{{- if $hasDirenv }}
-(( ${+commands[direnv]} )) && eval "$(direnv hook zsh)"
-{{- end }}
-
-# 1. Bind the Up Arrow to the fzf_history_search widget
-#    This widget (provided by joshskidmore/zsh-fzf-history-search) reads the
-#    current command line buffer and uses it as the FZF query.
-bind_fzf_history() {
-    if zle -l fzf_history_search; then
-        # 1. Bind Up Arrow to FZF (Search Mode)
-        bindkey '^[[A' fzf_history_search
-        bindkey '^[OA' fzf_history_search
-        if [[ -n "${terminfo[kcuu1]}" ]]; then
-            bindkey "${terminfo[kcuu1]}" fzf_history_search
-        fi
-# 2. Bind Ctrl+P/N to Standard History (Navigation Mode)
-#    This allows you to just grab the last command without opening the FZF window.
-        bindkey '^P' up-line-or-history
-        bindkey '^N' down-line-or-history
-    fi
-}
-# 3. Ensure this runs AFTER antidote loads plugins.
-bind_fzf_history
+_zsh_helper="${HOME}/.local/share/zsh/90-late-integrations.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
+fi
+unset _zsh_helper

@@ -1,0 +1,52 @@
+{{- if or (eq .chezmoi.os "darwin")
+          (and (eq .chezmoi.os "linux")
+               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+# OpenCode env (trusted file)
+case $- in
+  *a*)
+    set +a
+    _opencode_restore_allexport=1
+    ;;
+  *)
+    unset _opencode_restore_allexport
+    ;;
+esac
+
+OPENCODE_ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env"
+if [ -n "${_opencode_restore_allexport:-}" ]; then
+  export OPENCODE_ENV_FILE
+fi
+
+if [ -r "$OPENCODE_ENV_FILE" ]; then
+  set -a
+  . "$OPENCODE_ENV_FILE"
+
+  if [ -z "${_opencode_restore_allexport:-}" ]; then
+    set +a
+  fi
+elif [ -n "${_opencode_restore_allexport:-}" ]; then
+  set -a
+fi
+
+: "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
+export PLANNOTATOR_PORT
+
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+: "${PLANNOTATOR_REMOTE:=1}"
+export PLANNOTATOR_REMOTE
+
+{{- end }}
+
+: "${PLANNOTATOR_PORTS_BUILD:={{ .plannotator_ports.host.build | join "," }}}"
+: "${PLANNOTATOR_PORTS_CLAUDE:={{ .plannotator_ports.host.claude | join "," }}}"
+: "${PLANNOTATOR_PORTS_CUSTOM:={{ .plannotator_ports.host.custom | join "," }}}"
+export PLANNOTATOR_PORTS_BUILD PLANNOTATOR_PORTS_CLAUDE PLANNOTATOR_PORTS_CUSTOM
+
+_opencode_profile_helpers="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-profile.sh"
+if [ -r "$_opencode_profile_helpers" ]; then
+  . "$_opencode_profile_helpers"
+fi
+unset _opencode_profile_helpers
+
+unset _opencode_restore_allexport
+{{- end }}
