@@ -13,6 +13,10 @@ permission:
     ~/.plannotator/plans/**: allow
   bash:
     source "$HOME/.local/share/beads-helpers.bash"*: allow
+    git rev-parse --show-toplevel: allow
+    git rev-parse --abbrev-ref HEAD: allow
+    git rev-parse HEAD: allow
+    date -u +%Y-%m-%dT%H:%M:%SZ: allow
     bd show*: allow
     bd list*: allow
     bd create*: allow
@@ -38,7 +42,7 @@ The calling agent must provide:
   current chat;
 - whether to create a new issue or attach an existing issue ID;
 - repository path;
-- branch, worktree path, and started SHA when available.
+- branch, worktree path, and started SHA as collision hints when available.
 
 If the plan text/path is missing, stop and ask for it. Do not infer it.
 
@@ -87,6 +91,15 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
 
 1. Preflight:
    - Confirm `bd` is available with `command -v bd`.
+   - Derive state metadata from Git in the current repository with exactly:
+     `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, and
+     `git rev-parse HEAD`.
+     Run those commands with the Bash tool's working directory set to the
+     caller-provided repository path; do not use shell `cd`.
+   - Capture `started_at` with exactly `date -u +%Y-%m-%dT%H:%M:%SZ`.
+   - Treat caller-provided branch, worktree path, and started SHA as collision
+     hints only. If any caller hint differs from the Git-derived value, stop
+     and return a collision result instead of writing state.
    - Check the Beads helper with
      `test -r "$HOME/.local/share/beads-helpers.bash"`.
    - If readable, source it with exactly
@@ -145,9 +158,13 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
 6. Write tracking state only after the issue update succeeds:
    - Use `.beads/in-progress-opencode.json`.
    - If it already exists for a different issue, branch, or worktree, stop and
-      return a collision result instead of overwriting.
+     return a collision result instead of overwriting.
    - Include at least: `id`, `agent`, `started_sha`, `started_at`, `branch`,
-      `worktree_path`, and plan source/fingerprint when available.
+     `worktree_path`, and plan source/fingerprint when available.
+   - Use the Git-derived state metadata from preflight. `branch` is the actual
+     Git branch from `git rev-parse --abbrev-ref HEAD`; it is never a worktree
+     directory name, Agent of Empires session name, or `ai-wt` path suffix.
+     `worktree_path` is the repo root from `git rev-parse --show-toplevel`.
    - Write the state file with the Edit tool using the relative path
      `.beads/in-progress-opencode.json`. Do not write it with `cat >`, shell
      redirection, or a heredoc.

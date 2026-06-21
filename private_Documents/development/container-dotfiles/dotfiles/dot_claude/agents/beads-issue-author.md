@@ -32,14 +32,10 @@ return a `Blocked` result — do not infer, do not guess.
 - `mode` — `create` or `attach`.
 - `existing_id` — `<prefix>-<id>` of the issue to attach to. Required when
   `mode == attach`; ignored when `mode == create`.
-- `repo_path` — absolute path to the repo root (from
-  `git rev-parse --show-toplevel`).
-- `branch` — current git branch (from `git branch --show-current`).
-- `worktree_path` — absolute path of the current git worktree (from
-  `git rev-parse --show-toplevel`; equals `repo_path` when not in a
-  worktree).
-- `started_sha` — full SHA of the current merge-target HEAD (from
-  `git rev-parse HEAD`).
+- `repo_path` — absolute path to the current repo/worktree root. The subagent
+  re-derives state metadata from Git in this path before writing state.
+- Optional `branch`, `worktree_path`, and `started_sha` — caller hints only.
+  If provided, they must match the Git-derived values.
 - Optional `replace_acceptance: true` — only honored in `attach` mode; if
   absent or false, do not modify the existing issue's acceptance criteria.
 
@@ -124,6 +120,25 @@ wrapper this subagent is deliberately avoiding.
 If `.beads/metadata.json` exists at `repo_path`, read it with the Read
 tool to confirm Beads is configured in this repo. Note `dolt_database` if
 present — it doubles as the issue prefix (e.g. `dots` → `dots-<id>`).
+
+Derive state metadata from Git in `repo_path`, and use these derived values for
+the state file. Run each command with the Bash tool's working directory set to
+`repo_path`; do not use shell `cd`:
+
+```bash
+git rev-parse --show-toplevel
+git rev-parse --abbrev-ref HEAD
+git rev-parse HEAD
+```
+
+`branch` is the actual Git branch from `git rev-parse --abbrev-ref HEAD`; it is
+never a worktree directory name, Agent of Empires session name, or `ai-wt` path
+suffix. `worktree_path` is the Git worktree root from
+`git rev-parse --show-toplevel`.
+
+If the caller provided `branch`, `worktree_path`, or `started_sha` and any hint
+differs from the Git-derived value, return a collision result and do NOT write
+state. Caller-provided state metadata is a check, not authority.
 
 ### Step 2 — Resolve the plan source
 
@@ -251,6 +266,10 @@ Before writing, check whether the file already exists. If it does, Read
 it. If its `id`, `branch`, or `worktree_path` differ from what you are
 about to write, return a collision result and do NOT overwrite. The
 caller (or the user) must resolve the collision first.
+
+Use only the Git-derived `started_sha`, `branch`, and `worktree_path` from
+Step 1. Do not copy branch/worktree values from plan paths, session labels, or
+worktree directory basenames.
 
 Use the Write tool — NOT `cat > file <<EOF`, NOT `echo > file`, NOT any
 shell redirection. The Write tool is the only file-creation primitive

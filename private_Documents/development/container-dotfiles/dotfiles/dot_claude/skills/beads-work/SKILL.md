@@ -92,8 +92,12 @@ If the user invokes the skill with no ID, check for a resume state file:
 ls .beads/in-progress-*.json 2>/dev/null
 ```
 
-If exactly one exists, read its `id` field and offer to resume that issue.
-If more than one exists, list them and ask which to resume.
+Treat state files as resume candidates, not authority. If exactly one exists,
+read its `id`, `branch`, `worktree_path`, and `started_sha` fields when
+present, then offer to resume that issue. If the branch/worktree metadata does
+not match the current session, call that out as a possible collision and ask.
+If more than one exists, list them and ask which to resume. Never silently
+continue or overwrite another session's state.
 
 ### Step 2: Fetch the issue
 
@@ -139,7 +143,13 @@ collection works regardless of how many agent transitions occur:
 ```bash
 STARTED_SHA="$(git rev-parse HEAD)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 ```
+
+`BRANCH` is the actual Git branch. It is never the worktree directory name,
+Agent of Empires session name, or `ai-wt` path suffix. `WORKTREE_PATH` is the
+Git worktree root, even when the agent starts from a subdirectory.
 
 Then write the harness-specific state file. Use `claude` or `opencode` as
 the `<harness>` token:
@@ -150,7 +160,9 @@ cat > .beads/in-progress-claude.json <<JSON
   "id": "<id>",
   "agent": "Claude",
   "started_sha": "${STARTED_SHA}",
-  "started_at": "${STARTED_AT}"
+  "started_at": "${STARTED_AT}",
+  "branch": "${BRANCH}",
+  "worktree_path": "${WORKTREE_PATH}"
 }
 JSON
 ```
@@ -163,13 +175,20 @@ cat > .beads/in-progress-opencode.json <<JSON
   "id": "<id>",
   "agent": "OpenCode",
   "started_sha": "${STARTED_SHA}",
-  "started_at": "${STARTED_AT}"
+  "started_at": "${STARTED_AT}",
+  "branch": "${BRANCH}",
+  "worktree_path": "${WORKTREE_PATH}"
 }
 JSON
 ```
 
 This file is the contract between Plan-phase and Build-phase agents in
 OpenCode and a resume anchor across sessions. It is gitignored.
+
+When a workflow creates or attaches an issue from an approved Plannotator plan,
+the state file may also include `plan_source` and `plan_sha256`. Use those
+fields as extra collision checks. If the plan source/fingerprint, branch, or
+worktree does not match the current work, ask before proceeding.
 
 ### Step 5: Investigate scope
 

@@ -60,7 +60,9 @@ the merge succeeds and only when the actor-specific state file validates:
 - Claude: `.beads/in-progress-claude.json`
 
 The state file must contain the explicit issue ID, the current feature branch,
-the current worktree path, and a usable `started_sha`. If any check fails, the
+the current worktree path, and a usable `started_sha`. `branch` means the actual
+Git branch, not the worktree directory basename or a session-suffixed worktree
+label. `worktree_path` means the Git worktree root. If any check fails, the
 helper reports the mismatch and leaves the state file untouched.
 
 ## Cleanup

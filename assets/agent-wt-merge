@@ -275,7 +275,13 @@ def inspect_beads_state(
     if not state_branch:
         info["problems"].append("state file has no branch")
     elif state_branch != feature_branch:
-        info["problems"].append(f"state branch is {state_branch}, expected {feature_branch}")
+        if state_branch == original_worktree.name:
+            info["problems"].append(
+                f"state branch is {state_branch}, which matches the worktree directory name; "
+                f"expected Git branch {feature_branch}"
+            )
+        else:
+            info["problems"].append(f"state branch is {state_branch}, expected {feature_branch}")
 
     state_worktree = resolve_state_worktree(data.get("worktree_path"))
     info["worktree_path"] = str(state_worktree) if state_worktree else None

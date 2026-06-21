@@ -139,8 +139,12 @@ collection works regardless of how many agent transitions occur:
 STARTED_SHA="$(git rev-parse HEAD)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-WORKTREE_PATH="$(pwd)"
+WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 ```
+
+`BRANCH` is the actual Git branch. It is never the worktree directory name,
+Agent of Empires session name, or `ai-wt` path suffix. `WORKTREE_PATH` is the
+Git worktree root, even when the agent starts from a subdirectory.
 
 Then write the harness-specific state file. Use `claude` or `opencode` as
 the `<harness>` token:
