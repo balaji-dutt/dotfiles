@@ -226,7 +226,7 @@
     "cc-safety-net@0.9.0",
     "envsitter-guard@0.0.4",
     "opencode-claude-bridge@1.10.11",
-    "@slkiser/opencode-quota@3.8.8"
+    "@slkiser/opencode-quota@3.10.1"
   ],
 
   // ----------------------------
