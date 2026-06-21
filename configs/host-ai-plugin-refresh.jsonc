@@ -23,7 +23,7 @@
       {
         "id": "safety-net@cc-marketplace",
         "scope": "user",
-        "version": "1.0.1" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
+        "version": "1.0.3" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
       }
     ]
   },
@@ -51,7 +51,7 @@
       },
       {
         "package": "cc-safety-net",
-        "version": "1.0.1" // renovate: datasource=npm depName=cc-safety-net
+        "version": "1.0.3" // renovate: datasource=npm depName=cc-safety-net
       },
       {
         "package": "envsitter-guard",
@@ -63,7 +63,7 @@
       },
       {
         "package": "@slkiser/opencode-quota",
-        "version": "3.8.7" // renovate: datasource=npm depName=@slkiser/opencode-quota
+        "version": "3.8.8" // renovate: datasource=npm depName=@slkiser/opencode-quota
       }
     ]
   }
