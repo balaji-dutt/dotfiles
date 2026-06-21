@@ -400,6 +400,10 @@ ensure_claude_persistence_links
 ensure_beads_persistence_mounts "$workspace_root"
 install_claude_managed_asset_links
 
+if ! install_beads_kanban_bd_fixes_vscode_extension; then
+  echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing postStart." >&2
+fi
+
 if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
   install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
     /home/vscode/persistent-data/agent-of-empires/config.toml

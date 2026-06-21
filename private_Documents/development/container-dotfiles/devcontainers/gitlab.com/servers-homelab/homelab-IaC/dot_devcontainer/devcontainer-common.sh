@@ -237,3 +237,115 @@ install_claude_managed_asset_links() {
   fi
   rm -f "$claude_config_dir/commit-docs.sh"
 }
+
+find_vscode_cli() {
+  local candidate
+
+  if command -v code >/dev/null 2>&1; then
+    command -v code
+    return 0
+  fi
+
+  shopt -s nullglob
+  for candidate in \
+    "$HOME"/.vscode-server/bin/*/bin/remote-cli/code \
+    "$HOME"/.vscode-server-insiders/bin/*/bin/remote-cli/code; do
+    if [[ -x "$candidate" ]]; then
+      shopt -u nullglob
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+
+  return 1
+}
+
+install_beads_kanban_bd_fixes_vscode_extension() {
+  local repo tag asset expected_sha fork_extension_id fork_version upstream_extension_id
+  local code_cmd cache_base cache_root vsix_path marker_path download_url
+  local current_sha tmp_file
+
+  repo="balaji-dutt/Beads-Kanban"
+  tag="bd-fixes-v2.1.4-bd.1-13ed786"
+  asset="beads-kanban-bd-fixes-2.1.4-bd.1-integration-bd-fixes-13ed786.vsix"
+  expected_sha="7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79"
+  fork_extension_id="balaji-dutt.beads-kanban-bd-fixes"
+  fork_version="2.1.4-bd.1"
+  upstream_extension_id="davidcforbes.beads-kanban"
+
+  if ! code_cmd="$(find_vscode_cli)"; then
+    echo "INFO: VS Code CLI not found; skipping Beads Kanban VSIX install."
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "INFO: curl command not found; skipping Beads Kanban VSIX install."
+    return 0
+  fi
+
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "WARN: sha256sum command not found; skipping Beads Kanban VSIX install." >&2
+    return 0
+  fi
+
+  if [[ -d /home/vscode/persistent-data ]]; then
+    cache_base="/home/vscode/persistent-data"
+  else
+    cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
+  fi
+
+  cache_root="$cache_base/dotfiles/beads-kanban-vsix"
+  vsix_path="$cache_root/$asset"
+  marker_path="$cache_root/$tag.installed"
+  download_url="https://github.com/${repo}/releases/download/${tag}/${asset}"
+  mkdir -p "$cache_root"
+
+  "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
+
+  if [[ -f "$marker_path" ]] && [[ "$(<"$marker_path")" == "$expected_sha" ]]; then
+    if "$code_cmd" --list-extensions --show-versions 2>/dev/null | \
+      grep -Fxq "${fork_extension_id}@${fork_version}"; then
+      echo "Beads Kanban BD Fixes VSIX already installed: ${fork_extension_id}@${fork_version}"
+      return 0
+    fi
+  fi
+
+  if [[ -f "$vsix_path" ]]; then
+    current_sha="$(sha256sum "$vsix_path" | awk '{print $1}')"
+  else
+    current_sha=""
+  fi
+
+  if [[ "$current_sha" != "$expected_sha" ]]; then
+    tmp_file="$(mktemp "$cache_root/${asset}.XXXXXX")"
+    if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_file" "$download_url"; then
+      rm -f "$tmp_file"
+      echo "WARN: Failed downloading Beads Kanban VSIX: $download_url" >&2
+      return 1
+    fi
+
+    current_sha="$(sha256sum "$tmp_file" | awk '{print $1}')"
+    if [[ "$current_sha" != "$expected_sha" ]]; then
+      rm -f "$tmp_file"
+      echo "ERROR: Beads Kanban VSIX checksum mismatch." >&2
+      echo "ERROR: expected $expected_sha" >&2
+      echo "ERROR: actual   $current_sha" >&2
+      return 1
+    fi
+
+    mv -f "$tmp_file" "$vsix_path"
+  fi
+
+  echo "Installing Beads Kanban BD Fixes VSIX: ${fork_extension_id}@${fork_version}"
+  "$code_cmd" --install-extension "$vsix_path" --force
+
+  if ! "$code_cmd" --list-extensions --show-versions 2>/dev/null | \
+    grep -Fxq "${fork_extension_id}@${fork_version}"; then
+    echo "ERROR: Beads Kanban BD Fixes extension was not listed after install." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$expected_sha" > "$marker_path"
+  echo "Installed Beads Kanban BD Fixes VSIX from $tag"
+}

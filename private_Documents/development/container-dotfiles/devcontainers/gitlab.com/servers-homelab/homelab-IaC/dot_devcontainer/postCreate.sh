@@ -560,6 +560,12 @@ else
 fi
 done_step "Run host dotfiles installer (if present)"
 
+step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
+if ! install_beads_kanban_bd_fixes_vscode_extension; then
+  echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing container setup." >&2
+fi
+done_step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
+
 step "Verify Beads CLI tooling"
 if command -v bd >/dev/null 2>&1; then
   bd version
