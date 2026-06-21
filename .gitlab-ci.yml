@@ -26,8 +26,8 @@ statusline-sync:
           echo "==> vendored body already matches the pinned version; nothing to push"
           exit 0
         fi
-        if [ -z "${STATUSLINE_SYNC_TOKEN:-}" ]; then
-          echo "ERROR: STATUSLINE_SYNC_TOKEN CI variable is not set;" >&2
+        if [ -z "${VENDOREDFILE_SYNC_TOKEN:-}" ]; then
+          echo "ERROR: VENDOREDFILE_SYNC_TOKEN CI variable is not set;" >&2
           echo "       see docs/automation/renovate-gitlab-runner-setup.md" >&2
           exit 1
         fi
@@ -39,7 +39,7 @@ statusline-sync:
           dot_claude/executable_statusline.sh \
           private_Documents/development/container-dotfiles/dotfiles/dot_claude/executable_statusline.sh
         git commit --amend --no-edit
-        git remote set-url origin "https://oauth2:${STATUSLINE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+        git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
         git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
         echo "==> amended commit pushed; superseding pipeline will validate"
       else
@@ -47,6 +47,47 @@ statusline-sync:
         bash assets/sync-statusline.sh --check
       fi
       JOBSCRIPT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+browser-policy-sync:
+  stage: sync
+  image: alpine:3.20
+  timeout: 10m
+  before_script:
+    - apk add --no-cache git python3
+  script:
+    - |
+      set -eu
+      case "${CI_COMMIT_REF_NAME}" in
+        renovate/browser-policies-*)
+          echo "==> browser policy sync branch detected: ${CI_COMMIT_REF_NAME}"
+          python3 assets/sync-browser-policies.py --write
+          if git diff --quiet -- configs/browser-policies/justthebrowser; then
+            echo "==> vendored browser policies already match the pinned version; nothing to push"
+            exit 0
+          fi
+          if [ -z "${VENDOREDFILE_SYNC_TOKEN:-}" ]; then
+            echo "ERROR: VENDOREDFILE_SYNC_TOKEN CI variable is not set;" >&2
+            echo "       see docs/automation/renovate-gitlab-runner-setup.md" >&2
+            exit 1
+          fi
+          export GIT_AUTHOR_NAME="Renovate Bot"
+          export GIT_AUTHOR_EMAIL="service_account_group_65498163_3cf840e6e3ac6e34bec3beb607caff8a@noreply.gitlab.com"
+          export GIT_COMMITTER_NAME="Renovate Bot"
+          export GIT_COMMITTER_EMAIL="service_account_group_65498163_3cf840e6e3ac6e34bec3beb607caff8a@noreply.gitlab.com"
+          git add configs/browser-policies/justthebrowser
+          git commit --amend --no-edit
+          git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+          git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
+          echo "==> amended commit pushed; superseding pipeline will validate"
+          ;;
+        *)
+          echo "==> non-browser-policy branch; validating vendored policies against pinned version"
+          python3 assets/sync-browser-policies.py --check
+          ;;
+      esac
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push"'

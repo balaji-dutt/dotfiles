@@ -165,21 +165,29 @@ when the status update lacks a pipeline id. It is not the primary fix for this
 repo because the observed failure can also come from other GitLab status API
 response shapes.
 
-## 9) Statusline auto-sync token (`STATUSLINE_SYNC_TOKEN`)
+## 9) Vendored-file auto-sync token (`VENDOREDFILE_SYNC_TOKEN`)
 
-The dotfiles project ships a vendored copy of the `claude-pace` statusline
-script (`dot_claude/executable_statusline.sh` and the container-dotfiles
-mirror). A Renovate `customManager` bumps the `CLAUDE_PACE_VERSION`
-sentinel when upstream releases ship, but Renovate cannot rewrite the
-script body. `.gitlab-ci.yml` closes that gap: on
-`renovate/statusline-*` branches it runs `assets/sync-statusline.sh`,
-amends the sync onto the Renovate commit, and force-pushes back to the MR
-branch before `platformAutomerge` fires.
+The dotfiles project vendors upstream files that Renovate can pin but cannot
+fully rewrite by itself:
+
+- the `claude-pace` statusline script (`dot_claude/executable_statusline.sh`
+  and the container-dotfiles mirror)
+- Just the Browser policy artifacts under
+  `configs/browser-policies/justthebrowser/**`
+
+`.gitlab-ci.yml` closes that gap on known Renovate branches:
+
+- `renovate/statusline-*` runs `assets/sync-statusline.sh`
+- `renovate/browser-policies-*` runs
+  `python3 assets/sync-browser-policies.py --write`
+
+Each job amends the synced files onto the Renovate commit and force-pushes back
+to the MR branch before `platformAutomerge` can fire.
 
 The amend-and-push step needs a token that can write to this repository.
 The built-in `CI_JOB_TOKEN` cannot push branches, and the existing
 group-level `RENOVATE_TOKEN` is marked Protected — so it is invisible to
-pipelines that run on unprotected branches like `renovate/statusline-*`.
+pipelines that run on unprotected vendored-file Renovate branches.
 A dedicated, scoped token is therefore required.
 
 ### Required token type
@@ -222,7 +230,7 @@ selected at token-creation time. Verify:
 2. Open the account menu (`⋮`) → **Manage Access Tokens** → **Add new
    token**.
 3. Set token fields:
-   - **Token name:** `statusline-sync` (or `claude-pace-sync`).
+   - **Token name:** `vendored-file-sync`.
    - **Expiry date:** set the maximum GitLab allows (currently 364 days).
      Add a calendar reminder ~14 days before expiry to rotate.
    - **Select scopes:** tick `write_repository` only.
@@ -235,18 +243,19 @@ selected at token-creation time. Verify:
    - Notes: creation date, expiry date, scopes (`write_repository`),
      owning service account (`renovate-bot` in group
      `balaji-personal-files`), consumer (GitLab CI variable
-     `STATUSLINE_SYNC_TOKEN` on the dotfiles project).
+     `VENDOREDFILE_SYNC_TOKEN` on the dotfiles project).
    - Suggested title, parallel to the existing renovate-bot main-PAT
-     entry: `GitLab — renovate-bot statusline-sync PAT`.
+     entry: `GitLab — renovate-bot vendored-file-sync PAT`.
 6. Go to **Project → `gitlab.com/balaji-personal-files/dotfiles` →
    Settings → CI/CD → Variables → Add variable**, then configure:
-   - **Key:** `STATUSLINE_SYNC_TOKEN`.
+   - **Key:** `VENDOREDFILE_SYNC_TOKEN`.
    - **Value:** paste the token from step 4.
    - **Type:** Variable (not File).
    - **Visibility:** Masked (hides the value from job logs).
-   - **Flags → Protect variable:** **OFF**. `renovate/statusline-*`
-     branches are not protected, so a Protected variable would be
-     invisible to the sync job and the push would fail. This is also
+   - **Flags → Protect variable:** **OFF**. `renovate/statusline-*` and
+     `renovate/browser-policies-*` branches are not protected, so a
+     Protected variable would be invisible to the sync job and the push
+     would fail. This is also
      why the variable lives at *project* level rather than next to
      `RENOVATE_TOKEN` at group level — the existing group variable is
      Protected and only exposed to protected branches, which is correct
@@ -257,13 +266,13 @@ selected at token-creation time. Verify:
 
 ### How the CI job consumes the token
 
-The `statusline-sync` job in `.gitlab-ci.yml` rewrites `origin` to embed
+The sync jobs in `.gitlab-ci.yml` rewrite `origin` to embed
 the token under the `oauth2:<token>` username convention GitLab accepts
 for token-based git auth, then force-pushes:
 
 ```bash
 git remote set-url origin \
-  "https://oauth2:${STATUSLINE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+  "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
 git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
 ```
 
@@ -271,20 +280,19 @@ Because the token is owned by `renovate-bot`, GitLab records the pusher
 in the project's audit log as the renovate-bot service account —
 matching the `Renovate Bot` author the CI job sets via `GIT_AUTHOR_*`
 env vars. A push made via this access token (rather than
-`CI_JOB_TOKEN`) **does** trigger a new pipeline on the same branch, the
-desired behavior since the new pipeline runs `assets/sync-statusline.sh
---check` to verify the synced body and then unblocks
-`platformAutomerge`.
+`CI_JOB_TOKEN`) **does** trigger a new pipeline on the same branch. The
+superseding pipeline verifies the synced files with the relevant `--check`
+mode before `platformAutomerge` proceeds.
 
 ### Rotation and revocation
 
 To rotate: create a new token via the same Group → Service Accounts →
 renovate-bot → Manage Access Tokens page (steps 1–4 above), update the
-`STATUSLINE_SYNC_TOKEN` CI variable on the dotfiles project with the
+`VENDOREDFILE_SYNC_TOKEN` CI variable on the dotfiles project with the
 new value, then revoke the old token from the same page. The broader
 `RENOVATE_TOKEN` is independent and is not affected.
 
 To revoke: same Manage Access Tokens page, **Revoke** action on the
-token row. The next CI run on a `renovate/statusline-*` branch will
-fail loudly, signalling the missing token without leaking history or
-performing unwanted pushes.
+token row. The next CI run on a supported vendored-file Renovate branch will
+fail loudly, signalling the missing token without leaking history or performing
+unwanted pushes.

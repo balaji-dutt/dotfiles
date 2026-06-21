@@ -27,8 +27,9 @@ upstream changes are visible in normal review diffs before any privileged or
 user-approved platform action uses them.
 
 Renovate tracks the upstream Just the Browser GitHub releases by updating the
-manifest version. Before merging a release update, refresh the vendored files
-from the same tag and update their SHA256 values in the manifest.
+manifest version, release URL, and raw source base URL together. CI then runs
+`assets/sync-browser-policies.py` so Renovate branches cannot merge with the
+manifest and vendored artifacts out of sync.
 
 ## Windows behavior
 
@@ -88,7 +89,18 @@ Remove that file manually only if it is the old Just the Browser JSON policy.
 ## Updating artifacts
 
 1. Let Renovate or a human update `upstream.version` in the manifest.
-2. Download the Chrome and Firefox files from the same upstream tag.
-3. Replace the vendored artifacts in `configs/browser-policies/justthebrowser/`.
-4. Update each manifest SHA256.
-5. Review the actual policy diffs before applying on Windows or macOS.
+2. Run the sync helper from the repo root:
+
+   ```sh
+   python3 assets/sync-browser-policies.py --write
+   ```
+
+   On Windows, `python assets/sync-browser-policies.py --write` is equivalent
+   when `python` resolves to Python 3. Running the helper with no mode flag is
+   also write mode.
+3. Review the actual policy diffs before applying on Windows or macOS.
+4. Validate the pinned version, URLs, vendored bytes, and manifest hashes:
+
+   ```sh
+   python3 assets/sync-browser-policies.py --check
+   ```

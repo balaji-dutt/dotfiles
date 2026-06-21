@@ -4,6 +4,7 @@ Windows Registry Editor Version 5.00
 "DisableFirefoxStudies"=dword:00000001
 "DisableTelemetry"=dword:00000001
 "DontCheckDefaultBrowser"=dword:00000001
+"IPProtectionAvailable"=dword:00000001
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\FirefoxHome]
 "SponsoredStories"=dword:00000000
@@ -12,6 +13,38 @@ Windows Registry Editor Version 5.00
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\GenerativeAI]
 "Enabled"=dword:00000000
+"Chatbot"=dword:00000000
+"LinkPreviews"=dword:00000000
+"TabGroups"=dword:00000000
+"Locked"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\Default]
+"Value"="blocked"
+"Locked"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\Translations]
+"Value"="available"
+"Locked"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\PDFAltText]
+"Value"="available"
+"Locked"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SmartTabGroups]
+"Value"="blocked"
+"Locked"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\LinkPreviewKeyPoints]
+"Value"="blocked"
+"Locked"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SidebarChatbot]
+"Value"="blocked"
+"Locked"=dword:00000001
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SmartWindow]
+"Value"="blocked"
+"Locked"=dword:00000001
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\SearchEngines\Remove]
 "1"="Perplexity"
@@ -19,5 +52,5 @@ Windows Registry Editor Version 5.00
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\JustTheBrowserFirefox]
 "DisplayName"="Just the Browser configuration - Mozilla Firefox"
 "URLInfoAbout"="https://justthebrowser.com/"
-"UninstallString"="powershell.exe -Command \"Remove-Item -Path HKLM:\\SOFTWARE\\Policies\\Mozilla\\Firefox,HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\JustTheBrowserFirefox -Recurse -ErrorAction Ignore\""
+"UninstallString"="powershell.exe -Command \"Remove-Item -Path HKLM:\\SOFTWARE\\Policies\\Mozilla\\Firefox,HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\JustTheBrowserFirefox -Recurse -ErrorAction SilentlyContinue\""
 "ModifyPath"="explorer.exe \"https://justthebrowser.com/\""

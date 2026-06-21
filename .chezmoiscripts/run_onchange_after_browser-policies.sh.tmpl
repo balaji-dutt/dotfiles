@@ -64,7 +64,7 @@ if [[ -f "$legacy_firefox_policy" ]]; then
 fi
 
 if [[ "${#changed_profiles[@]}" -eq 0 ]]; then
-  echo "No changed Just the Browser profiles to open."
+  echo "No changed Just the Browser profiles to open; staged profile bytes already match."
   exit 0
 fi
 

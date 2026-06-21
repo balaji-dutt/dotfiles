@@ -21,6 +21,15 @@ agent-facing worktree merge helper is documented in
 
 Run from the repository root.
 
+### Browser policy sync
+
+```sh
+python3 assets/sync-browser-policies.py --check
+python3 assets/sync-browser-policies.py --write
+```
+
+No mode flag is equivalent to `--write`.
+
 ### macOS / Linux / WSL2
 
 ```sh

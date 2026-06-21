@@ -28,8 +28,9 @@
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "corbindavenport/just-the-browser",
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\",[ \\t]*(?:\\r?\\n|$)"
-      ]
+        "(?<prefix>^|\\r?\\n)(?<indent>[ \\t]*)\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\",[ \\t]*\\r?\\n[ \\t]*\\\"release_url\\\":[ \\t]*\\\"https://github\\\\.com/corbindavenport/just-the-browser/releases/tag/[^\\\"]+\\\",[ \\t]*\\r?\\n[ \\t]*\\\"source_base_url\\\":[ \\t]*\\\"https://raw\\\\.githubusercontent\\\\.com/corbindavenport/just-the-browser/[^\\\"]+/\\\""
+      ],
+      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\\\"version\\\": \\\"{{{newValue}}}\\\",\\n{{{indent}}}\\\"release_url\\\": \\\"https://github.com/corbindavenport/just-the-browser/releases/tag/{{{newValue}}}\\\",\\n{{{indent}}}\\\"source_base_url\\\": \\\"https://raw.githubusercontent.com/corbindavenport/just-the-browser/{{{newValue}}}/\\\""
     },
     {
       "customType": "regex",
@@ -256,7 +257,8 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["configs/browser-policies/justthebrowser/manifest.json"],
       "automerge": false,
-      "groupName": "justthebrowser browser policies"
+      "groupName": "justthebrowser browser policies",
+      "additionalBranchPrefix": "browser-policies-"
     },
     {
       "matchManagers": ["custom.regex"],

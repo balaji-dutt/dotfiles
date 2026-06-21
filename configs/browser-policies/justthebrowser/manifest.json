@@ -4,8 +4,8 @@
   "upstream": {
     "repo": "corbindavenport/just-the-browser",
     "version": "v1.6",
-    "release_url": "https://github.com/corbindavenport/just-the-browser/releases/tag/v1.4",
-    "source_base_url": "https://raw.githubusercontent.com/corbindavenport/just-the-browser/v1.4/"
+    "release_url": "https://github.com/corbindavenport/just-the-browser/releases/tag/v1.6",
+    "source_base_url": "https://raw.githubusercontent.com/corbindavenport/just-the-browser/v1.6/"
   },
   "scope": {
     "browsers": ["chrome", "firefox"],
@@ -16,12 +16,12 @@
     {
       "path": "chrome/install.reg",
       "source_path": "chrome/install.reg",
-      "sha256": "c8654c24fdd53b3ee59b49fcdaef5335e3f6af171b954fc1ed3672efa6947133"
+      "sha256": "ced46897bc38ae2e5a3f6b58cc7599caa1b9b10fa2cc0a1661c2f4ef96da3539"
     },
     {
       "path": "chrome/uninstall.reg",
       "source_path": "chrome/uninstall.reg",
-      "sha256": "dd9e894bec7f8454f2a27cc912eaf107706b569f24e2c199963887b2c37e5848"
+      "sha256": "4fb1af6d70ccb13c7b17c44acf36b98c940e4adc9d755368e847e7034b411d85"
     },
     {
       "path": "chrome/chrome.mobileconfig",
@@ -31,7 +31,7 @@
     {
       "path": "firefox/install.reg",
       "source_path": "firefox/install.reg",
-      "sha256": "0f68ce719e17877aefcc2939743b14ebc182928cd86c30f9f5b363c04ad63bb9"
+      "sha256": "b8c2c724142d66aea1537b3190c4227ec2716ea6f2e6d61ff2895d280aa4f82f"
     },
     {
       "path": "firefox/uninstall.reg",
@@ -41,7 +41,7 @@
     {
       "path": "firefox/firefox.mobileconfig",
       "source_path": "firefox/firefox.mobileconfig",
-      "sha256": "561a888a46d8cf4133fb61d1ac0fde1a7554535378a5681070aa65dc8d653b59"
+      "sha256": "f71bca9ed50b65d1a2a63046b794db2127e4bf33a11df9bc0da3698c23beb1b0"
     }
   ],
   "notes": [
