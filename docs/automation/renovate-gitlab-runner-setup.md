@@ -131,6 +131,40 @@ renovate-config-validator renovate.json5 --no-global
   except OpenCode plugin patch/digest updates.
 - After first successful run, enable weekends-only schedule.
 
+### GitLab stability-status warning workaround
+
+If the runner logs this warning while processing Renovate branches:
+
+```text
+TypeError: err.body?.message?.startsWith is not a function
+  at setBranchStatus -> setStatusCheck -> setStability
+```
+
+Renovate is failing while publishing the `minimumReleaseAge` status check
+(`renovate/stability-days`) to GitLab. GitLab can return a non-string status
+API error body, and Renovate 43.233.4 mishandles that shape while logging the
+failure.
+
+This repository avoids that GitLab status path by keeping release-age checks
+internal to Renovate:
+
+- `internalChecksFilter: "strict"` filters releases until they meet the age
+  gate.
+- `prCreation: "not-pending"` delays automatic MR creation while internal
+  checks are pending.
+- `statusCheckWhen.minimumReleaseAge: "never"` stops publishing
+  `renovate/stability-days` commit statuses to GitLab.
+
+The Renovate Dashboard remains the manual escape hatch: you can still force an
+early MR when you intentionally want to bypass the waiting period. Avoid
+re-enabling `renovate/stability-days` statuses unless Renovate has fixed the
+GitLab catch-block bug or the runner has been validated with that status path.
+
+Runner-side `RENOVATE_X_GITLAB_SKIP_STATUS_WITHOUT_PIPELINE=true` may help only
+when the status update lacks a pipeline id. It is not the primary fix for this
+repo because the observed failure can also come from other GitLab status API
+response shapes.
+
 ## 9) Statusline auto-sync token (`STATUSLINE_SYNC_TOKEN`)
 
 The dotfiles project ships a vendored copy of the `claude-pace` statusline

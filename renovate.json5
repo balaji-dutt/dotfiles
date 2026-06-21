@@ -5,7 +5,15 @@
   "labels": ["dependencies", "renovate"],
   "dependencyDashboard": true,
   "rangeStrategy": "replace",
+  // Keep release-age checks internal. GitLab commit-status updates for
+  // renovate/stability-days can fail when GitLab returns a non-string API
+  // error body, which Renovate 43.233.4 mishandles while logging the error.
   "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "prCreation": "not-pending",
+  "statusCheckWhen": {
+    "minimumReleaseAge": "never"
+  },
   "automerge": false,
   "prConcurrentLimit": 5,
   "branchConcurrentLimit": 5,
