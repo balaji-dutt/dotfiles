@@ -645,9 +645,134 @@ version_ge() {
   [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | sed -n '1p')" = "$b" ]
 }
 
-# aoe: build latest/pinned version from source for devcontainers.
-# This avoids glibc mismatch with upstream prebuilt Linux release binaries.
+# aoe: install latest/pinned Linux release archive by default.
+# Set AOE_INSTALL_MODE=source only when debugging release-binary issues.
 # Set AOE_VERSION as a container variable to a tag like "1.4.6" or "latest".
+aoe_cli_version() {
+  aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p'
+}
+
+check_aoe_release_glibc() {
+  local min_glibc="2.28"
+  local sys_glibc
+
+  # Upstream AoE Linux releases are built in manylinux_2_28 containers.
+  # Fail fast only when the runtime glibc can be detected.
+  [ "$(uname -s)" = "Linux" ] || return 0
+  need_cmd ldd || return 0
+
+  sys_glibc="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' | head -1 || true)"
+  [ -n "$sys_glibc" ] || return 0
+
+  if ! version_ge "$sys_glibc" "$min_glibc"; then
+    echo "!! aoe release binary requires glibc ${min_glibc}+; found ${sys_glibc}."
+    echo "!! Set AOE_INSTALL_MODE=source to build aoe from source on this image."
+    return 1
+  fi
+}
+
+install_aoe_from_release() {
+  local want_version="${AOE_VERSION:-latest}"
+  local arch norm_arch asset url tmpd expected actual curr installed binpath
+
+  if [ "$(uname -s)" != "Linux" ]; then
+    echo "!! Unsupported OS for aoe Linux release archive: $(uname -s)"
+    return 1
+  fi
+
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) norm_arch="amd64" ;;
+    aarch64|arm64) norm_arch="arm64" ;;
+    *) echo "!! Unsupported arch for aoe binary: $arch"; return 1 ;;
+  esac
+
+  # Resolve "latest" using GitHub API (requires jq)
+  if [ "$want_version" = "latest" ]; then
+    if ! need_cmd jq; then
+      echo "!! jq not available; cannot resolve latest aoe. Install jq or set AOE_VERSION."
+      return 1
+    fi
+    echo "==> Resolving latest aoe version from GitHub..."
+    local tag
+    tag="$(curl -fsSL https://api.github.com/repos/agent-of-empires/agent-of-empires/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
+    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest aoe version."; return 1; }
+    want_version="$tag"
+  else
+    want_version="${want_version#v}"
+  fi
+
+  # If already installed and version matches, skip.
+  if need_cmd aoe; then
+    curr="$(aoe_cli_version)"
+    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
+      echo "==> aoe $curr already installed; skipping."
+      return 0
+    elif [ -n "$curr" ]; then
+      echo "==> aoe $curr found; upgrading to $want_version"
+    else
+      echo "==> aoe found; upgrading to $want_version"
+    fi
+  fi
+
+  need_cmd curl || { echo "!! curl is required for aoe release install."; return 1; }
+  need_cmd tar  || { echo "!! tar is required for aoe release install."; return 1; }
+  need_cmd sha256sum || { echo "!! sha256sum is required for aoe checksum verification."; return 1; }
+  check_aoe_release_glibc || return 1
+
+  tmpd="$(mktemp -d)"
+  asset="aoe-linux-${norm_arch}"
+  url="https://github.com/agent-of-empires/agent-of-empires/releases/download/v${want_version}/${asset}.tar.gz"
+
+  echo "==> Installing aoe ${want_version} (${asset})"
+  if ! curl -fsSL "${url}.sha256" -o "${tmpd}/${asset}.tar.gz.sha256"; then
+    rm -rf "$tmpd"
+    echo "!! Failed to download aoe checksum for v${want_version}."
+    return 1
+  fi
+  if ! curl -fsSL "$url" -o "${tmpd}/${asset}.tar.gz"; then
+    rm -rf "$tmpd"
+    echo "!! Failed to download aoe release archive for v${want_version}."
+    return 1
+  fi
+
+  expected="$(awk '{print $1}' "${tmpd}/${asset}.tar.gz.sha256")"
+  actual="$(sha256sum "${tmpd}/${asset}.tar.gz" | awk '{print $1}')"
+  if [ "$expected" != "$actual" ]; then
+    echo "!! aoe checksum mismatch for ${asset}.tar.gz"
+    echo "!! expected: $expected"
+    echo "!! actual:   $actual"
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  if ! tar -xzf "${tmpd}/${asset}.tar.gz" -C "$tmpd"; then
+    rm -rf "$tmpd"
+    echo "!! Failed to extract aoe release archive."
+    return 1
+  fi
+  binpath="${tmpd}/${asset}"
+  if [ ! -f "$binpath" ]; then
+    echo "!! aoe binary not found in archive: $asset"
+    rm -rf "$tmpd"
+    return 1
+  fi
+
+  as_root "install -m 0755 '$binpath' /usr/local/bin/aoe"
+  rm -rf "$tmpd"
+
+  if ! need_cmd aoe; then
+    echo "!! aoe not found after install."
+    return 1
+  fi
+  installed="$(aoe_cli_version)"
+  if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
+    echo "!! aoe version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
+    return 1
+  fi
+  echo "==> aoe installed: ${installed}"
+}
+
 install_aoe_from_source() {
   local want_version="${AOE_VERSION:-latest}"
   local min_rust="1.85.0"
@@ -665,11 +790,13 @@ install_aoe_from_source() {
     tag="$(curl -fsSL https://api.github.com/repos/agent-of-empires/agent-of-empires/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
     [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest aoe version."; return 1; }
     want_version="$tag"
+  else
+    want_version="${want_version#v}"
   fi
 
   # If already installed and version matches, skip.
   if need_cmd aoe; then
-    curr="$(aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+    curr="$(aoe_cli_version)"
     if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
       echo "==> aoe $curr already installed; skipping."
       return 0
@@ -753,14 +880,32 @@ install_aoe_from_source() {
     return 1
   fi
   local installed
-  installed="$(aoe --version 2>/dev/null | sed -n 's/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
+  installed="$(aoe_cli_version)"
   if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
     echo "!! aoe version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
     return 1
   fi
   echo "==> aoe installed: ${installed}"
 }
-install_aoe_from_source || echo "!! aoe install failed; continuing"
+
+install_aoe() {
+  local install_mode="${AOE_INSTALL_MODE:-release}"
+
+  case "$install_mode" in
+    release)
+      install_aoe_from_release
+      ;;
+    source)
+      install_aoe_from_source
+      ;;
+    *)
+      echo "!! Unsupported AOE_INSTALL_MODE: $install_mode"
+      echo "!! Supported values: release, source"
+      return 1
+      ;;
+  esac
+}
+install_aoe || echo "!! aoe install failed; continuing"
 
 # git-mkver: install latest release from GitHub
 # - amd64: native Linux binary

@@ -352,16 +352,21 @@ tracked separately in Beads issue `dots-vlk`; until then, start the bridge
 manually on the Docker Desktop host when container desktop notifications are
 needed.
 
-AoE is built from source in this bookworm-based devcontainer instead of using
-upstream prebuilt Linux release binaries. This avoids glibc version mismatches
-from newer upstream build environments.
+AoE is installed from the upstream Linux release archive for the detected
+container architecture. WSL2/amd64 containers use `aoe-linux-amd64.tar.gz`, and
+OrbStack on Apple ARM still uses `aoe-linux-arm64.tar.gz` because the process is
+running inside a Linux `aarch64` container, not on Darwin.
 
-This choice affects bootstrap time and container-local disk usage (toolchain and
-build artifacts), but does not require changing the external base image.
+Earlier devcontainer builds compiled AoE from source to avoid upstream glibc
+version mismatches. Upstream now publishes Linux releases from `manylinux_2_28`
+builders with a glibc `2.28` floor, so this bookworm-based container can use the
+release binaries and avoid the long Rust/web build during rebuilds.
 
-AoE build toolchain/cache directories are isolated to a temporary build root and
-removed after successful install. This keeps long-lived `$HOME` paths (for
-example `~/.cargo` and `~/.rustup`) from accumulating AoE bootstrap residue.
+Set `AOE_INSTALL_MODE=source` only as an explicit escape hatch when debugging a
+release-binary issue. Source builds isolate Rust/npm toolchains and caches to a
+temporary build root and remove them after successful install, keeping long-lived
+`$HOME` paths (for example `~/.cargo` and `~/.rustup`) from accumulating AoE
+bootstrap residue.
 
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
