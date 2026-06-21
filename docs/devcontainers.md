@@ -160,8 +160,9 @@ human-operated step; the bootstrap scripts only verify that `bd` and `dolt` are
 available.
 
 The VS Code Beads Kanban fork is installed from a pinned GitHub release VSIX in
-`postCreate.sh` and retried by `postStart.sh` when the VS Code CLI is available.
-Troubleshoot with `/tmp/postCreate.log`, `/tmp/postStart.log`, and:
+`postCreate.sh` and retried by `postStart.sh`. Lifecycle scripts prefer the VS
+Code Server CLI and log the selected executable before installing. Troubleshoot
+with `/tmp/postCreate.log`, `/tmp/postStart.log`, and:
 
 ```sh
 code --list-extensions --show-versions | grep beads-kanban

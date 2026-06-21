@@ -239,24 +239,38 @@ install_claude_managed_asset_links() {
 }
 
 find_vscode_cli() {
-  local candidate
+  local candidate root nullglob_state
+
+  nullglob_state="$(shopt -p nullglob || true)"
+  shopt -s nullglob
+
+  for root in \
+    "${VSCODE_AGENT_FOLDER:-}" \
+    "$HOME/.vscode-server" \
+    "$HOME/.vscode-server-insiders"; do
+    [[ -n "$root" ]] || continue
+
+    for candidate in \
+      "$root"/bin/*/bin/code-server \
+      "$root"/bin/*/bin/code-insiders-server; do
+      if [[ -x "$candidate" ]]; then
+        eval "$nullglob_state"
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  done
+  eval "$nullglob_state"
 
   if command -v code >/dev/null 2>&1; then
     command -v code
     return 0
   fi
 
-  shopt -s nullglob
-  for candidate in \
-    "$HOME"/.vscode-server/bin/*/bin/remote-cli/code \
-    "$HOME"/.vscode-server-insiders/bin/*/bin/remote-cli/code; do
-    if [[ -x "$candidate" ]]; then
-      shopt -u nullglob
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  shopt -u nullglob
+  if command -v code-insiders >/dev/null 2>&1; then
+    command -v code-insiders
+    return 0
+  fi
 
   return 1
 }
@@ -264,7 +278,7 @@ find_vscode_cli() {
 install_beads_kanban_bd_fixes_vscode_extension() {
   local repo tag asset expected_sha fork_extension_id fork_version upstream_extension_id
   local code_cmd cache_base cache_root vsix_path marker_path download_url
-  local current_sha tmp_file
+  local current_sha tmp_file list_output install_output
 
   repo="balaji-dutt/Beads-Kanban"
   tag="bd-fixes-v2.1.4-bd.1-13ed786"
@@ -278,6 +292,7 @@ install_beads_kanban_bd_fixes_vscode_extension() {
     echo "INFO: VS Code CLI not found; skipping Beads Kanban VSIX install."
     return 0
   fi
+  echo "Using VS Code CLI for Beads Kanban install: $code_cmd"
 
   if ! command -v curl >/dev/null 2>&1; then
     echo "INFO: curl command not found; skipping Beads Kanban VSIX install."
@@ -304,8 +319,8 @@ install_beads_kanban_bd_fixes_vscode_extension() {
   "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
 
   if [[ -f "$marker_path" ]] && [[ "$(<"$marker_path")" == "$expected_sha" ]]; then
-    if "$code_cmd" --list-extensions --show-versions 2>/dev/null | \
-      grep -Fxq "${fork_extension_id}@${fork_version}"; then
+    if list_output="$("$code_cmd" --list-extensions --show-versions 2>&1)" && \
+      grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
       echo "Beads Kanban BD Fixes VSIX already installed: ${fork_extension_id}@${fork_version}"
       return 0
     fi
@@ -338,11 +353,30 @@ install_beads_kanban_bd_fixes_vscode_extension() {
   fi
 
   echo "Installing Beads Kanban BD Fixes VSIX: ${fork_extension_id}@${fork_version}"
-  "$code_cmd" --install-extension "$vsix_path" --force
+  if ! install_output="$("$code_cmd" --install-extension "$vsix_path" --force 2>&1)"; then
+    printf '%s\n' "$install_output" >&2
+    echo "ERROR: Failed installing Beads Kanban BD Fixes with: $code_cmd" >&2
+    return 1
+  fi
 
-  if ! "$code_cmd" --list-extensions --show-versions 2>/dev/null | \
-    grep -Fxq "${fork_extension_id}@${fork_version}"; then
+  if [[ -n "$install_output" ]]; then
+    printf '%s\n' "$install_output"
+  fi
+
+  if ! list_output="$("$code_cmd" --list-extensions --show-versions 2>&1)"; then
+    printf '%s\n' "$list_output" >&2
+    echo "ERROR: Failed listing VS Code extensions with: $code_cmd" >&2
+    return 1
+  fi
+
+  if ! grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
     echo "ERROR: Beads Kanban BD Fixes extension was not listed after install." >&2
+    echo "ERROR: VS Code CLI used: $code_cmd" >&2
+    if grep -i 'beads-kanban' <<<"$list_output" >&2; then
+      :
+    else
+      echo "INFO: No Beads Kanban extensions were listed by VS Code CLI." >&2
+    fi
     return 1
   fi
 
