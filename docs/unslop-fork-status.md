@@ -144,6 +144,29 @@ a recommended configuration.
   `unslop-file-voice`) for opt-in use — that is, replicate the opt-in command/skill model
   rather than the always-on hook.
 
-The actual Claude Code enablement (which commands/skills to install where, the
-`defaultMode: off` config, and whether to manage it through chezmoi and the dev-container
-mirror) is intentionally deferred to a separate follow-up plan.
+### Update (2026-06-21): Claude Code enablement implemented
+
+The follow-up is done. unslop is now enabled for Claude Code using the opt-in
+command/skill model — **not** the always-on hooks:
+
+- **Skills.** The seven unslop skills (`unslop`, `unslop-commit`, `unslop-review`,
+  `unslop-reasoning`, `unslop-help`, `unslop-file` with its `scripts/` Python backend, and
+  `unslop-file-voice`) are vendored under `dot_claude/skills/`, copied from the in-repo
+  OpenCode copies (the content is tool-agnostic and was byte-identical to the unslop fork;
+  the only edit is the `unslop-file-voice` install-path correction noted below).
+- **Commands.** Ten slash commands are vendored under `dot_claude/commands/` — every
+  OpenCode `unslop*` command except `stop-unslop`, which only deactivates a persistent
+  active mode that the always-on hooks would create, and those hooks are not adopted.
+- **No hooks, no marketplace.** Because the `SessionStart`/`UserPromptSubmit` activation
+  hooks are intentionally excluded, the `defaultMode: off` config and the
+  `~/.claude/.unslop-active` flag are not used — there is no auto-injection to gate.
+- **Commit wiring.** `dot_claude/AGENTS.md` instructs the agent to draft/clean commit
+  messages with the `unslop-commit` skill, so it is invoked whenever a commit message is
+  requested (reinforcing the skill's own description match).
+- **chezmoi + dev-container mirror.** The files live under `dot_claude/` (chezmoi-managed)
+  and mirror to `container-dotfiles` via the existing `claude-user-config` globs in
+  `configs/devcontainer-sync.jsonc` (no manifest change needed).
+- The `unslop-file-voice` skill's example install path was corrected from
+  `~/.config/opencode/...` to `~/.claude/...` for the Claude Code copy.
+
+Tracked as Beads issue `dots-mwp`.

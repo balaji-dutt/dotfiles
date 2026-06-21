@@ -74,6 +74,7 @@
   git commit <args>
   ```
 - When work is complete and verified, propose a commit message for approval before running `cc-commit`.
+- When drafting or cleaning up that commit message, use the `unslop-commit` skill to keep it in direct engineer voice (Conventional Commits, no AI/marketing slop). The skill only writes the message; it never stages or runs `git`.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
 
 ## Repo safety & secrets
