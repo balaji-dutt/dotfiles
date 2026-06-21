@@ -32,6 +32,7 @@ VERSION = 1
 BRANCH_TYPES = ("feat", "fix", "chore", "docs", "refactor", "test", "build", "ci")
 DEFAULT_PATH_TEMPLATE = "worktrees/{safe_branch}-{session_id}"
 DEFAULT_STATE_DIR = ".ai-wt"
+PROMPT_BACKENDS = {"auto", "gum", "plain"}
 
 
 class AiWtError(Exception):
@@ -254,90 +255,66 @@ def prompt_for_branch_type_numbered() -> str:
     return raw_type
 
 
-def read_escape_sequence() -> str:
-    try:
-        import select
-    except ImportError:
-        return "\x1b"
-
-    sequence = "\x1b"
-    while True:
-        ready, _, _ = select.select([sys.stdin], [], [], 0.02)
-        if not ready:
-            return sequence
-        sequence += sys.stdin.read(1)
+def prompt_backend() -> str:
+    backend = os.environ.get("AI_WT_PROMPT_BACKEND", "auto").strip().lower() or "auto"
+    if backend not in PROMPT_BACKENDS:
+        die("AI_WT_PROMPT_BACKEND must be one of: auto, gum, plain")
+    return backend
 
 
-def prompt_for_branch_type_tty() -> str | None:
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+def gum_path(backend: str) -> str | None:
+    if backend == "plain":
         return None
-    try:
-        import termios
-        import tty
-    except ImportError:
+    path = shutil.which("gum")
+    if path is None and backend == "gum":
+        die("gum not found in PATH; install gum or set AI_WT_PROMPT_BACKEND=plain")
+    return path
+
+
+def run_gum_prompt(args: list[str], *, backend: str) -> str | None:
+    gum = gum_path(backend)
+    if gum is None:
         return None
-
-    fd = sys.stdin.fileno()
-    try:
-        old_settings = termios.tcgetattr(fd)
-    except termios.error:
-        return None
-
-    selected = 0
-    prompt = f"Branch type (↑/↓, 1-{len(BRANCH_TYPES)}, Enter; Ctrl-C to cancel): "
-
-    def render() -> None:
-        sys.stdout.write(f"\r\033[K{prompt}{BRANCH_TYPES[selected]}")
-        sys.stdout.flush()
-
-    try:
-        tty.setraw(fd)
-        render()
-        while True:
-            char = sys.stdin.read(1)
-            if char in {"\r", "\n"}:
-                sys.stdout.write("\n")
-                return BRANCH_TYPES[selected]
-            if char == "\x03":
-                raise KeyboardInterrupt
-            if char == "\x04":
-                die("branch prompt cancelled")
-            if char == "\x1b":
-                sequence = read_escape_sequence()
-                if sequence in {"\x1b[A", "\x1b[D"}:
-                    selected = (selected - 1) % len(BRANCH_TYPES)
-                    render()
-                elif sequence in {"\x1b[B", "\x1b[C"}:
-                    selected = (selected + 1) % len(BRANCH_TYPES)
-                    render()
-                continue
-            if char.isdigit() and char != "0":
-                position = int(char)
-                if position <= len(BRANCH_TYPES):
-                    selected = position - 1
-                    render()
-            elif char.lower() in {branch_type[0] for branch_type in BRANCH_TYPES}:
-                start = (selected + 1) % len(BRANCH_TYPES)
-                for offset in range(len(BRANCH_TYPES)):
-                    candidate = (start + offset) % len(BRANCH_TYPES)
-                    if BRANCH_TYPES[candidate].startswith(char.lower()):
-                        selected = candidate
-                        render()
-                        break
-    except KeyboardInterrupt:
-        sys.stdout.write("\n")
+    result = subprocess.run(
+        [gum, *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    if result.returncode != 0:
         die("branch prompt cancelled")
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return result.stdout.rstrip("\n")
+
+
+def prompt_for_branch_type_gum(*, backend: str) -> str | None:
+    return run_gum_prompt(
+        [
+            "choose",
+            "--header",
+            "Branch type",
+            "--height",
+            str(len(BRANCH_TYPES)),
+            *BRANCH_TYPES,
+        ],
+        backend=backend,
+    )
+
+
+def prompt_for_description_gum(*, backend: str) -> str | None:
+    return run_gum_prompt(["input", "--prompt", "Description: "], backend=backend)
 
 
 def prompt_for_branch(repo_root: Path) -> str:
     if not sys.stdin.isatty():
         die("branch is required when stdin is not interactive")
-    raw_type = prompt_for_branch_type_tty()
+    backend = prompt_backend()
+    raw_type = prompt_for_branch_type_gum(backend=backend)
     if raw_type is None:
         raw_type = prompt_for_branch_type_numbered()
-    description = input("Description: ").strip()
+    description = prompt_for_description_gum(backend=backend)
+    if description is None:
+        description = input("Description: ")
+    description = description.strip()
     return build_session_name(repo_root, raw_type, description)
 
 

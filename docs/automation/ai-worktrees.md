@@ -25,9 +25,11 @@ ai-wt run opencode docs/update-notes -- --agent build
 
 If no branch is passed and stdin is interactive, `ai-wt` prompts for a branch
 type and description, then builds a branch name such as `feat/add-widget`.
-The branch-type prompt accepts up/down arrows, number keys, and Enter; the
-description prompt uses normal terminal line editing for backspace/delete where
-available.
+When `gum` is installed, branch creation uses `gum choose` for the branch type
+and `gum input` for the description, providing the preferred arrow-key and
+line-editing UI. Without `gum`, `ai-wt` falls back to a plain numbered branch
+type prompt and the terminal's normal `input()` line editing for the
+description.
 The Espanso `:aoens` expansion can still be used to paste a branch name, but
 it is not required.
 
@@ -107,6 +109,10 @@ ai-wt cleanup <session-id> --delete --force
 remaining managed worktrees. It still refuses dirty worktrees unless `--force`
 is passed.
 
+`ai-wt list`, `ai-wt resume list`, `ai-wt cleanup`, and `ai-wt prune` remain
+plain CLI/table commands. They do not use Gum, which keeps their output
+script-friendly and preserves explicit handling for destructive cleanup actions.
+
 ## Ignore Rules
 
 The wrapper does not edit committed `.gitignore` files in arbitrary repos. On
@@ -183,7 +189,13 @@ AI_WT_UPDATE_EXCLUDE
 AI_WT_OPENCODE_COMMAND
 AI_WT_CLAUDE_COMMAND
 AI_WT_SUBMODULE_INIT
+AI_WT_PROMPT_BACKEND
 ```
+
+`AI_WT_PROMPT_BACKEND` accepts `auto`, `gum`, or `plain`. The default `auto`
+uses Gum for branch creation prompts when `gum` is available and otherwise uses
+the plain fallback. Set it to `plain` to disable Gum prompts, or `gum` to fail
+fast when Gum is missing.
 
 If `AI_WT_OPENCODE_COMMAND` contains `{worktree}`, that placeholder is replaced
 with the worktree path. Otherwise the command runs from the worktree without an

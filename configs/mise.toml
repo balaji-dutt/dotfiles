@@ -1,4 +1,5 @@
 [tools]
+"aqua:charmbracelet/gum" = "latest"
 bun = "latest"
 jq = "latest"
 node = "lts"
