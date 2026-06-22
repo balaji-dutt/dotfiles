@@ -1,0 +1,281 @@
+{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+_wsl2_prepend_path_entry() {
+    local entry="$1"
+
+    [[ -d "$entry" ]] || return 0
+
+    path=("$entry" ${path:#$entry})
+}
+
+_wsl2_resolve_native_path_command() {
+    local tool="$1"
+    local candidate entry
+    local -a search_path windows_candidates
+
+    for entry in "$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/.bun/bin" "$HOME/bin"; do
+        _wsl2_prepend_path_entry "$entry"
+    done
+
+    search_path=("${(@)path}")
+    windows_candidates=()
+
+    for entry in "${search_path[@]}"; do
+        [[ -n "$entry" ]] || continue
+        candidate="${entry%/}/$tool"
+        [[ -x "$candidate" && ! -d "$candidate" ]] || continue
+
+        if _wsl2_is_windows_mounted_path "$candidate"; then
+            windows_candidates+=("$candidate")
+            continue
+        fi
+
+        printf '%s\n' "$candidate"
+        return 0
+    done
+
+    if (( ${#windows_candidates[@]} > 0 )); then
+        printf 'WSL2 native command not found for %s; only Windows-mounted candidates were available: %s\n' \
+            "$tool" "${(j:, :)windows_candidates}" >&2
+    else
+        printf 'WSL2 native command not found for %s\n' "$tool" >&2
+    fi
+
+    return 1
+}
+
+_wsl2_realpath_or_echo() {
+    local candidate="$1"
+
+    if command -v readlink >/dev/null 2>&1; then
+        readlink -f -- "$candidate" 2>/dev/null || printf '%s\n' "$candidate"
+    else
+        printf '%s\n' "$candidate"
+    fi
+}
+
+_wsl2_is_windows_mounted_path() {
+    local candidate="$1"
+    local resolved
+
+    resolved="$(_wsl2_realpath_or_echo "$candidate")"
+    [[ "$candidate" == /mnt/[[:alpha:]]/* || "$resolved" == /mnt/[[:alpha:]]/* ]]
+}
+
+_wsl2_resolve_mise_managed_command() {
+    local tool="$1"
+    local mise_bin resolved
+
+    [[ "$tool" != "mise" ]] || return 1
+
+    mise_bin="$(_wsl2_resolve_native_path_command mise 2>/dev/null)" || return 1
+    resolved="$(env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+        "$mise_bin" which "$tool" 2>/dev/null || true)"
+
+    [[ -n "$resolved" && -x "$resolved" && ! -d "$resolved" ]] || return 1
+    _wsl2_is_windows_mounted_path "$resolved" && return 1
+
+    printf '%s\n' "$resolved"
+    return 0
+}
+
+_wsl2_resolve_native_command() {
+    local tool="$1"
+
+    _wsl2_resolve_mise_managed_command "$tool" && return 0
+    _wsl2_resolve_native_path_command "$tool"
+}
+
+_resolve_preferred_command_path() {
+    _wsl2_resolve_native_command "$1"
+}
+
+_run_preferred_command() {
+    local tool="$1"
+    local tool_bin
+    shift
+
+    tool_bin="$(_wsl2_resolve_native_command "$tool")" || return 1
+    env -u ComSpec -u COMSPEC -u npm_config_script_shell -u NPM_CONFIG_SCRIPT_SHELL \
+        "$tool_bin" "$@"
+}
+
+# Ensure npm global bin is on PATH (WSL2)
+if _resolve_preferred_command_path npm >/dev/null 2>&1; then
+    npm_prefix="$(_run_preferred_command npm prefix -g 2>/dev/null || true)"
+    if [ -n "$npm_prefix" ]; then
+        npm_global_bin="$npm_prefix/bin"
+        if [ -d "$npm_global_bin" ]; then
+            _wsl2_prepend_path_entry "$npm_global_bin"
+        fi
+    fi
+fi
+
+# WSL2: enforce Linux-first PATH precedence for developer tools after
+# every prompt (catches direnv or other hooks that reorder PATH).
+# Windows tools remain accessible; call them explicitly with .exe when needed.
+if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
+    autoload -Uz add-zsh-hook
+
+    _wsl2_linux_path_precedence() {
+        # Mise shims (covers node, npm, python, jq, bun, uv, opencode, etc.)
+        local mise_shims="${HOME}/.local/share/mise/shims"
+        # Linux npm global bin (covers npm-installed globals like claude)
+        local npm_global_bin=""
+        if _resolve_preferred_command_path npm >/dev/null 2>&1; then
+            local _npm_prefix
+            _npm_prefix="$(_run_preferred_command npm prefix -g 2>/dev/null || true)"
+            # Only use prefix if it resolves to a Linux path (not /mnt/c/...)
+            if [[ -n "$_npm_prefix" ]] && ! _wsl2_is_windows_mounted_path "$_npm_prefix"; then
+                npm_global_bin="${_npm_prefix}/bin"
+            fi
+        fi
+
+        local entry
+        for entry in "$npm_global_bin" "$mise_shims"; do
+            [[ -z "$entry" || ! -d "$entry" ]] && continue
+            _wsl2_prepend_path_entry "$entry"
+        done
+    }
+
+    add-zsh-hook precmd _wsl2_linux_path_precedence
+fi
+
+{{- if .homelab.windows_user }}
+# Pageant/WSL2 inter-op (via npiperelay + socat)
+WSL2_PAGEANT_SSH_AUTH_SOCK=${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent/ssh-agent.sock}
+
+_wsl2_pageant_pgrep_pattern='socat.*npiperelay\.exe.*ssh-pageant'
+
+_wsl2_pageant_agent_ok() {
+    [ -n "${SSH_AUTH_SOCK:-}" ] || return 1
+    [ -S "$SSH_AUTH_SOCK" ] || return 1
+
+    if command -v ssh-add >/dev/null 2>&1; then
+        ssh-add -l >/dev/null 2>&1
+        case $? in
+            0|1) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    return 0
+}
+
+_wsl2_pageant_kill() {
+    local pattern="${1:-$_wsl2_pageant_pgrep_pattern}"
+
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "$pattern" >/dev/null 2>&1 || true
+    else
+        local pids
+        pids="$(pgrep -f "$pattern" 2>/dev/null)"
+        [ -n "$pids" ] && kill $pids >/dev/null 2>&1 || true
+    fi
+}
+
+_wsl2_pageant_start() {
+    local npiperelay_exe="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
+    local pageant_pipe='//./pipe/ssh-pageant'
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f socat \
+          EXEC:"$npiperelay_exe -ei -s $pageant_pipe" \
+          UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+          </dev/null >/dev/null 2>&1
+    else
+        nohup socat \
+          EXEC:"$npiperelay_exe -ei -s $pageant_pipe" \
+          UNIX-LISTEN:"$SSH_AUTH_SOCK",unlink-close,fork \
+          </dev/null >/dev/null 2>&1 &!
+    fi
+}
+
+wsl2_pageant_ensure() {
+    local npiperelay_exe="/mnt/c/Users/{{ .homelab.windows_user }}/{{ .homelab.npiperelay_path }}"
+
+    command -v socat >/dev/null 2>&1 || return 1
+    [ -x "$npiperelay_exe" ] || return 1
+
+    mkdir -p "$(dirname "$SSH_AUTH_SOCK")"
+
+    if _wsl2_pageant_agent_ok; then
+        return 0
+    fi
+
+    local attempt
+    for (( attempt = 0; attempt < 6; attempt++ )); do
+        _wsl2_pageant_kill "$_wsl2_pageant_pgrep_pattern"
+        rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
+        _wsl2_pageant_start
+
+        local i
+        for (( i = 0; i < 50; i++ )); do
+            _wsl2_pageant_agent_ok && return 0
+            sleep 0.1
+        done
+
+        sleep 0.5
+    done
+
+    return 1
+}
+
+sset() {
+    export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
+
+    _wsl2_pageant_kill "$_wsl2_pageant_pgrep_pattern"
+
+    rm -f "$SSH_AUTH_SOCK" >/dev/null 2>&1 || true
+
+    if wsl2_pageant_ensure; then
+        echo "Pageant socket reconnected: $SSH_AUTH_SOCK"
+    else
+        echo "Failed to reconnect Pageant socket."
+        return 1
+    fi
+}
+
+alias sunset=' unset SSH_AUTH_SOCK'
+
+if [[ -o interactive ]]; then
+    export SSH_AUTH_SOCK="$WSL2_PAGEANT_SSH_AUTH_SOCK"
+    wsl2_pageant_ensure >/dev/null 2>&1
+
+    autoload -Uz add-zsh-hook
+
+    _wsl2_pageant_auto_heal() {
+        [ -n "${SSH_AUTH_SOCK:-}" ] || return 0
+
+        typeset -g _WSL2_PAGEANT_LAST_CHECK
+        local last=${_WSL2_PAGEANT_LAST_CHECK:-0}
+
+        if (( EPOCHSECONDS - last < 30 )); then
+            return 0
+        fi
+        _WSL2_PAGEANT_LAST_CHECK=$EPOCHSECONDS
+
+        if ! _wsl2_pageant_agent_ok; then
+            wsl2_pageant_ensure >/dev/null 2>&1
+        fi
+    }
+
+    add-zsh-hook precmd _wsl2_pageant_auto_heal
+fi
+{{- end }}
+
+{{- else }}
+_resolve_preferred_command_path() {
+    local tool="$1"
+    whence -p "$tool" >/dev/null || return 1
+    whence -p "$tool"
+}
+
+_run_preferred_command() {
+    local tool="$1"
+    local tool_bin
+    shift
+
+    tool_bin="$(_resolve_preferred_command_path "$tool")" || return 1
+    "$tool_bin" "$@"
+}
+{{- end }}
