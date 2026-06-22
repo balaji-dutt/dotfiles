@@ -64,6 +64,12 @@ Devcontainer wrappers also pause for one second before launching the agent; set
 `OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` or
 `CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip the pause.
 
+OpenCode Plannotator uses the CLI runtime in both host and devcontainer config.
+That keeps WSL/devcontainer ready messages inside OpenCode's logging path instead
+of letting the embedded runtime write directly to the terminal TUI. Keep
+`PLANNOTATOR_REMOTE=1` for fixed-port forwarding behavior, and restart OpenCode
+after changing plugin config.
+
 For diagnostics:
 
 ```sh

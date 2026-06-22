@@ -215,6 +215,7 @@
     "@mohak34/opencode-notifier@0.2.8",
     ["@plannotator/opencode@0.20.1", {
       "workflow": "plan-agent",
+      "runtime": "cli",
       "planningAgents": [
         "plan",
         "plan-GPT-xhigh",
