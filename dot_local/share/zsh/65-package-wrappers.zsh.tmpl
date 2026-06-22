@@ -1,0 +1,382 @@
+# Dotfiles repository path (parameterized)
+DOTFILES_REPO="{{ .chezmoi.sourceDir }}"
+
+# --- Helper Function: Git Commit ---
+# Usage: sync_to_dotfiles "tool_name" "manifest_file" "action_description"
+sync_to_dotfiles() {
+    local tool_name=$1
+    local manifest_file=$2
+    local message=$3
+
+    # Check if dotfiles repo exists
+    if [ -d "${DOTFILES_REPO}/.git" ]; then
+        # Use subshell to avoid changing directory in current shell
+        (
+            cd "${DOTFILES_REPO}" || exit
+
+            # CHECK FIRST: Is the file Modified (M) or Untracked (??)?
+            if [ -n "$(git status --porcelain "$manifest_file")" ]; then
+                git add "$manifest_file"
+                git commit -m "Automated ${tool_name} update: ${message}"
+                echo "${tool_name} manifest updated and committed to dotfiles."
+            else
+                echo "${tool_name} update checked - no changes detected in manifest."
+            fi
+        )
+    else
+        echo "⚠️  Dotfiles repo not found at ${DOTFILES_REPO}."
+    fi
+}
+
+{{- if eq .chezmoi.os "darwin" }}
+# Save the original brew command
+if [ -z "$ORIGINAL_BREW" ]; then export ORIGINAL_BREW=$(which brew); fi
+
+# Function to update brewfiles and create git commit
+update_brewfiles() {
+    local action=$1
+    local packages=$2
+    local commit_action=""
+
+    # 1. Determine action verb for commit message
+    case $action in
+        "install"|"tap") commit_action="installed";;
+        "uninstall"|"purge"|"untap") commit_action="uninstalled";;
+        *) commit_action="updated";;
+    esac
+
+    # 2. Define Paths
+    # Note: DOTFILES_REPO is defined at the top of your .zshrc
+    local clean_install_path="${HOME}/Downloads/Clean Install/Clean Install Config/brewfile.txt"
+    local dotfiles_file_name="brewfile.txt"
+    local dotfiles_full_path="${DOTFILES_REPO}/${dotfiles_file_name}"
+
+    # 3. Generate the Brewfile (Dump to 'Clean Install' location)
+    # mkdir -p ensures the folder exists
+    # --force overwrites the file if it exists (replaces manual rm logic)
+    mkdir -p "$(dirname "$clean_install_path")"
+
+    echo "Dumping Brewfile to '${clean_install_path}'..."
+    "$ORIGINAL_BREW" bundle dump --brews --casks --taps --mas --file="$clean_install_path" --force
+
+    # 4. Copy to Dotfiles Repo
+    # We copy it over so the repo has the latest version to check against
+    /bin/cp -f "$clean_install_path" "$dotfiles_full_path"
+
+    # 5. Commit using the shared helper
+    # We pass the relative filename "brewfile.txt" because sync_to_dotfiles cds into the repo
+    sync_to_dotfiles "brew" "$dotfiles_file_name" "Packages $packages $commit_action"
+}
+
+# Create a custom brew function
+brew() {
+    local command=$1
+    shift
+
+    case $command in
+        "install")
+            if [[ "$1" == "--cask" ]]; then
+                # If --cask is the first argument, shift it off and run with remaining args
+                shift
+                "${ORIGINAL_BREW}" install --cask "$@"
+            elif [[ "${@: -1}" == "--cask" ]]; then
+                # If --cask is the last argument, remove it and run with remaining args
+                local args=("$@")
+                unset "args[${#args[@]}-1]"
+                "${ORIGINAL_BREW}" install --cask "${args[@]}"
+            else
+                # No --cask flag, run normal install
+                "${ORIGINAL_BREW}" install "$@"
+            fi
+
+            # If brew command succeeded
+            if [ $? -eq 0 ]; then
+                update_brewfiles "install" "$*"
+            else
+                echo "Brew install failed, Brewfile not updated"
+            fi
+            ;;
+        "tap"|"uninstall"|"purge"|"untap")
+            # Execute the original brew command
+            "${ORIGINAL_BREW}" $command "$@"
+
+            # If brew command succeeded
+            if [ $? -eq 0 ]; then
+                update_brewfiles "$command" "$*"
+            else
+                echo "Brew $command failed, Brewfile not updated"
+            fi
+            ;;
+        *)
+            # For all other brew commands, just pass through to the original
+            "${ORIGINAL_BREW}" $command "$@"
+            ;;
+    esac
+}
+
+{{- end }}
+
+# Initialize mise
+if _resolve_preferred_command_path mise >/dev/null 2>&1; then
+    eval "$(_run_preferred_command mise activate zsh)"
+fi
+
+# Override mise, pipx and npm with custom functions to ensure package installs are 
+# automatically committed to the dotfiles repo.
+
+mise() {
+    local cmd_name=$1
+    local exit_code
+    local MISE_MANIFEST="configs/mise.toml"
+
+    # 1. RUN COMMAND NORMALLY
+    _run_preferred_command mise "$@"
+    exit_code=$?
+
+    # Stop if mise failed
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # 2. AUTO-COMMIT LOGIC
+    # Check for state-changing commands
+    if [[ "$cmd_name" =~ ^(use|install|i|uninstall|rm|remove|plugin|trust|untrust|latest|config|set|unset)$ ]]; then
+        local is_global=false
+        if [[ " $* " =~ " -g " ]] || [[ " $* " =~ " --global " ]]; then
+            is_global=true
+        fi
+
+        # --- CASE A: GLOBAL UPDATE ---
+        if [ "$is_global" = true ]; then
+            # We use the sync_to_dotfiles helper we defined earlier
+            # It handles the cd/subshell internally
+            sync_to_dotfiles "mise" "$MISE_MANIFEST" "$*"
+
+        # --- CASE B: LOCAL PROJECT UPDATE ---
+        else
+            # Check if a local config exists AND we are in a git repo
+            if [ -f "mise.toml" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                # Check status (M = Modified, ?? = New/Untracked)
+                if [ -n "$(git status --porcelain "mise.toml")" ]; then
+                    git add "mise.toml"
+                    git commit -m "chore: update mise tools ($*)"
+                    echo "Local mise.toml committed to project repo."
+                fi
+            fi
+        fi
+    fi
+
+    return $exit_code
+}
+
+
+# --- UV WRAPPER ---
+uv() {
+    local exit_code
+    local command=$1
+    local subcommand=$2
+    local UV_MANIFEST="configs/uv_tools.txt" 
+
+    # 1. Run the original command
+    _run_preferred_command uv "$@"
+    exit_code=$?
+
+    # 2. Check if command succeeded
+    if [[ $exit_code -eq 0 ]]; then
+        if [[ "$command" == "tool" ]] && [[ "$subcommand" =~ ^(install|uninstall|upgrade)$ ]]; then
+            _run_preferred_command uv tool list | grep -v "^-" | awk '{print $1}' > "${DOTFILES_REPO}/${UV_MANIFEST}"
+            sync_to_dotfiles "uv" "$UV_MANIFEST" "$*"
+        fi
+    fi
+    return $exit_code
+}
+
+# --- NPM WRAPPER ---
+npm() {
+    local args=("$@")
+    local command=$1
+    local is_global=false
+    local is_modifying=false
+    local NPM_MANIFEST="configs/npm_globals.txt"
+
+    # Check for global flag
+    if [[ " ${args[*]} " =~ " -g " ]] || [[ " ${args[*]} " =~ " --global " ]]; then
+        is_global=true
+    fi
+
+    # Check for modifying commands
+    if [[ "$command" =~ ^(i|install|add|uninstall|remove|rm|update)$ ]]; then
+        is_modifying=true
+    fi
+
+    # 1. Run original command
+    _run_preferred_command npm "$@"
+    local exit_code=$?
+
+    # 2. If global modification succeeded
+    if [ $exit_code -eq 0 ] && [ "$is_global" = true ] && [ "$is_modifying" = true ]; then
+        # List global packages (depth 0, parseable)
+        # We use 'ls' instead of 'list' to be concise, -g for global, --depth=0
+        # We parse with awk to get just the package names
+        # "$ORIGINAL_NPM" list -g --depth=0 --json | grep '"key":' | awk -F'"' '{print $4}' > "${DOTFILES_REPO}/${NPM_MANIFEST}"
+
+        # Note: If you don't have grep/awk piping working perfectly for JSON,
+        # a simpler list format is:
+        # - Unscoped packages: .../node_modules/<pkg>
+        # - Scoped packages:   .../node_modules/@scope/<pkg>
+        # We strip everything up to node_modules/ and reconstruct @scope/pkg.
+        _run_preferred_command npm list -g --depth=0 --parseable \
+          | sed '1d' \
+          | sed 's#.*/node_modules/##' \
+          | awk -F/ '($1 ~ /^@/ && $2 != ""){print $1"/"$2; next} ($1 !~ /^@/){print $1}' \
+          | LC_ALL=C sort -u \
+          > "${DOTFILES_REPO}/${NPM_MANIFEST}"
+
+        # Commit
+        sync_to_dotfiles "npm" "$NPM_MANIFEST" "$*"
+    fi
+
+    return $exit_code
+}
+
+npx() {
+    _run_preferred_command npx "$@"
+}
+
+# --- BUN WRAPPER (Globals Manifest + Auto-Commit) ---
+
+bun() {
+    local args=("$@")
+    local command=$1
+    local is_global=false
+    local is_modifying=false
+    local BUN_MANIFEST="configs/bun_globals.txt"
+
+    # Check for global flag
+    if [[ " ${args[*]} " =~ " -g " ]] || [[ " ${args[*]} " =~ " --global " ]]; then
+        is_global=true
+    fi
+
+    # Check for modifying commands
+    if [[ "$command" =~ ^(add|a|remove|rm|r|update)$ ]]; then
+        is_modifying=true
+    fi
+
+    # 1. Run original command (bypass this wrapper)
+    _run_preferred_command bun "$@"
+    local exit_code=$?
+
+    # 2. If global modification succeeded
+    if [ $exit_code -eq 0 ] && [ "$is_global" = true ] && [ "$is_modifying" = true ]; then
+        local global_dir=""
+
+        if [ -d "${HOME}/.cache/.bun/install/global" ]; then
+            global_dir="${HOME}/.cache/.bun/install/global"
+        elif [ -d "${HOME}/.bun/install/global" ]; then
+            global_dir="${HOME}/.bun/install/global"
+        fi
+
+        if [ -n "$global_dir" ] && [ -f "${global_dir}/package.json" ] && command -v jq >/dev/null 2>&1; then
+            jq -r '
+              [
+                (.dependencies // {} | keys[]),
+                (.devDependencies // {} | keys[]),
+                (.optionalDependencies // {} | keys[]),
+                (.peerDependencies // {} | keys[])
+              ] | flatten | unique | sort | .[]
+            ' "${global_dir}/package.json" > "${DOTFILES_REPO}/${BUN_MANIFEST}"
+        elif [ -n "$global_dir" ] && [ -d "${global_dir}/node_modules" ]; then
+            ls -1 "${global_dir}/node_modules" | grep -v '^\.bin$' | LC_ALL=C sort -u > "${DOTFILES_REPO}/${BUN_MANIFEST}"
+        else
+            : > "${DOTFILES_REPO}/${BUN_MANIFEST}"
+        fi
+
+        sync_to_dotfiles "bun" "$BUN_MANIFEST" "$*"
+    fi
+
+    return $exit_code
+}
+
+# ==========================================
+# BUNX WRAPPER (Audit Log + Auto-Commit)
+# ==========================================
+
+bunx() {
+    local args="$*"
+    local exit_code
+    local target_dir
+    local log_filename="bunx_commands.txt"
+
+    # 1. Run the actual command
+    _run_preferred_command bunx "$@"
+    exit_code=$?
+
+    # Stop if the command failed
+    if [ $exit_code -ne 0 ]; then
+        return $exit_code
+    fi
+
+    # 2. Determine Log Location
+    # Priority: .claude/ -> .bunx/
+    if [ -d ".claude" ]; then
+        target_dir=".claude"
+    else
+        target_dir=".bunx"
+        # Create .bunx if it doesn't exist
+        mkdir -p "$target_dir"
+    fi
+
+    # 3. Capture the Command
+    # We append to the file so you have a full history
+    # Format: [Timestamp] bunx <arguments>
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] bunx $args" >> "${target_dir}/${log_filename}"
+
+    # 4. Git Auto-Commit Logic
+    # Check if we are inside a git work tree
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+        # Check if the target directory has changes 
+        # (This catches the new log entry AND any artifacts bunx created)
+        if [ -n "$(git status --porcelain "$target_dir")" ]; then
+
+            echo "Detected new bunx activity in $target_dir..."
+
+            # Stage the target folder
+            git add "$target_dir"
+
+            # Commit using the command as the message
+            git commit -m "chore(bunx): executed '$args'"
+
+            echo "Auto-committed command log and artifacts."
+        fi
+    fi
+
+    return $exit_code
+}
+
+{{- if eq .chezmoi.os "darwin" }}
+brew-update-all() {
+    brew update && brew upgrade || return $?
+
+    local cu_log cu_rc
+    cu_log=$(mktemp "${TMPDIR:-/tmp}/brew-cu.XXXXXX") || return $?
+
+    brew cu --include-mas -a 2>&1 | tee "$cu_log"
+    cu_rc=${pipestatus[1]}
+
+    if [ "$cu_rc" -eq 0 ]; then
+        rm -f "$cu_log"
+        return 0
+    fi
+
+    if grep -Fq "can't modify frozen Array" "$cu_log"; then
+        rm -f "$cu_log"
+        print -u2 "brew-update-all: brew cu failed with the Homebrew frozen Array bug; falling back to brew upgrade --cask --greedy"
+        brew upgrade --cask --greedy
+        return $?
+    fi
+
+    rm -f "$cu_log"
+    return "$cu_rc"
+}
+{{- end }}
