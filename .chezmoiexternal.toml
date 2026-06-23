@@ -11,15 +11,6 @@
 #   refreshPeriod = "168h"
 {{ end -}}
 {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
-{{-   $lazygitver := output "lastversion" "--assets" "jesseduffield/lazygit" | trim -}}
-[".local/bin/lazygit"]
-    type = "file"
-    url = {{ printf "%s" $lazygitver | quote }}
-    executable = true
-    refreshPeriod = "168h"
-    [".local/bin/lazygit".filter]
-        command = "tar"
-        args = ["--extract", "--file", "/dev/stdin", "--gzip", "--to-stdout", "lazygit"]
 # [".local/bin/change"]
 #    type = "file"
 #    executable = true

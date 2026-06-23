@@ -48,6 +48,7 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     -e "distro_id=${DISTRO_ID}" \
     -e "distro_version=${DISTRO_VERSION}" \
     -e "chezmoi_source_dir={{ .chezmoi.sourceDir }}" \
+    -e "lazygit_version={{ .lazygit_version }}" \
     -e "plannotator_version={{ .plannotator_version }}" \
     {{- if .CERTPATH }}
     -e {{ printf "%q" (printf "cert_path=%s" (.CERTPATH | toJson)) }} \

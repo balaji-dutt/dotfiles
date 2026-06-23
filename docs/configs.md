@@ -17,7 +17,7 @@
 
 | File | Purpose |
 | :--- | :--- |
-| `configs/packages.yaml` | WSL2 package groups and external tool version pins |
+| `configs/packages.yaml` | WSL2 package groups and WSL external tool version pins |
 | `configs/mise.toml` | mise tool/plugin declarations, including npm CLI shims |
 | `configs/mise_wsl2.toml` | WSL2-specific mise configuration |
 | `configs/uv_tools.txt` | `uv tool` package list |
@@ -36,7 +36,7 @@
 
 - `base_apt_packages`: common apt packages for WSL2
 - `ubuntu_apt_packages`: Ubuntu-specific package additions
-- `versions`: externally fetched version pins (for example lazygit, mnemo,
+- `versions`: externally fetched WSL tool version pins (for example mnemo,
   lazydocker)
 
 On WSL2, `ansible/wsl-playbook.yml` consumes `configs/packages.yaml`,
@@ -49,8 +49,9 @@ they change.
 - `brewfile.txt`: Homebrew bundle manifest for macOS, including tap-scoped
   formulae such as `Pilan-AI/tap/mnemo`. Citrix Workspace is intentionally not
   listed there; see `docs/automation/macos-vdi-apps.md`.
-- `.chezmoidata.yaml`: public template data, including non-secret macOS VDI
-  version policy under `macos_vdi`.
+- `.chezmoidata.yaml`: public template data, including the Renovate-managed
+  `lazygit_version` pin and non-secret macOS VDI version policy under
+  `macos_vdi`.
 
 ## Validation
 

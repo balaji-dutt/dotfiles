@@ -108,6 +108,17 @@
       arm64: arm64
     plannotator_arch: "{{ plannotator_arch_map[deb_arch] | default('x64') }}"
 
+    # lazygit publishes release assets as lazygit_VERSION_Linux_{x86_64,arm64}.
+    # Map our deb_arch -> lazygit's asset arch label.
+    lazygit_arch_map:
+      amd64: x86_64
+      arm64: arm64
+    lazygit_arch: "{{ lazygit_arch_map[deb_arch] | default('x86_64') }}"
+
+    # Pinned by chezmoi (.chezmoidata.yaml) and passed via -e on the
+    # ansible-playbook command line. Renovate keeps it current.
+    lazygit_version: "{{ lazygit_version | default('') }}"
+
     # Pinned by chezmoi (.chezmoidata.yaml) and passed via -e on the
     # ansible-playbook command line. Renovate keeps it current.
     plannotator_version: "{{ plannotator_version | default('') }}"
@@ -292,6 +303,61 @@
     - name: Include Debian dev tools
       ansible.builtin.include_tasks: tasks/debian-dev-tools.yml
       when: is_debian | bool
+
+    - name: Check installed lazygit version
+      ansible.builtin.command: "{{ local_bin }}/lazygit --version"
+      register: lazygit_version_cmd
+      changed_when: false
+      failed_when: false
+
+    - name: Parse installed lazygit version
+      ansible.builtin.set_fact:
+        lazygit_installed_version: >-
+          {{
+            (lazygit_version_cmd.stdout | default(''))
+            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+            | default('')
+          }}
+
+    - name: Install or upgrade lazygit
+      when:
+        - (lazygit_version | default('')) | length > 0
+        - (lazygit_installed_version | default('')) != lazygit_version
+      block:
+        - name: Download lazygit release archive
+          ansible.builtin.unarchive:
+            src: "https://github.com/jesseduffield/lazygit/releases/download/v{{ lazygit_version }}/lazygit_{{ lazygit_version }}_Linux_{{ lazygit_arch }}.tar.gz"
+            dest: "{{ local_bin }}"
+            remote_src: true
+            include:
+              - lazygit
+
+        - name: Ensure lazygit binary permissions
+          ansible.builtin.file:
+            path: "{{ local_bin }}/lazygit"
+            mode: "0755"
+
+        - name: Verify installed lazygit version
+          ansible.builtin.command: "{{ local_bin }}/lazygit --version"
+          register: lazygit_verify_cmd
+          changed_when: false
+
+        - name: Parse verified lazygit version
+          ansible.builtin.set_fact:
+            lazygit_verified_version: >-
+              {{
+                (lazygit_verify_cmd.stdout | default(''))
+                | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+                | default('')
+              }}
+
+        - name: Assert lazygit version matches chezmoi data pin
+          ansible.builtin.assert:
+            that:
+              - lazygit_verified_version == lazygit_version
+            fail_msg: >-
+              lazygit version mismatch after install
+              (wanted {{ lazygit_version }}, got {{ lazygit_verified_version | default('unknown') }})
 
     - name: Check installed openusage version
       ansible.builtin.command: "{{ local_bin }}/openusage version"
