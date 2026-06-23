@@ -2,20 +2,38 @@
 #!/bin/bash
 set -euo pipefail
 
-# This script uses `lastversion`, which calls the GitHub API.
-# If you hit rate limits, export GITHUB_API_TOKEN and rerun.
-if [ -z "${GITHUB_API_TOKEN:-}" ]; then
-  echo "ERROR: GITHUB_API_TOKEN is not set."
-  echo "This script uses GitHub API via lastversion and will likely hit rate limits without a token."
-  echo ""
-  echo "Run: export GITHUB_API_TOKEN=..."
-  echo "Then rerun chezmoi apply."
-  exit 1
-fi
-
 # Set PATH including Python user bin directory for WSL
 PYTHON_USER_BIN="$HOME/.local/bin"
 export PATH="$PYTHON_USER_BIN:$PATH"
+
+resolve_pkg_url() {
+  local url
+  if url="$(python3 -m lastversion --assets sublimehq/Packages 2>/dev/null)"; then
+    printf '%s\n' "$url"
+    return 0
+  fi
+  lastversion --assets sublimehq/Packages
+}
+
+download_git_formats() {
+  # This script uses `lastversion`, which calls the GitHub API.
+  # If you hit rate limits, export GITHUB_API_TOKEN and rerun.
+  if [ -z "${GITHUB_API_TOKEN:-}" ]; then
+    echo "ERROR: GITHUB_API_TOKEN is not set."
+    echo "This script uses GitHub API via lastversion and will likely hit rate limits without a token."
+    echo ""
+    echo "Run: export GITHUB_API_TOKEN=..."
+    echo "Then rerun chezmoi apply."
+    exit 1
+  fi
+
+  pkg_url="$(resolve_pkg_url)"
+  filename="$(basename "$pkg_url")"
+  output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
+
+  curl -sLO "$pkg_url" && tar -xzf "$filename" --strip-components=1 "$output/Git Formats/" \
+  && rm "$filename"
+}
 
 syntax_file={{ printf "%s/configs/sublime-merge/Git Commit.sublime-syntax" .chezmoi.sourceDir | quote }}
 if [ ! -f "$syntax_file" ]; then
@@ -25,14 +43,14 @@ fi
 
 mkdir -p "$HOME/.config/sublime-merge/Packages/User" && cd "$HOME/.config/sublime-merge/Packages/User"
 
-pkg_url="$(lastversion --assets sublimehq/Packages)"
-filename="$(basename "$pkg_url")"
-output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
-
-curl -sLO "$pkg_url" && tar -xzf "$filename" --strip-components=1 "$output/Git Formats/" \
-&& rm "$filename"
 target_dir="Git Formats"
 target_file="$target_dir/Git Commit.sublime-syntax"
+common_file="$target_dir/Git Common.sublime-syntax"
+
+if [ ! -f "$common_file" ]; then
+  download_git_formats
+fi
+
 mkdir -p "$target_dir"
 cp "$syntax_file" "$target_file"
 {{- else if eq .chezmoi.os "darwin" -}}
@@ -43,6 +61,35 @@ set -euo pipefail
 PYTHON_USER_BIN="$HOME/Library/Python/$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')/bin"
 export PATH="$PYTHON_USER_BIN:$PATH"
 
+resolve_pkg_url() {
+  local url
+  if url="$(python3 -m lastversion --assets sublimehq/Packages 2>/dev/null)"; then
+    printf '%s\n' "$url"
+    return 0
+  fi
+  lastversion --assets sublimehq/Packages
+}
+
+download_git_formats() {
+  # This script uses `lastversion`, which calls the GitHub API.
+  # If you hit rate limits, export GITHUB_API_TOKEN and rerun.
+  if [ -z "${GITHUB_API_TOKEN:-}" ]; then
+    echo "ERROR: GITHUB_API_TOKEN is not set."
+    echo "This script uses GitHub API via lastversion and will likely hit rate limits without a token."
+    echo ""
+    echo "Run: export GITHUB_API_TOKEN=..."
+    echo "Then rerun chezmoi apply."
+    exit 1
+  fi
+
+  pkg_url="$(resolve_pkg_url)"
+  filename="$(basename "$pkg_url")"
+  output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
+
+  curl -sLO "$pkg_url" && tar -xzf "$filename" --strip-components=1 "$output/Git Formats/" \
+  && rm "$filename"
+}
+
 syntax_file={{ printf "%s/configs/sublime-merge/Git Commit.sublime-syntax" .chezmoi.sourceDir | quote }}
 if [ ! -f "$syntax_file" ]; then
   echo "ERROR: Sublime Merge Git Commit syntax source not found: $syntax_file"
@@ -50,13 +97,14 @@ if [ ! -f "$syntax_file" ]; then
 fi
 
 mkdir -p "$HOME/Library/Application Support/Sublime Merge/Packages/User/" && cd "$HOME/Library/Application Support/Sublime Merge/Packages/User/"
-pkg_url="$(lastversion --assets sublimehq/Packages)"
-filename="$(basename "$pkg_url")"
-output=$(echo "$filename" | sed -E 's/(Packages)-v([[:digit:]]{4})/\1-\2/' | sed 's/\.tar\.gz//')
-curl -sLO "$pkg_url" && tar -xzf "$filename" --strip-components=1 "$output/Git Formats/" \
-&& rm "$filename"
 target_dir="Git Formats"
 target_file="$target_dir/Git Commit.sublime-syntax"
+common_file="$target_dir/Git Common.sublime-syntax"
+
+if [ ! -f "$common_file" ]; then
+  download_git_formats
+fi
+
 mkdir -p "$target_dir"
 cp "$syntax_file" "$target_file"
 {{ end -}}
