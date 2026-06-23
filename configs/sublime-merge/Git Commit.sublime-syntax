@@ -1,0 +1,128 @@
+%YAML 1.2
+---
+name: Git Commit
+file_extensions:
+  - COMMIT_EDITMSG
+  - MERGE_MSG
+  - TAG_EDITMSG
+scope: text.git.commit
+version: 2
+
+variables:
+  comment_char: '[#;]'
+  on_branch: On branch|На клон|En la branca|Auf Branch|Sur la branche|Sul branch|현재 브랜치|No ramo|На ветке|På grenen|Trên nhánh|位于分支
+
+contexts:
+  prototype:
+    - include: dropped-content
+
+  main:
+    # 1. Check for magic comment on Line 1.
+    - match: '^{{comment_char}}\s*mode:\s*relaxed'
+      set: relaxed-flow
+    # 2. Handle standard comments
+    - include: comments
+    # 3. If it's text, it's the subject. Start Strict Flow.
+    - match: ^(?=\S)
+      set: strict-subject
+
+  relaxed-flow:
+    - match: ^(?=\S)
+      set: relaxed-subject
+    - include: comments
+    - match: \n
+
+  ##[ STRICT MODE - RED ILLEGAL ]#######################################
+
+  strict-subject:
+    - meta_scope: meta.subject.git.commit markup.heading.subject.git.commit
+    # Error for Subject > 50 chars
+    - match: (?<=^.{50}).+
+      scope: invalid.illegal.git.commit
+    - match: \n
+      set: strict-separator
+    # This allows hashes/numbers to be colored even inside the subject
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+    - include: comments
+
+  strict-separator:
+    - match: ^\n
+      set: strict-message
+    - match: ^\S.*
+      scope: invalid.illegal.git.commit
+      set: strict-message
+    - include: comments
+
+  strict-message:
+    - meta_scope: meta.message.git.commit
+    # Error for Body > 72 chars
+    - match: (?<=^.{72}).+
+      scope: invalid.illegal.git.commit
+    - include: signed-off
+    - include: comments
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+
+  ##[ RELAXED MODE - YELLOW WARNING ]####################################
+
+  relaxed-subject:
+    - meta_scope: meta.subject.git.commit markup.heading.subject.git.commit
+    # Warning for Subject > 50 chars
+    - match: (?<=^.{50}).+
+      scope: invalid.deprecated.git.commit
+    - match: \n
+      set: relaxed-separator
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+    - include: comments
+
+  relaxed-separator:
+    - include: comments
+    - match: ^
+      set: relaxed-message
+    # - match: ^\n
+    #   set: relaxed-message
+    # - match: ^\S.*
+    #   scope: invalid.deprecated.git.commit
+    #   set: relaxed-message
+    # - include: comments
+
+  relaxed-message:
+    - meta_scope: meta.message.git.commit
+    # Warning for Body > 72 chars
+    - match: (?<=^.{72}).+
+      scope: invalid.deprecated.git.commit
+    - include: signed-off
+    - include: comments
+    - include: Packages/Git Formats/Git Common.sublime-syntax#references
+
+  ##[ SHARED CONTEXTS ]#################################################
+
+  signed-off:
+    - match: ^\s*(Signed-off-by)\s*(:)
+      captures:
+        1: keyword.other.signed-off-by.git.commit
+        2: punctuation.separator.mapping.pair.git.commit
+
+  comments:
+    - match: ^{{comment_char}}
+      scope: punctuation.definition.comment.git.commit
+      push:
+        - meta_include_prototype: false
+        - meta_scope: comment.line.git.commit
+        - match: $\n?
+          pop: true
+        - include: branch-line
+
+  branch-line:
+    - match: \b({{on_branch}})\s+(.*)
+      captures:
+        1: markup.heading.on-branch.git.commit
+        2: constant.language.branch-name.git.commit
+
+  dropped-content:
+    - match: '{{comment_char}} -{24} >8 -{24}\s*\n'
+      scope: comment.line.git.commit markup.bold.commit
+      set:
+        - meta_content_scope: meta.dropped.git.commit
+        - include: comments
+        - match: ^(?=diff --git)
+          set: [Packages/Diff/Diff.sublime-syntax]

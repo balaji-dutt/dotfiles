@@ -17,3 +17,6 @@ private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git
 
 # Browser policy artifacts are hash-checked; keep vendored bytes stable.
 configs/browser-policies/** -text
+
+# Shared Sublime Merge syntax payload is copied byte-for-byte on macOS/WSL.
+configs/sublime-merge/*.sublime-syntax text eol=lf
