@@ -150,10 +150,14 @@ internal to Renovate:
 
 - `internalChecksFilter: "strict"` filters releases until they meet the age
   gate.
-- `prCreation: "not-pending"` delays automatic MR creation while internal
-  checks are pending.
 - `statusCheckWhen.minimumReleaseAge: "never"` stops publishing
   `renovate/stability-days` commit statuses to GitLab.
+
+Leave `prCreation` at Renovate's default. Combining `prCreation: "not-pending"`
+with a non-zero `minimumReleaseAge` disables the not-pending timeout and can
+leave otherwise eligible updates stuck in the Dashboard `Pending Status Checks`
+section instead of creating MRs. GitLab notification emails come from the MR
+events, so blocked MR creation also blocks the usual notification path.
 
 The Renovate Dashboard remains the manual escape hatch: you can still force an
 early MR when you intentionally want to bypass the waiting period. Avoid

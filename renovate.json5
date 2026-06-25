@@ -5,12 +5,12 @@
   "labels": ["dependencies", "renovate"],
   "dependencyDashboard": true,
   "rangeStrategy": "replace",
-  // Keep release-age checks internal. GitLab commit-status updates for
-  // renovate/stability-days can fail when GitLab returns a non-string API
-  // error body, which Renovate 43.233.4 mishandles while logging the error.
+  // Keep release-age checks internal. Do not set prCreation to "not-pending"
+  // with minimumReleaseAge; Renovate disables the not-pending timeout and can
+  // leave updates stuck in Dashboard "Pending Status Checks" when stability
+  // status publication is disabled.
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
-  "prCreation": "not-pending",
   "statusCheckWhen": {
     "minimumReleaseAge": "never"
   },
