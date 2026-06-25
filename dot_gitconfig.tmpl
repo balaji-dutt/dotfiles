@@ -2,6 +2,10 @@
 {{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
 {{- $isDarwin := eq .chezmoi.os "darwin" -}}
 {{- $isWindows := eq .chezmoi.os "windows" -}}
+{{- /* Opt in via [data.gitlab] use_glab_credential_helper = true. */ -}}
+{{- $gitlab := (get . "gitlab" | default dict) -}}
+{{- $useGlabCredentialHelper := (get $gitlab "use_glab_credential_helper" | default false) -}}
+{{- $glabPath := lookPath "glab" -}}
 
 [init]
     defaultBranch = main
@@ -188,3 +192,8 @@
 [merge]
     tool = vimdiff
 {{- end }}
+{{- if and $useGlabCredentialHelper $glabPath }}
+[credential "https://gitlab.com"]
+    helper =
+    helper = !{{ $glabPath }} auth git-credential
+{{ end -}}
