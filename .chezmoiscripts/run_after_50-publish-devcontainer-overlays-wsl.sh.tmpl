@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-{{- $osrel := "" }}
+{{- $isWSL2 := get . "isWSL2" | default false -}}
 {{- if eq .chezmoi.os "linux" }}
-{{- $osrel = (.chezmoi.kernel.osrelease | lower) }}
+{{- $osrel := get .chezmoi.kernel "osrelease" | default "" | lower }}
+{{- $isWSL2 = or $isWSL2 (and ($osrel | contains "microsoft") ($osrel | contains "wsl2")) }}
 {{- end }}
-{{- if not (and (eq .chezmoi.os "linux") ($osrel | contains "microsoft") ($osrel | contains "wsl2") (eq .chezmoi.osRelease.id "debian")) }}
+{{- $isDebianWSL2 := or (get . "isDebianWSL2" | default false) (and $isWSL2 (eq .chezmoi.osRelease.id "debian")) -}}
+{{- if not $isDebianWSL2 }}
 exit 0
 {{- end }}
 

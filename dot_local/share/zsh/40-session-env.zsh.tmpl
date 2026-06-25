@@ -1,9 +1,16 @@
 # Set HISTFILE with platform-specific naming
+{{- $isWSL := false -}}
+{{- $isWSL2 := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{-   $isWSL2 = or (get . "isWSL2" | default false) (and $isWSL ($osrel | contains "wsl2")) -}}
+{{- end -}}
 {{- if eq .chezmoi.os "darwin" }}
 HISTFILE=${ZDOTDIR:-$HOME}/.m4mbp_zsh_history
-{{- else if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- else if and (eq .chezmoi.osRelease.id "ubuntu") $isWSL2 }}
 HISTFILE=${ZDOTDIR:-$HOME}/.ubuntuwsl2_zsh_history
-{{- else if and (eq .chezmoi.osRelease.id "debian") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- else if and (eq .chezmoi.osRelease.id "debian") $isWSL2 }}
 HISTFILE=${ZDOTDIR:-$HOME}/.debianwsl2_zsh_history
 {{- else }}
 HISTFILE=${ZDOTDIR:-$HOME}/.${(%):-%n}_zsh_history
@@ -18,7 +25,7 @@ export LC_NUMERIC=en_SG.UTF-8
 export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
 {{- if eq .chezmoi.osRelease.id "ubuntu" }}
 # Set Browser variable for WSL browser integration
 export BROWSER=wslview

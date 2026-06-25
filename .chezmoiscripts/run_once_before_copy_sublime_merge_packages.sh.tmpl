@@ -1,4 +1,9 @@
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $isWSL := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{- end -}}
+{{- if $isWSL -}}
 #!/bin/bash
 set -euo pipefail
 

@@ -1,7 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- $isWSL := get . "isWSL" | default false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{- $osrel := get .chezmoi.kernel "osrelease" | default "" | lower -}}
+{{- $isWSL = or $isWSL ($osrel | contains "microsoft") -}}
+{{- end -}}
+{{- if $isWSL }}
 
 {{- $wslProvisionInputs := list
   "ansible/wsl-playbook.yml"

@@ -97,7 +97,8 @@ enabled by these dotfiles.
 
 ## Platform Behavior
 
-Based on `.chezmoiignore` rules:
+Based on the canonical `isDevcontainerHost` predicate and `.chezmoiignore`
+rules:
 
 - macOS: synced
 - Debian WSL2: synced

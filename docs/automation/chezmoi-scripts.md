@@ -48,6 +48,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 ## Platform Guidance
 
 - Keep scripts templated and OS-gated.
+- Use the canonical `.chezmoi.toml.tmpl` data flags (`isWSL`, `isWSL2`,
+  `isDebianWSL2`, `isUbuntuWSL2`, `isDevcontainerHost`) in active templates;
+  keep local fallbacks only where scripts may render before config regeneration.
 - Follow `docs/agents/ADDING_SCRIPTS.md` when adding new scripts.
 - User-scope Claude MCP server registration is configured by
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.

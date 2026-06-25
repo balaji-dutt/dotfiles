@@ -136,8 +136,13 @@ alias more="less -R -X"
 alias cz="chezmoi"
 alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/development/private-dotfiles"
 
-{{- if eq .chezmoi.os "linux" }}
-{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- $isWSL := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{- end -}}
+
+{{- if $isWSL }}
 
 # Set language variables
 export LANG=en_GB.UTF-8
@@ -150,7 +155,7 @@ export LANGUAGE=en_GB:en_US
 # Update path for local binaries
 export PATH=~/.local/bin:$HOME/bin:$PATH
 
-{{- if and (eq .chezmoi.osRelease.id "ubuntu") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if and (eq .chezmoi.osRelease.id "ubuntu") $isWSL }}
 # Set Browser variable for WSL browser integration
 export BROWSER=wslview
 {{- end }}
@@ -272,12 +277,10 @@ alias sunset=' unset SSH_AUTH_SOCK'
 # Prompt for 1Password sign-in
 alias ops=' eval $(op signin)'
 
-{{   end -}}
 {{ end -}}
 
 {{- if or (eq .chezmoi.os "darwin")
-          (and (eq .chezmoi.os "linux")
-               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+          $isWSL }}
 
 # OpenCode env (trusted file)
 case $- in
@@ -309,7 +312,7 @@ fi
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
 : "${PLANNOTATOR_REMOTE:=1}"
 export PLANNOTATOR_REMOTE
 

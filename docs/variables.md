@@ -26,6 +26,22 @@ Variables are defined in chezmoi templates/data files and consumed by dotfile te
 
 ## WSL2-Focused Variables
 
+Render-time platform predicates are emitted by `.chezmoi.toml.tmpl` and should
+be preferred over ad hoc kernel checks in active templates:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `isWSL` | Linux under WSL1 or WSL2 (`osrelease` contains `microsoft`) |
+| `isWSL2` | Linux under WSL2 (`isWSL` plus `osrelease` contains `wsl2`) |
+| `isDebianWSL2` | Debian running under WSL2 |
+| `isUbuntuWSL2` | Ubuntu running under WSL2 |
+| `isDevcontainerHost` | macOS or Debian WSL2 host for container-dotfiles sync |
+
+Templates that can render before chezmoi config regeneration keep local fallback
+checks with `get . "isWSL" | default false` and the same kernel predicate.
+Runtime shell/Python helpers use matching `is_wsl2` / `is_debian_wsl2` helpers
+because they run outside chezmoi's template data model.
+
 | Variable | Purpose | Used By |
 | :--- | :--- | :--- |
 | `homelab.nfs_server` | NFS host | WSL mount tasks |

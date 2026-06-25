@@ -1,9 +1,14 @@
 {{- $osrel := "" -}}
+{{- $isWSL := false -}}
+{{- $isWSL2 := false -}}
+{{- $isDebianWSL2 := false -}}
 {{- if eq .chezmoi.os "linux" -}}
-{{- $osrel = (.chezmoi.kernel.osrelease | lower) -}}
+{{- $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{- $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{- $isWSL2 = or (get . "isWSL2" | default false) (and $isWSL ($osrel | contains "wsl2")) -}}
 {{- end -}}
-{{- $isWSL2 := and (eq .chezmoi.os "linux") ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
-{{- $isDevcontainerHost := or (eq .chezmoi.os "darwin") (and $isWSL2 (eq .chezmoi.osRelease.id "debian")) -}}
+{{- $isDebianWSL2 = or (get . "isDebianWSL2" | default false) (and $isWSL2 (eq .chezmoi.osRelease.id "debian")) -}}
+{{- $isDevcontainerHost := or (get . "isDevcontainerHost" | default false) (eq .chezmoi.os "darwin") $isDebianWSL2 -}}
 {{- if $isDevcontainerHost -}}
 #!/usr/bin/env bash
 set -euo pipefail

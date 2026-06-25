@@ -51,8 +51,12 @@ def current_platform():
         return "windows"
     if sys.platform.startswith("linux"):
         release = platform.uname().release.lower()
-        if "microsoft" in release or "wsl" in release:
+        is_wsl = "microsoft" in release
+        is_wsl2 = is_wsl and "wsl2" in release
+        if is_wsl2:
             return "wsl2"
+        if is_wsl:
+            return "wsl"
         return "linux"
     return sys.platform
 

@@ -8,13 +8,21 @@
 
 {{ $osrel := "" }}
 {{ $osID := "" }}
+{{ $isWSL := false }}
 {{ $isWSL2 := false }}
+{{ $isDebianWSL2 := false }}
+{{ $isUbuntuWSL2 := false }}
+{{ $isDevcontainerHost := false }}
 
 {{ if $isLinux }}
   {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
   {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
-  {{ $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") }}
+  {{ $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") }}
+  {{ $isWSL2 = or (get . "isWSL2" | default false) (and $isWSL ($osrel | contains "wsl2")) }}
 {{ end }}
+{{ $isDebianWSL2 = or (get . "isDebianWSL2" | default false) (and $isWSL2 (eq $osID "debian")) }}
+{{ $isUbuntuWSL2 = or (get . "isUbuntuWSL2" | default false) (and $isWSL2 (eq $osID "ubuntu")) }}
+{{ $isDevcontainerHost = or (get . "isDevcontainerHost" | default false) $isDarwin $isDebianWSL2 }}
 
 {{/* Ignore macOS-specific files if NOT on macOS (Linux/Windows) */}}
 {{ if not $isDarwin }}
@@ -50,14 +58,14 @@ bin/code
 {{ end }}
 
 {{/* Devcontainer helpers should exist ONLY on macOS or Debian WSL2 */}}
-{{ if not (or $isDarwin (and $isWSL2 (eq $osID "debian"))) }}
+{{ if not $isDevcontainerHost }}
 bin/devcontainer-launch
 bin/sync-devcontainer-all.sh
 Documents/development/vscode-workspace/container-homelab-IaC.code-workspace
 {{ end }}
 
 {{/* container-dotfiles should NOT exist on WSL2 excluding Debian */}}
-{{ if and $isWSL2 (ne $osID "debian") }}
+{{ if and $isWSL2 (not $isDebianWSL2) }}
 Documents/development/container-dotfiles/
 Documents/development/container-dotfiles/**
 {{ end }}

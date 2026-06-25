@@ -1,6 +1,9 @@
-{{- if or (eq .chezmoi.os "darwin")
-          (and (eq .chezmoi.os "linux")
-               (.chezmoi.kernel.osrelease | lower | contains "microsoft")) }}
+{{- $isWSL := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{- end -}}
+{{- if or (eq .chezmoi.os "darwin") $isWSL }}
 # OpenCode env (trusted file)
 case $- in
   *a*)
@@ -31,7 +34,7 @@ fi
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
 : "${PLANNOTATOR_REMOTE:=1}"
 export PLANNOTATOR_REMOTE
 

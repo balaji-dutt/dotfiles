@@ -27,10 +27,30 @@
 {{- $macosVdiCitrixDmgSHA256 := "" -}}
 {{- $macosVdiCitrixDmgSHA256Ref := "" -}}
 
+{{- $os := .chezmoi.os -}}
+{{- $isLinux := eq $os "linux" -}}
+{{- $isDarwin := eq $os "darwin" -}}
+{{- $isWindows := eq $os "windows" -}}
+{{- $osrel := "" -}}
+{{- $osID := "" -}}
 {{- $isWSL := false -}}
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- $isWSL2 := false -}}
+{{- $isDebianWSL2 := false -}}
+{{- $isUbuntuWSL2 := false -}}
+{{- $isDevcontainerHost := false -}}
+{{- if $isLinux }}
+{{-   $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $osID = (get .chezmoi.osRelease "id" | default "") -}}
+{{-   if ($osrel | contains "microsoft") }}
 {{-   $isWSL = true -}}
+{{-   end -}}
+{{-   if and $isWSL ($osrel | contains "wsl2") }}
+{{-   $isWSL2 = true -}}
+{{-   end -}}
 {{- end -}}
+{{- $isDebianWSL2 = and $isWSL2 (eq $osID "debian") -}}
+{{- $isUbuntuWSL2 = and $isWSL2 (eq $osID "ubuntu") -}}
+{{- $isDevcontainerHost = or $isDarwin $isDebianWSL2 -}}
 
 {{- if $isWSL -}}
 {{-   $nfsServer = promptStringOnce . "homelab.nfs_server" "NFS server IP (leave empty to skip)" -}}
@@ -41,12 +61,12 @@
 {{-   $opEmail = promptStringOnce . "onepassword.email" "1Password email (leave empty to skip)" -}}
 {{- end -}}
 
-{{- if eq .chezmoi.os "windows" -}}
+{{- if $isWindows -}}
 {{-   $windowsPuttyKeysDir = promptStringOnce . "windows.putty_keys_dir" "Path to PuTTY keys directory (leave empty to skip)" "" -}}
 {{-   $windowsPageantKeysAllowlist = promptStringOnce . "windows.pageant_keys_allowlist" "Path to pageant-keys.txt allowlist (leave empty to skip)" "" -}}
 {{- end -}}
 
-{{- if eq .chezmoi.os "darwin" -}}
+{{- if $isDarwin -}}
 {{-   $SSH_ADD_KEYFILES_RAW = promptStringOnce . "SSH_ADD_KEYFILES_RAW" "SSH key filenames for ssh-add (comma-separated, e.g. id_ed25519, prod_rsa)" "" -}}
 {{-   $macosVdiData := (get . "macos_vdi" | default dict) -}}
 {{-   $macosVdiCitrixData := (get $macosVdiData "citrix" | default dict) -}}
@@ -64,7 +84,7 @@
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
 {{- $defaultSourceDir := "" -}}
-{{- if ne .chezmoi.os "windows" -}}
+{{- if not $isWindows -}}
   {{- $defaultSourceDir = joinPath .chezmoi.homeDir "Documents" "development" "dotfiles" -}}
 {{- end -}}
 
@@ -83,7 +103,7 @@ args = ["--wait", "--diff"]
 {{- end }}
 
 [merge]
-{{- if eq .chezmoi.os "windows" }}
+{{- if $isWindows }}
 command = "powershell.exe"
 args = [
   "-NoProfile",
@@ -112,7 +132,7 @@ args = [
 {{- end }}
 
 {{- $SSH_ADD_KEYFILES := list -}}
-{{- if eq .chezmoi.os "darwin" -}}
+{{- if $isDarwin -}}
 {{-   range $f := splitList "," $SSH_ADD_KEYFILES_RAW -}}
 {{-     $f = $f | trim -}}
 {{-     if $f -}}
@@ -135,6 +155,10 @@ command = "op.exe"
     SSH_ADD_KEYFILES_RAW = {{ $SSH_ADD_KEYFILES_RAW | quote }}
     SSH_ADD_KEYFILES = {{ $SSH_ADD_KEYFILES | toToml }}
     isWSL = {{ $isWSL }}
+    isWSL2 = {{ $isWSL2 }}
+    isDebianWSL2 = {{ $isDebianWSL2 }}
+    isUbuntuWSL2 = {{ $isUbuntuWSL2 }}
+    isDevcontainerHost = {{ $isDevcontainerHost }}
     {{- if $ansible_key }}
     ansible_key = {{ $ansible_key | toToml }}
     {{- else }}
@@ -155,7 +179,7 @@ command = "op.exe"
     email = {{ $opEmail | quote }}
 {{- end}}
 
-{{- if eq .chezmoi.os "windows" }}
+{{- if $isWindows }}
 [data.windows]
     powershell_dir = ""
     powershell_scripts_dir = ""
@@ -166,7 +190,7 @@ command = "op.exe"
     pageant_keys_allowlist = {{ $windowsPageantKeysAllowlist | toToml }}
 {{- end }}
 
-{{- if eq .chezmoi.os "darwin" }}
+{{- if $isDarwin }}
 [data.macos_vdi]
     enabled = {{ $macosVdiEnabled }}
     install = {{ $macosVdiInstall }}

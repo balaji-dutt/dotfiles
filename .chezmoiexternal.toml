@@ -10,7 +10,12 @@
 #   url = "https://raw.githubusercontent.com/nbering/terraform-inventory/master/terraform.py"
 #   refreshPeriod = "168h"
 {{ end -}}
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $isWSL := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+{{- end -}}
+{{- if $isWSL -}}
 # [".local/bin/change"]
 #    type = "file"
 #    executable = true

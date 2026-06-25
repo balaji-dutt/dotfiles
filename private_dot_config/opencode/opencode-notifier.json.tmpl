@@ -3,10 +3,12 @@
 {{- $isWindows := eq $os "windows" -}}
 {{- $isDarwin := eq $os "darwin" -}}
 {{- $osrel := "" -}}
+{{- $isWSL := false -}}
 {{- $isWSL2 := false -}}
 {{- if $isLinux -}}
   {{- $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
-  {{- $isWSL2 = and ($osrel | contains "microsoft") ($osrel | contains "wsl2") -}}
+  {{- $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
+  {{- $isWSL2 = or (get . "isWSL2" | default false) (and $isWSL ($osrel | contains "wsl2")) -}}
 {{- end -}}
 {{- $useWindowsWorkaround := or $isWindows $isWSL2 -}}
 {{- $useBridge := or $isDarwin $isWSL2 -}}

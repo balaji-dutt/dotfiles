@@ -13,6 +13,12 @@
 
 This page lists the main managed targets expected on WSL2.
 
+Canonical template predicates distinguish generic WSL (`isWSL`), WSL2
+(`isWSL2`), Debian WSL2 (`isDebianWSL2`), Ubuntu WSL2 (`isUbuntuWSL2`), and
+generic Linux. WSL1 is treated as WSL for prompt/config purposes, but WSL2-only
+targets such as `~/bin/code` and Debian devcontainer helpers require the WSL2
+predicates.
+
 ## Core Dotfiles
 
 | Area | Target Path | Source Pattern |

@@ -1,15 +1,20 @@
 {{- /* chezmoi:modify-template */ -}}
-{{- $input := .chezmoi.stdin | default "" -}}
+{{- $input := get .chezmoi "stdin" | default "" -}}
 {{- $cfg := dict -}}
 {{- if gt (len (trim $input)) 0 -}}
 {{-   $cfg = ($input | fromYaml) | default dict -}}
+{{- end -}}
+{{- $isWSL := false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{-   $osrel := (get .chezmoi.kernel "osrelease" | default "" | lower) -}}
+{{-   $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") -}}
 {{- end -}}
 {{- $_ := set $cfg "git_protocol" "ssh" -}}
 {{- $_ = set $cfg "host" "gitlab.com" -}}
 {{- if eq .chezmoi.os "darwin" -}}
 {{-   $_ = set $cfg "editor" "code --wait" -}}
 {{-   $_ = set $cfg "browser" "open -a Firefox" -}}
-{{- else if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- else if $isWSL -}}
 {{-   $_ = set $cfg "browser" "wslview" -}}
 {{- end -}}
 {{- $_ = set $cfg "no_prompt" false -}}

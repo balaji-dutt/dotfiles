@@ -1,4 +1,8 @@
-{{- $isWSL := and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{- $isWSL := get . "isWSL" | default false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{- $osrel := get .chezmoi.kernel "osrelease" | default "" | lower -}}
+{{- $isWSL = or $isWSL ($osrel | contains "microsoft") -}}
+{{- end -}}
 {{- if and (ne .chezmoi.os "windows") (not $isWSL) -}}
 #!/bin/bash
 
@@ -13,7 +17,7 @@
 {{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
 {{- if eq .chezmoi.osRelease.id "debian" }}
 {{- $npm_linux := joinPath .chezmoi.sourceDir "configs/npm_globals_linux_debian.txt" }}
 # npm_globals_linux_debian.txt hash: {{ if stat $npm_linux }}{{ include $npm_linux | sha256sum }}{{ else }}empty{{ end }}
@@ -67,7 +71,7 @@ resolve_native_path_command() {
   tool="$1"
   found_windows=""
 
-  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  {{- if $isWSL }}
   for entry in "$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/.bun/bin" "$HOME/bin"; do
     prepend_path_entry "$entry"
   done
@@ -79,7 +83,7 @@ resolve_native_path_command() {
     candidate="${entry%/}/$tool"
     [[ -x "$candidate" && ! -d "$candidate" ]] || continue
 
-    {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    {{- if $isWSL }}
     if is_windows_mounted_path "$candidate"; then
       found_windows="${found_windows}${found_windows:+, }$candidate"
       continue
@@ -90,7 +94,7 @@ resolve_native_path_command() {
     return 0
   done < <(printf '%s' "$path_value" | tr ':' '\n')
 
-  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+    {{- if $isWSL }}
   if [[ -n "$found_windows" ]]; then
     echo "❌Error: only Windows-mounted candidates found for $tool: $found_windows" >&2
     return 1
@@ -112,7 +116,7 @@ resolve_mise_managed_command() {
     "$mise_bin" which "$tool" 2>/dev/null || true)"
 
   [[ -n "$resolved" && -x "$resolved" && ! -d "$resolved" ]] || return 1
-  {{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  {{- if $isWSL }}
   is_windows_mounted_path "$resolved" && return 1
   {{- end }}
 
@@ -175,7 +179,7 @@ if [ -s "$NPM_FILE" ]; then
     run_manifest_lines "$NPM_FILE" npm install -g
 fi
 
-{{- if and (eq .chezmoi.os "linux") (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if $isWSL }}
 {{- if eq .chezmoi.osRelease.id "debian" }}
 NPM_LINUX_FILE="$CONFIG_DIR/npm_globals_linux_debian.txt"
 {{- else }}
