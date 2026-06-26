@@ -215,6 +215,32 @@ EOF
   esac
 }
 
+npm_package_name_from_spec() {
+  local spec
+  spec="$1"
+
+  case "$spec" in
+    @*/*@*) printf '%s\n' "${spec%@*}" ;;
+    @*/*) printf '%s\n' "$spec" ;;
+    *@*) printf '%s\n' "${spec%@*}" ;;
+    *) printf '%s\n' "$spec" ;;
+  esac
+}
+
+npm_install_scripts_are_reviewed() {
+  local pkg_name
+  pkg_name="$1"
+
+  case "$pkg_name" in
+    @anthropic-ai/claude-code|opencode-ai|@fission-ai/openspec|@beads/bd)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 on_error() {
   local exit_code=$?
   echo
@@ -309,6 +335,9 @@ done_step "Install Node version: ${NODE_VERSION}"
 # --- 4) Global npm packages ---
 step "Install global npm packages from /tmp/host-homelab-configs/npm_packages.txt"
 if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
+  # Global npm installs have no project package.json for npm approve-scripts to
+  # update. Keep script approvals scoped to the reviewed install invocation so
+  # future packages still warn until reviewed.
   # helpful visibility
   echo "--- npm packages file ---"
   sed -n '1,200p' /tmp/host-homelab-configs/npm_packages.txt || true
@@ -316,11 +345,16 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
 
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
+    pkg_name="$(npm_package_name_from_spec "$pkg")"
     echo "[npm] installing: $pkg"
     # Keep CI=1 for the noninteractive bootstrap, but do not pass it to npm
     # lifecycle scripts. Some npm tools, such as @beads/bd, skip native binary
     # downloads when CI is set and leave only a broken JavaScript shim behind.
-    env -u CI npm install -g "$pkg"
+    if npm_install_scripts_are_reviewed "$pkg_name"; then
+      env -u CI npm install -g --allow-scripts="$pkg_name" "$pkg"
+    else
+      env -u CI npm install -g "$pkg"
+    fi
 
     if [[ "$pkg" == @beads/bd@* ]]; then
       bd version
