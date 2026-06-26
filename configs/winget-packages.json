@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-06-26T18:06:06.644+08:00",
+  "CreationDate": "2026-06-26T18:12:02.572+08:00",
   "Sources": [
     {
       "Packages": [
@@ -123,9 +123,6 @@
         },
         {
           "PackageIdentifier": "Apple.AppleMobileDeviceSupport"
-        },
-        {
-          "PackageIdentifier": "Olivia.VIA"
         },
         {
           "PackageIdentifier": "Microsoft.GameInput"
