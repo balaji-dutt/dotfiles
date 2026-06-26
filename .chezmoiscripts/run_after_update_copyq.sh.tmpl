@@ -68,14 +68,61 @@ fi
 date +%s > "$LAST_CHECK_FILE"
 
 # --- Version Comparison ---
+normalize_version_component() {
+    local value
+    value="$1"
+    value="${value%%[^0-9]*}"
+    if [[ -z "$value" ]]; then
+        value="0"
+    fi
+    printf '%s\n' "$value"
+}
+
+compare_versions() {
+    local left right max_parts index left_component right_component
+    local left_parts right_parts
+    left="$1"
+    right="$2"
+
+    IFS=. read -r -a left_parts <<< "$left"
+    IFS=. read -r -a right_parts <<< "$right"
+
+    max_parts="${#left_parts[@]}"
+    if (( ${#right_parts[@]} > max_parts )); then
+        max_parts="${#right_parts[@]}"
+    fi
+
+    for ((index = 0; index < max_parts; index += 1)); do
+        left_component="$(normalize_version_component "${left_parts[$index]:-0}")"
+        right_component="$(normalize_version_component "${right_parts[$index]:-0}")"
+        if (( 10#$left_component < 10#$right_component )); then
+            printf '%s\n' "-1"
+            return 0
+        fi
+        if (( 10#$left_component > 10#$right_component )); then
+            printf '%s\n' "1"
+            return 0
+        fi
+    done
+
+    printf '%s\n' "0"
+}
+
 INSTALLED_VERSION=""
 if [[ -d "$APP_PATH" ]]; then
     INSTALLED_VERSION=$(defaults read "$APP_PATH/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "")
 fi
 
-if [[ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]]; then
-    echo "CopyQ ${INSTALLED_VERSION} is up to date."
-    exit 0
+if [[ -n "$INSTALLED_VERSION" ]]; then
+    VERSION_COMPARE=$(compare_versions "$INSTALLED_VERSION" "$LATEST_VERSION")
+    if [[ "$VERSION_COMPARE" == "0" ]]; then
+        echo "CopyQ ${INSTALLED_VERSION} is up to date."
+        exit 0
+    fi
+    if [[ "$VERSION_COMPARE" == "1" ]]; then
+        echo "CopyQ ${INSTALLED_VERSION} is newer than latest release ${LATEST_VERSION}; skipping update."
+        exit 0
+    fi
 fi
 
 if [[ -n "$INSTALLED_VERSION" ]]; then
