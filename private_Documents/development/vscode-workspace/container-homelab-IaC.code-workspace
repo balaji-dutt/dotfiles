@@ -10,7 +10,8 @@
         },
         "files.associations": {
                         "**/homelab-IaC/**/*inventory.yml": "yaml",
-                        "*.yml": "ansible"
+                        "*.yml": "ansible",
+                        ".ansible-lint": "ansible"
         },
         "better-todo-tree.tree.scanMode": "workspace",
         "ansible.python.interpreterPath": "/usr/local/bin/python"
