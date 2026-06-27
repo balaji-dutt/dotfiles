@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-06-26T18:12:02.572+08:00",
+  "CreationDate": "2026-06-27T23:28:35.31+08:00",
   "Sources": [
     {
       "Packages": [
@@ -89,10 +89,10 @@
           "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
-          "PackageIdentifier": "GlavSoft.TightVNC"
+          "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
-          "PackageIdentifier": "filips.FirefoxPWA"
+          "PackageIdentifier": "GlavSoft.TightVNC"
         },
         {
           "PackageIdentifier": "Adobe.Acrobat.Pro"
@@ -189,9 +189,6 @@
         },
         {
           "PackageIdentifier": "Jabra.Direct"
-        },
-        {
-          "PackageIdentifier": "DYMO.DYMOConnect"
         },
         {
           "PackageIdentifier": "Sonos.Controller"
