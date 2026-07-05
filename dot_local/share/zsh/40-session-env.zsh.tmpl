@@ -38,7 +38,9 @@ export ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 # Set autoload for ZSH prompt
 autoload -Uz promptinit && promptinit
 # Set prompt to powerlevel10k
-prompt powerlevel10k
+if (( ${prompt_themes[(Ie)powerlevel10k]} )); then
+    prompt powerlevel10k
+fi
 
 # Plugin customizations
 # Customize MichaelAquilina/zsh-you-should-use message position

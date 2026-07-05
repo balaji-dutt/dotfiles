@@ -79,8 +79,18 @@ if [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
     setopt AUTO_CD
 fi
 
-# initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt
-antidote load
+# Initialize plugins statically with ${ZDOTDIR:-~}/.zsh_plugins.txt.
+# If a backup restore leaves an empty static cache newer than the bundle file,
+# antidote will otherwise source the empty cache and skip every plugin.
+if (( ${+functions[antidote]} )); then
+    _antidote_bundle="${ZDOTDIR:-$HOME}/.zsh_plugins.txt"
+    _antidote_static="${_antidote_bundle:r}.zsh"
+    if [[ -s "$_antidote_bundle" && -f "$_antidote_static" && ! -s "$_antidote_static" ]]; then
+        command rm -f -- "$_antidote_static"
+    fi
+    antidote load "$_antidote_bundle" "$_antidote_static"
+    unset _antidote_bundle _antidote_static
+fi
 
 _zsh_helper="${HOME}/.local/share/zsh/40-session-env.zsh"
 if [ -r "$_zsh_helper" ]; then
