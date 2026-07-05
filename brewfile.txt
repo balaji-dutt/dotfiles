@@ -131,6 +131,8 @@ cask "sublime-merge"
 cask "sublime-text"
 # Control windows and applications right from your trackpad
 cask "swish"
+# Menu bar manager
+cask "thaw@beta"
 # Customizable email client
 cask "thunderbird"
 # Open-source code editor
