@@ -12,8 +12,8 @@ VDI_ENABLED={{ (get $macosVdi "enabled" | default false) | toJson }}
 INSTALL_ENABLED={{ (get $macosVdi "install" | default false) | toJson }}
 ALLOW_DOWNGRADE={{ (get $macosVdi "allow_downgrade" | default false) | toJson }}
 
-CITRIX_DESIRED_FAMILY={{ (get $citrix "desired_family" | default "25.11.1") | toJson }}
-CITRIX_DISPLAY_VERSION={{ (get $citrix "display_version" | default "25.11.1") | toJson }}
+CITRIX_DESIRED_FAMILY={{ (get $citrix "desired_family" | default "26.03.11") | toJson }}
+CITRIX_DISPLAY_VERSION={{ (get $citrix "display_version" | default "26.03.11") | toJson }}
 CITRIX_DMG_URL_OP_REF={{ (get $citrix "dmg_url_op_ref" | default "") | toJson }}
 CITRIX_DMG_PATH={{ (get $citrix "dmg_path" | default "") | toJson }}
 CITRIX_DEFAULT_DMG_PATH={{ (get $citrix "default_dmg_path" | default "/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg") | toJson }}
@@ -299,6 +299,7 @@ main() {
   local citrix_satisfied zoom_satisfied result_rc citrix_compare_version
 
   log "Checking macOS VDI app versions."
+  log "Hook trigger: run_onchange; reruns when rendered macos_vdi data changes."
 
   citrix_pkg_version="$(pkg_version com.citrix.ICAClient || true)"
   citrix_app_short_version="$(app_info_value "/Applications/Citrix Workspace.app/Contents/Info" CFBundleShortVersionString)"
@@ -331,19 +332,27 @@ main() {
   fi
 
   if [[ "$VDI_ENABLED" != "true" ]]; then
-    log "macOS VDI management is disabled; reporting only."
+    log "macOS VDI management is disabled; passive reporting only."
+    log "Set macos_vdi.enabled=true in local chezmoi config to enable drift handling."
+    log "Installs still require macos_vdi.install=true and configured installer sources."
     return 0
   fi
 
   if [[ "$citrix_satisfied" != "true" ]]; then
     warn "Citrix Workspace does not match the desired family."
+    warn "To accept this version, update .chezmoidata.yaml:"
+    warn "  macos_vdi.citrix.desired_family and macos_vdi.citrix.display_version"
   fi
   if [[ "$zoom_satisfied" != "true" ]]; then
     warn "Zoom VDI does not match the desired package version."
+    warn "To accept this version, update .chezmoidata.yaml:"
+    warn "  macos_vdi.zoom.desired_pkg_version"
   fi
 
   if [[ "$INSTALL_ENABLED" != "true" ]]; then
     log "macOS VDI install mode is disabled; reporting drift only."
+    log "Set macos_vdi.install=true in local chezmoi config to allow installs."
+    log "Configure installer URL refs or local paths before enabling install mode."
     return 0
   fi
 

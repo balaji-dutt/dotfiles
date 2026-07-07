@@ -61,15 +61,15 @@ because they run outside chezmoi's template data model.
 
 | Variable | Purpose | Used By |
 | :--- | :--- | :--- |
-| `macos_vdi.enabled` | Enables Citrix/Zoom VDI drift management | macOS VDI hook |
-| `macos_vdi.install` | Allows the VDI hook to install, not just report | macOS VDI hook |
+| `macos_vdi.enabled` | Enables Citrix/Zoom VDI drift handling beyond passive reporting | macOS VDI hook |
+| `macos_vdi.install` | Allows the VDI hook to install, not just report drift | macOS VDI hook |
 | `macos_vdi.allow_downgrade` | Allows explicit VDI downgrades when true | macOS VDI hook |
-| `macos_vdi.zoom.desired_pkg_version` | Desired full Zoom VDI `pkgutil` version | macOS VDI hook |
+| `macos_vdi.zoom.desired_pkg_version` | Committed desired full Zoom VDI `pkgutil` version | macOS VDI hook |
 | `macos_vdi.zoom.pkg_url_op_ref` | Local 1Password ref for Zoom VDI `.pkg` URL | macOS VDI hook |
 | `macos_vdi.zoom.pkg_sha256` | Optional Zoom VDI package checksum | macOS VDI hook |
 | `macos_vdi.zoom.pkg_sha256_op_ref` | Optional local 1Password ref for Zoom checksum | macOS VDI hook |
-| `macos_vdi.citrix.desired_family` | Desired Citrix Workspace version family | macOS VDI hook |
-| `macos_vdi.citrix.display_version` | Human-readable Citrix desired version | macOS VDI hook |
+| `macos_vdi.citrix.desired_family` | Committed desired Citrix Workspace version family | macOS VDI hook |
+| `macos_vdi.citrix.display_version` | Human-readable committed Citrix desired version | macOS VDI hook |
 | `macos_vdi.citrix.dmg_url_op_ref` | Local 1Password ref for Citrix `.dmg` URL | macOS VDI hook |
 | `macos_vdi.citrix.dmg_path` | Local Citrix DMG fallback path | macOS VDI hook |
 | `macos_vdi.citrix.default_dmg_path` | Public Citrix DMG fallback path | macOS VDI hook |

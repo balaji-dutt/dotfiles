@@ -21,7 +21,7 @@ build without an explicit dotfiles metadata change.
 Committed data in `.chezmoidata.yaml` is limited to non-secret policy:
 
 - VDI management defaults to disabled and report-only.
-- Citrix uses the desired version family `25.11.1`.
+- Citrix uses the desired version family `26.03.11`.
 - Zoom VDI uses the full `pkgutil` package version `6.4.17.26900`.
 - Citrix falls back to `/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg`
   when no local URL source is configured.
@@ -49,6 +49,17 @@ Enable install mode only on machines where automated VDI installer handling is
 wanted. Missing or unreadable runtime URL/path configuration is a warning, not a
 failed `chezmoi apply`.
 
+`macos_vdi.enabled` controls drift handling beyond passive reporting.
+`macos_vdi.install` controls whether the hook may install/update apps. Set both
+in local chezmoi config before expecting automatic fixes, and configure the
+installer URL refs or local paths first.
+
+## Trigger Behavior
+
+This is a `run_onchange` hook, not a `run_after` hook. Chezmoi runs it when the
+rendered script changes, including when `macos_vdi` data changes. It should not
+be expected to appear on every `chezmoi apply`.
+
 ## Citrix Source Order
 
 When Citrix needs installation and install mode is enabled, sources are tried in
@@ -69,7 +80,10 @@ To test a newer approved build:
 2. Confirm the installed versions with:
    `pkgutil --pkg-info com.citrix.ICAClient` or
    `pkgutil --pkg-info us.zoom.ZoomVDI`.
-3. Bump only the public desired version metadata in `.chezmoidata.yaml`.
+3. Bump only the public desired version metadata in `.chezmoidata.yaml`:
+   - Citrix: `macos_vdi.citrix.desired_family` and
+     `macos_vdi.citrix.display_version`.
+   - Zoom VDI: `macos_vdi.zoom.desired_pkg_version`.
 4. Add or update checksums when available.
 5. Verify no private URL, host, or item name appears in the git diff.
 
