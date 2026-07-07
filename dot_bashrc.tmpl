@@ -333,5 +333,12 @@ unset _opencode_restore_allexport
 
 {{- end }}
 
+{{- if eq .chezmoi.os "darwin" }}
+# Force the 1Password CLI to use the desktop-app (biometric) integration instead
+# of falling back to account-based sign-in. Without this, op can report
+# "No accounts configured" and prompt for the account password every session.
+export OP_BIOMETRIC_UNLOCK_ENABLED="${OP_BIOMETRIC_UNLOCK_ENABLED:-true}"
+{{- end }}
+
 # This is added at the end of the file to avoid potential conflicts
 eval "$(direnv hook bash)"
