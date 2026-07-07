@@ -34,5 +34,8 @@ alias more="less -R -X"
 {{- end }}
 
 alias cz="chezmoi"
-# Prompt for 1Password sign-in
+# Account-based 1Password sign-in (standalone `op signin`). On macOS the CLI uses
+# the desktop-app biometric integration instead (OP_BIOMETRIC_UNLOCK_ENABLED, set
+# in 40-session-env.zsh), so this alias is mainly for WSL/Linux or when the app
+# integration is unavailable.
 alias ops=' eval $(op signin)'
