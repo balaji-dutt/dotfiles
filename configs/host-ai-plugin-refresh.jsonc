@@ -59,7 +59,7 @@
       },
       {
         "package": "opencode-claude-bridge",
-        "version": "1.10.11" // renovate: datasource=npm depName=opencode-claude-bridge
+        "version": "1.10.12" // renovate: datasource=npm depName=opencode-claude-bridge
       },
       {
         "package": "@slkiser/opencode-quota",
