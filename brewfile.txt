@@ -49,15 +49,15 @@ brew "terminal-notifier"
 # Feature-rich command-line audio/video downloader
 brew "yt-dlp"
 # The AI coding agent built for the terminal.
-brew "anomalyco/tap/opencode", trusted: true
-# AI-supervised issue tracker for coding workflows
+brew "anomalyco/tap/opencode"
+# Migration shim for the beads Homebrew formula
 brew "gastownhall/beads/bd", trusted: true
 # Monitor your AI coding tool quotas from a single TUI dashboard
-brew "janekbaraniewski/tap/openusage", link: false, trusted: true
+brew "janekbaraniewski/tap/openusage", trusted: true
 # Memory for AI-assisted development. Search your AI coding sessions.
-brew "pilan-ai/tap/mnemo", trusted: true
+brew "pilan-ai/tap/mnemo"
 # Modern version of fasd productivity booster, offering quick access to files and directories
-brew "wyne/tap/fasder", trusted: true
+brew "wyne/tap/fasder"
 # Command-line interface for 1Password
 cask "1password-cli"
 # Collection of apps and services for photography, design, video, web, and UX
@@ -113,8 +113,6 @@ cask "obsidian"
 cask "openusage"
 # Replacement for Docker Desktop
 cask "orbstack"
-# Desktop syncing client for ownCloud
-cask "owncloud"
 # Graphical user interface for the 'defaults' command
 cask "prefs-editor"
 # Control your tools with a few keystrokes
