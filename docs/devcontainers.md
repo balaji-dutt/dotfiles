@@ -423,18 +423,19 @@ repo. The persistent volume path keeps all bridge state separate.
 
 ## opencode-claude-bridge Compatibility Shim
 
-OpenCode also loads a local `opencode-claude-bridge-compat.js` plugin on the
-host and in the devcontainer dotfiles. The shim patches only Anthropic Messages
-requests at the final `fetch` boundary.
+The local `opencode-claude-bridge-compat.js` plugin is retired. Host and
+devcontainer OpenCode configs now use `opencode-claude-bridge@1.10.12`, which
+strips Anthropic system-block `cache_control` markers upstream. The old local
+request-body rewrite, keep-last-cache-marker policy, broad legacy stub-tool
+filter, `WebSearch` scrubber, stale `content-length` cleanup, and related shim
+runtime toggles are no longer active.
 
-By default, it keeps only the last prompt-cache `cache_control` marker,
-preserves upstream active-tool filtering validated through
-`opencode-claude-bridge@1.10.11`, removes legacy broad Claude-only stub schema
-injections, and removes stale `content-length` headers after rewriting request
-JSON. It still filters Claude `WebSearch` when it appears because this setup
-exposes `websearch_cited`, not a bridge-mapped native OpenCode `websearch` tool.
-It does not log prompt text, request bodies, request headers, or authentication
-values.
+The `WebSearch` guard was not kept as a standalone fetch wrapper. It only
+removed the Claude `WebSearch` schema; it did not map calls to this setup's
+custom `websearch_cited` tool. With `opencode-claude-bridge@1.10.12`, the
+bridge should advertise only active OpenCode tools, so a future `WebSearch`
+reappearance should be fixed in bridge/tool mapping rather than with local
+fetch-body scrubbing.
 
 The managed OpenCode shell profile and `opencode-plannotator*` wrappers also
 default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts.
@@ -443,13 +444,8 @@ by the validator cache. Managed interactive `opencode` launches and the
 Plannotator wrappers are covered; direct non-shell launches must set the same
 environment variable explicitly if they bypass the managed shell/profile setup.
 
-Useful runtime overrides:
+Remaining runtime override:
 
-- `OPENCODE_CLAUDE_BRIDGE_COMPAT=0` disables the shim.
-- `OPENCODE_CLAUDE_BRIDGE_CACHE_CONTROL_MAX=4` keeps up to four cache markers.
-- `OPENCODE_CLAUDE_BRIDGE_FILTER_STUB_TOOLS=0` disables stub tool filtering.
-- `OPENCODE_CLAUDE_BRIDGE_COMPAT_DEBUG=1` writes count-only diagnostics to
-  `~/.local/state/opencode/opencode-claude-bridge-compat.log`.
 - Set `ANTHROPIC_SYSTEM_PROMPT_PATH` to a non-empty alternate path before launch
   to intentionally use a custom captured system prompt cache.
 

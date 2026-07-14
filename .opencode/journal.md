@@ -22,6 +22,16 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-07-14
+
+- decision: Retired the host/container `opencode-claude-bridge-compat.js` shim
+  after both configs moved to `opencode-claude-bridge@1.10.12`; upstream now
+  strips system-block `cache_control` markers and active-tool filtering makes
+  the legacy stub-tool filter unnecessary.
+- convention: Keep `ANTHROPIC_SYSTEM_PROMPT_PATH=/dev/null` in managed OpenCode
+  profile/wrappers so normal launches cannot reuse validator-captured Claude
+  Code system prompt cache.
+
 ## 2026-06-01
 
 - decision: `opencode-claude-bridge@1.10.11` is compatible with the local

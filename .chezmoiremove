@@ -5,6 +5,10 @@
 .config/opencode/profiles/copilot/opencode.jsonc
 Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc
 
+# Retired OpenCode bridge compatibility shim.
+.config/opencode/plugins/opencode-claude-bridge-compat.js
+Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/plugins/opencode-claude-bridge-compat.js
+
 # Retired Emacs/Doom managed directories.
 .emacs.d
 .config/emacs
