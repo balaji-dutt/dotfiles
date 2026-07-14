@@ -155,7 +155,7 @@ Then write the harness-specific state file. Use `claude` or `opencode` as
 the `<harness>` token:
 
 ```bash
-cat > .beads/in-progress-claude.json <<JSON
+cat >| .beads/in-progress-claude.json <<JSON
 {
   "id": "<id>",
   "agent": "Claude",
@@ -170,7 +170,7 @@ JSON
 OpenCode variant:
 
 ```bash
-cat > .beads/in-progress-opencode.json <<JSON
+cat >| .beads/in-progress-opencode.json <<JSON
 {
   "id": "<id>",
   "agent": "OpenCode",

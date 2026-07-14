@@ -85,8 +85,8 @@ If fast-forward is not possible, gather message context with simple Git
 commands, then draft a descriptive merge commit message:
 
 ```bash
-git log "<main-branch>..<feature-branch>" --oneline
-git diff --stat "<main-branch>...<feature-branch>"
+cd "<main-worktree>" && git log "<main-branch>..<feature-branch>" --oneline
+cd "<main-worktree>" && git diff --stat "<main-branch>...<feature-branch>"
 ```
 
 Use the repo's documented commit format (`AGENTS.md`/`CLAUDE.md`). The subject
@@ -120,16 +120,21 @@ If `./assets/agent-wt-merge` is absent in another repository, do not invent a
 large heredoc or dynamic parser. Ask whether to proceed manually. If approved,
 use the minimal manual workflow:
 
+Bash tool calls do not preserve `cd` between invocations. For every manual
+command that must run in the main worktree, re-issue `cd "$MAIN_WT" && ...`
+in the same command.
+
 1. Confirm the current branch is not `main`/`master` and not detached.
 2. Resolve `main`/`master` and its checked-out worktree with
    `git worktree list --porcelain`.
 3. Verify the main worktree is clean.
-4. Fetch best-effort; ask before updating local main from origin.
-5. Try `git merge --ff-only <feature-branch>` from the main worktree.
+4. Fetch best-effort from the main worktree with
+   `cd "$MAIN_WT" && git fetch`; ask before updating local main from origin.
+5. Try `cd "$MAIN_WT" && git merge --ff-only <feature-branch>`.
 6. If fast-forward fails, draft a descriptive no-ff message and run
-   `git merge --no-ff` with OpenCode author/committer env vars.
-7. Close Beads only after merge lands and only after validating an explicit
-   matching `.beads/in-progress-opencode.json` state file.
+   `cd "$MAIN_WT" && git merge --no-ff` with OpenCode author/committer env vars.
+7. Close Beads only after merge lands and only after validating, from
+   `$MAIN_WT`, an explicit matching `.beads/in-progress-opencode.json` state file.
 8. Offer cleanup, but never run it without confirmation.
 
 If any step would require non-trivial parsing, stop and ask the user to copy or
