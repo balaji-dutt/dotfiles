@@ -205,8 +205,83 @@ link_claude_managed_path() {
   ln -s "$src" "$dst"
 }
 
+# Decode a chezmoi source entry name into its applied target name. The container
+# consumes the RAW chezmoi source tree over a read-only bind mount, so entries
+# still carry chezmoi attribute prefixes that `chezmoi apply` would otherwise
+# strip on the host. Echoes "<exec>\t<rendered>", where <exec> is 1 when the
+# entry carries the executable_ attribute (needs +x), else 0. Handles stacked
+# attributes (e.g. private_executable_) and converts a leading dot_ to ".".
+chezmoi_decode_name() {
+  local name is_exec
+  name="$1"
+  is_exec=0
+
+  while true; do
+    case "$name" in
+      encrypted_*) name="${name#encrypted_}" ;;
+      private_*) name="${name#private_}" ;;
+      readonly_*) name="${name#readonly_}" ;;
+      empty_*) name="${name#empty_}" ;;
+      symlink_*) name="${name#symlink_}" ;;
+      executable_*)
+        name="${name#executable_}"
+        is_exec=1
+        ;;
+      *) break ;;
+    esac
+  done
+
+  case "$name" in
+    dot_*) name=".${name#dot_}" ;;
+  esac
+
+  printf '%s\t%s\n' "$is_exec" "$name"
+}
+
+# Materialize a chezmoi-managed asset directory into ~/.claude using rendered
+# target names. executable_ entries must become real 0755 files: the source
+# mount is read-only and 0644, so a bare symlink would resolve non-executable
+# and a hook invoked as a plain path via `sh -c` would fail with "Permission
+# denied". Non-executable regular files are symlinked by rendered name (kept
+# live-editable from the host). Subdirectories are symlinked wholesale by
+# rendered name to preserve namespaced nesting (e.g. commands/<ns>/...); a
+# future executable_ file nested inside such a subdir would NOT gain +x.
+materialize_claude_managed_dir() {
+  local source_dir target_dir entry base decoded is_exec rendered
+  source_dir="$1"
+  target_dir="$2"
+
+  if [[ ! -d "$source_dir" ]] || \
+    [[ -z "$(find "$source_dir" -mindepth 1 -print -quit)" ]]; then
+    # Nothing to materialize; drop a stale wholesale symlink if one remains.
+    [[ -L "$target_dir" ]] && rm -f "$target_dir"
+    return 0
+  fi
+
+  # Replace a pre-fix wholesale directory symlink with a real directory.
+  [[ -L "$target_dir" ]] && rm -f "$target_dir"
+  mkdir -p "$target_dir"
+
+  for entry in "$source_dir"/*; do
+    [[ -e "$entry" ]] || continue
+    base="${entry##*/}"
+    decoded="$(chezmoi_decode_name "$base")"
+    is_exec="${decoded%%$'\t'*}"
+    rendered="${decoded#*$'\t'}"
+
+    # executable_ regular files must be real 0755 copies (read-only 0644
+    # source mount); everything else is symlinked by rendered name.
+    if [[ -f "$entry" ]] && [[ "$is_exec" == 1 ]]; then
+      cp -f "$entry" "$target_dir/$rendered"
+      chmod 0755 "$target_dir/$rendered"
+    else
+      link_claude_managed_path "$entry" "$target_dir/$rendered"
+    fi
+  done
+}
+
 install_claude_managed_asset_links() {
-  local source_dir claude_config_dir managed_name source_path target_path
+  local source_dir claude_config_dir managed_name
 
   if ! source_dir="$(claude_managed_source_dir)"; then
     echo "WARN: Claude managed source not found; keeping existing Claude config." >&2
@@ -222,14 +297,8 @@ install_claude_managed_asset_links() {
   link_claude_managed_path "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
 
   for managed_name in agents hooks commands; do
-    source_path="$source_dir/$managed_name"
-    target_path="$claude_config_dir/$managed_name"
-    if [[ -d "$source_path" ]] && \
-      [[ -n "$(find "$source_path" -mindepth 1 -print -quit)" ]]; then
-      link_claude_managed_path "$source_path" "$target_path"
-    elif [[ -L "$target_path" ]]; then
-      rm -f "$target_path"
-    fi
+    materialize_claude_managed_dir \
+      "$source_dir/$managed_name" "$claude_config_dir/$managed_name"
   done
 
   if [[ -d "$claude_config_dir/commands" && ! -L "$claude_config_dir/commands" ]]; then
