@@ -1,6 +1,9 @@
 dolt:
-  shared-server: false
-  auto-push: false
-
+    shared-server: false
+    auto-push: false
 backup:
-  enabled: false
+    enabled: false
+metrics:
+    disabled: true
+    endpoint: "https://gastownhall-eventsapi.com/mp/collect"
+    notice_shown: true
