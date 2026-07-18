@@ -205,6 +205,27 @@ link_claude_managed_path() {
   ln -s "$src" "$dst"
 }
 
+# Install a chezmoi executable_ source file as a real 0755 target. The source is
+# a read-only 0644 bind mount, so it must be COPIED (not symlinked) to end up
+# executable; a symlinked target would fail when invoked as a plain path via
+# `sh -c` with "Permission denied". Any prior symlink at the target is removed
+# first so cp does not write through it back onto the read-only source. A
+# missing source drops a stale target symlink.
+install_claude_managed_executable() {
+  local src dst
+  src="$1"
+  dst="$2"
+
+  if [[ ! -e "$src" ]]; then
+    [[ -L "$dst" ]] && rm -f "$dst"
+    return 0
+  fi
+
+  [[ -L "$dst" ]] && rm -f "$dst"
+  cp -f "$src" "$dst"
+  chmod 0755 "$dst"
+}
+
 # Decode a chezmoi source entry name into its applied target name. The container
 # consumes the RAW chezmoi source tree over a read-only bind mount, so entries
 # still carry chezmoi attribute prefixes that `chezmoi apply` would otherwise
@@ -272,8 +293,7 @@ materialize_claude_managed_dir() {
     # executable_ regular files must be real 0755 copies (read-only 0644
     # source mount); everything else is symlinked by rendered name.
     if [[ -f "$entry" ]] && [[ "$is_exec" == 1 ]]; then
-      cp -f "$entry" "$target_dir/$rendered"
-      chmod 0755 "$target_dir/$rendered"
+      install_claude_managed_executable "$entry" "$target_dir/$rendered"
     else
       link_claude_managed_path "$entry" "$target_dir/$rendered"
     fi
@@ -294,7 +314,7 @@ install_claude_managed_asset_links() {
   link_claude_managed_path "$source_dir/private_settings.json" "$claude_config_dir/settings.json"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
-  link_claude_managed_path "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
+  install_claude_managed_executable "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
 
   for managed_name in agents hooks commands; do
     materialize_claude_managed_dir \
