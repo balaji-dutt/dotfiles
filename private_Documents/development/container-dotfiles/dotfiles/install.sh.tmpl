@@ -1157,18 +1157,27 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
     managed_manifest="$repo_root/.git/info/dotfiles-workspace-opencode-managed"
     local_exclude_begin="# BEGIN DOTFILES WORKSPACE OPENCODE"
     local_exclude_end="# END DOTFILES WORKSPACE OPENCODE"
-    if [ -d "$seed_dir" ]; then
+    previous_managed_manifest="$managed_manifest"
+    if [ ! -f "$previous_managed_manifest" ] && [ -f "$legacy_managed_manifest" ]; then
+      previous_managed_manifest="$legacy_managed_manifest"
+    fi
+
+    if [ -d "$seed_dir" ] || [ -f "$previous_managed_manifest" ]; then
       mkdir -p "$workspace_opencode"
 
       current_managed="$(mktemp)"
-      (
-        cd "$seed_dir"
-        find . \( -type f -o -type l \) -print \
-          | sed 's#^\./##' \
-          | sort
-      ) > "$current_managed"
+      if [ -d "$seed_dir" ]; then
+        (
+          cd "$seed_dir"
+          find . \( -type f -o -type l \) -print \
+            | sed 's#^\./##' \
+            | sort
+        ) > "$current_managed"
 
-      rsync -a "$seed_dir/." "$workspace_opencode/"
+        rsync -a "$seed_dir/." "$workspace_opencode/"
+      else
+        : > "$current_managed"
+      fi
 
       current_excludes="$(mktemp)"
       while IFS= read -r relpath || [ -n "$relpath" ]; do
@@ -1186,19 +1195,18 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
         !in_block { print }
       ' "$git_exclude_file" > "$cleaned_exclude"
 
-      {
-        cat "$cleaned_exclude"
-        printf '%s\n' "$local_exclude_begin"
-        cat "$current_excludes"
-        printf '%s\n' "$local_exclude_end"
-      } > "$git_exclude_file"
+      if [ -s "$current_excludes" ]; then
+        {
+          cat "$cleaned_exclude"
+          printf '%s\n' "$local_exclude_begin"
+          cat "$current_excludes"
+          printf '%s\n' "$local_exclude_end"
+        } > "$git_exclude_file"
+      else
+        cat "$cleaned_exclude" > "$git_exclude_file"
+      fi
 
       rm -f "$cleaned_exclude" "$current_excludes"
-
-      previous_managed_manifest="$managed_manifest"
-      if [ ! -f "$previous_managed_manifest" ] && [ -f "$legacy_managed_manifest" ]; then
-        previous_managed_manifest="$legacy_managed_manifest"
-      fi
 
       if [ -f "$previous_managed_manifest" ]; then
         while IFS= read -r relpath || [ -n "$relpath" ]; do
@@ -1213,7 +1221,11 @@ if [ "${DEVCONTAINER:-}" = "1" ]; then
         done < "$previous_managed_manifest"
       fi
 
-      install -m 0644 "$current_managed" "$managed_manifest"
+      if [ -s "$current_managed" ]; then
+        install -m 0644 "$current_managed" "$managed_manifest"
+      else
+        rm -f "$managed_manifest" >/dev/null 2>&1 || true
+      fi
       rm -f "$legacy_managed_manifest" >/dev/null 2>&1 || true
 
       rm -f "$current_managed"

@@ -276,6 +276,8 @@ Workspace `.opencode` sync is template-whitelist based:
 - Managed files are updated when templates change.
 - Previously managed files removed from the template are deleted from workspace
   `.opencode` only when they are not tracked by the workspace repo.
+- If a repo's template set becomes empty, the previous managed files and managed
+  `.git/info/exclude` block are cleaned up the same way.
 - Files not present in the template-managed set are preserved.
 - Template-managed local-only files are mirrored into a managed block in
   `.git/info/exclude` so repo `.opencode/.gitignore` can stay repo-owned.
