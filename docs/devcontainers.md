@@ -160,6 +160,13 @@ Migrating existing embedded-Dolt state into the shared server remains a separate
 human-operated step; the bootstrap scripts only verify that `bd` and `dolt` are
 available.
 
+Upgrading the pinned `@beads/bd` version can advance the Dolt schema version
+(for example, 1.0.4 -> 1.1.0 moves `hliac` from schema v32 to v53). Because the
+`hliac` database is remote-backed, `bd` will not auto-migrate it. Migrate once
+from a single designated clone with `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate`
+followed by `bd dolt push`, then re-bootstrap any other clones. Back up first
+with a Dolt branch and `bd export --all -o ~/hliac-backup.jsonl`.
+
 The VS Code Beads Kanban fork is installed from a pinned GitHub release VSIX in
 `postCreate.sh` and retried by `postStart.sh`. Lifecycle scripts prefer the VS
 Code Server CLI and log the selected executable before installing. Troubleshoot

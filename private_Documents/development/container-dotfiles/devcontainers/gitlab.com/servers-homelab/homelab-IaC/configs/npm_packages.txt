@@ -1,5 +1,5 @@
 @anthropic-ai/claude-code@2.1.206
 opencode-ai@latest
 @fission-ai/openspec@1.5.0
-@beads/bd@1.0.4
+@beads/bd@1.1.0
 @ansible/ansible-mcp-server@26.6.0
