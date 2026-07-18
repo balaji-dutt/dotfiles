@@ -2,4 +2,4 @@
 opencode = "latest"
 "npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
 "npm:@devcontainers/cli" = "latest"
-"npm:@beads/bd" = "1.0.4"
+"npm:@beads/bd" = "1.1.0"
