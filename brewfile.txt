@@ -2,7 +2,6 @@ tap "1password/tap", trusted: true
 tap "anomalyco/tap", trusted: true
 tap "buo/cask-upgrade", trusted: true
 tap "edouard-claude/tap", trusted: true
-tap "gastownhall/beads", trusted: true
 tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
@@ -22,6 +21,8 @@ brew "diff-so-fancy"
 brew "direnv"
 # Git for Data
 brew "dolt"
+# Memory upgrade for your coding agent
+brew "beads"
 # Modern, maintained replacement for ls
 brew "eza"
 # Play, record, convert, and stream select audio and video codecs
@@ -50,8 +51,6 @@ brew "terminal-notifier"
 brew "yt-dlp"
 # The AI coding agent built for the terminal.
 brew "anomalyco/tap/opencode"
-# Migration shim for the beads Homebrew formula
-brew "gastownhall/beads/bd", trusted: true
 # Monitor your AI coding tool quotas from a single TUI dashboard
 brew "janekbaraniewski/tap/openusage", trusted: true
 # Memory for AI-assisted development. Search your AI coding sessions.
