@@ -135,4 +135,7 @@ Beads uses the Dolt-backed model here. Auto-export to `.beads/issues.jsonl` is
 disabled and that file is ignored to avoid repo churn, conflicts, and leaking
 git identity metadata. Sync Beads state through the configured Dolt remote.
 
-For recovery scenarios, filesystem caveats, or full context on each step, see [homelab-IaC's Beads notes](https://gitlab.com/servers-homelab/homelab-IaC/-/blob/main/README.md#beads-setup)
+For architecture, cross-machine sync, schema migrations on `bd` upgrades, and
+recovery (re-bootstrapping after a schema bump, `database exists`, stale-server
+auth), see [`docs/beads.md`](docs/beads.md). For additional filesystem caveats,
+see [homelab-IaC's Beads notes](https://gitlab.com/servers-homelab/homelab-IaC/-/blob/main/README.md#beads-setup).
