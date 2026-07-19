@@ -62,6 +62,9 @@ in-progress-*.json
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 
+# Local Beads config overrides (private remote URL, per-machine settings)
+config.local.yaml
+
 # Legacy files (from pre-Dolt versions)
 *.db
 *.db?*

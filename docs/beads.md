@@ -13,16 +13,20 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
 
 - **Backend:** Dolt. `bd` auto-starts and manages a project-local `dolt
   sql-server` (`dolt.shared-server: false`, `dolt.mode: server`) on
-  `127.0.0.1`. The port is `dolt.port` in `.beads/config.yaml` (`3318`),
-  materialized at runtime into `.beads/dolt-server.port`.
+  `127.0.0.1`. The repo does not track a single `dolt.port`; `.envrc` exports a
+  stable per-checkout `BEADS_DOLT_SERVER_PORT` so Windows and WSL2 clones do not
+  fight over `3318`. `bd` still records the active runtime port in
+  `.beads/dolt-server.port`.
 - **Data dir:** `<repo>/.beads/dolt/` (the `dots` database lives at
   `.beads/dolt/dots/`). The whole `dolt/` tree and the `dolt-server.*` runtime
   files are git-ignored (`.beads/.gitignore`). `.beads/config.yaml` and
   `.beads/metadata.json` are tracked.
-- **Remote:** a private `git+ssh://` GitLab repo, configured as `sync.remote`
-  in `.beads/config.yaml`. Each machine holds its own Dolt clone and syncs
-  through this remote. Auth is the standard GitLab SSH key; no HTTPS
-  credentials.
+- **Remote:** a private `git+ssh://` GitLab repo, configured locally rather than
+  in tracked `.beads/config.yaml`. Each machine holds its own Dolt clone and
+  syncs through this remote. Auth is the standard GitLab SSH key; no HTTPS
+  credentials. The remote URL lives in the 1Password Secure Note `dotfiles Dolt
+  Remote`; write it to gitignored `.beads/config.local.yaml` or export it as
+  `BD_SYNC_REMOTE` before bootstrapping.
 - **JSONL:** auto-export is disabled (`export.auto: false`) and
   `.beads/issues.jsonl` is git-ignored. Dolt is the single source of truth;
   quarantine or remove a stale `issues.jsonl` before syncing.
@@ -63,6 +67,29 @@ bd dolt pull      # fetch + merge remote into local
 bd dolt push      # publish local commits to the remote
 bd dolt status    # server state, port, data dir
 ```
+
+The tracked config intentionally omits the private remote URL. On each machine,
+create this gitignored local override after reading the URL from the 1Password
+Secure Note `dotfiles Dolt Remote`:
+
+```yaml
+sync:
+  remote: "git+ssh://git@example.com/owner/private-beads.git"
+```
+
+Alternatively, export the remote for the current shell:
+
+```bash
+export BD_SYNC_REMOTE="git+ssh://git@example.com/owner/private-beads.git"
+```
+
+Do not commit the real URL, vault names, generated local config, or other Secure
+Note contents.
+
+Shared-server mode is intentionally not the default for this repo. All clones use
+the same database name (`dots`), so one shared Dolt server would also share that
+database and change clone isolation semantics. Use it only as an explicit local
+experiment.
 
 ## Schema migrations (bd version bumps)
 
@@ -113,7 +140,12 @@ local issues are pushed** — otherwise recover local-only issues first (see
 below).
 
 ```bash
-PORT=$(cat .beads/dolt-server.port 2>/dev/null || echo 3318)
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port 2>/dev/null)}
+if [ -z "$PORT" ]; then
+  printf '%s\n' "Start bd first so .beads/dolt-server.port exists" >&2
+  exit 1
+fi
+
 dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
   sql -q "drop database dots;"
 bd bootstrap --yes
@@ -124,8 +156,25 @@ dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
 bd ready
 ```
 
-On Windows (PowerShell) the same steps apply with `$PORT =
-(Get-Content .beads\dolt-server.port).Trim()` and `--password ""`.
+On Windows (PowerShell) the same steps apply with `--password ""` and this
+port lookup:
+
+```powershell
+$PORT = $env:BEADS_DOLT_SERVER_PORT
+if (-not $PORT) {
+  $PORT = (Get-Content .beads\dolt-server.port).Trim()
+}
+```
+
+If an existing clone keeps trying to use old port `3318`, stop its Beads/Dolt
+server, remove stale local runtime files only after the server is stopped, then
+reload direnv/the shell:
+
+```bash
+bd dolt stop
+rm -f .beads/dolt-server.port .beads/dolt-server.pid
+direnv reload
+```
 
 If the drop misbehaves, the blunt fallback (removes **all** local Dolt
 databases, including the local `beads_global` copy, which `bd` re-creates):

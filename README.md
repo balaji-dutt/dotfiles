@@ -101,6 +101,21 @@ chezmoi doctor
 
 ## Beads setup on a new machine
 
+The tracked Beads config intentionally omits the private Dolt remote URL. On a
+fresh clone, open the 1Password Secure Note `dotfiles Dolt Remote`, copy the
+Beads remote URL, then create the local override before bootstrapping:
+
+```bash
+cat > .beads/config.local.yaml <<'YAML'
+sync:
+  remote: "git+ssh://git@example.com/owner/private-beads.git"
+YAML
+```
+
+Use the real URL from 1Password in the local file. Do not commit the generated
+file; `.beads/config.local.yaml` is gitignored. As a shell-only alternative,
+export `BD_SYNC_REMOTE` for the current session.
+
 ```bash
 pkill -9 -f dolt 2>/dev/null; sleep 1
 bd init --server --non-interactive --skip-agents --skip-hooks --prefix dots
@@ -114,6 +129,12 @@ grep -q "Beads fork protection" .git/info/exclude && \
 # Verify
 bd list                                    # should show issues
 ```
+
+`.envrc` exports a stable per-checkout `BEADS_DOLT_SERVER_PORT`, so Windows and
+WSL2 clones do not share a single hardcoded Dolt port. If an old clone keeps
+trying to use `3318`, stop its Dolt server, remove stale
+`.beads/dolt-server.port` / `.beads/dolt-server.pid`, then reload direnv or the
+shell.
 
 The host and dev-container shells source `~/.local/share/beads-helpers.zsh`
 (zsh) or `~/.local/share/beads-helpers.bash` (bash) — the bash variant lets
@@ -133,7 +154,8 @@ syncing.
 
 Beads uses the Dolt-backed model here. Auto-export to `.beads/issues.jsonl` is
 disabled and that file is ignored to avoid repo churn, conflicts, and leaking
-git identity metadata. Sync Beads state through the configured Dolt remote.
+git identity metadata. Sync Beads state through the locally configured Dolt
+remote.
 
 For architecture, cross-machine sync, schema migrations on `bd` upgrades, and
 recovery (re-bootstrapping after a schema bump, `database exists`, stale-server
