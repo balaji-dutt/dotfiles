@@ -464,6 +464,14 @@ OpenCode also loads `opencode-quota-anthropic-compat.js` on the host and in the
 devcontainer dotfiles. The shim patches only `GET` requests to Anthropic's Claude
 OAuth usage endpoint used by `@slkiser/opencode-quota`.
 
+Keep this shim enabled with `@slkiser/opencode-quota` 3.11.2 for now. Upstream
+adds bounded Anthropic OAuth 429 cooldown handling and does not mutate Claude
+credentials, but it still reports quota as unavailable during cooldown instead
+of serving last-known-good usage data. The local shim remains only for bounded
+stale fallback and quieter output while Anthropic's usage endpoint returns 429s;
+set `OPENCODE_QUOTA_ANTHROPIC_COMPAT=0` and restart OpenCode to run an
+upstream-only test before removing it.
+
 The quota config sets `minIntervalMs` to `600000` so normal provider refreshes
 are cached for ten minutes. The shim also caches successful Anthropic usage JSON
 under `~/.local/state/opencode/`, associates it with a local one-way Claude
