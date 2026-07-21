@@ -412,37 +412,7 @@ else
 fi
 
 ensure_opencode_persistence_links
-if [[ -f /home/vscode/.host-dotfiles/.config/opencode/opencode.jsonc ]]; then
-  install -m 0644 /home/vscode/.host-dotfiles/.config/opencode/opencode.jsonc \
-    /home/vscode/persistent-data/opencode/config/opencode.jsonc
-else
-  echo "WARN: OpenCode config not found; keeping existing config." >&2
-fi
-
-if [[ -f /home/vscode/persistent-data/opencode/config/opencode.json ]]; then
-  if [[ -f /home/vscode/persistent-data/opencode/config/opencode.jsonc ]]; then
-    rm -f /home/vscode/persistent-data/opencode/config/opencode.json
-    echo "WARN: Removed legacy /home/vscode/persistent-data/opencode/config/opencode.json; using opencode.jsonc." >&2
-  else
-    echo "WARN: Keeping legacy /home/vscode/persistent-data/opencode/config/opencode.json because opencode.jsonc is missing." >&2
-  fi
-fi
-
-if [[ -f /home/vscode/.host-dotfiles/.config/opencode/opencode-notifier.json ]]; then
-  install -m 0644 /home/vscode/.host-dotfiles/.config/opencode/opencode-notifier.json \
-    /home/vscode/persistent-data/opencode/config/opencode-notifier.json
-else
-  echo "WARN: OpenCode notifier config not found; keeping existing config." >&2
-fi
-
-if [[ -d "$HOME/.host-dotfiles/.config/opencode/profiles" ]]; then
-  mkdir -p "$HOME/persistent-data/opencode/config/profiles"
-  rm -rf "$HOME/persistent-data/opencode/config/profiles/"*
-  cp -R "$HOME/.host-dotfiles/.config/opencode/profiles/." \
-    "$HOME/persistent-data/opencode/config/profiles/"
-else
-  echo "WARN: OpenCode profile config directory not found; keeping existing profile configs." >&2
-fi
+install_opencode_managed_asset_links
 
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then
   persisted_opencode_profiles="$(read_opencode_profiles_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"

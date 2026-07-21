@@ -594,6 +594,10 @@ else
 fi
 done_step "Run host dotfiles installer (if present)"
 
+step "Install OpenCode managed assets"
+install_opencode_managed_asset_links
+done_step "Install OpenCode managed assets"
+
 step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
 if ! install_beads_kanban_bd_fixes_vscode_extension; then
   echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing container setup." >&2
