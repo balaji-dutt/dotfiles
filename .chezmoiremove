@@ -2,8 +2,13 @@
 .claude/commands/sc
 .claude/commands/todo.md
 .claude/commit-docs.sh
+
+# Stale OpenCode GitHub Copilot profile artifacts removed from management.
 .config/opencode/profiles/copilot/opencode.jsonc
-Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/copilot/opencode.jsonc
+.config/opencode/profiles/copilot
+.config/opencode/runtime/copilot
+Documents/development/container-dotfiles/dotfiles/.config/opencode/profiles/copilot/opencode.jsonc
+Documents/development/container-dotfiles/dotfiles/.config/opencode/profiles/copilot
 
 # Retired OpenCode bridge compatibility shim.
 .config/opencode/plugins/opencode-claude-bridge-compat.js
