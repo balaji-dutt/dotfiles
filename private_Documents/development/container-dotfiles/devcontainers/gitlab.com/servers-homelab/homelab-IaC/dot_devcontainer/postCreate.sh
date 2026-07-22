@@ -162,6 +162,63 @@ install_custom_ca_certificates() {
   fi
 }
 
+install_dolt_if_missing() {
+  local dolt_version machine arch asset_name download_url tmp_dir archive_path
+  local extracted_bin
+
+  if command -v dolt >/dev/null 2>&1; then
+    dolt version
+    return 0
+  fi
+
+  dolt_version="${DOLT_VERSION:-}"
+  if [[ -z "$dolt_version" ]]; then
+    echo "ERROR: DOLT_VERSION is not set and dolt is missing from PATH." >&2
+    return 1
+  fi
+
+  machine="$(uname -m)"
+  case "$machine" in
+    x86_64|amd64)
+      arch="amd64"
+      ;;
+    aarch64|arm64)
+      arch="arm64"
+      ;;
+    *)
+      echo "ERROR: Unsupported Dolt architecture: $machine" >&2
+      return 1
+      ;;
+  esac
+
+  asset_name="dolt-linux-$arch.tar.gz"
+  download_url="https://github.com/dolthub/dolt/releases/download/v$dolt_version/$asset_name"
+  tmp_dir="$(mktemp -d)"
+  archive_path="$tmp_dir/$asset_name"
+  extracted_bin="$tmp_dir/dolt-linux-$arch/bin/dolt"
+
+  (
+    trap 'rm -rf "$tmp_dir"' EXIT
+
+    echo "Installing Dolt v$dolt_version from $download_url"
+    curl -fsSL "$download_url" -o "$archive_path"
+    tar -xzf "$archive_path" -C "$tmp_dir"
+
+    if [[ ! -x "$extracted_bin" ]]; then
+      echo "ERROR: Dolt binary not found after extracting $asset_name" >&2
+      exit 1
+    fi
+
+    if [[ -w /usr/local/bin ]]; then
+      install -m 0755 "$extracted_bin" /usr/local/bin/dolt
+    else
+      sudo install -m 0755 "$extracted_bin" /usr/local/bin/dolt
+    fi
+  ) || return 1
+
+  dolt version
+}
+
 install_ansible_mcp_server_wrapper() {
   local shim_dir shim wrapper_path smoke_output smoke_exit smoke_text
 
@@ -603,6 +660,10 @@ if ! install_beads_kanban_bd_fixes_vscode_extension; then
   echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing container setup." >&2
 fi
 done_step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
+
+step "Ensure Dolt CLI"
+install_dolt_if_missing
+done_step "Ensure Dolt CLI"
 
 step "Verify Beads CLI tooling"
 if command -v bd >/dev/null 2>&1; then
