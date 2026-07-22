@@ -159,6 +159,116 @@ ensure_claude_persistence_links() {
   fi
 }
 
+opencode_managed_source_dir() {
+  local candidate
+
+  for candidate in \
+    /home/vscode/.host-dotfiles/private_dot_config/opencode \
+    /tmp/host-dotfiles/private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode \
+    /tmp/host-dotfiles/private_dot_config/opencode \
+    /home/vscode/.host-dotfiles/.config/opencode \
+    /tmp/host-dotfiles/.config/opencode; do
+    if [[ -d "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+backup_opencode_unmanaged_path() {
+  local dst backup_root backup_run_dir backup_path backup_parent
+  dst="$1"
+
+  if [[ ! -e "$dst" && ! -L "$dst" ]]; then
+    return 0
+  fi
+
+  backup_root="${OPENCODE_MANAGED_BACKUP_ROOT:-/home/vscode/persistent-data/opencode/unmanaged-managed-path-backups}"
+  backup_run_dir="$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  backup_path="$backup_run_dir/${dst#/}"
+  backup_parent="${backup_path%/*}"
+
+  mkdir -p "$backup_parent"
+  mv "$dst" "$backup_path"
+  echo "WARN: Moved existing non-symlink OpenCode managed path aside: $dst" >&2
+  echo "WARN: Backup location: $backup_path" >&2
+}
+
+link_opencode_managed_path() {
+  local src dst
+  src="$1"
+  dst="$2"
+
+  if [[ ! -e "$src" && ! -L "$src" ]]; then
+    if [[ -L "$dst" ]]; then
+      rm -f "$dst"
+    fi
+    return 0
+  fi
+
+  if [[ -L "$dst" ]]; then
+    ln -sfn "$src" "$dst"
+    return 0
+  fi
+
+  if [[ -e "$dst" ]]; then
+    backup_opencode_unmanaged_path "$dst"
+  fi
+
+  ln -s "$src" "$dst"
+}
+
+remove_legacy_opencode_config() {
+  local legacy_config
+  legacy_config="$1"
+
+  if [[ ! -e "$legacy_config" && ! -L "$legacy_config" ]]; then
+    return 0
+  fi
+
+  if [[ -L "$legacy_config" ]]; then
+    rm -f "$legacy_config"
+  else
+    backup_opencode_unmanaged_path "$legacy_config"
+  fi
+
+  echo "WARN: Removed legacy $legacy_config; using opencode.jsonc." >&2
+}
+
+install_opencode_managed_asset_links() {
+  local source_dir opencode_config_dir managed_name
+
+  if ! source_dir="$(opencode_managed_source_dir)"; then
+    echo "WARN: OpenCode managed source not found; keeping existing OpenCode config." >&2
+    return 0
+  fi
+
+  opencode_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+  mkdir -p "$opencode_config_dir"
+
+  for managed_name in \
+    AGENTS.md \
+    agents \
+    commands \
+    opencode-notifier.json \
+    opencode-profile.sh \
+    opencode-quota \
+    opencode.jsonc \
+    plugins \
+    profiles \
+    prompts \
+    skills \
+    tui.json; do
+    link_opencode_managed_path "$source_dir/$managed_name" "$opencode_config_dir/$managed_name"
+  done
+
+  if [[ -e "$opencode_config_dir/opencode.json" && -e "$opencode_config_dir/opencode.jsonc" ]]; then
+    remove_legacy_opencode_config "$opencode_config_dir/opencode.json"
+  fi
+}
+
 claude_managed_source_dir() {
   if [[ -d /tmp/host-claude ]]; then
     printf '%s\n' /tmp/host-claude

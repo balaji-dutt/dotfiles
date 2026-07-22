@@ -15,8 +15,8 @@ metadata:
 # worktree-merge
 
 Merge the current feature branch into `main` (or `master`) without making each
-agent rediscover the same Git/worktree/Beads facts. In this dotfiles repo,
-prefer the repo-local helper `./assets/agent-wt-merge`.
+agent rediscover the same Git/worktree/Beads facts. Prefer a repo-local merge
+helper when the active repository exposes one.
 
 The helper works for direct Claude Code, Plannotator, Agent of Empires, manual
 Git worktrees, and `ai-wt` worktrees. Treat `.ai-wt` metadata as optional; it
@@ -30,10 +30,23 @@ only improves cleanup suggestions.
 - Never pass `--update-main` unless the user approved updating local
   `main`/`master` from `origin/<main>`.
 - Pass `--close-beads <issue-id>` only when inspect reports a matching Claude
-  Beads state for that exact issue.
+  Beads state for that exact issue. Respect the repository's Beads policy if
+  its helper reports close evidence instead of closing the issue.
 - If the helper reports dirty `main`/`master`, detached HEAD, missing main
   worktree, no commits to merge, or mismatched Beads state, stop and report the
   reason instead of guessing.
+
+## Helper discovery
+
+From the feature worktree root, choose the first executable helper that exists:
+
+1. `./assets/agent-wt-merge` when the active repo exposes a host/source helper
+   under `assets/`.
+2. `./.opencode/bin/agent-wt-merge` when the active repo exposes project-local
+   Claude/OpenCode runtime wrappers under `.opencode/bin/`.
+3. Manual fallback only after both helpers are absent and the user approves.
+
+In the commands below, replace `<merge-helper>` with the selected helper path.
 
 ## Primary workflow: helper available
 
@@ -42,7 +55,7 @@ only improves cleanup suggestions.
 From the feature worktree root, run:
 
 ```bash
-./assets/agent-wt-merge inspect --fetch --json
+<merge-helper> inspect --fetch --json
 ```
 
 Use the returned JSON as the source of truth:
@@ -74,7 +87,7 @@ network fetch failed unless the merge requires `--update-main`.
 If `feature.fast_forward_possible` is true, run:
 
 ```bash
-./assets/agent-wt-merge ff --actor claude [--update-main] [--close-beads <issue-id>]
+<merge-helper> ff --actor claude [--update-main] [--close-beads <issue-id>]
 ```
 
 Use only the optional flags justified in step 2.
@@ -95,7 +108,7 @@ should describe what the branch did, not say only "Merge branch X".
 Then run:
 
 ```bash
-./assets/agent-wt-merge no-ff --actor claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
+<merge-helper> no-ff --actor claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
 ```
 
 The helper sets Claude authorship on the merge commit.
@@ -106,7 +119,7 @@ After a successful helper run, report:
 
 - merge type;
 - main SHA before/after;
-- whether a Beads issue was closed;
+- whether a Beads issue was closed, or the helper only produced close evidence;
 - that nothing was pushed;
 - cleanup suggestions from the helper.
 
@@ -116,9 +129,9 @@ permissions to make cleanup silent.
 
 ## Fallback: helper absent
 
-If `./assets/agent-wt-merge` is absent in another repository, do not invent a
-large heredoc or dynamic parser. Ask whether to proceed manually. If approved,
-use the minimal manual workflow:
+If both helper paths are absent, do not invent a large heredoc or dynamic
+parser. Ask whether to proceed manually. If approved, use the minimal manual
+workflow:
 
 Bash tool calls do not preserve `cd` between invocations. For every manual
 command that must run in the main worktree, re-issue `cd "$MAIN_WT" && ...`

@@ -248,6 +248,16 @@ Configuration ownership is split intentionally:
   `private_Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/<repo>/.opencode/**`
   are for local-only overlay files.
 
+`postCreate.sh` and `postStart.sh` materialize the managed user-level OpenCode
+assets by resolving the raw chezmoi source (`private_dot_config/opencode`) from
+the mounted host dotfiles and symlinking managed paths such as `opencode.jsonc`,
+`profiles/`, `skills/`, `agents/`, `plugins/`, `commands/`, and `prompts/` into
+the persistent `~/.config/opencode` directory. Existing non-symlink managed
+paths are moved into backup storage under
+`/home/vscode/persistent-data/opencode/unmanaged-managed-path-backups/` before
+the managed symlink is installed. If both `opencode.json` and `opencode.jsonc`
+exist, startup keeps `opencode.jsonc` and removes the legacy JSON file.
+
 The homelab devcontainer also mounts `~/.config/unslop` read-only when that
 directory exists on the host. Seed `~/.config/unslop/style-memory.json` there
 from a trusted private source, or generate it locally before relying on
