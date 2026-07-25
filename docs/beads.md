@@ -86,6 +86,18 @@ export BD_SYNC_REMOTE="git+ssh://git@example.com/owner/private-beads.git"
 Do not commit the real URL, vault names, generated local config, or other Secure
 Note contents.
 
+`bd bootstrap` writes the remote back into **tracked** config. On success it
+appends a `sync.remote` block to `.beads/config.yaml`, which is committed to a
+public repo. Check and revert after every bootstrap:
+
+```bash
+git diff --stat .beads/config.yaml                       # expect no output
+git show HEAD:.beads/config.yaml >| .beads/config.yaml   # if it was rewritten
+```
+
+Reverting costs nothing: `bd` reads the gitignored `.beads/config.local.yaml` on
+the next run, so sync keeps working.
+
 Shared-server mode is intentionally not the default for this repo. All clones use
 the same database name (`dots`), so one shared Dolt server would also share that
 database and change clone isolation semantics. Use it only as an explicit local
@@ -125,6 +137,29 @@ Upgrade flow across all machines:
 
 ## Recovery
 
+Every path below can destroy local state. Two preconditions, in order:
+
+1. **Export first.** This is the only reliable undo:
+
+   ```bash
+   bd export --all -o ~/dots-$(date +%Y%m%d-%H%M).jsonl
+   ```
+
+2. **Confirm the remote is configured.** Without it, a later `bd bootstrap`
+   silently builds an *empty* database instead of cloning:
+
+   ```bash
+   ls .beads/config.local.yaml || printf '%s\n' "no local remote override" >&2
+   bd dolt start              # --dry-run needs a server, else "connection refused"
+   bd bootstrap --dry-run     # must print "clone from remote"
+   ```
+
+   If the plan reads `create fresh database`, stop and restore the remote URL
+   from the 1Password Secure Note `dotfiles Dolt Remote` first (see
+   **Cross-machine sync** above). The URL is also held inside the Dolt repo, so
+   dropping the database loses that copy — gitignored `.beads/config.local.yaml`
+   is the only one that survives a drop.
+
 ### `bd bootstrap` fails: `database exists`
 
 ```
@@ -138,6 +173,10 @@ database. `bd` has no `--force`/replace flag and no single-database drop
 command, so drop the stale database, then re-bootstrap. **Only safe once all
 local issues are pushed** — otherwise recover local-only issues first (see
 below).
+
+The drop is final: this setup keeps no `dropped_databases/` directory, so
+`dolt_undrop()` cannot bring it back. It also takes the Dolt history and the
+repo's `dolt remote` config with it.
 
 ```bash
 PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port 2>/dev/null)}
@@ -181,26 +220,91 @@ databases, including the local `beads_global` copy, which `bd` re-creates):
 
 ```bash
 pkill -9 -f dolt 2>/dev/null; sleep 1
-rm -rf .beads/dolt .beads/dolt-server.*
+rm -rf .beads/dolt .beads/embeddeddolt .beads/dolt-server.*
 bd bootstrap --yes
 ```
 
-### `bd dolt pull`/`push` fails: `No user exists for uid <n>`
+### `bd bootstrap` succeeds but `bd ready` says `database "dots" not found`
+
+Bootstrap prints `Created fresh database with prefix "dots"` and `bd ready`
+fails immediately with `database "dots" not found on Dolt server`. Re-running
+bootstrap loops forever.
+
+This is an embedded/server split-brain. With no remote configured, bootstrap
+takes the `create fresh database` path and writes the new database in
+**embedded** mode under `.beads/embeddeddolt/dots/`, while `dolt.mode: server`
+sends `bd ready` to the sql-server. Both commands report honestly; they are
+looking at different databases.
+
+```bash
+ls -a .beads/dolt/         # dots/ is the real database
+ls -a .beads/embeddeddolt  # a dots/ here means you have the split
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port 2>/dev/null)}
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  sql -q "show databases;"
+```
+
+`bd dolt start` creates `.dolt/` and `.doltcfg/` inside the data dir, so the
+server also lists a database named `dolt`. That entry is noise, not a symptom —
+subdirectory scanning still works, and a healthy data dir lists both `dolt` and
+`dots`.
+
+Fix by restoring the remote first, then re-bootstrapping. Move the stale
+directories aside rather than deleting them:
+
+```bash
+bd dolt stop
+BROKEN=".beads/broken-$(date +%Y%m%d-%H%M)"
+mkdir -p "$BROKEN"
+mv .beads/dolt .beads/embeddeddolt "$BROKEN"/ 2>/dev/null
+rm -f .beads/dolt-server.port .beads/dolt-server.pid .beads/dolt-server.lock
+direnv reload
+
+bd dolt start            # from a live shell, so the server inherits ssh-agent
+bd bootstrap --dry-run   # must print "clone from remote"
+bd bootstrap --yes
+ls -a .beads/dolt/       # dots/ must now be present
+bd ready
+```
+
+`.beads/.gitignore` matches `dolt/` and `embeddeddolt/` at any depth, so the
+moved copies stay untracked. Remove the `broken-*` directory once `bd ready`
+works.
+
+### `bd dolt pull`/`push` fails with an auth or user-lookup error
 
 ```
 failed to read latest version of remote db: No user exists for uid 501
 fatal: Could not read from remote repository.
 ```
 
-This is **not** an SSH-key problem. It is OpenSSH's `getpwuid()` failing inside
-the `git`/`ssh` child spawned by a **stale, detached `dolt sql-server`** (for
-example one that has been running for days and lost its login-session context).
-Normal interactive `git`/`ssh -T git@gitlab.com` still works, which is the tell.
-Fix by restarting the server from a live session:
+```
+failed to get remote db; git@gitlab.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+```
+
+Neither is an SSH-key problem. Both come from the `git`/`ssh` child spawned by a
+**stale, detached `dolt sql-server`** — one that has been running for days and
+lost its login-session context, so either `getpwuid()` fails or `SSH_AUTH_SOCK`
+no longer points at a live agent (on WSL2, `/tmp/wsl2-ssh-agent/ssh-agent.sock`).
+The tell is that the same operation works interactively:
+
+```bash
+ssh-add -l             # keys loaded in this shell?
+ssh -T git@gitlab.com  # succeeds here but not from the server?
+```
+
+Fix by restarting the server from a live session, and make that the habit before
+every sync — a freshly started server inherits the current shell's agent socket:
 
 ```bash
 bd dolt stop && bd dolt start    # or: pkill -9 -f dolt
+bd dolt pull
 ```
+
+Do not escalate to dropping the database for this failure. It is a process
+environment problem; the drop path costs the Dolt history and the repo's remote
+config, and leaves the JSONL export as the only way back.
 
 ### `ignored_schema_migrations` working-set churn
 
