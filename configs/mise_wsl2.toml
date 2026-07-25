@@ -1,5 +1,5 @@
 [tools]
 opencode = "latest"
-"npm:@anthropic-ai/claude-code" = { version = "latest", npm_args = "--ignore-scripts=false" }
+claude = "latest"
 "npm:@devcontainers/cli" = "latest"
 "npm:@beads/bd" = "1.1.0"
