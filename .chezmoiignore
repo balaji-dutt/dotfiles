@@ -155,6 +155,10 @@ docs/
 docs/**
 .claude-code-router/
 .claude-code-router/**
+# Input to dot_claude/modify_private_settings.json. Its container-dotfiles
+# mirror is what the homelab-IaC devcontainer symlinks to ~/.claude/settings.json.
+# Never applied as a target on its own.
+.claude/settings-base.json
 bin/ccr_launcher.sh
 Library/LaunchAgents/com.user.ccr.plist
 # Exclude rendered container configs

@@ -42,7 +42,7 @@
         "include": [
           "AGENTS.md",
           "symlink_CLAUDE.md",
-          "private_settings.json",
+          "settings-base.json",
           "agents/**",
           "skills/**",
           "hooks/**",

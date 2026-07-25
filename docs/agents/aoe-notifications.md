@@ -103,7 +103,66 @@ suppressed.
 
 For Claude sessions on WSL2, the `[status_hooks]` chain should work end-to-end.
 Claude state comes from `.claude/settings.json` hooks writing to
-`/tmp/aoe-hooks/$ID/status`, which AoE classifies cleanly into `running` /
-`waiting` / `idle`. The `powershell.exe` PATH fallback in `aoe-notify` covers
-the case where AoE's status-hook child shell does not inherit Windows-interop
-PATH additions.
+`/tmp/aoe-hooks-<uid>/$ID/status`, which AoE classifies cleanly into `running` /
+`waiting` / `idle`. As of AoE 1.12.1 the base directory is uid-scoped and each
+hook re-checks that it is `drwx------` and owned by the calling uid before
+writing. The `powershell.exe` PATH fallback in `aoe-notify` covers the case
+where AoE's status-hook child shell does not inherit Windows-interop PATH
+additions.
+
+## Who owns the AoE config files
+
+AoE rewrites both `~/.claude/settings.json` and
+`~/.config/agent-of-empires/config.toml` in place — on upgrade, and (for the
+Claude hooks) behind a startup prompt that blocks until accepted. chezmoi used
+to own both files outright, so the two fought on every release. Both are now
+`chezmoi:modify-template` sources that merge over whatever is on disk:
+
+- [`dot_claude/modify_private_settings.json`](../../dot_claude/modify_private_settings.json)
+  — chezmoi owns `env` / `permissions` / `statusLine` and the
+  `PreToolUse` → `gate-bd-destructive.sh` hook. Every hook **group** whose
+  command carries a trailing `# aoe-hooks` sentinel is adopted verbatim from
+  disk.
+- [`private_dot_config/agent-of-empires/modify_config.toml`](../../private_dot_config/agent-of-empires/modify_config.toml)
+  — the live file is the merge base, so `[app_state]` (including
+  `has_acknowledged_agent_hooks`) and any newly added keys survive. Only the
+  ~17 keys in the overlay are enforced.
+
+Consequence: on a fresh machine chezmoi writes base-only hooks, AoE prompts
+once on first launch, and its hooks stick from then on.
+
+### After an AoE upgrade
+
+Two failure modes are silent, so check both when the pinned version in
+`configs/packages.yaml` moves.
+
+If AoE stops emitting the `# aoe-hooks` sentinel, its hooks stop being adopted
+and `chezmoi apply` drops them. Confirm they survive a round trip:
+
+```sh
+chezmoi --use-builtin-diff --no-pager diff ~/.claude/settings.json
+```
+
+If AoE renames an overlay key, the overlay re-injects the dead name forever.
+Check every key it declares still exists in the schema:
+
+```sh
+for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
+         session.confirm_before_quit session.default_attach_mode \
+         session.default_tool session.delete_to_trash \
+         session.new_session_attach_mode session.row_tag \
+         session.agent_command_override status_hooks.debounce_ms \
+         status_hooks.enabled status_hooks.on_error status_hooks.on_waiting \
+         telemetry.enabled updates.update_check_mode \
+         worktree.delete_branch_on_cleanup worktree.enabled \
+         worktree.path_template; do
+  aoe settings explain "$k" 2>&1 | grep -q "not a known setting" \
+    && echo "DEAD KEY: $k"
+done
+```
+
+Use `aoe settings explain <section>.<field>` to see whether a value is a
+persisted user value or a schema default before adding it to the overlay. Note
+that "equals the schema default" is not sufficient reason to drop a key: AoE
+1.12.1 persisted `session.default_attach_mode = "live_send"` even though the
+default is `tmux`, which is why that key is pinned explicitly.
