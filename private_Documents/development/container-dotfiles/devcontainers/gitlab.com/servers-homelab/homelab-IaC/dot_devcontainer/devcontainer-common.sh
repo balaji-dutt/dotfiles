@@ -421,7 +421,12 @@ install_claude_managed_asset_links() {
   claude_config_dir="$HOME/.claude"
   mkdir -p "$claude_config_dir"
 
-  link_claude_managed_path "$source_dir/private_settings.json" "$claude_config_dir/settings.json"
+  # settings-base.json, not modify_private_settings.json: the latter is a
+  # chezmoi modify-template (Go template source, not JSON) and this container
+  # symlinks host files directly without running chezmoi. The base carries
+  # env/permissions/statusLine and the gate-bd-destructive.sh hook; the aoe
+  # status hooks it omits are host-only anyway.
+  link_claude_managed_path "$source_dir/settings-base.json" "$claude_config_dir/settings.json"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
   install_claude_managed_executable "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"

@@ -97,13 +97,14 @@ Zapier, and Notion). These are not registered through this repo's
 
 This repo disables them by default by setting the
 `ENABLE_CLAUDEAI_MCP_SERVERS` environment variable to `false` in the `env`
-block of `dot_claude/private_settings.json` (which becomes
+block of `dot_claude/modify_private_settings.json` (which becomes
 `~/.claude/settings.json`). This is an all-or-nothing switch: there is no
 per-connector toggle and no equivalent settings.json field. To use a connector
 ad hoc, start Claude Code with `ENABLE_CLAUDEAI_MCP_SERVERS=true claude`.
 
 The same setting propagates to the Dev Container because the devcontainer sync
-mirrors `dot_claude/private_settings.json` verbatim.
+mirrors `dot_claude/settings-base.json` verbatim, and the container symlinks
+that file straight to `~/.claude/settings.json`.
 
 ## Chrome DevTools MCP
 

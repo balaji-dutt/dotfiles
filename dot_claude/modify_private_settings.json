@@ -1,0 +1,55 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+     Ownership split for ~/.claude/settings.json:
+
+       chezmoi owns  - dot_claude/settings-base.json (env, permissions,
+                       statusLine, ...) plus the PreToolUse/Bash
+                       gate-bd-destructive.sh hook declared in it.
+       aoe owns      - every hook group whose command carries the trailing
+                       `# aoe-hooks` sentinel. Those are adopted verbatim from
+                       the file on disk so `chezmoi apply` never reverts what
+                       agent-of-empires injected, and aoe never re-prompts.
+
+     A hook *group* is aoe-owned iff any of its hooks[].command contains
+     "aoe-hooks". Verified that no group mixes owners: PreToolUse holds one
+     chezmoi group (matcher "Bash") and one aoe group.
+
+     The base lives in its own plain-JSON file rather than inline here because
+     the homelab-IaC devcontainer symlinks it straight to ~/.claude/settings.json
+     without running chezmoi (see devcontainer-common.sh
+     install_claude_managed_asset_links) - it needs parseable JSON, not this
+     template. That file is .chezmoiignore'd so chezmoi never applies it to
+     ~/.claude/settings-base.json on the host.
+
+     On a fresh machine the target does not exist yet, stdin is empty, and only
+     the base hooks are written. aoe prompts once on first launch, adds its
+     hooks, and they stick from then on.
+
+     If a future aoe release stops emitting the sentinel, its hooks will stop
+     being adopted and apply will silently drop them - see
+     docs/agents/aoe-notifications.md.
+*/ -}}
+{{- $input := .chezmoi.stdin | default "" -}}
+{{- $live := dict -}}
+{{- if gt (len (trim $input)) 0 -}}
+{{-   $live = ($input | fromJson) | default dict -}}
+{{- end -}}
+{{- $settings := include "dot_claude/settings-base.json" | fromJson -}}
+{{- $hooks := (index $settings "hooks") | default dict -}}
+{{- range $event, $groups := ((index $live "hooks") | default dict) -}}
+{{-   $adopted := list -}}
+{{-   range $groups -}}
+{{-     $isAoe := false -}}
+{{-     range ((index . "hooks") | default list) -}}
+{{-       if contains "aoe-hooks" ((index . "command") | default "") -}}
+{{-         $isAoe = true -}}
+{{-       end -}}
+{{-     end -}}
+{{-     if $isAoe -}}{{- $adopted = append $adopted . -}}{{- end -}}
+{{-   end -}}
+{{-   if $adopted -}}
+{{-     $_ := set $hooks $event (concat ((index $hooks $event) | default list) $adopted) -}}
+{{-   end -}}
+{{- end -}}
+{{- $_ := set $settings "hooks" $hooks -}}
+{{- $settings | toPrettyJson -}}

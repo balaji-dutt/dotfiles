@@ -214,7 +214,9 @@ The `homelab-IaC` devcontainer keeps Claude runtime state under
 `/home/vscode/persistent-data/claude`, including the unmanaged `~/.claude.json`
 state file. Managed user-level Claude assets come from dotfiles instead:
 
-- `dot_claude/private_settings.json` -> `~/.claude/settings.json`
+- `dot_claude/settings-base.json` -> `~/.claude/settings.json` (the host's
+  `modify_private_settings.json` template is not mirrored: the container
+  symlinks files directly and never runs chezmoi, so it needs plain JSON)
 - `dot_claude/AGENTS.md` -> `~/.claude/AGENTS.md`
 - `dot_claude/AGENTS.md` -> `~/.claude/CLAUDE.md`
 - `dot_claude/agents/**` -> `~/.claude/agents/**`

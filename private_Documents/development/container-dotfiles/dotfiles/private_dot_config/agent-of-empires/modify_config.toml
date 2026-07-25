@@ -1,0 +1,69 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /*
+     Ownership split for ~/.config/agent-of-empires/config.toml:
+
+       aoe owns     - the file on disk, including [app_state] (welcome flags,
+                      has_acknowledged_agent_hooks, last_seen_version, ...) and
+                      every key added by a future release.
+       chezmoi owns - only the keys in the overlay below, which are merged over
+                      the live file.
+
+     Do NOT re-add the full `aoe` config dump here. It used to be one, and
+     pinning ~90 keys at whatever the defaults happened to be meant every
+     upstream default change was silently suppressed and removed keys lingered
+     forever (`worktree.show_branch_in_tui` was already dead by 1.12.1).
+
+     A key belongs in this overlay only if:
+       1. its value differs from aoe's schema default, or
+       2. we want to pin it back to the default against a user value that aoe
+          has persisted (see default_attach_mode below), or
+       3. it is deliberate insurance against a default flip (telemetry).
+
+     Check a key's schema default with:  aoe settings explain <section>.<field>
+     After an aoe upgrade, re-run the dead-key check in
+     docs/agents/aoe-notifications.md - a renamed key would be silently
+     re-injected under its old name.
+*/ -}}
+{{- $input := .chezmoi.stdin | default "" -}}
+{{- $live := dict -}}
+{{- if gt (len (trim $input)) 0 -}}
+{{-   $live = ($input | fromToml) | default dict -}}
+{{- end -}}
+{{- $repo := `
+[acp]
+auto_stop_idle_secs = 0
+max_concurrent_workers = 5
+
+[session]
+confirm_before_quit = false
+# Pinned. Equals the schema default, but aoe 1.12.1 persisted "live_send" as a
+# user value, which made Enter open live mode instead of a full tmux attach.
+default_attach_mode = "tmux"
+default_tool = "opencode"
+delete_to_trash = false
+new_session_attach_mode = "tmux"
+row_tag = "none"
+
+[session.agent_command_override]
+claude = "claude-plannotator"
+opencode = "opencode-plannotator"
+
+[status_hooks]
+debounce_ms = 500
+enabled = true
+on_error = "$HOME/bin/aoe-notify error"
+on_waiting = "$HOME/bin/aoe-notify waiting"
+
+# Equals the schema default; pinned so an upstream flip cannot opt us in.
+[telemetry]
+enabled = false
+
+[updates]
+update_check_mode = "off"
+
+[worktree]
+delete_branch_on_cleanup = true
+enabled = true
+path_template = "./worktrees/{branch}-{session-id}"
+` | fromToml -}}
+{{- mergeOverwrite $live $repo | toToml -}}
