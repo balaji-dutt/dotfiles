@@ -140,8 +140,14 @@ function Get-RemoteName {
 
 # Return the ignored (safe to reset) dirty tables; exit non-zero if anything else
 # is dirty.
+#
+# NOTE: every call to a function that can return @() MUST be wrapped in @().
+# PowerShell unrolls an empty array on return, so a bare `$x = Get-Foo` leaves
+# $x as $null, and $null.Count throws under Set-StrictMode -Version Latest.
+# This bites only when the working set is CLEAN, which is the path least likely
+# to be exercised during testing - it shipped broken for exactly that reason.
 function Get-SafeResetList {
-  $rows = Get-DirtyTables
+  $rows = @(Get-DirtyTables)
   if ($rows.Count -eq 0) { return @() }
 
   $unsafe = @($rows | Where-Object { $_.is_ignored -ne '1' })
@@ -170,7 +176,10 @@ function Invoke-BackupIfAsked {
   if ($DryRun) {
     Write-Info "[dry-run] would run: bd export --all -o $out"
   } else {
-    & bd export --all -o $out
+    # Out-Null: bd's stdout must not leak into this function's output stream,
+    # or it contaminates the caller's return value. See Restart-DoltServer.
+    & bd export --all -o $out | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "bd export failed (exit $LASTEXITCODE)" }
     Write-Info "backup written: $out"
   }
 }
@@ -184,8 +193,14 @@ function Restart-DoltServer {
   # Native exit codes do not trip $ErrorActionPreference, so check explicitly.
   # A failed start would otherwise leave us reading a stale port file and every
   # later dolt call would fail with a confusing connection error.
-  & bd dolt stop 2>$null   # may already be stopped; tolerated
-  & bd dolt start
+  #
+  # `| Out-Null` is NOT cosmetic. bd prints "Dolt server started (PID ...)" on
+  # stdout; in PowerShell that lands in this function's output stream, flows up
+  # into the caller's, and turns `return 0` into an Object[] that `exit` cannot
+  # cast to int - silently exiting 0. Same failure mode as the Write-Output bug.
+  # Out-Null discards stdout without disturbing $LASTEXITCODE.
+  & bd dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
+  & bd dolt start | Out-Null
   if ($LASTEXITCODE -ne 0) { Die "bd dolt start failed (exit $LASTEXITCODE)" }
   $script:DbPort = (Get-Content -Raw -LiteralPath '.beads/dolt-server.port').Trim()
 }
@@ -197,7 +212,7 @@ function Restart-DoltServer {
 # Keep the output stream carrying the exit code and nothing else.
 function Invoke-Status {
   [Console]::Out.WriteLine("Dolt server: ${DbHost}:${DbPort}  (database: ${DbName})")
-  $rows = Get-DirtyTables
+  $rows = @(Get-DirtyTables)   # @() required - see Get-SafeResetList note
   if ($rows.Count -eq 0) {
     [Console]::Out.WriteLine('Working set clean - sync is safe.')
     return 0
@@ -221,7 +236,7 @@ function Invoke-Status {
 }
 
 function Invoke-Clean {
-  $tables = Get-SafeResetList
+  $tables = @(Get-SafeResetList)   # @() required - see Get-SafeResetList note
   if ($tables.Count -eq 0) {
     Write-Info 'nothing to clean; working set has no dirty ignored tables'
     return 0
@@ -232,6 +247,8 @@ function Invoke-Clean {
     return 0
   }
   Invoke-DoltSql -Query $sql | Out-Null
+  # Consistent with pull/push: bash propagates this via set -e, so match it.
+  if ($LASTEXITCODE -ne 0) { Die "dolt checkout failed (exit $LASTEXITCODE)" }
   Write-Info "reset: $($tables -join ' ')"
   return 0
 }
@@ -240,7 +257,7 @@ function Invoke-Pull {
   Invoke-BackupIfAsked
   Restart-DoltServer
 
-  $tables = Get-SafeResetList
+  $tables = @(Get-SafeResetList)   # @() required - see Get-SafeResetList note
   $remote = Get-RemoteName
   if (-not $remote) { Die 'no Dolt remote configured; see docs/beads.md' }
 
@@ -255,7 +272,11 @@ function Invoke-Pull {
   }
 
   Write-Info "pulling from '$remote' (reset + merge in one session)"
-  [Console]::Out.WriteLine((Redact ((Invoke-DoltSql -Query $sql | Out-String))))
+  $pullOut = (Invoke-DoltSql -Query $sql | Out-String)
+  $pullRc  = $LASTEXITCODE
+  [Console]::Out.WriteLine((Redact $pullOut))
+  # bash propagates a failed pull via pipefail + set -e; match that.
+  if ($pullRc -ne 0) { Die "dolt pull failed (exit $pullRc)" }
   return 0
 }
 
@@ -267,8 +288,14 @@ function Invoke-Push {
     return 0
   }
   # push does not merge, so the deadlock does not apply and bd is fine here.
+  # Commit failure is tolerated ("nothing to commit" is normal); push failure is
+  # not - bash propagates it via pipefail + set -e, so this must match.
   [Console]::Out.WriteLine((Redact ((& bd dolt commit 2>&1 | Out-String))))
-  [Console]::Out.WriteLine((Redact ((& bd dolt push   2>&1 | Out-String))))
+
+  $pushOut = (& bd dolt push 2>&1 | Out-String)
+  $pushRc  = $LASTEXITCODE
+  [Console]::Out.WriteLine((Redact $pushOut))
+  if ($pushRc -ne 0) { Die "bd dolt push failed (exit $pushRc)" }
   return 0
 }
 
