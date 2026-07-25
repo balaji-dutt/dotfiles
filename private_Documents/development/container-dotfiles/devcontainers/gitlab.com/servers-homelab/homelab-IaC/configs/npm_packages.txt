@@ -1,4 +1,3 @@
-@anthropic-ai/claude-code@2.1.213
 opencode-ai@latest
 @fission-ai/openspec@1.6.0
 @beads/bd@1.1.0

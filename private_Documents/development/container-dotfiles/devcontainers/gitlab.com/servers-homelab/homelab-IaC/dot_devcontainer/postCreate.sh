@@ -219,6 +219,55 @@ install_dolt_if_missing() {
   dolt version
 }
 
+install_claude_code_apt_package() {
+  local claude_code_version apt_keyring apt_source_list installed_version
+  local claude_version_output
+
+  claude_code_version="${CLAUDE_CODE_VERSION:-}"
+  if [[ -z "$claude_code_version" ]]; then
+    echo "ERROR: CLAUDE_CODE_VERSION is not set." >&2
+    return 1
+  fi
+
+  apt_keyring="/etc/apt/keyrings/claude-code.asc"
+  apt_source_list="/etc/apt/sources.list.d/claude-code.list"
+
+  sudo install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL "https://downloads.claude.ai/keys/claude-code.asc" \
+    | sudo tee "$apt_keyring" >/dev/null
+  sudo chmod 0644 "$apt_keyring"
+
+  printf '%s\n' \
+    "deb [signed-by=$apt_keyring] https://downloads.claude.ai/claude-code/apt/latest latest main" \
+    | sudo tee "$apt_source_list" >/dev/null
+
+  sudo apt-get update
+
+  if command -v npm >/dev/null 2>&1 \
+    && npm list -g @anthropic-ai/claude-code >/dev/null 2>&1; then
+    echo "Removing old global npm @anthropic-ai/claude-code package before apt install."
+    env -u CI npm uninstall -g @anthropic-ai/claude-code || \
+      echo "WARN: npm uninstall of @anthropic-ai/claude-code failed; continuing to apt install." >&2
+  fi
+
+  sudo apt-get install -y "claude-code=${claude_code_version}-1"
+
+  installed_version="$(dpkg-query -W -f='${Version}' claude-code 2>/dev/null || true)"
+  if [[ "$installed_version" != "${claude_code_version}-1" ]]; then
+    echo "ERROR: claude-code package version mismatch: expected ${claude_code_version}-1, got ${installed_version:-<missing>}." >&2
+    return 1
+  fi
+
+  hash -r
+  claude_version_output="$(claude --version 2>/dev/null || true)"
+  if [[ "$claude_version_output" != "$claude_code_version"* ]]; then
+    echo "ERROR: claude --version mismatch: expected prefix ${claude_code_version}, got ${claude_version_output:-<missing>}." >&2
+    return 1
+  fi
+
+  echo "Claude Code ${claude_code_version} installed from Anthropic apt package."
+}
+
 install_ansible_mcp_server_wrapper() {
   local shim_dir shim wrapper_path smoke_output smoke_exit smoke_text
 
@@ -289,7 +338,7 @@ npm_install_scripts_are_reviewed() {
   pkg_name="$1"
 
   case "$pkg_name" in
-    @anthropic-ai/claude-code|opencode-ai|@fission-ai/openspec|@beads/bd)
+    opencode-ai|@fission-ai/openspec|@beads/bd)
       return 0
       ;;
     *)
@@ -388,6 +437,10 @@ nvm install "${NODE_VERSION}"
 node -v
 npm -v
 done_step "Install Node version: ${NODE_VERSION}"
+
+step "Install Claude Code from Anthropic apt package"
+install_claude_code_apt_package
+done_step "Install Claude Code from Anthropic apt package"
 
 # --- 4) Global npm packages ---
 step "Install global npm packages from /tmp/host-homelab-configs/npm_packages.txt"
