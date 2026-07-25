@@ -52,6 +52,30 @@ pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 pwsh ./assets/cz-audit.ps1 check bootstrap-wsl.sh
 ```
 
+## Beads sync
+
+`bd dolt pull` cannot succeed in this repo — `bd` dirties an ignored table inside
+its own pull path and then fails to merge on it. Use the helper instead. It is
+the only `bd` command that is replaced; every other `bd` operation is unaffected.
+
+### macOS / Linux / WSL2
+
+```sh
+./assets/beads-sync.sh status
+./assets/beads-sync.sh pull
+```
+
+### Windows (PowerShell 7)
+
+```powershell
+pwsh ./assets/beads-sync.ps1 status
+pwsh ./assets/beads-sync.ps1 pull
+```
+
+Commands are `status`, `clean`, `pull`, `push`; both accept a dry-run and a
+backup flag. The helper refuses to reset any table that is not listed in
+`dolt_ignore`. See `docs/beads.md` for the mechanism.
+
 ## Agent Worktree Merges
 
 Agents landing a feature worktree should use the repo-local helper instead of

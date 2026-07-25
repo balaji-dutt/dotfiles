@@ -60,13 +60,37 @@ lower Dolt schema cannot read a migrated remote.
 
 ## Cross-machine sync
 
-Sync Beads state through the Dolt remote, not JSONL:
+Sync Beads state through the Dolt remote, not JSONL.
+
+**`bd dolt pull` does not work in this repo — use `beads-sync pull`.** It is the
+only `bd` command that is replaced; everything else is unaffected.
 
 ```bash
-bd dolt pull      # fetch + merge remote into local
-bd dolt push      # publish local commits to the remote
-bd dolt status    # server state, port, data dir
+./assets/beads-sync.sh status    # dirty tables, is a sync safe?
+./assets/beads-sync.sh pull      # THE replacement for `bd dolt pull`
+./assets/beads-sync.sh push      # bd dolt commit + push, after a server restart
 ```
+
+Windows (PowerShell 7):
+
+```powershell
+pwsh ./assets/beads-sync.ps1 status
+pwsh ./assets/beads-sync.ps1 pull
+pwsh ./assets/beads-sync.ps1 push
+```
+
+Both accept `-DryRun` / `--dry-run` and `-Backup` / `--backup`.
+
+| What you're doing | Command |
+| --- | --- |
+| `bd create` / `update` / `close` / `list` / `ready` / `show` / `dep` … | plain `bd`, unchanged |
+| `bd dolt commit`, `bd dolt status` / `start` / `stop` | plain `bd`, unchanged |
+| push | `beads-sync push`, or plain `bd dolt push` after `bd dolt stop && bd dolt start` |
+| **pull** | **`beads-sync pull` — required** |
+
+`bd dolt pull` fails with `cannot merge with uncommitted changes` every time; see
+the recovery section below for why. `push` is not broken — the wrapper only
+bundles the server restart that gives the server a live `SSH_AUTH_SOCK`.
 
 The tracked config intentionally omits the private remote URL. On each machine,
 create this gitignored local override after reading the URL from the 1Password
@@ -154,6 +178,14 @@ Every path below can destroy local state. Two preconditions, in order:
    bd bootstrap --dry-run     # must print "clone from remote"
    ```
 
+   Windows (PowerShell 7):
+
+   ```powershell
+   if (-not (Test-Path .beads\config.local.yaml)) { Write-Error 'no local remote override' }
+   bd dolt start
+   bd bootstrap --dry-run     # must print "clone from remote"
+   ```
+
    If the plan reads `create fresh database`, stop and restore the remote URL
    from the 1Password Secure Note `dotfiles Dolt Remote` first (see
    **Cross-machine sync** above). The URL is also held inside the Dolt repo, so
@@ -201,7 +233,7 @@ port lookup:
 ```powershell
 $PORT = $env:BEADS_DOLT_SERVER_PORT
 if (-not $PORT) {
-  $PORT = (Get-Content .beads\dolt-server.port).Trim()
+  $PORT = (Get-Content -Raw .beads\dolt-server.port).Trim()
 }
 ```
 
@@ -267,6 +299,23 @@ ls -a .beads/dolt/       # dots/ must now be present
 bd ready
 ```
 
+Windows (PowerShell 7):
+
+```powershell
+bd dolt stop
+$BROKEN = ".beads\broken-$(Get-Date -Format 'yyyyMMdd-HHmm')"
+New-Item -ItemType Directory -Force -Path $BROKEN | Out-Null
+Move-Item .beads\dolt, .beads\embeddeddolt $BROKEN -ErrorAction SilentlyContinue
+Remove-Item .beads\dolt-server.port, .beads\dolt-server.pid, .beads\dolt-server.lock `
+  -ErrorAction SilentlyContinue
+
+bd dolt start
+bd bootstrap --dry-run   # must print "clone from remote"
+bd bootstrap --yes
+Get-ChildItem -Force .beads\dolt\   # dots\ must now be present
+bd ready
+```
+
 `.beads/.gitignore` matches `dolt/` and `embeddeddolt/` at any depth, so the
 moved copies stay untracked. Remove the `broken-*` directory once `bd ready`
 works.
@@ -306,17 +355,80 @@ Do not escalate to dropping the database for this failure. It is a process
 environment problem; the drop path costs the Dolt history and the repo's remote
 config, and leaves the JSONL export as the only way back.
 
-### `ignored_schema_migrations` working-set churn
+### `bd dolt pull` always fails: `cannot merge with uncommitted changes`
 
-After a migration, `bd` may repeatedly toggle rows in
-`ignored_schema_migrations`, leaving a perpetually dirty working set that makes
-`bd dolt pull` fail with `cannot merge with uncommitted changes`. This is local
-bookkeeping only (it never enters a commit or the remote). Clear it with:
+`bd dolt pull` cannot succeed in this repo. Use `beads-sync pull` instead — see
+**Cross-machine sync** above.
+
+The mechanism, verified 2026-07-25 on both the WSL2 and Windows clones:
+
+1. During its own pull path, `bd` writes rows into `ignored_schema_migrations`
+   immediately before calling `dolt merge`.
+2. That table matches a `dolt_ignore` pattern, so dolt refuses to stage it and
+   `bd dolt commit` reports `nothing to commit`.
+3. `dolt merge` refuses to run against **any** dirty working set, ignored or not.
+
+`bd` therefore deadlocks itself. Cleaning the table first does **not** help: with
+a provably clean working set, `bd dolt pull` still failed and left the table
+dirty afterwards. Read-only commands (`bd ready`, `bd export`) do not trigger it;
+`bd bootstrap` does.
+
+The fix is to reset and merge in a **single** dolt session, so no `bd` process
+runs in between. That is all `beads-sync pull` does. Manual equivalent:
 
 ```bash
-dolt --host 127.0.0.1 --port "$(cat .beads/dolt-server.port)" --user root \
-  --password '' --no-tls --use-db dots sql -q "call dolt_reset('--hard');"
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port)}
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  --use-db dots sql -q "
+    call dolt_checkout('HEAD', '--', 'ignored_schema_migrations');
+    call dolt_pull('origin');
+  "
 ```
+
+Windows (PowerShell 7):
+
+```powershell
+$PORT = (Get-Content -Raw .beads\dolt-server.port).Trim()
+dolt --host 127.0.0.1 --port $PORT --user root --password "" --no-tls --use-db dots `
+  sql -q "call dolt_checkout('HEAD', '--', 'ignored_schema_migrations'); call dolt_pull('origin');"
+```
+
+Check `select * from dolt_status;` first. Only reset tables that appear in
+`dolt_ignore` (`ignored_schema_migrations`, `local_metadata`, `repo_mtimes`,
+`wisps`, `wisp_%`). Anything else dirty is real data — run `bd dolt commit`
+instead. `beads-sync` enforces this and refuses otherwise.
+
+**Do not retry `bd dolt pull` in a loop.** Upstream reports that repeated failed
+pull attempts can corrupt the Dolt journal, needing
+`dolt fsck --revive-journal-with-data-loss` (which loses data) to recover. To
+check integrity, stop the server and run `dolt fsck` from `.beads/dolt/dots/` —
+without the `--revive` flag it is read-only and prints `No problems found` on a
+healthy database.
+
+### Upstream status
+
+Both halves of this are reported upstream and **both issues are closed with no
+documented fix**, while the behaviour still reproduces on `bd` 1.1.0 / dolt 2.2.1:
+
+- [dolt#7973](https://github.com/dolthub/dolt/issues/7973) — `dolt pull` fails in
+  the presence of ignored tables. This is the root cause: `dolt_ignore` suppresses
+  a table from `dolt status` but **not** from the merge precondition check.
+- [beads#2474](https://github.com/steveyegge/beads/issues/2474) — `bd dolt pull`
+  fails with this error and can corrupt journals in server mode.
+
+`bd` compounds it: its own pre-pull check skips `dolt_ignore`d tables when looking
+for uncommitted changes, concludes the working set is clean, and calls a merge
+that dolt then rejects for exactly those tables. Hence `nothing to commit`
+immediately followed by `cannot merge with uncommitted changes`.
+
+A workaround circulating upstream is to set `dolt.auto-commit: "on"` in
+`.beads/config.yaml`. **Untested here, and it probably does not help this case:**
+auto-commit cannot commit `dolt_ignore`d tables, and those are exactly the ones
+leaving the working set dirty. It appears to address a different variant of the
+same error — a dirty `config` table, or another database on a shared server.
+
+If either upstream bug is fixed, plain `bd dolt pull` can be used again and the
+`pull` command in `beads-sync` can be dropped.
 
 ## Recovering local-only issues before a destructive step
 
