@@ -66,6 +66,12 @@ Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
 Do not add comments to that file; the installer loop treats each non-blank line
 as an npm package spec.
 
+Claude Code is the exception: it is pinned by `CLAUDE_CODE_VERSION` in
+`devcontainer.json.tmpl` and installed from Anthropic's signed apt repository,
+not from `npm_packages.txt`. Renovate still tracks the upstream release with an
+inline `datasource=npm` comment because the npm package version matches the
+Claude Code release version.
+
 ## Host AI Plugin Refresh Signals
 
 Host Claude Code and OpenCode plugin refreshes are tracked separately from
@@ -224,6 +230,13 @@ bind mount and fall back to the mirrored container-dotfiles copy seeded by
 `configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
 `commit-docs.sh` helper are no longer installed.
 
+`postCreate.sh` installs the Claude Code CLI from Anthropic's signed apt repo at
+the `CLAUDE_CODE_VERSION` pin from `devcontainer.json.tmpl`. It removes any old
+global npm `@anthropic-ai/claude-code` install first so an npm shim cannot shadow
+the apt-managed binary. `dot_claude/private_settings.json` sets
+`DISABLE_UPDATES=1` so Claude sessions do not drift away from the devcontainer
+pin through background or manual updates.
+
 The broad container-dotfiles installer excludes `.claude/`, `.claude.json`, and
 `dot_claude/` so it does not write through lifecycle-managed Claude symlinks.
 
@@ -327,24 +340,6 @@ reason to re-test them.
 
 See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
 setup, and manual smoke tests.
-
-## Claude Code in Devcontainers
-
-For the `homelab-IaC` template, Claude Code runtime state is persisted under:
-
-- `/home/vscode/persistent-data/claude`
-
-`postCreate.sh` and `postStart.sh` link `~/.claude` and `~/.claude.json` to
-this location so browser-login/auth state survives container rebuild/recreate
-cycles.
-
-Managed Claude settings and command files are still refreshed from host dotfiles
-under `/tmp/host-claude`; runtime-generated login state remains in persistent
-container storage and should not be committed.
-
-The broad container-dotfiles installer excludes `.claude/`, `.claude.json`, and
-`dot_claude/`; Claude config ownership stays with `postCreate.sh` and
-`postStart.sh`.
 
 ## Agent of Empires in Devcontainers
 
