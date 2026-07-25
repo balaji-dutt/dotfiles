@@ -149,7 +149,7 @@ Every path below can destroy local state. Two preconditions, in order:
    silently builds an *empty* database instead of cloning:
 
    ```bash
-   ls .beads/config.local.yaml || printf '%s\n' "no local remote override" >&2
+   test -f .beads/config.local.yaml || printf '%s\n' "no local remote override" >&2
    bd dolt start              # --dry-run needs a server, else "connection refused"
    bd bootstrap --dry-run     # must print "clone from remote"
    ```
@@ -211,7 +211,7 @@ reload direnv/the shell:
 
 ```bash
 bd dolt stop
-rm -f .beads/dolt-server.port .beads/dolt-server.pid
+rm -f .beads/dolt-server.port .beads/dolt-server.pid .beads/dolt-server.lock
 direnv reload
 ```
 
@@ -219,7 +219,7 @@ If the drop misbehaves, the blunt fallback (removes **all** local Dolt
 databases, including the local `beads_global` copy, which `bd` re-creates):
 
 ```bash
-pkill -9 -f dolt 2>/dev/null; sleep 1
+pkill -9 -f 'dolt sql-server' 2>/dev/null; sleep 1
 rm -rf .beads/dolt .beads/embeddeddolt .beads/dolt-server.*
 bd bootstrap --yes
 ```
@@ -298,7 +298,7 @@ Fix by restarting the server from a live session, and make that the habit before
 every sync — a freshly started server inherits the current shell's agent socket:
 
 ```bash
-bd dolt stop && bd dolt start    # or: pkill -9 -f dolt
+bd dolt stop && bd dolt start    # or: pkill -9 -f 'dolt sql-server'
 bd dolt pull
 ```
 
