@@ -6,32 +6,56 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = "{{ .chezmoi.workingTree }}"
 $gitMessage = Join-Path $repoRoot ".gitmessage"
+$templateHooksDir = Join-Path $HOME ".config\git\template\hooks"
 
-if (-not (Test-Path -LiteralPath $gitMessage)) {
-  return
-}
+function Configure-CommitTemplate {
+  if (-not (Test-Path -LiteralPath $gitMessage)) {
+    return
+  }
 
-$commitTemplate = (& git -C $repoRoot config --local --get commit.template 2>$null) -join "`n"
-$commitTemplate = $commitTemplate.Trim()
+  $commitTemplate = (& git -C $repoRoot config --local --get commit.template 2>$null) -join "`n"
+  $commitTemplate = $commitTemplate.Trim()
 
-if (-not $commitTemplate) {
+  if (-not $commitTemplate) {
+    & git -C $repoRoot config --local commit.template .gitmessage
+    Write-Host "INFO: set commit.template to .gitmessage for $repoRoot"
+    return
+  }
+
+  $resolvedTemplate = (& git -C $repoRoot config --path --local --get commit.template 2>$null) -join "`n"
+  $resolvedTemplate = $resolvedTemplate.Trim()
+
+  if ($resolvedTemplate -and (Test-Path -LiteralPath $resolvedTemplate)) {
+    return
+  }
+
+  $relativeTemplate = Join-Path $repoRoot $commitTemplate
+  if (Test-Path -LiteralPath $relativeTemplate) {
+    return
+  }
+
   & git -C $repoRoot config --local commit.template .gitmessage
-  Write-Host "INFO: set commit.template to .gitmessage for $repoRoot"
-  return
+  Write-Host "INFO: reset commit.template to .gitmessage for $repoRoot (previous path missing)"
 }
 
-$resolvedTemplate = (& git -C $repoRoot config --path --local --get commit.template 2>$null) -join "`n"
-$resolvedTemplate = $resolvedTemplate.Trim()
+function Configure-HooksPath {
+  $preCommitHook = Join-Path $templateHooksDir "pre-commit"
+  if (-not (Test-Path -LiteralPath $preCommitHook)) {
+    return
+  }
 
-if ($resolvedTemplate -and (Test-Path -LiteralPath $resolvedTemplate)) {
-  return
+  $desiredHooksPath = $templateHooksDir.Replace("\", "/")
+  $currentHooksPath = (& git -C $repoRoot config --local --get core.hooksPath 2>$null) -join "`n"
+  $currentHooksPath = $currentHooksPath.Trim().Replace("\", "/")
+
+  if ($currentHooksPath -eq $desiredHooksPath) {
+    return
+  }
+
+  & git -C $repoRoot config --local core.hooksPath $desiredHooksPath
+  Write-Host "INFO: set core.hooksPath to $desiredHooksPath for $repoRoot"
 }
 
-$relativeTemplate = Join-Path $repoRoot $commitTemplate
-if (Test-Path -LiteralPath $relativeTemplate) {
-  return
-}
-
-& git -C $repoRoot config --local commit.template .gitmessage
-Write-Host "INFO: reset commit.template to .gitmessage for $repoRoot (previous path missing)"
+Configure-CommitTemplate
+Configure-HooksPath
 {{- end -}}

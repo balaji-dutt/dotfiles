@@ -29,8 +29,8 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once | Windows Sublime Merge sync |
 | `run_once_after_99-cleanup-wrong-apply.sh.tmpl` | once | cleanup after wrong apply |
 | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once | Windows cleanup variant |
-| `run_after_10-dotfiles-commit-template.sh.tmpl` | after | commit template helper |
-| `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Windows commit template helper |
+| `run_after_10-dotfiles-commit-template.sh.tmpl` | after | commit template and repo hook path helper |
+| `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Windows commit template and repo hook path helper |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |

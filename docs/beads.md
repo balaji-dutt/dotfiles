@@ -112,7 +112,10 @@ Note contents.
 
 `bd bootstrap` writes the remote back into **tracked** config. On success it
 appends a `sync.remote` block to `.beads/config.yaml`, which is committed to a
-public repo. Check and revert after every bootstrap:
+public repo. The managed pre-commit hook blocks staged `sync.remote` leaks and,
+when `HEAD:.beads/config.yaml` is safe, restores the file from `HEAD` before
+aborting the commit. `--no-verify` bypasses local hooks, so still check and
+revert after every bootstrap:
 
 ```bash
 git diff --stat .beads/config.yaml                       # expect no output

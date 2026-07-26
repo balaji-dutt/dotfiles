@@ -115,6 +115,8 @@ Documents/PowerShell
 !/.config/powershell/**
 !/.config/opencode/
 !/.config/opencode/**
+!/.config/git/
+!/.config/git/**
 # Keep non-Windows Linux/macOS config trees ignored.
 .config/direnv
 .config/direnv/**

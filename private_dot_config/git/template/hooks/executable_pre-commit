@@ -1,0 +1,76 @@
+#!/bin/sh
+set -eu
+
+config_path='.beads/config.yaml'
+
+has_forbidden_sync_remote() {
+  awk '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+
+      trimmed = line
+      sub(/^[ \t]*/, "", trimmed)
+
+      if (trimmed == "" || trimmed ~ /^#/) {
+        next
+      }
+
+      indent = length(line) - length(trimmed)
+
+      if (in_sync && indent <= sync_indent) {
+        in_sync = 0
+      }
+
+      if (trimmed ~ /^sync\.remote[ \t]*:/) {
+        found = 1
+      }
+
+      if (in_sync && indent > sync_indent && trimmed ~ /^remote[ \t]*:/) {
+        found = 1
+      }
+
+      if (trimmed ~ /^sync[ \t]*:/) {
+        in_sync = 1
+        sync_indent = indent
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+warn_blocked() {
+  cat >&2 <<'EOF'
+ERROR: refusing commit: .beads/config.yaml contains a sync.remote setting.
+ERROR: keep the Dolt remote in .beads/config.local.yaml or BD_SYNC_REMOTE only.
+EOF
+}
+
+if ! git cat-file -e ":$config_path" 2>/dev/null; then
+  exit 0
+fi
+
+if ! git show ":$config_path" | has_forbidden_sync_remote; then
+  exit 0
+fi
+
+warn_blocked
+
+if git cat-file -e "HEAD:$config_path" 2>/dev/null && \
+   ! git show "HEAD:$config_path" | has_forbidden_sync_remote; then
+  tmp="$(git rev-parse --git-path "beads-config-clean.$$.tmp")"
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+
+  git show "HEAD:$config_path" >"$tmp"
+  cp "$tmp" "$config_path"
+  git add -- "$config_path"
+
+  echo "ERROR: restored .beads/config.yaml from HEAD; review and rerun commit." >&2
+  exit 1
+fi
+
+cat >&2 <<'EOF'
+ERROR: no safe tracked baseline was available for automatic restore.
+ERROR: remove sync.remote from .beads/config.yaml manually before committing.
+EOF
+exit 1

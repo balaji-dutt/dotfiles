@@ -7,6 +7,9 @@ This repository manages a Git hook workflow that can append a
 
 - Hook type: `prepare-commit-msg`
 - Arming flag: global `coauthor.gptNext` (one-shot)
+- The dotfiles repo's apply scripts set local `core.hooksPath` to the managed
+  git template hooks directory so this hook and the Beads pre-commit guard both
+  run even when stale repo-local hook paths exist.
 - Trailer precedence:
   1. repo-local `coauthor.gptTrailer`
   2. global `coauthor.gptTrailer`
@@ -105,7 +108,9 @@ git config --global --unset-all coauthor.gptNext
 
 ## Troubleshooting
 
-- If the trailer is not added in a repo, check for custom `core.hooksPath`
-  because it bypasses `.git/hooks`.
-- `--no-verify` bypasses hooks by design.
+- If the trailer is not added in a repo, check for custom `core.hooksPath`.
+  Outside the dotfiles repo, custom hook paths bypass the template hooks; inside
+  this repo, `chezmoi apply` should repair it to the managed template directory.
+- `--no-verify` bypasses the Beads pre-commit guard. Git still runs
+  `prepare-commit-msg` hooks by design.
 - Keep hook files with LF line endings.

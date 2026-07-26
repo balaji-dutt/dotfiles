@@ -6,29 +6,49 @@ set -euo pipefail
 
 repo_root='{{ .chezmoi.workingTree }}'
 gitmessage="$repo_root/.gitmessage"
+template_hooks_dir="$HOME/.config/git/template/hooks"
 
-if [ ! -f "$gitmessage" ]; then
-  exit 0
-fi
+configure_commit_template() {
+  if [ ! -f "$gitmessage" ]; then
+    return 0
+  fi
 
-commit_template="$(git -C "$repo_root" config --local --get commit.template 2>/dev/null || true)"
+  commit_template="$(git -C "$repo_root" config --local --get commit.template 2>/dev/null || true)"
 
-if [ -z "$commit_template" ]; then
+  if [ -z "$commit_template" ]; then
+    git -C "$repo_root" config --local commit.template .gitmessage
+    echo "INFO: set commit.template to .gitmessage for $repo_root"
+    return 0
+  fi
+
+  resolved_template="$(git -C "$repo_root" config --path --local --get commit.template 2>/dev/null || true)"
+
+  if [ -n "$resolved_template" ] && [ -f "$resolved_template" ]; then
+    return 0
+  fi
+
+  if [ -f "$repo_root/$commit_template" ]; then
+    return 0
+  fi
+
   git -C "$repo_root" config --local commit.template .gitmessage
-  echo "INFO: set commit.template to .gitmessage for $repo_root"
-  exit 0
-fi
+  echo "INFO: reset commit.template to .gitmessage for $repo_root (previous path missing)"
+}
 
-resolved_template="$(git -C "$repo_root" config --path --local --get commit.template 2>/dev/null || true)"
+configure_hooks_path() {
+  if [ ! -f "$template_hooks_dir/pre-commit" ]; then
+    return 0
+  fi
 
-if [ -n "$resolved_template" ] && [ -f "$resolved_template" ]; then
-  exit 0
-fi
+  current_hooks_path="$(git -C "$repo_root" config --local --get core.hooksPath 2>/dev/null || true)"
+  if [ "$current_hooks_path" = "$template_hooks_dir" ]; then
+    return 0
+  fi
 
-if [ -f "$repo_root/$commit_template" ]; then
-  exit 0
-fi
+  git -C "$repo_root" config --local core.hooksPath "$template_hooks_dir"
+  echo "INFO: set core.hooksPath to $template_hooks_dir for $repo_root"
+}
 
-git -C "$repo_root" config --local commit.template .gitmessage
-echo "INFO: reset commit.template to .gitmessage for $repo_root (previous path missing)"
+configure_commit_template
+configure_hooks_path
 {{- end -}}
