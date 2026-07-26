@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-06-27T23:35:26.603+08:00",
+  "CreationDate": "2026-07-26T23:41:07.141+08:00",
   "Sources": [
     {
       "Packages": [
@@ -35,6 +35,9 @@
           "PackageIdentifier": "IrfanSkiljan.IrfanView"
         },
         {
+          "PackageIdentifier": "Microsoft.VSTOR"
+        },
+        {
           "PackageIdentifier": "Mozilla.Firefox"
         },
         {
@@ -65,6 +68,12 @@
           "PackageIdentifier": "Obsidian.Obsidian"
         },
         {
+          "PackageIdentifier": "Microsoft.GameInput"
+        },
+        {
+          "PackageIdentifier": "DoltHub.Dolt"
+        },
+        {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x64"
         },
         {
@@ -86,13 +95,16 @@
           "PackageIdentifier": "Apple.AppleApplicationSupport.x64"
         },
         {
-          "PackageIdentifier": "Microsoft.PowerShell"
+          "PackageIdentifier": "Starship.Starship"
         },
         {
           "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
           "PackageIdentifier": "GlavSoft.TightVNC"
+        },
+        {
+          "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
           "PackageIdentifier": "Adobe.Acrobat.Pro"
@@ -102,9 +114,6 @@
         },
         {
           "PackageIdentifier": "Nvidia.PhysX"
-        },
-        {
-          "PackageIdentifier": "Starship.Starship"
         },
         {
           "PackageIdentifier": "Insta360.Link.Controller"
@@ -117,12 +126,6 @@
         },
         {
           "PackageIdentifier": "Microsoft.VisualStudioCode"
-        },
-        {
-          "PackageIdentifier": "Apple.AppleMobileDeviceSupport"
-        },
-        {
-          "PackageIdentifier": "Microsoft.GameInput"
         },
         {
           "PackageIdentifier": "EpicGames.EpicGamesLauncher"
@@ -182,7 +185,7 @@
           "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
         },
         {
-          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
+          "PackageIdentifier": "EpicGames.EpicOnlineServices"
         },
         {
           "PackageIdentifier": "Jabra.Direct"
@@ -191,10 +194,16 @@
           "PackageIdentifier": "Sonos.Controller"
         },
         {
+          "PackageIdentifier": "DYMO.DYMOLabel"
+        },
+        {
           "PackageIdentifier": "Microsoft.VCRedist.2015+.x86"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2013.x86"
+        },
+        {
+          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x86"
@@ -219,6 +228,9 @@
         },
         {
           "PackageIdentifier": "flux.flux"
+        },
+        {
+          "PackageIdentifier": "GasTownHall.Beads"
         },
         {
           "PackageIdentifier": "Gyan.FFmpeg"
@@ -304,5 +316,5 @@
       }
     }
   ],
-  "WinGetVersion": "1.28.240"
+  "WinGetVersion": "1.29.280"
 }
