@@ -276,12 +276,10 @@ def remap_anthropic_to_api(agent_cfg: dict) -> None:
 
 def apply_api_fallback(agent_cfg: dict) -> None:
     fallback_map = {
+        "moonshot/kimi-k3": "openrouter/moonshotai/kimi-k3",
+        "moonshot/kimi-k2.7-code": "openrouter/moonshotai/kimi-k3",
         "moonshot/kimi-k2.6": "openrouter/moonshotai/kimi-k2.6",
-        "moonshot/kimi-k2.5": "openrouter/moonshotai/kimi-k2.5",
-        "moonshot/kimi-k2-thinking": "openrouter/moonshotai/kimi-k2.6",
-        "opencode-go/kimi-k2.6": "openrouter/moonshotai/kimi-k2.6",
-        "opencode-go/kimi-k2.5": "openrouter/moonshotai/kimi-k2.5",
-        "google/gemini-3-pro-preview": "openrouter/z-ai/glm-5.1:exacto",
+        "google/gemini-3.6-flash": "openrouter/z-ai/glm-5.2:exacto",
     }
     for _name, cfg in agent_cfg.items():
         if not isinstance(cfg, dict):

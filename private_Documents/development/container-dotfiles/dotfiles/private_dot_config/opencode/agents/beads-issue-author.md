@@ -1,7 +1,7 @@
 ---
 description: Creates or attaches a Beads issue from an explicit approved Plannotator plan.
 mode: subagent
-model: opencode-go/deepseek-v4-pro
+model: opencode-go/qwen3.7-max
 permission:
   edit:
     "*": deny

@@ -1,7 +1,7 @@
 ---
 description: Applies approved backlog-only Beads mutations without implementation handoff state.
 mode: subagent
-model: opencode-go/deepseek-v4-pro
+model: opencode-go/qwen3.7-max
 permission:
   edit: deny
   external_directory:

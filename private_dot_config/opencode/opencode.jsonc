@@ -11,8 +11,8 @@
 
   // Default model (agents override this).
   // OpenCode selects models as `provider_id/model_id`.
-  "model": "openai/gpt-5.5",
-  "small_model": "google/gemini-3-flash-preview",
+  "model": "openai/gpt-5.6-sol",
+  "small_model": "google/gemini-3.6-flash",
 
   // ----------------------------
   // Global permissions
@@ -266,7 +266,7 @@
         // Required by the local websearch_cited compatibility shim:
         // This tells the shim which OpenAI model to use when it runs the tool.
         "websearch_cited": {
-          "model": "gpt-5.5"
+          "model": "gpt-5.6-sol"
         }
       }
     },
@@ -278,7 +278,7 @@
         // Anthropic OAuth fallback for the local websearch_cited compatibility shim.
         // OpenAI remains selected first while its provider option above exists.
         "websearch_cited": {
-          "model": "claude-haiku-4-6"
+          "model": "claude-haiku-4-5"
         }
       }
     },
@@ -313,26 +313,8 @@
             }
           }
         },
-        "claude-opus-4-6": {
-          "name": "Opus 4.6",
-          "variants": {
-            "medium": {
-              "effort": "medium"
-            },
-            "high": {
-              "effort": "high"
-            },
-            "xhigh": {
-              "effort": "xhigh"
-            },
-            "ultra": {
-              "effort": "max",
-              "max_tokens": 128000
-            }
-          }
-        },
-        "claude-opus-4-7": {
-          "name": "Opus 4.7",
+        "claude-sonnet-5": {
+          "name": "Sonnet 5",
           "variants": {
             "medium": {
               "effort": "medium"
@@ -352,6 +334,25 @@
         },
         "claude-opus-4-8": {
           "name": "Opus 4.8",
+          "variants": {
+            "medium": {
+              "effort": "medium"
+            },
+            "high": {
+              "effort": "high"
+            },
+            "xhigh": {
+              "effort": "xhigh",
+              "max_tokens": 64000
+            },
+            "ultra": {
+              "effort": "max",
+              "max_tokens": 128000
+            }
+          }
+        },
+        "claude-opus-5": {
+          "name": "Opus 5",
           "variants": {
             "medium": {
               "effort": "medium"
@@ -389,9 +390,11 @@
         "timeout": 600000
       },
       "models": {
-        "gemini-3-pro-preview": {},
-        "gemini-3-flash-preview": {},
-        "gemini-3-pro-image-preview": {}
+        "gemini-3.5-flash": {},
+        "gemini-3.5-flash-lite": {},
+        "gemini-3.6-flash": {},
+        "gemini-flash-latest": {},
+        "gemini-flash-lite-latest": {}
       }
     },
 
@@ -406,12 +409,12 @@
       },
       "models": {
         // NOTE: provider-specific reasoning flags are not standardized in OpenCode docs.
-        "kimi-k2-thinking": {
+        "kimi-k3": {
           "options": {
             "reasoning": true
           }
         },
-        "kimi-k2.5": {
+        "kimi-k2.7-code": {
           "options": {
             "reasoning": true
           }
@@ -463,8 +466,8 @@
             }
           }
         },
-        "z-ai/glm-5.1:exacto": {
-          "name": "GLM 5.1 (Exacto)",
+        "z-ai/glm-5.2:exacto": {
+          "name": "GLM 5.2 (Exacto)",
           "options": {
             "reasoning": {
               "effort": "high",
@@ -472,16 +475,16 @@
             }
           }
         },
-        "moonshotai/kimi-k2.5": {
-          "name": "Kimi K2.5",
+        "moonshotai/kimi-k2.6": {
+          "name": "Kimi K2.6",
           "options": {
             "reasoning": {
               "enabled": true
             }
           }
         },
-        "moonshotai/kimi-k2.6": {
-          "name": "Kimi K2.6",
+        "moonshotai/kimi-k3": {
+          "name": "Kimi K3",
           "options": {
             "reasoning": {
               "enabled": true
@@ -501,7 +504,7 @@
     "plan": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-5.6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "temperature": 0.4,
@@ -519,7 +522,7 @@
     "plan-GPT-xhigh": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-5.6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
@@ -538,9 +541,7 @@
     "build": {
       "mode": "primary",
       "description": "Default editing agent",
-      // TEMPORARY: openai/gpt-5.3-codex hangs silently on tool calls in OpenCode >= 1.14.29.
-      // Commented out until anomalyco/opencode#24899 is fixed. Restore after upgrading past the fix.
-      // "model": "openai/gpt-5.3-codex",
+      "model": "openai/gpt-5.6-sol",
       "reasoningEffort": "high",
       "temperature": 0.2,
       "prompt": "You are the default interactive build agent. Repo-level instructions (AGENTS.md or equivalent) take precedence over any global defaults. When no repo-specific guidance exists, apply good judgment for correctness, safety, and maintainability.",
@@ -556,16 +557,9 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-5.6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
-      // Anthropic does not support temperature modification with thinking budgets
-      // "temperature": 0.1,
-      // Anthropic extended thinking (high-ish)
-      // "thinking": {
-      //   "type": "enabled",
-      //   "budgetTokens": 20000
-      // },
       "prompt": "{file:./prompts/generated/special-builder.md}",
       "permission": {
         "webfetch": "allow",
@@ -582,7 +576,7 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "openai/gpt-5.5",
+      "model": "anthropic/claude-opus-5",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "prompt": "{file:./prompts/generated/agent-engineer.md}",
@@ -597,40 +591,5 @@
         }
       }
     }
-
-    // Reference implementation examples
-
-    // Primary orchestrator: does NOT edit, but can invoke coder + reviewer.
-    // "code-manager": {
-    //   "mode": "primary",
-    //   "description": "Orchestrator: coder -> (coder DONE) audit -> reviewer -> loop (max 3) -> finalize.",
-    //   "model": "openai/gpt-5.2",
-    //   "temperature": 0.2,
-    //   "permission": {
-    //     "edit": "deny",
-    //     "webfetch": "allow",
-    //     "websearch_cited": "allow",
-    //     "codesearch": "allow",
-    //     "task": {
-    //       "*": "deny",
-    //       "coder": "allow"
-    //     }
-    //   }
-    // },
-
-    // Subagent: implementation
-    // "coder": {
-    //   "mode": "subagent",
-    //   "description": "Implementation subagent (edits allowed).",
-    //   "model": "openai/gpt-5.3-codex",
-    //   "temperature": 0.2,
-    //   "permission": {
-    //     "edit": {
-    //       "*": "allow",
-    //       "*.env": "deny",
-    //       "*.env.*": "deny"
-    //     }
-    //   }
-    // }
   }
 }
