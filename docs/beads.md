@@ -1,6 +1,6 @@
 # Beads (bd) operations
 
-[Beads](https://github.com/steveyegge/beads) (`bd`) is the Dolt-backed issue
+[Beads](https://github.com/gastownhall/beads) (`bd`) is the Dolt-backed issue
 tracker for this repo. The database is named `dots`. This document covers the
 architecture, cross-machine sync, schema migrations on `bd` upgrades, and
 recovery procedures.
@@ -127,6 +127,12 @@ the same database name (`dots`), so one shared Dolt server would also share that
 database and change clone isolation semantics. Use it only as an explicit local
 experiment.
 
+**Not every machine is a Dolt sync peer.** A machine where the clone path is
+broken (see the satellite rebuild in Recovery) runs a locally-initialized
+database with **no remote configured** and syncs by JSONL export/import
+instead. As of 2026-07-26 the native Windows checkout runs in this mode; the
+WSL2 clones and macOS sync through the Dolt remote as described above.
+
 ## Schema migrations (bd version bumps)
 
 Upgrading `bd` can advance the Dolt **schema version** (for example
@@ -161,6 +167,38 @@ Upgrade flow across all machines:
 
 ## Recovery
 
+**Run `bd doctor` first.** It names most of the failures below directly and often
+prints the fix. Reaching for the manual snippets before running it wastes time and
+risks damage — every destructive step here is avoidable if `bd doctor` has already
+told you what is wrong.
+
+```bash
+bd doctor
+```
+
+**Never hardcode the Dolt port.** Derive it every time:
+
+```bash
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port)}
+```
+
+This is not pedantry. WSL2 runs every distro in one VM with a **shared network
+namespace**, so `127.0.0.1` is shared between them — a stale or copy-pasted port
+silently connects to a *different clone's* database, with no error. Every
+destructive snippet in this section is dangerous under those conditions:
+`drop database dots` aimed at the wrong port destroys the wrong machine. To see
+another distro's server, look for a listener with no owning process:
+
+```bash
+ss -ltnp | grep -E '127\.0\.0\.1:[0-9]+'   # yours shows a process; other distros do not
+```
+
+Distros share the kernel socket table but have separate PID namespaces, which is
+why another distro's listener appears with no owning process. If your *own*
+listener also shows no process, re-run with `sudo`.
+
+Windows loopback is *not* shared with WSL2, so that hazard is WSL2-to-WSL2 only.
+
 Every path below can destroy local state. Two preconditions, in order:
 
 1. **Export first.** This is the only reliable undo:
@@ -191,6 +229,206 @@ Every path below can destroy local state. Two preconditions, in order:
    **Cross-machine sync** above). The URL is also held inside the Dolt repo, so
    dropping the database loses that copy — gitignored `.beads/config.local.yaml`
    is the only one that survives a drop.
+
+### `bd close` fails: `table not found: wisp_dependencies`
+
+```
+Error closing dots-abc: affected by close for dots-abc: load wisp dependers:
+query: Error 1146 (HY000): table not found: wisp_dependencies
+```
+
+Any status change fails — `bd close` and `bd update --status` both. Reads,
+creates and non-status updates keep working, so the database looks healthy until
+you try to close something. `bd doctor` names it outright:
+
+```
+⚠ Dolt Schema: Missing dolt_ignore'd tables: [repo_mtimes wisps wisp_labels
+  wisp_dependencies wisp_events wisp_comments]
+  dolt_ignore'd tables live in the working set and must be recreated each server session
+```
+
+**These tables are per-session working-set state, and their recreation is
+unreliable.** `wisps`, `wisp_*`, `local_metadata` and `repo_mtimes` are all
+matched by `dolt_ignore`, so they never travel with a clone — every clone is
+born without them. `bd` is supposed to recreate them on a fresh server session,
+but a schema fast-path (gated by `schema_migrations` being current, which a
+clone always is) can skip that recreation entirely.
+
+**Honesty note (2026-07-26):** the steps below fixed the WSL2 clones and failed
+on the Windows clone — same `bd` 1.1.0, same remote, repeated on two freshly
+cloned databases and on dolt 2.2.1 and 2.2.2. No documented or undocumented
+in-place repair worked there, including deleting the `.bd-dolt-ok` fast-path
+marker. The mechanism that decides whether recreation runs is not understood.
+Try the ladder in order; if step 2 fails, go straight to the satellite rebuild
+below rather than repeating variations — that path is proven.
+
+**Step 1 — restart, then any bd command** (fixed Debian):
+
+```bash
+bd dolt stop && bd dolt start
+bd ready
+bd doctor          # the Dolt Schema warning should be gone
+```
+
+Windows (PowerShell 7): `bd dolt stop; bd dolt start`, then `bd ready`,
+`bd doctor`.
+
+**Step 2 — clear the migration tracker, then step 1 again.** A clone inherits
+`ignored_schema_migrations` rows claiming the table-creating migrations were
+already applied, which gates them off. The tracker is local bookkeeping and
+repopulates itself:
+
+```bash
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port)}
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  --use-db dots sql -q "delete from ignored_schema_migrations;"
+bd dolt stop && bd dolt start
+bd ready
+```
+
+Windows (PowerShell 7):
+
+```powershell
+$PORT = $env:BEADS_DOLT_SERVER_PORT
+if (-not $PORT) { $PORT = (Get-Content -Raw .beads\dolt-server.port).Trim() }
+dolt --host 127.0.0.1 --port $PORT --user root --password "" --no-tls `
+  --use-db dots sql -q "delete from ignored_schema_migrations;"
+bd dolt stop; bd dolt start
+bd ready
+```
+
+**Dead ends — do not bother:**
+
+- `bd migrate schema` reports `✓ Schema already at v53` (unrelated track) and
+  `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate --yes` dies on the missing
+  `local_metadata` it would need to record progress.
+- Re-bootstrapping (`bd bootstrap --yes`) clones again and reproduces the
+  problem — clones are how the tables go missing in the first place. On the
+  Windows machine a re-clone made things strictly worse.
+- `bd doctor --fix` printed `Fixing Dolt Schema... ✓ Fixed` while its own
+  verification pass, in the same invocation, reported the tables still
+  missing. See also the caution below on what else `--fix` touches.
+
+If the ladder fails, rebuild the machine as a **local-only satellite** — next
+section. Related: [gastownhall/beads#5033](https://github.com/gastownhall/beads/issues/5033).
+
+### Last resort: rebuild as a local-only satellite (no Dolt sync)
+
+Proven on the Windows clone (2026-07-26) after every in-place repair failed.
+The insight: all known failures live in the **clone** path. `bd init` with no
+remote reachable builds the schema locally from zero, where the table-creating
+migrations genuinely run. The cost: the new database shares no history with the
+remote, so this machine must never `bd dolt push`/`pull` again — it syncs by
+JSONL export/import instead.
+
+```powershell
+# 1. Save the issues (works even on a broken database)
+bd export --all -o $HOME\dots-pre-satellite.jsonl
+
+# 2. Make sure NO remote is discoverable, or init will clone and re-break:
+#    - move the local override aside (do NOT restore it afterwards)
+#    - check the TRACKED config too: a prior bootstrap may have leaked
+#      sync.remote into it (see Cross-machine sync above)
+Move-Item .beads\config.local.yaml .beads\config.local.yaml.bak
+git diff .beads\config.yaml          # if a sync: block appears:
+git checkout -- .beads\config.yaml
+
+# 3. Fresh local database
+bd dolt stop
+Remove-Item -Recurse -Force .beads\dolt
+Remove-Item .beads\dolt-server.port, .beads\dolt-server.pid, .beads\dolt-server.lock -ErrorAction SilentlyContinue
+bd init --server --non-interactive --skip-agents --skip-hooks --prefix dots
+```
+
+Then three cleanups `bd init` makes necessary:
+
+1. **It auto-derives a Dolt remote from the git repo's `origin`** — for this
+   repo that is the *public* dotfiles repository, so an accidental
+   `bd dolt push` would publish issue data there. Remove it and verify:
+
+   ```powershell
+   bd dolt remote remove origin
+   bd dolt remote list      # must print "No remotes configured."
+   ```
+
+2. **It commits to git on your behalf** (`✓ Committed beads files to git`).
+   Inspect `git log origin/main..HEAD` and reset anything you did not author.
+
+3. Verify no git hooks appeared despite `--skip-hooks`
+   (`ls .git/hooks` / `Get-ChildItem .git\hooks`) — on the Windows rebuild the
+   hooks actually came from an earlier `bd doctor --fix`, not from init, but
+   check rather than assume. See the caution below for removal.
+
+Finally, load the issues and verify:
+
+```powershell
+bd import $HOME\dots-pre-satellite.jsonl
+bd doctor            # expect 0 errors, no missing-tables warning
+bd ready
+```
+
+**Satellite workflow from here on.** `bd import` has upsert semantics — new
+issues are created, existing ones updated, newest `updated_at` wins, nothing is
+deleted — so refreshes are repeatable and safe in both directions:
+
+- refresh the satellite: `bd export --all` on a sync peer, `bd import` here
+- publish satellite work: `bd export --all` here, `bd import` on a sync peer,
+  which then pushes to the Dolt remote as usual
+- avoid editing the *same issue* on both sides between refreshes; newer-wins
+  resolves conflicts silently
+
+**A satellite is NOT safe against a habitual `bd dolt push` by default.**
+Verified 2026-07-26, twice: with `dolt_remotes` empty, `bd dolt push` prints
+`Configured Dolt remote origin from git origin.` and **begins uploading the
+issue database to whatever the git remote named `origin` points at** — for this
+repo, the *public* dotfiles repository. It does this unprompted, and a
+configured `sync.remote` in `config.local.yaml` does **not** prevent it. Both
+observed attempts were stopped only by Ctrl+C mid-upload.
+
+The working guard is to have **no git remote named `origin`** on a satellite:
+
+```powershell
+git remote rename origin gitlab
+git branch -u gitlab/main main
+```
+
+Ordinary `git push`/`pull` are unaffected (the remote is just named `gitlab`).
+With no `origin` to derive from, `bd dolt push` fails safely and prints:
+
+```
+Pushing to Dolt remote...
+No remote is configured — skipping.
+
+For solo use, pushing is optional — your issues are stored locally
+in .beads/ and versioned by Dolt automatically.
+```
+
+That message is the guard working. After any accidental push attempt, check
+`bd dolt remote list` and remove anything bd wired, and check
+`git log <remote>/main..HEAD` — bd has been observed committing to git under
+the *user's* identity (message `bd: clear sync.remote`) during push/remote
+operations; reset any commit you did not author.
+
+Also delete `config.local.yaml.bak` on a satellite (the real URL lives in
+1Password) — a stray backup invites an accidental restore, and as above it
+would not even function as a guard.
+
+### Caution: `bd doctor --fix` and bd-installed git hooks
+
+Never run `bd doctor --fix` wholesale in this repo. Two of its "fixes" touch
+things this repo manages itself: it edits the tracked `.gitignore`, and it
+installs five git hooks into `.git/hooks` — including `prepare-commit-msg`,
+which this repo provides via the git template
+(`private_dot_config/git/template/hooks/executable_prepare-commit-msg`). It
+will also happily act while secrets sit in the working tree (see the
+`sync.remote` leak above). Fix items by hand instead, or decline anything that
+touches git.
+
+To remove bd's hooks: `bd hooks uninstall` — it is marker-managed and strips
+only the `BEGIN/END BEADS INTEGRATION` blocks, preserving pre-existing hook
+content it appended to. Ignore `bd hooks list` afterwards claiming
+`prepare-commit-msg: installed (version )` — an empty version string means it
+is misdetecting a non-bd hook as its own.
 
 ### `bd bootstrap` fails: `database exists`
 
@@ -226,6 +464,10 @@ dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
   --use-db dots sql -q "select max(version) as schema_version from schema_migrations;"
 bd ready
 ```
+
+Any `bd bootstrap --yes` in this section clones, and a fresh clone can arrive
+without the local working-set tables — if `bd close` fails afterwards with
+`table not found: wisp_dependencies`, go to the escalation ladder above.
 
 On Windows (PowerShell) the same steps apply with `--password ""` and this
 port lookup:
@@ -320,6 +562,9 @@ bd ready
 moved copies stay untracked. Remove the `broken-*` directory once `bd ready`
 works.
 
+As above: the re-bootstrap clones, so check `bd doctor` for missing
+working-set tables afterwards and use the escalation ladder if they are absent.
+
 ### `bd dolt pull`/`push` fails with an auth or user-lookup error
 
 ```
@@ -413,7 +658,7 @@ documented fix**, while the behaviour still reproduces on `bd` 1.1.0 / dolt 2.2.
 - [dolt#7973](https://github.com/dolthub/dolt/issues/7973) — `dolt pull` fails in
   the presence of ignored tables. This is the root cause: `dolt_ignore` suppresses
   a table from `dolt status` but **not** from the merge precondition check.
-- [beads#2474](https://github.com/steveyegge/beads/issues/2474) — `bd dolt pull`
+- [beads#2474](https://github.com/gastownhall/beads/issues/2474) — `bd dolt pull`
   fails with this error and can corrupt journals in server mode.
 
 `bd` compounds it: its own pre-pull check skips `dolt_ignore`d tables when looking
