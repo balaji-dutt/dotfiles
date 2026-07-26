@@ -333,16 +333,19 @@ npm_package_name_from_spec() {
   esac
 }
 
-npm_install_scripts_are_reviewed() {
+npm_allow_scripts_for_package() {
   local pkg_name
   pkg_name="$1"
 
   case "$pkg_name" in
     opencode-ai|@fission-ai/openspec|@beads/bd)
-      return 0
+      printf '%s\n' "$pkg_name"
+      ;;
+    promptfoo)
+      printf '%s\n' '@playwright/browser-chromium,@swc/core,onnxruntime-node,sharp,protobufjs,esbuild'
       ;;
     *)
-      return 1
+      return 0
       ;;
   esac
 }
@@ -455,13 +458,15 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
 
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
+    allow_scripts=""
     pkg_name="$(npm_package_name_from_spec "$pkg")"
+    allow_scripts="$(npm_allow_scripts_for_package "$pkg_name")"
     echo "[npm] installing: $pkg"
     # Keep CI=1 for the noninteractive bootstrap, but do not pass it to npm
     # lifecycle scripts. Some npm tools, such as @beads/bd, skip native binary
     # downloads when CI is set and leave only a broken JavaScript shim behind.
-    if npm_install_scripts_are_reviewed "$pkg_name"; then
-      env -u CI npm install -g --allow-scripts="$pkg_name" "$pkg"
+    if [[ -n "$allow_scripts" ]]; then
+      env -u CI npm install -g --allow-scripts="$allow_scripts" "$pkg"
     else
       env -u CI npm install -g "$pkg"
     fi

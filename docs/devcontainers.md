@@ -239,8 +239,9 @@ the apt-managed binary. `dot_claude/private_settings.json` sets
 `DISABLE_UPDATES=1` so Claude sessions do not drift away from the devcontainer
 pin through background or manual updates.
 
-The broad container-dotfiles installer excludes `.claude/`, `.claude.json`, and
-`dot_claude/` so it does not write through lifecycle-managed Claude symlinks.
+The broad container-dotfiles installer excludes `.claude/`, `.claude.json`,
+`dot_claude/`, and `.config/opencode/` so it does not write through
+lifecycle-managed Claude or OpenCode symlinks.
 
 If Claude or an older container run created one of these managed paths as a
 regular file or directory, startup moves it into persistent backup storage under
@@ -272,6 +273,10 @@ paths are moved into backup storage under
 `/home/vscode/persistent-data/opencode/unmanaged-managed-path-backups/` before
 the managed symlink is installed. If both `opencode.json` and `opencode.jsonc`
 exist, startup keeps `opencode.jsonc` and removes the legacy JSON file.
+
+The broad home rsync skips OpenCode user config; lifecycle scripts install the
+managed links so rebuilds do not write back through read-only host-mounted
+symlinks.
 
 The homelab devcontainer also mounts `~/.config/unslop` read-only when that
 directory exists on the host. Seed `~/.config/unslop/style-memory.json` there

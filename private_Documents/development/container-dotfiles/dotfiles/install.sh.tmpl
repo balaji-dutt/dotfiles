@@ -1093,14 +1093,16 @@ configure_devcontainer_clipboard() {
 SRC="/home/vscode/.host-dotfiles"
 if [ -d "$SRC" ]; then
   echo "==> Syncing dotfiles from $SRC"
-  # Use rsync to be more efficient and exclude setup files from being copied to $HOME
-  # Claude config/state is owned by devcontainer lifecycle scripts and persistent-data.
+  # Use rsync to be more efficient and exclude setup files from being copied to $HOME.
+  # Claude and OpenCode config/state are owned by devcontainer lifecycle scripts
+  # and persistent-data; do not write through their managed symlinks.
   rsync -a \
   --keep-dirlinks \
   --exclude='.git' \
   --exclude='.claude/' \
   --exclude='.claude.json' \
   --exclude='dot_claude/' \
+  --exclude='.config/opencode/' \
   --exclude='install.sh' \
   --exclude='assets/' \
   --exclude='.zcompdump*' \
