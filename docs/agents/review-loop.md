@@ -19,12 +19,41 @@ should not, and how post-review docs refresh should behave.
 - Exempt from review-gate marking:
   - `docs/**` except `docs/agents/**`
   - `assets/README.md`
+  - `.beads/**` (backlog/issue state, not dotfiles content)
 - Still reviewed (normal review required):
   - `docs/agents/**`
   - `README.md`
   - `AGENTS.md`
   - `dot_claude/AGENTS.md`
 - Any non-doc change remains reviewed as usual.
+
+The policy is data-driven: `exemptPaths` in
+`.opencode/opencode-tooling.config.jsonc` is the single source of truth,
+read by both the OpenCode plugins and the Claude Code hooks.
+
+## Claude Code gate flow
+
+The Claude Code hooks in `.claude/hooks/` mirror the OpenCode plugins; the
+shared logic lives in `.claude/hooks/lib/review_gate.py`.
+
+- `mark-needs-review.sh` (PostToolUse, `Write|Edit`) reads the hook payload
+  and raises a gate only when the edited file is inside the session's
+  checkout (git-toplevel match, so nested worktrees under `worktrees/` gate
+  independently), is not a review-loop runtime artifact, and is not exempt
+  per `exemptPaths`. Edits outside the repo (`/tmp`, plan files) and
+  backlog-only sessions never raise a gate.
+- Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
+  JSON with `timestamp`, `firstTimestamp`, `sessionID`, and the accumulated
+  repo-relative `files` list.
+- `enforce-review-on-stop.sh` (Stop) blocks stopping while the session's
+  gate exists, with a reviewer prompt scoped to the gated files. If the
+  gated edits no longer exist in git (reverted) and nothing touching them
+  was committed since the first mark, the gate is cleared instead.
+  Escape hatch: `CLAUDE_ENFORCE_REVIEW=0|false|off`.
+- `clear-needs-review-on-pass.sh` (SubagentStop) clears the gate when a
+  reviewer transcript ends with `DOTFILES_REVIEWER_RESULT=PASS` as its
+  final meaningful line (exactly one marker; a quoted or mid-message
+  marker does not count).
 
 ## Expected review loop behavior
 
@@ -77,8 +106,14 @@ should not, and how post-review docs refresh should behave.
   `.opencode/plugins/review-loop-gate.js`
 - OpenCode config wiring:
   `.opencode/opencode.jsonc`
+- Claude gate helper (mark/enforce/clear logic):
+  `.claude/hooks/lib/review_gate.py`
+- Claude marker hook:
+  `.claude/hooks/mark-needs-review.sh`
 - Claude stop hook:
   `.claude/hooks/enforce-review-on-stop.sh`
+- Claude clear hook:
+  `.claude/hooks/clear-needs-review-on-pass.sh`
 - Skill:
   `.opencode/skills/refresh-docs/SKILL.md`
 - Command:

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Prefer CWD provided by oh-my-opencode hook runner.
-PROJECT_DIR="${CWD:-${OPENCODE_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-}}}"
+# PostToolUse (Write|Edit): raise the session-scoped review gate for
+# reviewable in-repo edits. Logic lives in lib/review_gate.py, which reads
+# the hook payload from stdin and filters by path (inside this checkout,
+# not exempt per .opencode/opencode-tooling.config.jsonc).
+
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
 if [[ -z "$PROJECT_DIR" ]]; then
   PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
@@ -14,12 +18,16 @@ fi
 
 cd "$PROJECT_DIR"
 
-TS="$(date -u +%s)"
+HELPER=".claude/hooks/lib/review_gate.py"
 
-SENTINEL_OPENCODE=".opencode/.needs_dotfiles_review"
-SENTINEL_CLAUDE=".claude/.needs_dotfiles_review" # transitional
+PY="python3"
+command -v "$PY" >/dev/null 2>&1 || PY="python"
 
-mkdir -p "$(dirname "$SENTINEL_OPENCODE")" "$(dirname "$SENTINEL_CLAUDE")"
+if [[ -f "$HELPER" ]] && command -v "$PY" >/dev/null 2>&1; then
+  exec "$PY" "$HELPER" mark
+fi
 
-printf '%s\n' "$TS" > "$SENTINEL_OPENCODE"
-printf '%s\n' "$TS" > "$SENTINEL_CLAUDE"
+# Fallback without Python: conservative unconditional mark (legacy format);
+# never misses a review at the cost of false positives.
+mkdir -p .claude
+date -u +%s > .claude/.needs_dotfiles_review

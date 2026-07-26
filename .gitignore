@@ -10,7 +10,7 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 !bin/**
 
 # Ignore coding harness files
-.claude/.needs_dotfiles_review
+.claude/.needs_dotfiles_review*
 .cz-audit
 .opencode/*dotfiles*
 .opencode/review-loop.seed.json

@@ -19,10 +19,12 @@
   // Files that should NOT trigger a review mark.
   // docs/** is exempt (generated/informational docs), except docs/agents/
   // which contains agent-facing docs that ARE reviewed.
+  // .beads/** is backlog/issue state, not dotfiles content.
   "exemptPaths": [
     "docs/**",
     "!docs/agents/**",
-    "assets/README.md"
+    "assets/README.md",
+    ".beads/**"
   ],
 
   // Changes can also arise from deletions, renames, and moves.
