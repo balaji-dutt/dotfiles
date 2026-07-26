@@ -40,6 +40,38 @@ ensure_disconnected_idle_time() {
     fi
 }
 
+read_dock_autohide() {
+    osascript -e 'tell application "System Events" to get autohide of dock preferences' 2>/dev/null
+}
+
+write_dock_autohide() {
+    case "$1" in
+        true|false)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    osascript -e "tell application \"System Events\" to set autohide of dock preferences to $1" >/dev/null 2>&1
+}
+
+ensure_dock_autohide() {
+    if [ "$(read_dock_autohide)" = "$1" ]; then
+        return
+    fi
+
+    write_dock_autohide "$1" || true
+}
+
+ensure_connected_dock_autohide() {
+    ensure_dock_autohide false
+}
+
+ensure_disconnected_dock_autohide() {
+    ensure_dock_autohide true
+}
+
 if [ "$1" == "--cleanup" ]; then
     CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
 
@@ -52,6 +84,7 @@ if [ "$1" == "--cleanup" ]; then
     fi
 
     ensure_disconnected_idle_time
+    ensure_disconnected_dock_autohide
 
     exit 0
 fi
@@ -70,6 +103,7 @@ cleanup() {
     rm -f "$CAFFEINATE_PID_FILE"
 
     ensure_disconnected_idle_time
+    ensure_disconnected_dock_autohide
 }
 
 trap 'cleanup; exit 0' SIGTERM SIGINT
@@ -98,6 +132,7 @@ while true; do
             killall -HUP cfprefsd
             # logger "VNC Active: Forced screensaver to Never."
         fi
+        ensure_connected_dock_autohide
 
         # Prevent display/system from sleeping while VNC is active
         # Use a PID file so we can avoid duplicates across restarts.
@@ -114,6 +149,7 @@ while true; do
         STATE="connected"
     else
         ensure_disconnected_idle_time
+        ensure_disconnected_dock_autohide
         STATE="disconnected"
 
         # Allow display/system to sleep again
