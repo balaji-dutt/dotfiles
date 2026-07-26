@@ -1,7 +1,7 @@
 ---
 name: special-builder
 description: Meta-level builder for agents, skills, plugins, tooling, evaluation harnesses, and infrastructure work.
-model: claude-opus-4-7
+model: opus
 effort: xhigh
 tools: Read, Grep, Glob, LS, Bash, Edit, Write, WebFetch, WebSearch, TodoRead, TodoWrite, mcp__tempograph__prepare_context, mcp__tempograph__blast_radius, mcp__tempograph__focus, mcp__tempograph__diff_context, mcp__tempograph__symbols, mcp__tempograph__file_map
 mcpServers:

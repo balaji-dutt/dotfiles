@@ -1,7 +1,7 @@
 ---
 name: beads-backlog-manager
 description: Applies an approved backlog-only Beads plan (create, update-existing, create-linked, link, prioritize, update-status, or close) without implementing source changes. Invoke only after plan approval in a Beads-enabled repo, with an explicit plan path under ~/.claude/plans/ (native plan mode) or ~/.plannotator/plans/*-approved.md (Plannotator-intercepted), or with approved plan text already in the chat. Do not invoke for implementation handoffs.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 effort: high
 tools: Read, Bash
 ---

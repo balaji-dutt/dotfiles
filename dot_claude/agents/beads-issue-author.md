@@ -1,7 +1,7 @@
 ---
 name: beads-issue-author
 description: Creates or attaches a Beads issue from an approved Claude Code plan file. Accepts plan paths under ~/.claude/plans/ (native plan mode) or ~/.plannotator/plans/*-approved.md (Plannotator-intercepted). Invoke only after plan approval in Beads-enabled repos with an explicit plan file path. Do not invoke for inline chat plans.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 effort: high
 tools: Read, Bash, Write
 ---
