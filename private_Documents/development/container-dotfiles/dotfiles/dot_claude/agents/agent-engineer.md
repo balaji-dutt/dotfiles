@@ -1,7 +1,7 @@
 ---
 name: agent-engineer
 description: Designs, builds, evaluates, and packages AI agent systems from loose requirements into reusable artifacts.
-model: opus
+model: fable
 effort: xhigh
 tools: Read, Grep, Glob, LS, Bash, Edit, Write, WebFetch, WebSearch, TodoRead, TodoWrite, mcp__tempograph__prepare_context, mcp__tempograph__blast_radius, mcp__tempograph__focus, mcp__tempograph__diff_context, mcp__tempograph__symbols, mcp__tempograph__file_map
 skills:

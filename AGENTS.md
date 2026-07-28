@@ -47,6 +47,7 @@ The following tools may be available, so check for their availability before exe
 
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
 - For review-gate path policy and post-review docs updates, refer to: docs/agents/review-loop.md
+- Before editing any file under `dot_claude/agents/`, `dot_claude/skills/`, or `private_dot_config/opencode/`, refer to: docs/agents/generated-agents.md
 <!-- - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development. -->
 
 ## Post-review docs refresh workflow
