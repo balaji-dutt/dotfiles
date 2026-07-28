@@ -1,5 +1,5 @@
 ccr_port: 3456
-lazygit_version: "0.62.2" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
+lazygit_version: "0.63.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 browser_policies:
   justthebrowser:
     enabled: true
