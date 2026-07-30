@@ -576,7 +576,7 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "anthropic/claude-opus-5",
+      "model": "openai/gpt-5.6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "prompt": "{file:./prompts/generated/agent-engineer.md}",
