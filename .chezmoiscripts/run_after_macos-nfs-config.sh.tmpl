@@ -1,0 +1,81 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly NFS_CONFIG_FILE="/etc/nfs.conf"
+readonly MANAGED_COMMENT="# Managed by chezmoi: prefer NFSv4"
+readonly MANAGED_SETTING="nfs.client.mount.options = vers=4"
+candidate_file=""
+
+cleanup() {
+  if [[ -n "$candidate_file" ]]; then
+    /bin/rm -f "$candidate_file"
+  fi
+}
+
+render_candidate() {
+  local source_file="$1"
+  local candidate_file="$2"
+
+  if [[ -e "$source_file" ]]; then
+    /usr/bin/awk \
+      -v managed_comment="$MANAGED_COMMENT" \
+      -v managed_setting="$MANAGED_SETTING" '
+        $0 == managed_comment { next }
+        /^[[:space:]]*nfs[.]client[.]mount[.]options[[:space:]]*=/ { next }
+        { print }
+        END {
+          print managed_comment
+          print managed_setting
+        }
+      ' "$source_file" > "$candidate_file"
+  else
+    /usr/bin/printf '%s\n%s\n' \
+      "$MANAGED_COMMENT" \
+      "$MANAGED_SETTING" > "$candidate_file"
+  fi
+}
+
+main() {
+  if [[ -L "$NFS_CONFIG_FILE" ]] || \
+    { [[ -e "$NFS_CONFIG_FILE" ]] && [[ ! -f "$NFS_CONFIG_FILE" ]]; }; then
+    /usr/bin/printf 'ERROR: %s is not a regular file\n' "$NFS_CONFIG_FILE" >&2
+    return 1
+  fi
+
+  if [[ -e "$NFS_CONFIG_FILE" ]] && [[ ! -r "$NFS_CONFIG_FILE" ]]; then
+    /usr/bin/printf 'ERROR: %s is not readable\n' "$NFS_CONFIG_FILE" >&2
+    return 1
+  fi
+
+  candidate_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/nfs.conf.XXXXXX")"
+  trap cleanup EXIT
+
+  render_candidate "$NFS_CONFIG_FILE" "$candidate_file"
+
+  if [[ -e "$NFS_CONFIG_FILE" ]] && \
+    /usr/bin/cmp -s "$candidate_file" "$NFS_CONFIG_FILE"; then
+    /usr/bin/printf 'macOS NFS client already defaults to NFSv4.\n'
+    return 0
+  fi
+
+  /usr/bin/printf 'Updating %s to prefer NFSv4 mounts.\n' "$NFS_CONFIG_FILE"
+  /usr/bin/sudo /usr/bin/install \
+    -o root -g wheel -m 0644 \
+    "$candidate_file" "$NFS_CONFIG_FILE"
+
+  if ! /usr/bin/cmp -s "$candidate_file" "$NFS_CONFIG_FILE"; then
+    /usr/bin/printf 'ERROR: failed to verify %s after installation\n' \
+      "$NFS_CONFIG_FILE" >&2
+    return 1
+  fi
+
+  /usr/bin/printf '%s\n' \
+    'Existing NFS mounts must be disconnected and remounted to use NFSv4.'
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
+{{- end }}

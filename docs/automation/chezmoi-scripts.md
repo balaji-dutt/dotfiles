@@ -29,6 +29,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_10-dotfiles-commit-template.sh.tmpl` | after | commit template and repo hook path helper |
 | `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Windows commit template and repo hook path helper |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
+| `run_after_macos-nfs-config.sh.tmpl` | after | macOS system NFSv4 client default reconciliation |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |

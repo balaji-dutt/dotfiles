@@ -42,6 +42,20 @@ This page lists the main managed targets expected on macOS.
 | User bin scripts | `~/bin/vnc_monitor.sh`, `~/bin/nfs_dot_clean.sh` | `bin/executable_vnc_monitor.sh`, `bin/executable_nfs_dot_clean.sh` |
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Browser policy profiles | `~/.local/share/dotfiles/browser-policies/justthebrowser/*.mobileconfig` | `.chezmoiscripts/run_onchange_after_browser-policies.sh.tmpl`, `configs/browser-policies/**` |
+| NFS client defaults | `/etc/nfs.conf` | `.chezmoiscripts/run_after_macos-nfs-config.sh.tmpl` |
+
+## NFS Client Default
+
+Each `chezmoi apply` checks `/etc/nfs.conf` and sets the macOS-wide NFS client
+default to `nfs.client.mount.options = vers=4`. The hook preserves unrelated
+settings and requests administrator access only when the file needs an update.
+
+Existing mounts keep their negotiated version until they are disconnected and
+remounted. After remounting, verify the active mount protocol with:
+
+```sh
+nfsstat -m
+```
 
 ## NFS AppleDouble Cleanup
 
