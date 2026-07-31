@@ -41,7 +41,9 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   backlog-only sessions never raise a gate.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
   JSON with `timestamp`, `firstTimestamp`, `sessionID`, and the accumulated
-  repo-relative `files` list.
+  repo-relative `files` list. Without Python or the helper script, the marker
+  hook falls back to an unconditional mark in the legacy unsuffixed
+  `.claude/.needs_dotfiles_review`.
 - `enforce-review-on-stop.sh` (Stop) blocks stopping while the session's
   gate exists, with a reviewer prompt scoped to the gated files. If the
   gated edits no longer exist in git (reverted) and nothing touching them
@@ -51,6 +53,30 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   reviewer transcript ends with `DOTFILES_REVIEWER_RESULT=PASS` as its
   final meaningful line (exactly one marker; a quoted or mid-message
   marker does not count).
+
+## Reviewer tool grants
+
+The reviewer works from `git diff` on both platforms, but the two harnesses
+scope that differently:
+
+- Claude Code (`.claude/agents/dotfiles-reviewer.md`): `tools: Bash, Read`.
+  Claude subagent frontmatter has no per-agent bash allowlist, so
+  "git commands only" is prompt-level — the agent's "Hard limits" section —
+  and not enforced. `permissions.allow` in `.claude/settings.json` only
+  controls auto-approval and is project-wide, so it does not narrow the
+  reviewer; it does mean the reviewer inherits pre-approved mutating entries
+  such as `Bash(git add:*)` and `Bash(git checkout:*)`.
+- OpenCode (`.opencode/agents/dotfiles-reviewer.md`): `permission.bash` is
+  deny-by-default with `git status*`, `git diff*`, and `git log*` allowed, and
+  `edit: deny`. Here the rule is hard-enforced.
+
+`Grep`/`Glob` are deliberately withheld on the Claude side: without them the
+reviewer cannot fall back to scanning the working tree when it should be
+reading diff hunks.
+
+Claude Code snapshots subagent definitions at session start. Editing
+`.claude/agents/dotfiles-reviewer.md` does not affect reviewer runs later in
+the same session, so verify changes to it from a fresh session.
 
 ## Expected review loop behavior
 
@@ -93,6 +119,10 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
 
 ## Related files
 
+- Claude reviewer agent:
+  `.claude/agents/dotfiles-reviewer.md`
+- OpenCode reviewer agent:
+  `.opencode/agents/dotfiles-reviewer.md`
 - OpenCode Build prompt:
   `.opencode/prompts/build.md`
 - OpenCode marker plugin:
