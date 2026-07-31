@@ -193,8 +193,15 @@ def count_range(repo_root: Path, commit_range: str) -> int:
         die(f"git rev-list returned a non-integer count for {commit_range}: {raw}")
 
 
-def list_range(repo_root: Path, commit_range: str, fmt: str = "%h") -> list[str]:
-    raw = git_output(repo_root, ["log", commit_range, f"--format={fmt}"])
+def list_range(
+    repo_root: Path,
+    commit_range: str,
+    fmt: str = "%h",
+    *,
+    exclude_refs: tuple[str, ...] = (),
+) -> list[str]:
+    exclusions = [f"^{ref}" for ref in exclude_refs]
+    raw = git_output(repo_root, ["log", commit_range, *exclusions, f"--format={fmt}"])
     return [line for line in raw.splitlines() if line]
 
 
@@ -556,6 +563,7 @@ def close_beads_issue(
     actor: str,
     issue_id: str | None,
     before_sha: str,
+    after_sha: str,
 ) -> dict[str, Any]:
     if issue_id is None:
         return {"requested": False, "closed": False, "reason": "not requested"}
@@ -568,7 +576,7 @@ def close_beads_issue(
         feature_branch=ctx.feature_branch,
         original_worktree=ctx.original_worktree,
         repo_root=ctx.original_worktree,
-        target_ref="HEAD",
+        target_ref=after_sha,
     )
     if not state["matches"]:
         return {
@@ -580,10 +588,18 @@ def close_beads_issue(
         }
 
     started_sha = str(state["started_sha"])
-    merged_shas = list_range(ctx.main_worktree, f"{started_sha}..HEAD", "%h")
+    merged_shas = list_range(
+        ctx.main_worktree,
+        f"{started_sha}..{after_sha}",
+        "%h",
+        exclude_refs=(before_sha,),
+    )
     if not merged_shas:
-        merged_shas = list_range(ctx.main_worktree, f"{before_sha}..HEAD", "%h")
-    reason = f"Fixed with commit(s) {' '.join(merged_shas) or git_output(ctx.main_worktree, ['rev-parse', '--short', 'HEAD'])}"
+        merged_shas = list_range(ctx.main_worktree, f"{before_sha}..{after_sha}", "%h")
+    reason_shas = " ".join(merged_shas)
+    if not reason_shas:
+        reason_shas = git_output(ctx.main_worktree, ["rev-parse", "--short", after_sha])
+    reason = f"Fixed with commit(s) {reason_shas}"
     result = subprocess.run(
         ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]],
         cwd=str(ctx.original_worktree),
@@ -676,6 +692,7 @@ def perform_merge(raw_args: list[str], *, merge_type: str) -> int:
         actor=parsed.actor,
         issue_id=parsed.close_beads,
         before_sha=before_sha,
+        after_sha=after_sha,
     )
     report = {
         "merge_type": merge_type,
