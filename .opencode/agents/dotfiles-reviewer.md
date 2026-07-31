@@ -12,9 +12,6 @@ permission:
 <!-- markdownlint-disable MD012 MD013 MD032 MD022 MD041 -->
 <!-- markdownlint-configure-file
 {
-  options": {
-    "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)"
-  },
   "no-trailing-spaces": false,
   "no-hard-tabs": true
 }

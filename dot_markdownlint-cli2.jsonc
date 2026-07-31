@@ -14,5 +14,6 @@
     // OpenCode/macOS temp files
     "**/var/folders/**/T/**",
     "**/private/var/folders/**/T/**"
-  ]
+  ],
+  "frontMatter": "(^---\\s*$[^]*?^---\\s*$)(\\r\\n|\\r|\\n|$)"
 }
