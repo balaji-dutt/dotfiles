@@ -556,7 +556,7 @@ intentionally unsupported.
 
 On Debian WSL2, the launcher prepends mise shims and requires a native Linux
 `devcontainer` CLI. Windows-mounted shims from `/mnt/<drive>/...` are rejected;
-`npm:@devcontainers/cli` is managed through `configs/mise.toml`.
+`npm:@devcontainers/cli` is managed through `configs/mise_wsl2.toml`.
 
 Common commands:
 
