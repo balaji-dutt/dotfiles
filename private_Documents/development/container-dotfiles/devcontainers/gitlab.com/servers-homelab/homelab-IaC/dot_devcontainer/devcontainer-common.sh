@@ -236,6 +236,36 @@ opencode_managed_path_is_allowed() {
   return 1
 }
 
+opencode_managed_path_is_runtime_generated() {
+  local relpath profile_relpath profile_child
+  relpath="$1"
+
+  case "/$relpath/" in
+    */node_modules/*)
+      return 0
+      ;;
+  esac
+
+  case "$relpath" in
+    .gitignore | package.json | package-lock.json | bun.lock)
+      return 0
+      ;;
+    profiles/*)
+      profile_relpath="${relpath#profiles/}"
+      profile_child="${profile_relpath#*/}"
+      if [[ "$profile_child" != "$profile_relpath" ]]; then
+        case "$profile_child" in
+          .gitignore | package.json | package-lock.json | bun.lock)
+            return 0
+            ;;
+        esac
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 validate_opencode_managed_manifest() {
   local manifest error_prefix entry_type relpath extra
   manifest="$1"
@@ -293,7 +323,9 @@ build_opencode_managed_manifest() {
       continue
     fi
 
-    if ! find "$source_path" -mindepth 1 -print | LC_ALL=C sort >"$source_entries"; then
+    if ! find "$source_path" -mindepth 1 \
+      \( -name node_modules -prune \) -o -print | \
+      LC_ALL=C sort >"$source_entries"; then
       echo "ERROR: Could not inventory OpenCode managed source: $source_path" >&2
       return 1
     fi
@@ -302,7 +334,9 @@ build_opencode_managed_manifest() {
     while IFS= read -r entry; do
       [[ -n "$entry" ]] || continue
       relpath="${entry#"$source_dir"/}"
-      if [[ -L "$entry" ]]; then
+      if opencode_managed_path_is_runtime_generated "$relpath"; then
+        continue
+      elif [[ -L "$entry" ]]; then
         echo "ERROR: OpenCode managed source symlinks are not supported: $entry" >&2
         return 1
       elif [[ -d "$entry" ]]; then
@@ -341,7 +375,9 @@ remove_stale_opencode_managed_assets() {
   while IFS=$'\t' read -r entry_type relpath || \
     [[ -n "${entry_type:-}${relpath:-}" ]]; do
     dst="$opencode_config_dir/$relpath"
-    if [[ "$entry_type" == "d" ]]; then
+    if opencode_managed_path_is_runtime_generated "$relpath"; then
+      continue
+    elif [[ "$entry_type" == "d" ]]; then
       printf '%s\n' "$relpath" >>"$stale_dirs"
     elif [[ -L "$dst" || -f "$dst" ]]; then
       rm -f "$dst"

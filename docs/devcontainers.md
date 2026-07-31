@@ -268,6 +268,8 @@ the mounted host dotfiles and copying allowlisted paths such as
 and `prompts/` into the persistent `~/.config/opencode` directory. These are
 real, user-writable files and directories because OpenCode writes config-local
 files such as `.gitignore`, package metadata, lockfiles, and `node_modules`.
+Lifecycle inventory excludes that generated package state, including package
+manager symlinks under `node_modules`, when it appears in the mounted source.
 
 The lifecycle manifest at
 `/home/vscode/persistent-data/opencode/lifecycle/managed-assets.tsv` records
