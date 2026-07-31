@@ -710,7 +710,7 @@ fi
 done_step "Run host dotfiles installer (if present)"
 
 step "Install OpenCode managed assets"
-install_opencode_managed_asset_links
+materialize_opencode_managed_assets
 done_step "Install OpenCode managed assets"
 
 step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"

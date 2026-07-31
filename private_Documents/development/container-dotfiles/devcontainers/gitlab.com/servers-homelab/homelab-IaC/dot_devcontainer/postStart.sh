@@ -412,7 +412,7 @@ else
 fi
 
 ensure_opencode_persistence_links
-install_opencode_managed_asset_links
+materialize_opencode_managed_assets
 
 if [[ -f /tmp/host-container-configs/opencode.env ]]; then
   persisted_opencode_profiles="$(read_opencode_profiles_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"

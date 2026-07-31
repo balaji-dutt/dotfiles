@@ -192,33 +192,289 @@ backup_opencode_unmanaged_path() {
 
   mkdir -p "$backup_parent"
   mv "$dst" "$backup_path"
-  echo "WARN: Moved existing non-symlink OpenCode managed path aside: $dst" >&2
+  echo "WARN: Moved conflicting OpenCode managed path aside: $dst" >&2
   echo "WARN: Backup location: $backup_path" >&2
 }
 
-link_opencode_managed_path() {
-  local src dst
-  src="$1"
-  dst="$2"
+opencode_managed_asset_names() {
+  printf '%s\n' \
+    AGENTS.md \
+    agents \
+    commands \
+    opencode-notifier.json \
+    opencode-profile.sh \
+    opencode-quota \
+    opencode.jsonc \
+    plugins \
+    profiles \
+    prompts \
+    skills \
+    tui.json
+}
 
-  if [[ ! -e "$src" && ! -L "$src" ]]; then
+opencode_managed_path_is_allowed() {
+  local relpath
+  relpath="$1"
+
+  case "$relpath" in
+    AGENTS.md | \
+      agents | agents/* | \
+      commands | commands/* | \
+      opencode-notifier.json | \
+      opencode-profile.sh | \
+      opencode-quota | opencode-quota/* | \
+      opencode.jsonc | \
+      plugins | plugins/* | \
+      profiles | profiles/* | \
+      prompts | prompts/* | \
+      skills | skills/* | \
+      tui.json)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+validate_opencode_managed_manifest() {
+  local manifest error_prefix entry_type relpath extra
+  manifest="$1"
+  error_prefix="${2:-ERROR}"
+
+  [[ -f "$manifest" ]] || return 0
+
+  while IFS=$'\t' read -r entry_type relpath extra || \
+    [[ -n "${entry_type:-}${relpath:-}${extra:-}" ]]; do
+    if [[ "$entry_type" != "d" && "$entry_type" != "f" ]]; then
+      echo "$error_prefix: Invalid OpenCode managed manifest entry type: $entry_type" >&2
+      return 1
+    fi
+    if [[ -z "$relpath" || -n "${extra:-}" ]]; then
+      echo "$error_prefix: Invalid OpenCode managed manifest path entry." >&2
+      return 1
+    fi
+    case "$relpath" in
+      /* | . | .. | ../* | */../* | */..)
+        echo "$error_prefix: Unsafe OpenCode managed manifest path: $relpath" >&2
+        return 1
+        ;;
+    esac
+    if ! opencode_managed_path_is_allowed "$relpath"; then
+      echo "$error_prefix: OpenCode managed manifest path is outside the allowlist: $relpath" >&2
+      return 1
+    fi
+  done <"$manifest"
+}
+
+build_opencode_managed_manifest() {
+  local source_dir manifest source_entries managed_name source_path entry relpath
+  source_dir="$1"
+  manifest="$2"
+  source_entries="$3"
+
+  : >"$manifest"
+
+  while IFS= read -r managed_name; do
+    source_path="$source_dir/$managed_name"
+
+    if [[ -L "$source_path" ]]; then
+      echo "ERROR: OpenCode managed source symlinks are not supported: $source_path" >&2
+      return 1
+    fi
+    if [[ -f "$source_path" ]]; then
+      printf 'f\t%s\n' "$managed_name" >>"$manifest"
+      continue
+    fi
+    if [[ ! -d "$source_path" ]]; then
+      if [[ -e "$source_path" ]]; then
+        echo "ERROR: Unsupported OpenCode managed source entry: $source_path" >&2
+        return 1
+      fi
+      continue
+    fi
+
+    if ! find "$source_path" -mindepth 1 -print | LC_ALL=C sort >"$source_entries"; then
+      echo "ERROR: Could not inventory OpenCode managed source: $source_path" >&2
+      return 1
+    fi
+
+    printf 'd\t%s\n' "$managed_name" >>"$manifest"
+    while IFS= read -r entry; do
+      [[ -n "$entry" ]] || continue
+      relpath="${entry#"$source_dir"/}"
+      if [[ -L "$entry" ]]; then
+        echo "ERROR: OpenCode managed source symlinks are not supported: $entry" >&2
+        return 1
+      elif [[ -d "$entry" ]]; then
+        printf 'd\t%s\n' "$relpath" >>"$manifest"
+      elif [[ -f "$entry" ]]; then
+        printf 'f\t%s\n' "$relpath" >>"$manifest"
+      else
+        echo "ERROR: Unsupported OpenCode managed source entry: $entry" >&2
+        return 1
+      fi
+    done <"$source_entries"
+  done < <(opencode_managed_asset_names)
+}
+
+remove_opencode_managed_asset_links() {
+  local opencode_config_dir managed_name dst
+  opencode_config_dir="$1"
+
+  while IFS= read -r managed_name; do
+    dst="$opencode_config_dir/$managed_name"
     if [[ -L "$dst" ]]; then
       rm -f "$dst"
     fi
-    return 0
-  fi
-
-  if [[ -L "$dst" ]]; then
-    ln -sfn "$src" "$dst"
-    return 0
-  fi
-
-  if [[ -e "$dst" ]]; then
-    backup_opencode_unmanaged_path "$dst"
-  fi
-
-  ln -s "$src" "$dst"
+  done < <(opencode_managed_asset_names)
 }
+
+remove_stale_opencode_managed_assets() {
+  local old_manifest new_manifest opencode_config_dir stale_dirs
+  local entry_type relpath dst
+  old_manifest="$1"
+  new_manifest="$2"
+  opencode_config_dir="$3"
+  stale_dirs="$4"
+
+  : >"$stale_dirs"
+  while IFS=$'\t' read -r entry_type relpath || \
+    [[ -n "${entry_type:-}${relpath:-}" ]]; do
+    dst="$opencode_config_dir/$relpath"
+    if [[ "$entry_type" == "d" ]]; then
+      printf '%s\n' "$relpath" >>"$stale_dirs"
+    elif [[ -L "$dst" || -f "$dst" ]]; then
+      rm -f "$dst"
+    elif [[ -e "$dst" ]]; then
+      echo "WARN: Preserving stale OpenCode managed path with a changed type: $dst" >&2
+    fi
+  done < <(LC_ALL=C comm -23 "$old_manifest" "$new_manifest")
+
+  while IFS= read -r relpath; do
+    [[ -n "$relpath" ]] || continue
+    dst="$opencode_config_dir/$relpath"
+    if [[ -d "$dst" && ! -L "$dst" ]]; then
+      rmdir "$dst" 2>/dev/null || true
+    fi
+  done < <(LC_ALL=C sort -ru "$stale_dirs")
+}
+
+copy_opencode_managed_assets() {
+  local source_dir opencode_config_dir manifest
+  local entry_type relpath src dst dst_parent tmp_file
+  source_dir="$1"
+  opencode_config_dir="$2"
+  manifest="$3"
+
+  while IFS=$'\t' read -r entry_type relpath; do
+    [[ "$entry_type" == "d" ]] || continue
+    src="$source_dir/$relpath"
+    dst="$opencode_config_dir/$relpath"
+
+    if [[ ! -d "$src" || -L "$src" ]]; then
+      echo "ERROR: OpenCode managed source directory changed during materialization: $src" >&2
+      return 1
+    fi
+    if [[ -L "$dst" || ( -e "$dst" && ! -d "$dst" ) ]]; then
+      backup_opencode_unmanaged_path "$dst"
+    fi
+    mkdir -p "$dst"
+    chmod u+rwx "$dst"
+  done <"$manifest"
+
+  while IFS=$'\t' read -r entry_type relpath; do
+    [[ "$entry_type" == "f" ]] || continue
+    src="$source_dir/$relpath"
+    dst="$opencode_config_dir/$relpath"
+    dst_parent="${dst%/*}"
+
+    if [[ ! -f "$src" || -L "$src" ]]; then
+      echo "ERROR: OpenCode managed source file changed during materialization: $src" >&2
+      return 1
+    fi
+    if [[ -f "$dst" && ! -L "$dst" ]] && cmp -s "$src" "$dst"; then
+      chmod u+rw "$dst"
+      if [[ -x "$src" ]]; then
+        chmod u+x "$dst"
+      else
+        chmod u-x "$dst"
+      fi
+      continue
+    fi
+    if [[ -L "$dst" || ( -e "$dst" && ! -f "$dst" ) ]]; then
+      backup_opencode_unmanaged_path "$dst"
+    fi
+
+    mkdir -p "$dst_parent"
+    tmp_file="$(mktemp "$dst_parent/.opencode-managed.XXXXXX")"
+    if ! cp "$src" "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
+    if ! chmod u+rw "$tmp_file"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
+    if [[ -x "$src" ]]; then
+      if ! chmod u+x "$tmp_file"; then
+        rm -f "$tmp_file"
+        return 1
+      fi
+    else
+      if ! chmod u-x "$tmp_file"; then
+        rm -f "$tmp_file"
+        return 1
+      fi
+    fi
+    if ! mv -f "$tmp_file" "$dst"; then
+      rm -f "$tmp_file"
+      return 1
+    fi
+  done <"$manifest"
+}
+
+materialize_opencode_managed_assets_from() (
+  set -Eeuo pipefail
+
+  local source_dir opencode_config_dir state_dir manifest_path
+  local raw_manifest new_manifest previous_manifest stale_dirs source_entries
+  source_dir="$1"
+  opencode_config_dir="$2"
+  state_dir="$3"
+
+  if [[ ! -d "$source_dir" ]]; then
+    echo "WARN: OpenCode managed source not found; keeping existing OpenCode config." >&2
+    return 0
+  fi
+
+  mkdir -p "$opencode_config_dir" "$state_dir"
+  manifest_path="$state_dir/managed-assets.tsv"
+  raw_manifest="$(mktemp "$state_dir/managed-assets.raw.XXXXXX")"
+  new_manifest="$(mktemp "$state_dir/managed-assets.new.XXXXXX")"
+  previous_manifest="$(mktemp "$state_dir/managed-assets.previous.XXXXXX")"
+  stale_dirs="$(mktemp "$state_dir/managed-assets.stale-dirs.XXXXXX")"
+  source_entries="$(mktemp "$state_dir/managed-assets.source-entries.XXXXXX")"
+  trap 'rm -f "$raw_manifest" "$new_manifest" "$previous_manifest" "$stale_dirs" "$source_entries"' EXIT
+
+  build_opencode_managed_manifest "$source_dir" "$raw_manifest" "$source_entries"
+  LC_ALL=C sort -u "$raw_manifest" >"$new_manifest"
+  validate_opencode_managed_manifest "$new_manifest"
+  if validate_opencode_managed_manifest "$manifest_path" WARN; then
+    if [[ -f "$manifest_path" ]]; then
+      LC_ALL=C sort -u "$manifest_path" >"$previous_manifest"
+    fi
+  else
+    echo "WARN: Ignoring invalid OpenCode managed manifest; stale cleanup is disabled for this run." >&2
+  fi
+
+  remove_opencode_managed_asset_links "$opencode_config_dir"
+  remove_stale_opencode_managed_assets \
+    "$previous_manifest" "$new_manifest" "$opencode_config_dir" "$stale_dirs"
+  copy_opencode_managed_assets "$source_dir" "$opencode_config_dir" "$new_manifest"
+
+  chmod 0600 "$new_manifest"
+  mv -f "$new_manifest" "$manifest_path"
+)
 
 remove_legacy_opencode_config() {
   local legacy_config
@@ -237,8 +493,8 @@ remove_legacy_opencode_config() {
   echo "WARN: Removed legacy $legacy_config; using opencode.jsonc." >&2
 }
 
-install_opencode_managed_asset_links() {
-  local source_dir opencode_config_dir managed_name
+materialize_opencode_managed_assets() {
+  local source_dir opencode_config_dir state_dir
 
   if ! source_dir="$(opencode_managed_source_dir)"; then
     echo "WARN: OpenCode managed source not found; keeping existing OpenCode config." >&2
@@ -246,23 +502,8 @@ install_opencode_managed_asset_links() {
   fi
 
   opencode_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-  mkdir -p "$opencode_config_dir"
-
-  for managed_name in \
-    AGENTS.md \
-    agents \
-    commands \
-    opencode-notifier.json \
-    opencode-profile.sh \
-    opencode-quota \
-    opencode.jsonc \
-    plugins \
-    profiles \
-    prompts \
-    skills \
-    tui.json; do
-    link_opencode_managed_path "$source_dir/$managed_name" "$opencode_config_dir/$managed_name"
-  done
+  state_dir="${OPENCODE_MANAGED_STATE_DIR:-/home/vscode/persistent-data/opencode/lifecycle}"
+  materialize_opencode_managed_assets_from "$source_dir" "$opencode_config_dir" "$state_dir"
 
   if [[ -e "$opencode_config_dir/opencode.json" && -e "$opencode_config_dir/opencode.jsonc" ]]; then
     remove_legacy_opencode_config "$opencode_config_dir/opencode.json"

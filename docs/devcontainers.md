@@ -238,7 +238,7 @@ pin through background or manual updates.
 
 The broad container-dotfiles installer excludes `.claude/`, `.claude.json`,
 `dot_claude/`, and `.config/opencode/` so it does not write through
-lifecycle-managed Claude or OpenCode symlinks.
+lifecycle-managed Claude paths or overwrite persistent OpenCode config.
 
 If Claude or an older container run created one of these managed paths as a
 regular file or directory, startup moves it into persistent backup storage under
@@ -263,17 +263,26 @@ Configuration ownership is split intentionally:
 
 `postCreate.sh` and `postStart.sh` materialize the managed user-level OpenCode
 assets by resolving the raw chezmoi source (`private_dot_config/opencode`) from
-the mounted host dotfiles and symlinking managed paths such as `opencode.jsonc`,
-`profiles/`, `skills/`, `agents/`, `plugins/`, `commands/`, and `prompts/` into
-the persistent `~/.config/opencode` directory. Existing non-symlink managed
-paths are moved into backup storage under
-`/home/vscode/persistent-data/opencode/unmanaged-managed-path-backups/` before
-the managed symlink is installed. If both `opencode.json` and `opencode.jsonc`
-exist, startup keeps `opencode.jsonc` and removes the legacy JSON file.
+the mounted host dotfiles and copying allowlisted paths such as
+`opencode.jsonc`, `profiles/`, `skills/`, `agents/`, `plugins/`, `commands/`,
+and `prompts/` into the persistent `~/.config/opencode` directory. These are
+real, user-writable files and directories because OpenCode writes config-local
+files such as `.gitignore`, package metadata, lockfiles, and `node_modules`.
+
+The lifecycle manifest at
+`/home/vscode/persistent-data/opencode/lifecycle/managed-assets.tsv` records
+only source-managed entries. On later starts, lifecycle scripts refresh changed
+managed files, remove entries deleted from the source, and prune empty managed
+directories. Untracked and OpenCode-generated files are preserved. Existing
+containers are migrated by removing the old top-level read-only symlinks before
+copying; unexpected type conflicts are moved into backup storage under
+`/home/vscode/persistent-data/opencode/unmanaged-managed-path-backups/`. If both
+`opencode.json` and `opencode.jsonc` exist, startup keeps `opencode.jsonc` and
+removes the legacy JSON file.
 
 The broad home rsync skips OpenCode user config; lifecycle scripts install the
-managed links so rebuilds do not write back through read-only host-mounted
-symlinks.
+writable managed copies on create and start, so rebuilds never write back
+through the read-only host mount.
 
 The homelab devcontainer also mounts `~/.config/unslop` read-only when that
 directory exists on the host. Seed `~/.config/unslop/style-memory.json` there
