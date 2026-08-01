@@ -79,7 +79,10 @@ that point). The helper refuses to reset any table that is not listed in
 ## Agent Worktree Merges
 
 Agents landing a feature worktree should use the repo-local helper instead of
-generating ad hoc shell or Python snippets:
+generating ad hoc shell or Python snippets. The agent skills invoke the copy
+from the checked-out main worktree while keeping the feature worktree as the
+current directory. A manual feature-local invocation delegates to that main
+copy when available:
 
 ```sh
 ./assets/agent-wt-merge inspect --fetch --json

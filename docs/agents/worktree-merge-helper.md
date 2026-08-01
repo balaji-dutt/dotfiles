@@ -9,25 +9,46 @@
 # Agent Worktree Merge Helper
 
 `assets/agent-wt-merge` is a repo-local helper for agents landing worktree
-branches back onto `main` or `master`.
+branches back onto `main` or `master`. The copy in the checked-out main
+worktree is authoritative, even when the agent is running from an older
+feature worktree.
 
 It exists so OpenCode and Claude skills do not need to rebuild the same shell or
 Python snippets every time they merge a feature worktree.
 
 ## Commands
 
-Run from the feature worktree root:
+Run from the feature worktree root. Agent skills resolve and quote the helper
+path from the checked-out main worktree before invoking it:
 
 ```sh
-./assets/agent-wt-merge inspect [--fetch] [--json]
-./assets/agent-wt-merge ff --actor opencode|claude [--update-main] [--close-beads <issue-id>]
-./assets/agent-wt-merge no-ff --actor opencode|claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
+"<main-worktree>/assets/agent-wt-merge" inspect [--fetch] [--json]
+"<main-worktree>/assets/agent-wt-merge" ff --actor opencode|claude [--update-main] [--close-beads <issue-id>]
+"<main-worktree>/assets/agent-wt-merge" no-ff --actor opencode|claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
 ```
 
 - `inspect` reports merge facts and cleanup suggestions.
 - `ff` runs only `git merge --ff-only` from the main worktree.
 - `no-ff` runs only `git merge --no-ff` from the main worktree and uses the
   selected actor for merge commit authorship.
+
+The working directory remains the feature worktree, so the helper still gets
+the source branch and repository from the caller. Invoking a known feature
+worktree copy manually delegates to the main copy when one is available. If no
+main copy exists, the local copy reports that it is a fallback. Agents must get
+approval before using that fallback or the `--use-local-helper` bootstrap/test
+override.
+
+Before invoking a main helper, agents check that selected helper path for
+uncommitted changes. The helper repeats this check before delegation. When an
+approved `--update-main` fast-forwards main, the running process resolves and
+executes the newly checked-out main helper before it starts the feature merge.
+It removes `--update-main` to prevent an update loop and removes
+`--use-local-helper` so the updated main policy becomes authoritative.
+
+Running the helper from `main` or `master` is always an error because there is
+no feature worktree to merge. The helper performs no Git or Beads mutation in
+that case.
 
 The helper never pushes, removes a worktree, force-deletes a branch, or closes a
 Beads issue without an explicit issue ID.
@@ -41,6 +62,8 @@ Beads issue without an explicit issue ID.
 - whether local main is dirty;
 - whether local main is behind `origin/<main>`;
 - whether fast-forward is possible;
+- helper path and provenance (`canonical`, `delegated`, `fallback`, or
+  `override`), including post-update re-execution;
 - optional matching `ai-wt` session metadata;
 - OpenCode and Claude Beads state validation;
 - cleanup commands to offer after the merge.
@@ -61,6 +84,13 @@ the current worktree path, and a usable `started_sha`. `branch` means the actual
 Git branch, not the worktree directory basename or a session-suffixed worktree
 label. `worktree_path` means the Git worktree root. If any check fails, the
 helper reports the mismatch and leaves the state file untouched.
+
+On success, the helper prints the exact close reason sent to `bd close`. The
+reason contains commits introduced by the feature merge session, excluding
+unrelated main-only or pre-session commits. A requested close that does not
+complete, or a successful close followed by state-file cleanup failure, exits
+non-zero and states that the Git merge already succeeded. Do not rerun or roll
+back the merge in response to that partial result.
 
 ## Cleanup
 
@@ -85,6 +115,9 @@ with `git branch -D` unless Mr. Dutt explicitly requests a forced delete.
 
 ## Permission model
 
-OpenCode permissions for this helper belong in the project config because
-`assets/agent-wt-merge` is repo-local. Cleanup commands remain ask-gated so a
-merge cannot silently remove worktrees or branches.
+OpenCode permissions for this helper belong in the project config because the
+helper is repo-local. The allow rules accept quoted or unquoted absolute paths
+anchored under `*/dotfiles/` for the `assets/agent-wt-merge` and
+`.opencode/bin/agent-wt-merge` candidates, but only for `inspect`, `ff`, and
+`no-ff`. Cleanup commands remain ask-gated so a merge cannot silently remove
+worktrees or branches.

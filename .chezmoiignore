@@ -155,6 +155,8 @@ configs/
 configs/**
 docs/
 docs/**
+tests/
+tests/**
 .claude-code-router/
 .claude-code-router/**
 # Input to dot_claude/modify_private_settings.json. Its container-dotfiles

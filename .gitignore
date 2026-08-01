@@ -9,6 +9,10 @@ private_Documents/development/container-dotfiles/dotfiles/configs/*
 !bin/
 !bin/**
 
+# Python runtime artifacts
+__pycache__/
+*.pyc
+
 # Ignore coding harness files
 .claude/.needs_dotfiles_review*
 .cz-audit

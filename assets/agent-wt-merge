@@ -16,6 +16,14 @@ from typing import Any
 
 SCRIPT_NAME = Path(sys.argv[0]).name
 MAIN_BRANCH_CANDIDATES = ("main", "master")
+LOCAL_HELPER_FLAG = "--use-local-helper"
+EXEC_CHAIN_ENV = "AGENT_WT_MERGE_EXEC_CHAIN"
+DELEGATED_FROM_ENV = "AGENT_WT_MERGE_DELEGATED_FROM"
+REEXEC_AFTER_UPDATE_ENV = "AGENT_WT_MERGE_REEXEC_AFTER_UPDATE"
+HELPER_RELATIVE_PATHS = (
+    Path("assets/agent-wt-merge"),
+    Path(".opencode/bin/agent-wt-merge"),
+)
 
 ACTORS = {
     "opencode": {
@@ -44,6 +52,15 @@ class WorktreeEntry:
     detached: bool = False
 
 
+@dataclass(frozen=True)
+class HelperProvenance:
+    path: Path
+    state: str
+    canonical_path: Path | None
+    delegated_from: Path | None
+    reexecuted_after_main_update: bool
+
+
 @dataclass
 class MergeContext:
     original_worktree: Path
@@ -63,6 +80,7 @@ class MergeContext:
     ai_wt_session: dict[str, Any] | None
     cleanup: dict[str, Any]
     beads: dict[str, Any]
+    helper: HelperProvenance
 
 
 def eprint(message: str) -> None:
@@ -173,6 +191,134 @@ def resolve_main_worktree(repo_root: Path, main_branch: str) -> Path:
     if not matches:
         die(f"{main_branch} is not checked out in any worktree")
     return matches[0].path
+
+
+def running_helper_path() -> Path:
+    return Path(__file__).resolve()
+
+
+def canonical_helper_path(main_worktree: Path, *, strict: bool = True) -> Path | None:
+    unusable: list[str] = []
+    for relative_path in HELPER_RELATIVE_PATHS:
+        candidate = main_worktree / relative_path
+        if not candidate.exists():
+            continue
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate.resolve()
+        unusable.append(str(candidate))
+    if unusable and strict:
+        die("main helper exists but is not an executable file: " + ", ".join(unusable))
+    return None
+
+
+def is_known_worktree_helper(helper_path: Path, worktree: Path) -> bool:
+    return any(helper_path == (worktree / relative_path).resolve() for relative_path in HELPER_RELATIVE_PATHS)
+
+
+def helper_dirty_paths(main_worktree: Path, helper_path: Path) -> list[str]:
+    try:
+        relative_path = helper_path.relative_to(main_worktree)
+    except ValueError:
+        die(f"resolved main helper is outside the main worktree: {helper_path}")
+    result = run_git(
+        main_worktree,
+        ["status", "--porcelain", "--untracked-files=all", "--", str(relative_path)],
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git status failed").strip()
+        die(f"could not inspect the main helper path: {detail}")
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def read_exec_chain() -> list[str]:
+    raw = os.environ.get(EXEC_CHAIN_ENV)
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        die(f"{EXEC_CHAIN_ENV} is not valid JSON")
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        die(f"{EXEC_CHAIN_ENV} must be a JSON array of paths")
+    return value
+
+
+def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = False) -> None:
+    current = running_helper_path()
+    target = target.resolve()
+    if not target.is_file() or not os.access(target, os.X_OK):
+        die(f"cannot execute helper: {target}")
+
+    chain = read_exec_chain()
+    target_text = str(target)
+    if target != current and target_text in {*chain, str(current)}:
+        die(f"helper delegation loop detected for {target}")
+
+    env = os.environ.copy()
+    if target != current:
+        env.setdefault(DELEGATED_FROM_ENV, str(current))
+        chain.append(str(current))
+        env[EXEC_CHAIN_ENV] = json.dumps(chain)
+    if after_main_update:
+        env[REEXEC_AFTER_UPDATE_ENV] = "1"
+
+    try:
+        os.execve(target_text, [target_text, *argv], env)
+    except OSError as exc:
+        die(f"could not execute helper {target}: {exc}")
+
+
+def prepare_helper_execution(argv: list[str]) -> HelperProvenance:
+    original_worktree = resolve_repo_root()
+    main_branch = resolve_main_branch(original_worktree)
+    feature_branch = current_branch(original_worktree)
+    if feature_branch in MAIN_BRANCH_CANDIDATES:
+        die(f"already on {feature_branch}; there is nothing to merge")
+    main_worktree = resolve_main_worktree(original_worktree, main_branch)
+    current = running_helper_path()
+    delegated_from_raw = os.environ.get(DELEGATED_FROM_ENV)
+    delegated_from = Path(delegated_from_raw).resolve() if delegated_from_raw else None
+    reexecuted = os.environ.get(REEXEC_AFTER_UPDATE_ENV) == "1"
+
+    if LOCAL_HELPER_FLAG in argv:
+        if not is_known_worktree_helper(current, original_worktree):
+            die(f"local helper override is limited to a worktree helper path: {current}")
+        canonical = canonical_helper_path(main_worktree, strict=False)
+        return HelperProvenance(
+            path=current,
+            state="override",
+            canonical_path=canonical,
+            delegated_from=delegated_from,
+            reexecuted_after_main_update=reexecuted,
+        )
+
+    canonical = canonical_helper_path(main_worktree)
+    if canonical is not None:
+        dirty = helper_dirty_paths(main_worktree, canonical)
+        if dirty:
+            die("main helper path is dirty; refusing to execute it:\n" + "\n".join(dirty))
+        if current != canonical:
+            exec_helper(canonical, argv)
+        return HelperProvenance(
+            path=current,
+            state="delegated" if delegated_from else "canonical",
+            canonical_path=canonical,
+            delegated_from=delegated_from,
+            reexecuted_after_main_update=reexecuted,
+        )
+
+    if delegated_from is not None:
+        die("delegated helper could not resolve a canonical helper on main")
+    if not is_known_worktree_helper(current, original_worktree):
+        die(f"main has no helper and the running helper is not a recognized worktree copy: {current}")
+    return HelperProvenance(
+        path=current,
+        state="fallback",
+        canonical_path=None,
+        delegated_from=None,
+        reexecuted_after_main_update=reexecuted,
+    )
 
 
 def commit_exists(repo_root: Path, ref: str) -> bool:
@@ -380,7 +526,7 @@ def cleanup_suggestion(
     }
 
 
-def build_context(*, fetch: bool) -> MergeContext:
+def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
     original_worktree = resolve_repo_root()
     main_branch = resolve_main_branch(original_worktree)
     feature_branch = current_branch(original_worktree)
@@ -432,7 +578,18 @@ def build_context(*, fetch: bool) -> MergeContext:
         ai_wt_session=ai_wt_session,
         cleanup=cleanup,
         beads=beads,
+        helper=helper,
     )
+
+
+def helper_provenance_dict(helper: HelperProvenance) -> dict[str, Any]:
+    return {
+        "path": str(helper.path),
+        "state": helper.state,
+        "canonical_path": str(helper.canonical_path) if helper.canonical_path else None,
+        "delegated_from": str(helper.delegated_from) if helper.delegated_from else None,
+        "reexecuted_after_main_update": helper.reexecuted_after_main_update,
+    }
 
 
 def context_dict(ctx: MergeContext) -> dict[str, Any]:
@@ -462,11 +619,17 @@ def context_dict(ctx: MergeContext) -> dict[str, Any]:
         "ai_wt": ctx.ai_wt_session,
         "beads": ctx.beads,
         "cleanup": ctx.cleanup,
+        "helper": helper_provenance_dict(ctx.helper),
     }
 
 
 def print_context_text(ctx: MergeContext) -> None:
     print("Worktree merge inspection")
+    print(f"- Helper: {ctx.helper.path} ({ctx.helper.state})")
+    if ctx.helper.delegated_from:
+        print(f"  - Delegated from: {ctx.helper.delegated_from}")
+    if ctx.helper.reexecuted_after_main_update:
+        print("  - Re-executed after main update: yes")
     print(f"- Feature branch: {ctx.feature_branch} ({ctx.feature_sha[:12]})")
     print(f"- Main branch: {ctx.main_branch} ({ctx.main_sha[:12]})")
     print(f"- Original worktree: {ctx.original_worktree}")
@@ -502,7 +665,7 @@ def print_context_text(ctx: MergeContext) -> None:
         print(f"  command: {command}")
 
 
-def update_main_from_origin(ctx: MergeContext) -> MergeContext:
+def update_main_from_origin(ctx: MergeContext) -> None:
     if ctx.origin_ref is None:
         die(f"cannot update {ctx.main_branch}: origin/{ctx.main_branch} does not exist")
     fetch_ok, fetch_message = maybe_fetch(ctx.main_worktree)
@@ -512,10 +675,34 @@ def update_main_from_origin(ctx: MergeContext) -> MergeContext:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "git merge --ff-only failed").strip()
         die(f"could not fast-forward {ctx.main_branch} from {ctx.origin_ref}: {detail}")
-    return build_context(fetch=False)
 
 
-def ensure_merge_preconditions(ctx: MergeContext, *, update_main: bool) -> MergeContext:
+def reexec_after_main_update(ctx: MergeContext, argv: list[str]) -> None:
+    canonical = canonical_helper_path(ctx.main_worktree)
+    if canonical is None:
+        die(
+            f"updated {ctx.main_branch}, but it no longer provides an executable merge helper; "
+            "the feature branch was not merged"
+        )
+    dirty = helper_dirty_paths(ctx.main_worktree, canonical)
+    if dirty:
+        die(
+            f"updated {ctx.main_branch}, but its helper path is dirty; the feature branch was not merged:\n"
+            + "\n".join(dirty)
+        )
+    next_argv = [
+        item for item in argv if item not in {"--update-main", LOCAL_HELPER_FLAG}
+    ]
+    exec_helper(canonical, next_argv, after_main_update=True)
+    die("failed to re-execute the helper after updating main")
+
+
+def ensure_merge_preconditions(
+    ctx: MergeContext,
+    *,
+    update_main: bool,
+    argv: list[str],
+) -> MergeContext:
     if ctx.main_dirty_paths:
         paths = "\n".join(ctx.main_dirty_paths)
         die(f"main worktree is dirty; refusing to merge:\n{paths}")
@@ -525,10 +712,8 @@ def ensure_merge_preconditions(ctx: MergeContext, *, update_main: bool) -> Merge
                 f"{ctx.main_branch} is behind {ctx.origin_ref} by {ctx.origin_behind_count} commit(s); "
                 "rerun with --update-main only after user approval"
             )
-        ctx = update_main_from_origin(ctx)
-        if ctx.main_dirty_paths:
-            paths = "\n".join(ctx.main_dirty_paths)
-            die(f"main worktree is dirty after updating from origin:\n{paths}")
+        update_main_from_origin(ctx)
+        reexec_after_main_update(ctx, argv)
     if ctx.commits_ahead == 0:
         die(f"{ctx.feature_branch} has no commits ahead of {ctx.main_branch}")
     return ctx
@@ -600,14 +785,23 @@ def close_beads_issue(
     if not reason_shas:
         reason_shas = git_output(ctx.main_worktree, ["rev-parse", "--short", after_sha])
     reason = f"Fixed with commit(s) {reason_shas}"
-    result = subprocess.run(
-        ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]],
-        cwd=str(ctx.original_worktree),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]],
+            cwd=str(ctx.original_worktree),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as exc:
+        return {
+            "requested": True,
+            "closed": False,
+            "state_file": str(state_file),
+            "reason": "bd close failed",
+            "stderr": str(exc),
+        }
     if result.returncode != 0:
         return {
             "requested": True,
@@ -630,8 +824,20 @@ def close_beads_issue(
     return {"requested": True, "closed": True, "state_file": str(state_file), "reason": reason}
 
 
+def beads_partial_failure(beads: dict[str, Any]) -> bool:
+    return bool(beads.get("requested")) and (
+        not beads.get("closed") or bool(beads.get("warning"))
+    )
+
+
 def print_merge_report(report: dict[str, Any]) -> None:
     print(f"Merged {report['feature_branch']} into {report['main_branch']}")
+    helper = report["helper"]
+    print(f"- Helper: {helper['path']} ({helper['state']})")
+    if helper.get("delegated_from"):
+        print(f"  - Delegated from: {helper['delegated_from']}")
+    if helper.get("reexecuted_after_main_update"):
+        print("  - Re-executed after main update: yes")
     print(f"- Merge type: {report['merge_type']}")
     print(f"- Main SHA before: {report['main_sha_before'][:12]}")
     print(f"- Main SHA after: {report['main_sha_after'][:12]}")
@@ -641,10 +847,17 @@ def print_merge_report(report: dict[str, Any]) -> None:
     beads = report["beads"]
     if beads.get("closed"):
         print(f"- Beads issue closed: yes ({report['close_beads']})")
+        print(f"  - Close reason: {beads.get('reason', 'unknown')}")
+        if beads.get("warning"):
+            print(f"  - Warning: {beads['warning']}")
     elif beads.get("requested"):
         print(f"- Beads issue closed: no ({beads.get('reason', 'unknown reason')})")
         for problem in beads.get("problems", []):
             print(f"  - {problem}")
+        if beads.get("stdout"):
+            print(f"  - bd stdout: {beads['stdout']}")
+        if beads.get("stderr"):
+            print(f"  - bd stderr: {beads['stderr']}")
     else:
         print("- Beads issue closed: no (not requested)")
     print("- Cleanup suggestion (not run; ask before running; run from workdir below):")
@@ -652,18 +865,44 @@ def print_merge_report(report: dict[str, Any]) -> None:
     for command in report["cleanup"]["commands"]:
         print(f"  command: {command}")
     print("- Pushed: no")
+    if beads_partial_failure(beads):
+        if beads.get("closed"):
+            print(
+                "Partial failure: Git merge and Beads closure succeeded, but Beads state cleanup did not complete."
+            )
+        else:
+            print("Partial failure: Git merge succeeded, but requested Beads closure did not complete.")
 
 
-def perform_merge(raw_args: list[str], *, merge_type: str) -> int:
+def add_local_helper_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        LOCAL_HELPER_FLAG,
+        action="store_true",
+        help="use this worktree's helper instead of delegating to main (requires prior approval)",
+    )
+
+
+def perform_merge(
+    raw_args: list[str],
+    *,
+    merge_type: str,
+    helper: HelperProvenance,
+) -> int:
     parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} {merge_type}")
     parser.add_argument("--actor", required=True, choices=tuple(ACTORS), help="agent identity for merge commits")
     parser.add_argument("--update-main", action="store_true", help="fast-forward main from origin/main before merging")
     parser.add_argument("--close-beads", metavar="ISSUE_ID", help="close a matching Beads issue after a successful merge")
+    add_local_helper_argument(parser)
     if merge_type == "no-ff":
         parser.add_argument("-m", "--message", action="append", required=True, help="merge commit message paragraph")
     parsed = parser.parse_args(raw_args)
 
-    ctx = ensure_merge_preconditions(build_context(fetch=False), update_main=parsed.update_main)
+    full_argv = [merge_type, *raw_args]
+    ctx = ensure_merge_preconditions(
+        build_context(fetch=False, helper=helper),
+        update_main=parsed.update_main,
+        argv=full_argv,
+    )
     before_sha = ctx.main_sha
     if merge_type == "ff":
         if not ctx.fast_forward_possible:
@@ -686,7 +925,7 @@ def perform_merge(raw_args: list[str], *, merge_type: str) -> int:
     if merge_type == "no-ff":
         merge_commit_author = git_output(ctx.main_worktree, ["log", "-1", "--format=%an <%ae>"])
 
-    post_ctx = build_context(fetch=False)
+    post_ctx = build_context(fetch=False, helper=helper)
     beads_result = close_beads_issue(
         ctx=post_ctx,
         actor=parsed.actor,
@@ -705,19 +944,19 @@ def perform_merge(raw_args: list[str], *, merge_type: str) -> int:
         "close_beads": parsed.close_beads,
         "beads": beads_result,
         "cleanup": post_ctx.cleanup,
+        "helper": helper_provenance_dict(helper),
     }
     print_merge_report(report)
-    if beads_result.get("requested") and not beads_result.get("closed") and beads_result.get("reason") == "bd close failed":
-        return 1
-    return 0
+    return 1 if beads_partial_failure(beads_result) else 0
 
 
-def cmd_inspect(raw_args: list[str]) -> int:
+def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
     parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} inspect")
     parser.add_argument("--fetch", action="store_true", help="run best-effort git fetch before reporting origin status")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    add_local_helper_argument(parser)
     parsed = parser.parse_args(raw_args)
-    ctx = build_context(fetch=parsed.fetch)
+    ctx = build_context(fetch=parsed.fetch, helper=helper)
     if parsed.json:
         print(json.dumps(context_dict(ctx), indent=2, sort_keys=True))
     else:
@@ -727,9 +966,9 @@ def cmd_inspect(raw_args: list[str]) -> int:
 
 def usage() -> str:
     return f"""Usage:
-  ./assets/{SCRIPT_NAME} inspect [--fetch] [--json]
-  ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>]
-  ./assets/{SCRIPT_NAME} no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>]
+  ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [{LOCAL_HELPER_FLAG}]
+  ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
+  ./assets/{SCRIPT_NAME} no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
 
 Commands:
   inspect  Report merge target facts and cleanup suggestions.
@@ -744,12 +983,13 @@ def main(argv: list[str]) -> int:
         return 0
     command, raw_args = argv[0], argv[1:]
     try:
+        helper = prepare_helper_execution(argv)
         if command == "inspect":
-            return cmd_inspect(raw_args)
+            return cmd_inspect(raw_args, helper=helper)
         if command == "ff":
-            return perform_merge(raw_args, merge_type="ff")
+            return perform_merge(raw_args, merge_type="ff", helper=helper)
         if command == "no-ff":
-            return perform_merge(raw_args, merge_type="no-ff")
+            return perform_merge(raw_args, merge_type="no-ff", helper=helper)
         die(f"unknown command: {command}")
     except AgentWtMergeError as exc:
         eprint(str(exc))
