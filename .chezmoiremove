@@ -14,6 +14,9 @@ Documents/development/container-dotfiles/dotfiles/.config/opencode/profiles/copi
 .config/opencode/plugins/opencode-claude-bridge-compat.js
 Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/plugins/opencode-claude-bridge-compat.js
 
+# Retired snip binary previously installed by WSL provisioning.
+.local/bin/snip
+
 # Retired Emacs/Doom managed directories.
 .emacs.d
 .config/emacs

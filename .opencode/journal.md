@@ -19,6 +19,12 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-08-01
+
+- decision: Retired WSL and devcontainer `snip` provisioning after the
+  associated OpenCode plugin proved unreliable. WSL cleanup is managed through
+  `.chezmoiremove`; existing devcontainers require a rebuild or manual removal.
+
 ## 2026-07-14
 
 - decision: Retired the host/container `opencode-claude-bridge-compat.js` shim
