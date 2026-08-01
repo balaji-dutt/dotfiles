@@ -41,10 +41,14 @@ commands:
   clean    Restore dirty dolt_ignore'd tables from HEAD
   pull     Restart server, then clean + dolt_pull in ONE dolt session
   push     Restart server, then bd dolt commit + bd dolt push
+  init     Rebuild this peer from the sync remote after `.beads/dolt` was
+           dropped (bd init + dolt_fetch + hard reset; see docs/beads.md)
 
 flags:
-  --dry-run  Print what would run; change nothing
-  --backup   Run `bd export --all` to a timestamped file first
+  --dry-run     Print what would run; change nothing
+  --backup      Run `bd export --all` to a timestamped file first (not init)
+  --prefix <p>  init only: issue prefix passed to bd init (default: the
+                dolt_database name; throwaway - the reset adopts the remote's)
 EOF
   exit 2
 }
@@ -65,10 +69,16 @@ repo_root() {
 COMMAND="${1:-}"; shift || true
 DRY_RUN=0
 DO_BACKUP=0
+PREFIX_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --backup)  DO_BACKUP=1 ;;
+    --prefix)
+      shift
+      [[ $# -gt 0 && -n "$1" ]] || die "--prefix needs a value"
+      PREFIX_OVERRIDE="$1"
+      ;;
     -h|--help) usage ;;
     *) die "unknown flag: $1" ;;
   esac
@@ -76,10 +86,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$COMMAND" in
-  status|clean|pull|push) ;;
+  status|clean|pull|push|init) ;;
   ""|-h|--help) usage ;;
   *) die "unknown command: $COMMAND" ;;
 esac
+
+[[ -z "$PREFIX_OVERRIDE" || "$COMMAND" == "init" ]] || die "--prefix is init-only"
 
 ROOT="$(repo_root)"
 cd "$ROOT"
@@ -111,7 +123,10 @@ PORT="${BEADS_DOLT_SERVER_PORT:-}"
 if [[ -z "$PORT" && -f .beads/dolt-server.port ]]; then
   PORT="$(tr -d '[:space:]' < .beads/dolt-server.port)"
 fi
-[[ -n "$PORT" ]] || die "no Dolt port; run 'bd dolt start' first"
+# init establishes the server itself; every other command needs one running.
+if [[ "$COMMAND" != "init" ]]; then
+  [[ -n "$PORT" ]] || die "no Dolt port; run 'bd dolt start' first"
+fi
 
 dolt_sql() {
   dolt --host "$DB_HOST" --port "$PORT" --user "$DB_USER" --password '' --no-tls \
@@ -131,6 +146,55 @@ dirty_csv() {
 
 remote_name() {
   dolt_sql -r csv -q "select name from dolt_remotes limit 1;" 2>/dev/null | tail -n +2
+}
+
+# The private sync remote URL. Never echo it unredacted - the repo is public.
+# Falls through to BD_SYNC_REMOTE when the file is absent OR lacks the key,
+# matching the two documented ways of providing the URL (docs/beads.md).
+sync_remote_url() {
+  local from_file=""
+  if [[ -f .beads/config.local.yaml ]]; then
+    from_file="$(python3 - <<'PY'
+import re, sys
+text = open('.beads/config.local.yaml').read()
+m = re.search(r'^\s*remote:\s*"?([^"\n]+?)"?\s*$', text, re.M)
+sys.stdout.write(m.group(1) if m else '')
+PY
+)"
+  fi
+  printf '%s' "${from_file:-${BD_SYNC_REMOTE:-}}"
+}
+
+# Best-effort listener check. Returning 1 when we cannot check is acceptable:
+# bd init fails loudly on a genuine port collision anyway.
+port_in_use() {
+  local p="$1"
+  if have ss; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${p}\$"
+  elif have nc; then
+    nc -z 127.0.0.1 "$p" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+# bd init must take the from-zero LOCAL path. If it can see a git 'origin' or
+# a configured sync remote it prints "initialized from git remote!" and takes
+# the clone-ish path instead - inheriting the poisoned migration cursor with
+# NO wisp tables (verified 2026-08-01 in a test clone; the wisp assertion in
+# cmd_init caught it). cmd_init hides both for the duration of bd init; this
+# restores them and is safe to run twice (EXIT trap + explicit call).
+INIT_HOLD_ORIGIN=0
+restore_init_holds() {
+  if [[ "$INIT_HOLD_ORIGIN" -eq 1 ]]; then
+    INIT_HOLD_ORIGIN=0
+    git remote rename beads-init-hold origin 2>/dev/null ||
+      echo "WARNING: could not rename git remote 'beads-init-hold' back to 'origin' - fix manually." >&2
+  fi
+  # The sentinel file IS the state; no flag needed and safe to run twice.
+  if [[ -f .beads/config.local.yaml.init-hold ]]; then
+    mv .beads/config.local.yaml.init-hold .beads/config.local.yaml
+  fi
 }
 
 # Echo the ignored (safe to reset) dirty tables; die if anything else is dirty.
@@ -266,9 +330,170 @@ cmd_push() {
   bd dolt push 2>&1 | redact
 }
 
+# Rebuild this peer from the sync remote without cloning. Proven 2026-08-01:
+# a fresh `bd init` creates every dolt_ignore'd local table with an honest
+# migration cursor, and `dolt reset --hard` to the fetched remote head adopts
+# the tracked tables/history while PRESERVING the ignored tables (dolt treats
+# them like git untracked files). Cloning cannot reach this state - clones
+# inherit the tracked migration cursor with none of the clone-local tables.
+#
+# Sequencing rule (docs/beads.md): push from a current peer FIRST so the
+# adopted cursor is fresh and no ignored migrations re-run on this machine.
+cmd_init() {
+  [[ "$DO_BACKUP" -eq 0 ]] || die "init does not take --backup: there is no database to export yet"
+
+  # The destructive step stays human: this command never deletes data.
+  [[ ! -e .beads/dolt ]] || die ".beads/dolt already exists; init only rebuilds a dropped data dir. Export first (bd export --all -o ~/${DB}-backup.jsonl), move .beads/dolt aside yourself, then re-run."
+
+  local url
+  url="$(sync_remote_url)"
+  [[ -n "$url" ]] || die "no sync remote: set sync.remote in .beads/config.local.yaml or export BD_SYNC_REMOTE (see docs/beads.md)"
+
+  local db_prefix="${PREFIX_OVERRIDE:-$DB}"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[dry-run] would: bd dolt stop; assert BEADS_DOLT_SERVER_PORT (if set) has no other listener"
+    info "[dry-run] would: bd init --server --non-interactive --skip-agents --skip-hooks --prefix ${db_prefix}"
+    info "[dry-run] would: assert new server serves the database init just created (project id match)"
+    info "[dry-run] would: replace any auto-derived dolt remote with the private sync remote"
+    info "[dry-run] would: call dolt_fetch + dolt_reset('--hard','origin/main') in ONE session"
+    info "[dry-run] would: patch .beads/metadata.json project_id from the adopted database"
+    return 0
+  fi
+
+  # Trap 1: wrong-server attach. direnv exports a per-checkout port, WSL2
+  # distros share 127.0.0.1, and bd init happily adopts whatever answers on
+  # the advertised port (2026-08-01: that stamped a live database with a
+  # scratch project identity). Stop this checkout's server, then refuse to
+  # continue if the port still has a listener - it belongs to someone else.
+  bd dolt stop >/dev/null 2>&1 || true
+  if [[ -n "${BEADS_DOLT_SERVER_PORT:-}" ]] && port_in_use "$BEADS_DOLT_SERVER_PORT"; then
+    die "port ${BEADS_DOLT_SERVER_PORT} still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server or unset BEADS_DOLT_SERVER_PORT."
+  fi
+  # Never trust an inherited data-dir override from another checkout's direnv.
+  export BEADS_DOLT_CLI_DIR="$ROOT/.beads/dolt"
+
+  local head_before
+  head_before="$(git rev-parse HEAD)"
+
+  # Force the from-zero LOCAL init path: hide the git origin, the local sync
+  # config and BD_SYNC_REMOTE while bd init runs (see restore_init_holds).
+  # $url is already in memory, so nothing downstream needs the hidden file.
+  # The INT trap matters: bash does not reliably fire EXIT on Ctrl-C, and the
+  # failure mode is a checkout left with its origin renamed.
+  trap restore_init_holds EXIT
+  trap 'restore_init_holds; exit 130' INT
+  if [[ -f .beads/config.local.yaml ]]; then
+    mv .beads/config.local.yaml .beads/config.local.yaml.init-hold
+  fi
+  if git remote get-url origin >/dev/null 2>&1; then
+    git remote get-url beads-init-hold >/dev/null 2>&1 &&
+      die "git remote 'beads-init-hold' already exists; resolve that first"
+    info "temporarily renaming git remote 'origin' so bd init cannot derive from it"
+    git remote rename origin beads-init-hold >/dev/null
+    INIT_HOLD_ORIGIN=1
+  fi
+
+  info "running bd init (fresh local database, prefix '${db_prefix}')"
+  env -u BD_SYNC_REMOTE bd init --server --non-interactive --skip-agents --skip-hooks --prefix "$db_prefix" >&2
+
+  restore_init_holds
+  trap - EXIT INT
+
+  # bd init rewrote metadata.json and started a server; re-read both. The
+  # BEADS_SYNC_DB override still wins, matching the top of this script.
+  if [[ -z "${BEADS_SYNC_DB:-}" ]]; then
+    DB="$(python3 -c "import json; m=json.load(open('.beads/metadata.json')); print(m.get('dolt_database','beads'))")"
+  fi
+  PORT="$(tr -d '[:space:]' < .beads/dolt-server.port)"
+  [[ -d ".beads/dolt/$DB" ]] || die "bd init did not create .beads/dolt/${DB} in this checkout - wrong server?"
+
+  # The assertion the 2026-08-01 accident lacked: the server we are talking to
+  # must be serving the database init just created.
+  local meta_pid db_pid
+  meta_pid="$(python3 -c "import json; print(json.load(open('.beads/metadata.json'))['project_id'])")"
+  db_pid="$(dolt_sql -r csv -q "select value from metadata where \`key\`='_project_id';" 2>/dev/null | tail -n +2)"
+  [[ -n "$db_pid" && "$db_pid" == "$meta_pid" ]] || die "project id mismatch: metadata.json has ${meta_pid}, server database has ${db_pid:-nothing}. Refusing - this looks like another checkout's server."
+
+  # Trap 2: bd init auto-derives a Dolt remote from the git origin, and in
+  # this repo the git origin is the PUBLIC dotfiles repo. Remove every remote
+  # that is not the private sync remote before anything can push to it.
+  local name r_url
+  while IFS=, read -r name r_url; do
+    [[ -z "$name" ]] && continue
+    if [[ "$r_url" != "$url" ]]; then
+      info "removing auto-derived dolt remote '${name}' (URL does not match sync.remote)"
+      dolt_sql -q "call dolt_remote('remove','${name}');" >/dev/null
+    fi
+  done < <(dolt_sql -r csv -q "select name, url from dolt_remotes;" 2>/dev/null | tail -n +2)
+
+  local remote
+  remote="$(remote_name)"
+  if [[ -z "$remote" ]]; then
+    # On failure dolt echoes the whole statement - URL included - on stderr.
+    # Route stderr through redact; stdout (the status table) is just noise.
+    dolt_sql -q "call dolt_remote('add','origin','${url}');" 2>&1 >/dev/null | redact >&2
+    remote="origin"
+  fi
+
+  # bd init is also known to leak sync.remote into tracked .beads/config.yaml.
+  if [[ -n "$(git status --porcelain -- .beads/config.yaml)" ]]; then
+    info "bd init modified tracked .beads/config.yaml (sync.remote leak) - restoring from HEAD"
+    git restore --source=HEAD --worktree -- .beads/config.yaml
+  fi
+  local head_after
+  head_after="$(git rev-parse HEAD)"
+  if [[ "$head_after" != "$head_before" ]]; then
+    echo "WARNING: bd init created git commits (${head_before} -> ${head_after})." >&2
+    echo "WARNING: review 'git log ${head_before}..HEAD'; reset ONLY after reviewing:" >&2
+    echo "WARNING:   git reset --hard ${head_before}" >&2
+  fi
+
+  # Fetch + hard reset in ONE dolt session, same rule as pull: no bd process
+  # in between to dirty the working set.
+  info "fetching from '${remote}' and hard-resetting to ${remote}/main (one session)"
+  dolt_sql -q "call dolt_fetch('${remote}'); call dolt_reset('--hard','${remote}/main');" 2>&1 | tr -d '\r' | redact
+
+  local issues wisps
+  issues="$(dolt_sql -r csv -q "select count(*) from issues;" 2>/dev/null | tail -n +2)"
+  wisps="$(dolt_sql -r csv -q "show tables like 'wisp%';" 2>/dev/null | tail -n +2 | grep -c . || true)"
+  [[ "${issues:-0}" -gt 0 ]] || die "issues table is empty after the reset - remote adoption failed"
+  [[ "$wisps" -eq 6 ]] || die "expected 6 wisp tables after the reset, found ${wisps}. Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
+
+  # Trap 3: the tracked `metadata` table rode in with the reset, so the DB now
+  # carries the shared project identity. Point metadata.json at it or bd
+  # refuses to connect (PROJECT IDENTITY MISMATCH).
+  db_pid="$(dolt_sql -r csv -q "select value from metadata where \`key\`='_project_id';" 2>/dev/null | tail -n +2)"
+  [[ -n "$db_pid" ]] || die "could not read _project_id from the database after the reset"
+  # Swap only the UUID string so bd's own formatting (indentation, trailing
+  # newline or lack of it) survives byte-for-byte - the file is git-tracked
+  # and reformatting it would churn every peer.
+  python3 - "$db_pid" <<'PY'
+import json, sys
+path = '.beads/metadata.json'
+text = open(path).read()
+current = json.loads(text)['project_id']
+open(path, 'w').write(text.replace(current, sys.argv[1]))
+PY
+  info "patched .beads/metadata.json project_id to the adopted database identity"
+
+  # Trap 4: if the adopted migration cursor trails this bd version, the first
+  # bd command re-runs the missing ignored migrations (idempotent on Linux;
+  # avoid entirely by pushing from a current peer before running init).
+  if ! bd list --limit 1 >/dev/null 2>&1; then
+    echo "WARNING: 'bd list' failed after init; run 'bd doctor' before using this checkout." >&2
+  fi
+
+  echo "init complete: ${issues} issues adopted from the sync remote."
+  echo "Next: run 'bd doctor'. If it reports a Repo Fingerprint error, do NOT run"
+  echo "'bd migrate --update-repo-id' without reading docs/beads.md - repo_id is a"
+  echo "tracked value shared by every peer."
+}
+
 case "$COMMAND" in
   status) cmd_status ;;
   clean)  cmd_clean ;;
   pull)   cmd_pull ;;
   push)   cmd_push ;;
+  init)   cmd_init ;;
 esac

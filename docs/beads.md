@@ -69,6 +69,7 @@ only `bd` command that is replaced; everything else is unaffected.
 ./assets/beads-sync.sh status    # dirty tables, is a sync safe?
 ./assets/beads-sync.sh pull      # THE replacement for `bd dolt pull`
 ./assets/beads-sync.sh push      # bd dolt commit + push, after a server restart
+./assets/beads-sync.sh init      # rebuild a wedged peer from the remote (Recovery)
 ```
 
 Windows (PowerShell 7):
@@ -77,9 +78,11 @@ Windows (PowerShell 7):
 pwsh ./assets/beads-sync.ps1 status
 pwsh ./assets/beads-sync.ps1 pull
 pwsh ./assets/beads-sync.ps1 push
+pwsh ./assets/beads-sync.ps1 init
 ```
 
-Both accept `-DryRun` / `--dry-run` and `-Backup` / `--backup`.
+Both accept `-DryRun` / `--dry-run` and `-Backup` / `--backup` (`init` rejects
+the backup flag — there is no database to export at that point).
 
 | What you're doing | Command |
 | --- | --- |
@@ -307,13 +310,92 @@ bd ready
   `local_metadata` it would need to record progress.
 - Re-bootstrapping (`bd bootstrap --yes`) clones again and reproduces the
   problem — clones are how the tables go missing in the first place. On the
-  Windows machine a re-clone made things strictly worse.
+  Windows machine a re-clone made things strictly worse. Use
+  `beads-sync init` (next section) instead — it rebuilds without cloning.
 - `bd doctor --fix` printed `Fixing Dolt Schema... ✓ Fixed` while its own
   verification pass, in the same invocation, reported the tables still
   missing. See also the caution below on what else `--fix` touches.
 
-If the ladder fails, rebuild the machine as a **local-only satellite** — next
-section. Related: [gastownhall/beads#5033](https://github.com/gastownhall/beads/issues/5033).
+If the ladder fails, rebuild the peer in place with **`beads-sync init`** —
+next section. Only if that also fails, fall back to the **local-only
+satellite** below. Related:
+[gastownhall/beads#5033](https://github.com/gastownhall/beads/issues/5033).
+
+### Rebuild a sync peer without cloning (`beads-sync init`)
+
+Proven empirically on Ubuntu WSL2 (2026-08-01). Every known table-loss failure
+lives in the **clone** path: a clone inherits the tracked
+`ignored_schema_migrations` cursor claiming the table-creating migrations ran,
+but none of the dolt_ignore'd tables the cursor is about — and no in-place
+repair reliably recreates them. `beads-sync init` sidesteps cloning entirely:
+
+1. `bd init` builds a **fresh local** database, where the ignored migrations
+   genuinely run — every wisp table, `local_metadata` and `repo_mtimes` exists
+   and the cursor is honest.
+2. `dolt_fetch` + `dolt_reset('--hard','origin/main')` then adopts the
+   remote's tracked tables and history. Dolt treats dolt_ignore'd tables like
+   git treats untracked files — **a hard reset preserves them** (verified:
+   all 6 wisp tables and `local_metadata` survived; 119 issues adopted).
+3. From then on the local `main` shares history with the remote, so
+   `beads-sync pull`/`push` work normally. A follow-up `dolt_pull` reported
+   `Everything up-to-date`.
+
+Usage — after exporting a JSONL floor and moving `.beads/dolt` aside yourself
+(the command refuses to delete anything):
+
+```bash
+bd export --all -o ~/dots-pre-init-$(date +%Y%m%d).jsonl   # if bd still runs
+mv .beads/dolt ~/dots-broken-dolt-$(date +%Y%m%d)
+./assets/beads-sync.sh init
+```
+
+Windows (PowerShell 7): same shape with `Move-Item`, then
+`pwsh ./assets/beads-sync.ps1 init`. The `.ps1` init path parses clean but
+has not yet been executed on the actual Windows machine — treat its first
+run there as the proving run.
+
+**Sequencing rule: push from a current peer first** (`beads-sync push` on a
+healthy machine). The reset adopts the *remote's* migration cursor; if it
+trails the local bd version, the first bd command re-runs the missing ignored
+migrations — idempotent on Linux, but on Windows that is the historically
+broken machinery. A fresh push makes the adopted cursor match a fresh init
+exactly, so nothing re-runs.
+
+The command automates the four traps the manual run hit:
+
+- **Wrong-server attach.** `.envrc` exports a per-checkout
+  `BEADS_DOLT_SERVER_PORT`, WSL2 distros share `127.0.0.1`, and `bd init`
+  adopts whatever answers on that port (2026-08-01: it stamped a live
+  database with a scratch project identity). init stops this checkout's
+  server, aborts if the port (when `BEADS_DOLT_SERVER_PORT` is set) still
+  has a listener, forces
+  `BEADS_DOLT_CLI_DIR` to this checkout, and verifies the new server is
+  serving the database it just created before touching anything.
+- **Remote-derived init.** If `bd init` can see a git `origin` or a
+  configured sync remote, it prints `initialized from git remote!` and takes
+  the clone-ish path — inheriting the poisoned cursor with **no wisp tables**
+  (caught by the script's own assertion in a test clone, 2026-08-01). init
+  temporarily renames `origin` and hides `.beads/config.local.yaml` /
+  `BD_SYNC_REMOTE` while `bd init` runs, restoring them immediately after
+  (even on failure). The same visibility also feeds the
+  [#5068](https://github.com/gastownhall/beads/issues/5068) push hazard: bd
+  derives Dolt remotes from the git origin — in this repo, the PUBLIC
+  dotfiles repo. After init, the script removes every Dolt remote that does
+  not match `sync.remote` and re-adds the private one as `origin`. It also
+  restores `.beads/config.yaml` if bd leaked `sync.remote` into it, and warns
+  (without auto-resetting) if bd created unsolicited git commits.
+- **Identity mismatch.** The tracked `metadata` table rides in with the
+  reset, so the DB then carries the shared project identity while
+  `.beads/metadata.json` still holds the throwaway one from init — bd refuses
+  to connect. init re-points `metadata.json` at the adopted `_project_id`.
+- **Cursor drift.** See the sequencing rule above; init runs one `bd list` to
+  reconcile and tells you to check `bd doctor`.
+
+If `bd doctor` afterwards reports a **Repo Fingerprint** error, do **not**
+run `bd migrate --update-repo-id` reflexively: `repo_id` lives in the tracked
+`metadata` table and is shared by every peer — rewriting it propagates on the
+next push. Investigate why the fingerprint differs first (a renamed git
+remote is one known cause).
 
 ### Last resort: rebuild as a local-only satellite (no Dolt sync)
 
@@ -323,6 +405,15 @@ remote reachable builds the schema locally from zero, where the table-creating
 migrations genuinely run. The cost: the new database shares no history with the
 remote, so this machine must never `bd dolt push`/`pull` again — it syncs by
 JSONL export/import instead.
+
+> **Prefer `beads-sync init` (previous section) over this.** It reaches the
+> same fresh-init state and then grafts the remote's history on top, producing
+> a full sync peer instead of a satellite. Converting an existing satellite
+> back to a peer is the same procedure: restore `.beads/config.local.yaml`
+> from the 1Password Secure Note, `bd export --all` as a floor, move
+> `.beads/dolt` aside, run `pwsh ./assets/beads-sync.ps1 init`. Push from a
+> current peer first (sequencing rule above). This section stays until that
+> conversion is proven on the actual Windows machine.
 
 ```powershell
 # 1. Save the issues (works even on a broken database)

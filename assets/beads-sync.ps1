@@ -1,10 +1,14 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('status', 'clean', 'pull', 'push')]
+  [ValidateSet('status', 'clean', 'pull', 'push', 'init')]
   [string] $Command,
 
   [switch] $DryRun,
-  [switch] $Backup
+  [switch] $Backup,
+
+  # init only: issue prefix passed to bd init (default: the dolt_database
+  # name; throwaway - the reset adopts the remote's counters anyway).
+  [string] $Prefix
 )
 
 Set-StrictMode -Version Latest
@@ -98,7 +102,10 @@ $DbPort = $env:BEADS_DOLT_SERVER_PORT
 if (-not $DbPort -and (Test-Path -LiteralPath '.beads/dolt-server.port' -PathType Leaf)) {
   $DbPort = (Get-Content -Raw -LiteralPath '.beads/dolt-server.port').Trim()
 }
-if (-not $DbPort) { Die "no Dolt port; run 'bd dolt start' first" }
+# init establishes the server itself; every other command needs one running.
+if (-not $DbPort -and $Command -ne 'init') { Die "no Dolt port; run 'bd dolt start' first" }
+
+if ($Prefix -and $Command -ne 'init') { Die '-Prefix is init-only' }
 
 function Invoke-DoltSql {
   # -Quiet drops stderr instead of merging it, matching `2>/dev/null` in the .sh.
@@ -136,6 +143,29 @@ function Get-RemoteName {
   $rows = @(($raw | Out-String).Trim() | ConvertFrom-Csv)
   if ($rows.Count -eq 0) { return $null }
   return $rows[0].name
+}
+
+# The private sync remote URL. Never echo it unredacted - the repo is public.
+# Falls through to BD_SYNC_REMOTE when the file is absent OR lacks the key,
+# matching the two documented ways of providing the URL (docs/beads.md).
+function Get-SyncRemoteUrl {
+  if (Test-Path -LiteralPath '.beads/config.local.yaml' -PathType Leaf) {
+    foreach ($line in (Get-Content -LiteralPath '.beads/config.local.yaml')) {
+      if ($line -match '^\s*remote:\s*"?([^"]+?)"?\s*$') { return $Matches[1] }
+    }
+  }
+  if ($env:BD_SYNC_REMOTE) { return $env:BD_SYNC_REMOTE }
+  return $null
+}
+
+# Best-effort listener check. Returning $false when we cannot check is
+# acceptable: bd init fails loudly on a genuine port collision anyway.
+function Test-PortInUse([int]$Port) {
+  try {
+    return [bool](Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
+  } catch {
+    return $false
+  }
 }
 
 # Return the ignored (safe to reset) dirty tables; exit non-zero if anything else
@@ -299,9 +329,206 @@ function Invoke-Push {
   return 0
 }
 
+# Rebuild this peer from the sync remote without cloning. Proven 2026-08-01:
+# a fresh `bd init` creates every dolt_ignore'd local table with an honest
+# migration cursor, and `dolt reset --hard` to the fetched remote head adopts
+# the tracked tables/history while PRESERVING the ignored tables (dolt treats
+# them like git untracked files). Cloning cannot reach this state - clones
+# inherit the tracked migration cursor with none of the clone-local tables.
+#
+# Sequencing rule (docs/beads.md): push from a current peer FIRST so the
+# adopted cursor is fresh and no ignored migrations re-run on this machine.
+function Invoke-Init {
+  if ($Backup) { Die 'init does not take -Backup: there is no database to export yet' }
+
+  # The destructive step stays human: this command never deletes data.
+  if (Test-Path -LiteralPath '.beads/dolt') {
+    Die ".beads/dolt already exists; init only rebuilds a dropped data dir. Export first (bd export --all -o `$HOME/$DbName-backup.jsonl), move .beads/dolt aside yourself, then re-run."
+  }
+
+  $url = Get-SyncRemoteUrl
+  if (-not $url) { Die 'no sync remote: set sync.remote in .beads/config.local.yaml or set BD_SYNC_REMOTE (see docs/beads.md)' }
+
+  $initPrefix = if ($Prefix) { $Prefix } else { $DbName }
+
+  if ($DryRun) {
+    Write-Info '[dry-run] would: bd dolt stop; assert BEADS_DOLT_SERVER_PORT (if set) has no other listener'
+    Write-Info "[dry-run] would: bd init --server --non-interactive --skip-agents --skip-hooks --prefix $initPrefix"
+    Write-Info '[dry-run] would: assert new server serves the database init just created (project id match)'
+    Write-Info '[dry-run] would: replace any auto-derived dolt remote with the private sync remote'
+    Write-Info "[dry-run] would: call dolt_fetch + dolt_reset('--hard','origin/main') in ONE session"
+    Write-Info '[dry-run] would: patch .beads/metadata.json project_id from the adopted database'
+    return 0
+  }
+
+  # Trap 1: wrong-server attach. WSL2 distros share 127.0.0.1 with this host,
+  # and bd init happily adopts whatever answers on an advertised port
+  # (2026-08-01: that stamped a live database with a scratch identity). Stop
+  # this checkout's server, then refuse if the port still has a listener.
+  & bd dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
+  if ($env:BEADS_DOLT_SERVER_PORT -and (Test-PortInUse ([int]$env:BEADS_DOLT_SERVER_PORT))) {
+    Die "port $($env:BEADS_DOLT_SERVER_PORT) still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server or unset BEADS_DOLT_SERVER_PORT."
+  }
+  # Never trust an inherited data-dir override from another checkout's shell.
+  $env:BEADS_DOLT_CLI_DIR = Join-Path (Get-RepoRoot) '.beads/dolt'
+
+  $headBefore = (& git rev-parse HEAD | Out-String).Trim()
+
+  # Force the from-zero LOCAL init path. If bd init can see a git 'origin' or
+  # a configured sync remote it prints "initialized from git remote!" and
+  # takes the clone-ish path instead - inheriting the poisoned migration
+  # cursor with NO wisp tables (verified 2026-08-01 in a test clone; the wisp
+  # assertion below caught it). Hide origin, config.local.yaml and
+  # BD_SYNC_REMOTE while bd init runs; the finally block restores them even
+  # when a later Die exits the script. $url is already in memory.
+  $holdCfg = Test-Path -LiteralPath '.beads/config.local.yaml' -PathType Leaf
+  $hadOrigin = $false
+  & git remote get-url origin 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    & git remote get-url beads-init-hold 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Die "git remote 'beads-init-hold' already exists; resolve that first" }
+    $hadOrigin = $true
+  }
+  $savedSyncRemote = $env:BD_SYNC_REMOTE
+  $initRc = 1
+  try {
+    if ($holdCfg) {
+      Move-Item -LiteralPath '.beads/config.local.yaml' -Destination '.beads/config.local.yaml.init-hold' -Force
+    }
+    if ($hadOrigin) {
+      Write-Info "temporarily renaming git remote 'origin' so bd init cannot derive from it"
+      & git remote rename origin beads-init-hold | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        # The rename never happened; stop finally from "renaming back".
+        $hadOrigin = $false
+        Die 'failed to rename git remote origin'
+      }
+    }
+    $env:BD_SYNC_REMOTE = $null
+
+    Write-Info "running bd init (fresh local database, prefix '$initPrefix')"
+    & bd init --server --non-interactive --skip-agents --skip-hooks --prefix $initPrefix | Out-Null
+    $initRc = $LASTEXITCODE
+  } finally {
+    $env:BD_SYNC_REMOTE = $savedSyncRemote
+    if ($hadOrigin) {
+      & git remote rename beads-init-hold origin 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("WARNING: could not rename git remote 'beads-init-hold' back to 'origin' - fix manually.")
+      }
+    }
+    # The sentinel file IS the state (matches the .sh); safe to run twice.
+    if (Test-Path -LiteralPath '.beads/config.local.yaml.init-hold' -PathType Leaf) {
+      Move-Item -LiteralPath '.beads/config.local.yaml.init-hold' -Destination '.beads/config.local.yaml' -Force
+    }
+  }
+  if ($initRc -ne 0) { Die "bd init failed (exit $initRc)" }
+
+  # bd init rewrote metadata.json and started a server; re-read both. The
+  # BEADS_SYNC_DB override still wins, matching the top of this script.
+  $newMeta = Get-Content -Raw -LiteralPath '.beads/metadata.json' | ConvertFrom-Json
+  if (-not $env:BEADS_SYNC_DB) {
+    $script:DbName = if ($newMeta.PSObject.Properties['dolt_database']) { $newMeta.dolt_database } else { 'beads' }
+  }
+  $script:DbPort = (Get-Content -Raw -LiteralPath '.beads/dolt-server.port').Trim()
+  if (-not (Test-Path -LiteralPath (Join-Path '.beads/dolt' $DbName))) {
+    Die "bd init did not create .beads/dolt/$DbName in this checkout - wrong server?"
+  }
+
+  # The assertion the 2026-08-01 accident lacked: the server we are talking to
+  # must be serving the database init just created.
+  $projectIdQuery = 'select value from metadata where `key`=''_project_id'';'
+  $dbPidRows = @((Invoke-DoltSql -Query $projectIdQuery -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  $dbPid = if ($dbPidRows.Count -gt 0) { $dbPidRows[0].value } else { $null }
+  if (-not $dbPid -or $dbPid -ne $newMeta.project_id) {
+    Die "project id mismatch: metadata.json has $($newMeta.project_id), server database has $(if ($dbPid) { $dbPid } else { 'nothing' }). Refusing - this looks like another checkout's server."
+  }
+
+  # Trap 2: bd init auto-derives a Dolt remote from the git origin. On this
+  # satellite the git remote is deliberately renamed so nothing derives, but
+  # run the hygiene pass anyway: remove every remote that is not the private
+  # sync remote before anything can push to it.
+  $remoteRows = @((Invoke-DoltSql -Query 'select name, url from dolt_remotes;' -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  foreach ($row in $remoteRows) {
+    if ($row.url -ne $url) {
+      Write-Info "removing auto-derived dolt remote '$($row.name)' (URL does not match sync.remote)"
+      Invoke-DoltSql -Query "call dolt_remote('remove','$($row.name)');" | Out-Null
+      if ($LASTEXITCODE -ne 0) { Die "failed to remove dolt remote '$($row.name)' (exit $LASTEXITCODE)" }
+    }
+  }
+  $remote = Get-RemoteName
+  if (-not $remote) {
+    Invoke-DoltSql -Query "call dolt_remote('add','origin','$url');" | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "failed to add dolt remote (exit $LASTEXITCODE)" }
+    $remote = 'origin'
+  }
+
+  # bd init is also known to leak sync.remote into tracked .beads/config.yaml.
+  $configDirty = (& git status --porcelain -- .beads/config.yaml | Out-String).Trim()
+  if ($configDirty) {
+    Write-Info 'bd init modified tracked .beads/config.yaml (sync.remote leak) - restoring from HEAD'
+    & git restore --source=HEAD --worktree -- .beads/config.yaml
+    if ($LASTEXITCODE -ne 0) { Die "git restore of .beads/config.yaml failed (exit $LASTEXITCODE)" }
+  }
+  $headAfter = (& git rev-parse HEAD | Out-String).Trim()
+  if ($headAfter -ne $headBefore) {
+    [Console]::Error.WriteLine("WARNING: bd init created git commits ($headBefore -> $headAfter).")
+    [Console]::Error.WriteLine("WARNING: review 'git log $headBefore..HEAD'; reset ONLY after reviewing:")
+    [Console]::Error.WriteLine("WARNING:   git reset --hard $headBefore")
+  }
+
+  # Fetch + hard reset in ONE dolt session, same rule as pull: no bd process
+  # in between to dirty the working set.
+  Write-Info "fetching from '$remote' and hard-resetting to $remote/main (one session)"
+  $resetOut = (Invoke-DoltSql -Query "call dolt_fetch('$remote'); call dolt_reset('--hard','$remote/main');" | Out-String)
+  $resetRc = $LASTEXITCODE
+  [Console]::Out.WriteLine((Redact $resetOut))
+  if ($resetRc -ne 0) { Die "dolt fetch/reset failed (exit $resetRc)" }
+
+  $issueRows = @((Invoke-DoltSql -Query 'select count(*) as n from issues;' -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  $issues = if ($issueRows.Count -gt 0) { [int]$issueRows[0].n } else { 0 }
+  if ($issues -le 0) { Die 'issues table is empty after the reset - remote adoption failed' }
+
+  $wispRaw = (Invoke-DoltSql -Query "show tables like 'wisp%';" -Csv -Quiet | Out-String).Trim()
+  $wisps = @($wispRaw -split "`n" | Select-Object -Skip 1 | Where-Object { $_.Trim() })
+  if ($wisps.Count -ne 6) {
+    Die "expected 6 wisp tables after the reset, found $($wisps.Count). Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
+  }
+
+  # Trap 3: the tracked `metadata` table rode in with the reset, so the DB now
+  # carries the shared project identity. Point metadata.json at it or bd
+  # refuses to connect (PROJECT IDENTITY MISMATCH).
+  $dbPidRows = @((Invoke-DoltSql -Query $projectIdQuery -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  $dbPid = if ($dbPidRows.Count -gt 0) { $dbPidRows[0].value } else { $null }
+  if (-not $dbPid) { Die 'could not read _project_id from the database after the reset' }
+  # Swap only the UUID string so bd's own formatting (indentation, trailing
+  # newline or lack of it) survives byte-for-byte - the file is git-tracked
+  # and reformatting it would churn every peer.
+  $metaText = Get-Content -Raw -LiteralPath '.beads/metadata.json'
+  $currentId = ($metaText | ConvertFrom-Json).project_id
+  Set-Content -LiteralPath '.beads/metadata.json' -Value $metaText.Replace($currentId, $dbPid) -NoNewline -Encoding utf8NoBOM
+  Write-Info 'patched .beads/metadata.json project_id to the adopted database identity'
+
+  # Trap 4: if the adopted migration cursor trails this bd version, the first
+  # bd command re-runs the missing ignored migrations. Windows is where that
+  # machinery has failed historically - push from a current peer before
+  # running init so there is nothing to re-run.
+  & bd list --limit 1 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    [Console]::Error.WriteLine("WARNING: 'bd list' failed after init; run 'bd doctor' before using this checkout.")
+  }
+
+  [Console]::Out.WriteLine("init complete: $issues issues adopted from the sync remote.")
+  [Console]::Out.WriteLine("Next: run 'bd doctor'. If it reports a Repo Fingerprint error, do NOT run")
+  [Console]::Out.WriteLine("'bd migrate --update-repo-id' without reading docs/beads.md - repo_id is a")
+  [Console]::Out.WriteLine('tracked value shared by every peer.')
+  return 0
+}
+
 switch ($Command) {
   'status' { exit (Invoke-Status) }
   'clean'  { exit (Invoke-Clean) }
   'pull'   { exit (Invoke-Pull) }
   'push'   { exit (Invoke-Push) }
+  'init'   { exit (Invoke-Init) }
 }

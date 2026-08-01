@@ -24,6 +24,10 @@ worktrees/**
 ### Beads / Dolt runtime artifacts
 .beads/interactions.jsonl
 .beads/issues.jsonl
+# Secret-bearing local config and the transient hold `beads-sync init`
+# creates while hiding it from bd init (belt-and-braces; .beads/.gitignore
+# covers only the exact unsuffixed name and bd may regenerate that file).
+.beads/config.local.yaml*
 
 # Beads / Dolt files (added by bd init)
 .dolt/

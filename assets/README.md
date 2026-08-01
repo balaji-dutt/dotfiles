@@ -69,9 +69,12 @@ pwsh ./assets/beads-sync.ps1 status
 pwsh ./assets/beads-sync.ps1 pull
 ```
 
-Commands are `status`, `clean`, `pull`, `push`; both accept a dry-run and a
-backup flag. The helper refuses to reset any table that is not listed in
-`dolt_ignore`. See `docs/beads.md` for the mechanism.
+Commands are `status`, `clean`, `pull`, `push`, `init`; both accept a dry-run
+and a backup flag (`init` rejects backup — there is no database to export at
+that point). The helper refuses to reset any table that is not listed in
+`dolt_ignore`. `init` rebuilds a wedged peer from the sync remote after
+`.beads/dolt` has been moved aside — see the Recovery section of
+`docs/beads.md`.
 
 ## Agent Worktree Merges
 
