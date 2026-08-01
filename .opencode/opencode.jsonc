@@ -36,7 +36,6 @@
       "./assets/cz-audit.sh*": "allow",
       "bash ./assets/sync-devcontainer-assets.sh*": "allow",
       "pwsh ./assets/cz-audit.ps1*": "allow",
-      "pwsh -NoProfile -Command \"./assets/cz-audit.ps1*\"": "allow",
       // agent worktree merge helper; cleanup remains ask-gated
       "./assets/agent-wt-merge inspect*": "allow",
       "./assets/agent-wt-merge ff*": "allow",
