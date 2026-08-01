@@ -13,16 +13,16 @@ brew "antidote"
 brew "tmux"
 # Terminal session manager for AI coding agents
 brew "aoe"
+# Git for Data
+brew "dolt"
+# Memory upgrade for your coding agent
+brew "beads"
 # Manage your dotfiles across multiple diverse machines, securely
 brew "chezmoi"
 # Good-lookin' diffs with diff-highlight and more
 brew "diff-so-fancy"
 # Load/unload environment variables based on $PWD
 brew "direnv"
-# Git for Data
-brew "dolt"
-# Memory upgrade for your coding agent
-brew "beads"
 # Modern, maintained replacement for ls
 brew "eza"
 # Play, record, convert, and stream select audio and video codecs
@@ -52,7 +52,7 @@ brew "yt-dlp"
 # The AI coding agent built for the terminal.
 brew "anomalyco/tap/opencode"
 # Monitor your AI coding tool quotas from a single TUI dashboard
-brew "janekbaraniewski/tap/openusage", trusted: true
+brew "janekbaraniewski/tap/openusage", link: false, trusted: true
 # Memory for AI-assisted development. Search your AI coding sessions.
 brew "pilan-ai/tap/mnemo"
 # Modern version of fasd productivity booster, offering quick access to files and directories
@@ -118,8 +118,6 @@ cask "prefs-editor"
 cask "raycast"
 # Remote management solution
 cask "royal-tsx"
-# CLI proxy that reduces LLM token consumption by 60-90% by filtering shell output
-cask "edouard-claude/tap/snip"
 # Music streaming service
 cask "spotify"
 # Git client
