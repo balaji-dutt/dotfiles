@@ -5,7 +5,8 @@ jq = "latest"
 node = "lts"
 "npm:@opencode-ai/sdk" = "latest"
 "npm:promptfoo" = "latest"
-"npm:renovate" = "latest"
+# Reviewed 2026-08-01: @yarnpkg/libzip 3.2.2 tag/gitHead match; no provenance.
+"npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
 "pipx:lastversion" = "latest"
 "pipx:tempograph" = "latest"
 python = "3.14"
