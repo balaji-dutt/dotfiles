@@ -2,4 +2,4 @@
 opencode = "latest"
 claude = "latest"
 "npm:@devcontainers/cli" = "latest"
-"npm:@beads/bd" = "1.1.2"
+"github:gastownhall/beads" = "1.1.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$

@@ -36,10 +36,12 @@
       "customType": "regex",
       "managerFilePatterns": [
         "/^configs\\/packages\\.yaml$/",
-        "/^\\.chezmoidata\\.yaml$/"
+        "/^\\.chezmoidata\\.yaml$/",
+        "/^configs\\/mise_wsl2\\.toml$/"
       ],
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\w+:[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)[ \\t]*\\w+:[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)",
+        "(?:^|\\r?\\n)[ \\t]*\\\"github:[^\\\"\\s]+\\\"[ \\t]*=[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)"
       ]
     },
     {
@@ -117,7 +119,7 @@
   "packageRules": [
     {
       "matchManagers": ["custom.regex"],
-      "matchDepNames": ["@beads/bd"],
+      "matchDepNames": ["@beads/bd", "gastownhall/beads"],
       "allowedVersions": "!/^1\\.0\\.5$/"
     },
     {

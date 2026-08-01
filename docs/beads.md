@@ -33,13 +33,15 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
 
 ## Install per platform
 
-`bd` and the external `dolt` server binary are installed separately — the
-`@beads/bd` npm package ships `bd` but not the Dolt server.
+`bd` and the external `dolt` server binary are installed separately. On WSL2,
+mise downloads `bd` directly from its upstream GitHub release archive. This
+avoids relying on npm lifecycle scripts, and the archive still does not include
+the Dolt server.
 
 | Platform | `bd` | `dolt` |
 | --- | --- | --- |
 | macOS | Homebrew `beads` formula | Homebrew `dolt` |
-| WSL2 | `npm:@beads/bd` via mise (`configs/mise_wsl2.toml`) | GitHub release tarball via ansible; pinned in `configs/packages.yaml` |
+| WSL2 | `gastownhall/beads` GitHub release via mise (`configs/mise_wsl2.toml`) | GitHub release tarball via ansible; pinned in `configs/packages.yaml` |
 | Windows | `@beads/bd` (npm) | `dolt` release |
 
 Keep `bd` at the **same minor version** across machines. Different builds of the
@@ -50,13 +52,15 @@ lower Dolt schema cannot read a migrated remote.
 
 `bd` schema bumps are deliberately kept off unattended automerge:
 
-- Under `renovate.json5`, all custom-regex-managed deps (including `@beads/bd`)
-  auto-merge only patch/digest updates; minor/major bumps carry
+- Under `renovate.json5`, all custom-regex-managed deps (including both Beads
+  package sources) auto-merge only patch/digest updates; minor/major bumps carry
   `automerge: false`, so a schema-moving `bd` bump lands as a human-reviewed PR.
-  A `@beads/bd`-specific rule additionally hard-blocks `1.0.5`
-  (`allowedVersions: "!/^1\\.0\\.5$/"`).
-- The WSL2 pin in `configs/mise_wsl2.toml` has no `# renovate:` annotation, so
-  it is bumped manually.
+  A Beads-specific rule covers both `gastownhall/beads` and `@beads/bd` and
+  hard-blocks `1.0.5` (`allowedVersions: "!/^1\\.0\\.5$/"`). The npm name is
+  retained because the DevContainer still installs that package.
+- The annotated WSL2 pin in `configs/mise_wsl2.toml` uses the
+  `github-releases` datasource, so Renovate proposes upstream Beads releases
+  without routing installation through npm.
 
 ## Cross-machine sync
 
