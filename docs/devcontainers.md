@@ -325,22 +325,22 @@ Workspace `.opencode` sync is template-whitelist based:
 
 - `PLANNOTATOR_REMOTE=1`
 - `PLANNOTATOR_PORT=9999` as the direct plain-session fallback
-- `PLANNOTATOR_PORTS_BUILD=9996,9997,9998`
-- `PLANNOTATOR_PORTS_CLAUDE=10017,10018,10019`
-- `PLANNOTATOR_PORTS_CUSTOM=10007,10008,10009`
+- `PLANNOTATOR_PORTS_BUILD=9993-9998`
+- `PLANNOTATOR_PORTS_CLAUDE=10014-10019`
+- `PLANNOTATOR_PORTS_CUSTOM=10004-10009`
 
 The template intentionally avoids fixed `forwardPorts` and Docker-published
-`appPort` mappings for Plannotator. Fixed publishing made wrapper-selected ports
-less reliable in the devcontainer.
+`appPort` mappings for Plannotator. A fixed published port does not cover the
+native ranges used for concurrent reviews.
 
 If the browser does not open automatically when `submit_plan` runs, forward the
-selected port and open:
+port reported by Plannotator after review starts and open:
 
-- a build-handoff pool URL: `http://localhost:9996` through
+- a build-handoff range URL: `http://localhost:9993` through
   `http://localhost:9998`
-- or a stay-current custom pool URL: `http://localhost:10007` through
+- or a stay-current custom range URL: `http://localhost:10004` through
   `http://localhost:10009`
-- or a Claude Code pool URL: `http://localhost:10017` through
+- or a Claude Code range URL: `http://localhost:10014` through
   `http://localhost:10019`
 
 During this experiment, VS Code auto-forwarding or manual forwarding may be
@@ -348,10 +348,9 @@ required. Terminal-only `devcontainer-launch` sessions should not assume the
 review UI is reachable through pre-published localhost ports.
 
 Container-installed `opencode-plannotator*` and `claude-plannotator` wrappers
-are verbose by default so terminal sessions show the selected Plannotator port
-before the agent starts. They also pause for one second before launching the
-agent; set `OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` or
-`CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip that pause.
+are verbose by default so terminal sessions show the configured profile and
+range before the agent starts. Plannotator reports the selected port later when
+review begins; the wrappers no longer pause before launching the agent.
 
 Keep fixed Docker-published host ports disabled unless there is a specific
 reason to re-test them.

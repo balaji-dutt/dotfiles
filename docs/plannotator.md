@@ -6,44 +6,44 @@
 }
 -->
 
-# Plannotator Port Pools
+# Plannotator Port Ranges
 
 Plannotator uses a browser origin for review UI settings. Firefox Temporary
 Containers make random localhost ports inconvenient because Multi-Account
 Containers can only pin by host/port. A single fixed port keeps settings stable
 but blocks concurrent agent sessions.
 
-This repo uses small fixed pools instead:
+This repo uses bounded native ranges instead:
 
 | Environment | Workflow | Ports | Plannotator setting |
 | :--- | :--- | :--- | :--- |
-| Host/WSL | OpenCode build handoff | `8996,8997,8998` | switch to Build |
-| Host/WSL | OpenCode stay-current custom | `9007,9008,9009` | stay on current agent |
-| Host/WSL | Claude Code plan review | `9017,9018,9019` | Claude Code |
-| Devcontainer | OpenCode build handoff | `9996,9997,9998` | switch to Build |
-| Devcontainer | OpenCode stay-current custom | `10007,10008,10009` | stay on current agent |
-| Devcontainer | Claude Code plan review | `10017,10018,10019` | Claude Code |
+| Host/WSL | OpenCode build handoff | `8993-8998` | switch to Build |
+| Host/WSL | OpenCode stay-current custom | `9004-9009` | stay on current agent |
+| Host/WSL | Claude Code plan review | `9014-9019` | Claude Code |
+| Devcontainer | OpenCode build handoff | `9993-9998` | switch to Build |
+| Devcontainer | OpenCode stay-current custom | `10004-10009` | stay on current agent |
+| Devcontainer | Claude Code plan review | `10014-10019` | Claude Code |
 
 Plain `opencode` and plain `claude` still use `PLANNOTATOR_PORT=8999` as the
 direct host fallback. Devcontainers have the same direct fallback behavior on
-`9999`. Those direct fallback ports are intentionally outside wrapper-managed
-pools. Avoid mixing plain sessions with wrapper-managed sessions when
-concurrency matters; plain sessions do not take the wrapper lock before
-Plannotator starts.
+`9999`. Those direct fallback ports are intentionally outside the native
+ranges. Plain sessions still share one fixed port per environment, so two plain
+sessions cannot host review UIs concurrently on that fallback.
 
 ## Wrapper commands
 
 Use the wrappers when concurrent Plannotator sessions are expected:
 
 ```sh
-opencode-plannotator         # build-handoff pool
-opencode-plannotator-custom  # stay-current custom pool
-claude-plannotator           # Claude Code pool
+opencode-plannotator         # build-handoff range
+opencode-plannotator-custom  # stay-current custom range
+claude-plannotator           # Claude Code range
 ```
 
-The wrappers choose an available port from the configured pool, export
-`PLANNOTATOR_PORT` only for the child agent process, and hold an advisory file
-lock until that process exits.
+The wrappers select a workflow range and export it as `PLANNOTATOR_PORT` only
+for the child agent process. Plannotator 0.24.2 or newer binds the first
+available port when a review UI starts. Idle agent processes do not reserve
+ports; each six-port range limits simultaneous review UIs instead.
 
 The OpenCode wrappers also default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null`
 for the child OpenCode process, unless a non-empty value is already set, so
@@ -55,16 +55,15 @@ The homelab devcontainer intentionally does not use fixed VS Code
 Code attach, manual forwarding, or another explicit forwarding path to reach the
 review UI from terminal-only `devcontainer-launch` sessions.
 The devcontainer-installed wrappers default to verbose mode so terminal sessions
-print the selected port before the agent starts. Host wrappers remain quiet
-unless `OPENCODE_PLANNOTATOR_VERBOSE=1` or `CLAUDE_PLANNOTATOR_VERBOSE=1` is set.
-Devcontainer wrappers also pause for one second before launching the agent; set
-`OPENCODE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` or
-`CLAUDE_PLANNOTATOR_LAUNCH_DELAY_SECONDS=0` to skip the pause.
+print the configured profile and range before the agent starts. The selected
+port is reported later by Plannotator when review begins. Host wrappers remain
+quiet unless `OPENCODE_PLANNOTATOR_VERBOSE=1` or
+`CLAUDE_PLANNOTATOR_VERBOSE=1` is set.
 
 OpenCode Plannotator uses the CLI runtime in both host and devcontainer config.
 That keeps WSL/devcontainer ready messages inside OpenCode's logging path instead
 of letting the embedded runtime write directly to the terminal TUI. Keep
-`PLANNOTATOR_REMOTE=1` for fixed-port forwarding behavior, and restart OpenCode
+`PLANNOTATOR_REMOTE=1` for remote browser forwarding behavior, and restart OpenCode
 after changing plugin config.
 
 For diagnostics:
@@ -74,6 +73,10 @@ OPENCODE_PLANNOTATOR_DRY_RUN=1 opencode-plannotator
 OPENCODE_PLANNOTATOR_DRY_RUN=1 opencode-plannotator-custom
 CLAUDE_PLANNOTATOR_DRY_RUN=1 claude-plannotator
 ```
+
+Dry-run output reports the selected profile and native range; it does not probe
+or reserve an individual port. Start a fresh shell after applying this change so
+the old comma-separated `PLANNOTATOR_PORTS_*` values are not inherited.
 
 ## Claude Code
 
@@ -93,9 +96,9 @@ On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
 `PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote
 mode.
 
-Use `claude-plannotator` for concurrent Claude Code sessions. The wrapper picks
-from the Claude Code pool and launches Claude with only that child process's
-`PLANNOTATOR_PORT` changed.
+Use `claude-plannotator` for concurrent Claude Code sessions. The wrapper gives
+the child process the Claude range, and Plannotator selects a port when review
+starts.
 
 If Claude Code does not open the Plannotator UI on ExitPlan:
 
@@ -120,9 +123,9 @@ opencode = "opencode-plannotator"
 The managed host AoE config emits these overrides on Linux and macOS targets.
 Native Windows does not receive the Bash wrapper override.
 
-The host wrappers depend on Bash plus either `flock` or `lockf`. macOS hosts use
-the bundled `lockf` fallback when `flock` is unavailable; native Windows should
-not use these Bash wrappers.
+The host wrappers depend on Bash. Port probing and `flock`/`lockf` are no longer
+required because Plannotator owns range allocation. Native Windows should not
+use these Bash wrappers.
 
 Do not set `default_tool` to a wrapper command. `default_tool` selects the tool;
 `agent_command_override` changes the command used to launch that tool.
@@ -187,65 +190,40 @@ identity with:
 await browser.contextualIdentities.query({})
 ```
 
-Create or refresh all pool assignments from the three seeds:
+Create or refresh all range assignments from the three seeds:
 
 ```js
 {
-  const buildSeedKey = "siteContainerMap@@_localhost8997"
-  const customSeedKey = "siteContainerMap@@_localhost9007"
-  const claudeSeedKey = "siteContainerMap@@_localhost9017"
+  const seedKeys = {
+    build: "siteContainerMap@@_localhost8997",
+    custom: "siteContainerMap@@_localhost9007",
+    claude: "siteContainerMap@@_localhost9017",
+  }
+  const spans = {
+    build: [[8993, 8998], [9993, 9998]],
+    custom: [[9004, 9009], [10004, 10009]],
+    claude: [[9014, 9019], [10014, 10019]],
+  }
+  const seedData = await browser.storage.local.get(Object.values(seedKeys))
 
-  const data = await browser.storage.local.get([
-    buildSeedKey,
-    customSeedKey,
-    claudeSeedKey,
-  ])
-  const buildSeed = data[buildSeedKey]
-  const customSeed = data[customSeedKey]
-  const claudeSeed = data[claudeSeedKey]
+  for (const [profile, key] of Object.entries(seedKeys)) {
+    if (!seedData[key]) throw new Error(`Missing ${profile} seed: ${key}`)
+  }
 
-  if (!buildSeed) throw new Error(`Missing seed: ${buildSeedKey}`)
-  if (!customSeed) throw new Error(`Missing seed: ${customSeedKey}`)
-  if (!claudeSeed) throw new Error(`Missing seed: ${claudeSeedKey}`)
+  const entries = []
+  for (const [profile, profileSpans] of Object.entries(spans)) {
+    for (const [start, end] of profileSpans) {
+      for (let port = start; port <= end; port += 1) {
+        entries.push([
+          `siteContainerMap@@_localhost${port}`,
+          { ...seedData[seedKeys[profile]] },
+        ])
+      }
+    }
+  }
 
-  const buildHosts = [
-    "localhost8996",
-    "localhost8997",
-    "localhost8998",
-    "localhost9996",
-    "localhost9997",
-    "localhost9998",
-  ]
-
-  const customHosts = [
-    "localhost9007",
-    "localhost9008",
-    "localhost9009",
-    "localhost10007",
-    "localhost10008",
-    "localhost10009",
-  ]
-
-  const claudeHosts = [
-    "localhost9017",
-    "localhost9018",
-    "localhost9019",
-    "localhost10017",
-    "localhost10018",
-    "localhost10019",
-  ]
-
-  await browser.storage.local.set({
-    ...Object.fromEntries(
-      buildHosts.map(h => [`siteContainerMap@@_${h}`, { ...buildSeed }])
-    ),
-    ...Object.fromEntries(
-      customHosts.map(h => [`siteContainerMap@@_${h}`, { ...customSeed }])
-    ),
-    ...Object.fromEntries(
-      claudeHosts.map(h => [`siteContainerMap@@_${h}`, { ...claudeSeed }])
-    ),
-  })
+  await browser.storage.local.set(Object.fromEntries(entries))
+  console.log(`Assigned ${entries.length} Plannotator hosts`)
 }
 ```
 
@@ -255,42 +233,58 @@ Verify the stored assignments explicitly:
 
 ```js
 {
-  const hosts = [
-    "localhost8996",
-    "localhost8997",
-    "localhost8998",
-    "localhost9007",
-    "localhost9008",
-    "localhost9009",
-    "localhost9017",
-    "localhost9018",
-    "localhost9019",
-    "localhost9996",
-    "localhost9997",
-    "localhost9998",
-    "localhost10007",
-    "localhost10008",
-    "localhost10009",
-    "localhost10017",
-    "localhost10018",
-    "localhost10019",
-  ]
+  const spans = {
+    build: [[8993, 8998], [9993, 9998]],
+    custom: [[9004, 9009], [10004, 10009]],
+    claude: [[9014, 9019], [10014, 10019]],
+  }
+  const rows = []
 
-  const keys = hosts.map(h => `siteContainerMap@@_${h}`)
-  const data = await browser.storage.local.get(keys)
+  for (const [profile, profileSpans] of Object.entries(spans)) {
+    for (const [start, end] of profileSpans) {
+      for (let port = start; port <= end; port += 1) {
+        rows.push({
+          profile,
+          port,
+          key: `siteContainerMap@@_localhost${port}`,
+        })
+      }
+    }
+  }
 
-  console.table(Object.fromEntries(
-    Object.entries(data).map(([key, value]) => [
-      key,
-      {
-        userContextId: value?.userContextId,
-        identityMacAddonUUID: value?.identityMacAddonUUID,
-        neverAsk: value?.neverAsk,
-      },
+  const data = await browser.storage.local.get(rows.map(row => row.key))
+  const report = rows.map(({ profile, port, key }) => ({
+    profile,
+    port,
+    userContextId: data[key]?.userContextId,
+    identityMacAddonUUID: data[key]?.identityMacAddonUUID,
+    neverAsk: data[key]?.neverAsk,
+  }))
+  console.table(report)
+
+  const missing = report.filter(row => row.userContextId == null)
+  if (missing.length) throw new Error(`Missing ${missing.length} assignments`)
+
+  const idsByProfile = Object.fromEntries(
+    Object.keys(spans).map(profile => [
+      profile,
+      new Set(
+        report
+          .filter(row => row.profile === profile)
+          .map(row => row.userContextId)
+      ),
     ])
-  ))
+  )
+  if (Object.values(idsByProfile).some(ids => ids.size !== 1)) {
+    throw new Error("A profile spans multiple Firefox containers")
+  }
 
-  data
+  const profileIds = Object.values(idsByProfile).map(ids => [...ids][0])
+  if (new Set(profileIds).size !== Object.keys(spans).length) {
+    throw new Error("Profiles do not use distinct Firefox containers")
+  }
+
+  console.log("Verified 36 assignments across 3 distinct containers")
 }
 ```
 
@@ -300,35 +294,14 @@ Firefox profile storage files directly while Firefox is running.
 
 ## Plannotator UI settings
 
-In the `Plannotator Build` Firefox container, configure Agent Switching once as
-Build:
+In the `Plannotator Build` Firefox container, open
+`http://localhost:8997` and configure Agent Switching once as Build. In the
+`Plannotator Custom` container, open `http://localhost:9007` and configure it as
+Disabled / stay-current. Configure Claude Code once in the `Plannotator Claude`
+container at `http://localhost:9017`.
 
-- `http://localhost:8996`
-- `http://localhost:8997`
-- `http://localhost:8998`
-- `http://localhost:9996`
-- `http://localhost:9997`
-- `http://localhost:9998`
-
-In the `Plannotator Custom` Firefox container, configure Agent Switching once as
-Disabled / stay-current:
-
-- `http://localhost:9007`
-- `http://localhost:9008`
-- `http://localhost:9009`
-- `http://localhost:10007`
-- `http://localhost:10008`
-- `http://localhost:10009`
-
-In the `Plannotator Claude` Firefox container, configure Claude Code settings
-once:
-
-- `http://localhost:9017`
-- `http://localhost:9018`
-- `http://localhost:9019`
-- `http://localhost:10017`
-- `http://localhost:10018`
-- `http://localhost:10019`
+All mapped ports for a profile share that Firefox container's cookie jar, so the
+settings apply across both host and devcontainer ranges.
 
 ## Manual smoke test
 
@@ -340,7 +313,7 @@ Enter plan mode and draft a plan for a tiny no-op change: add a temporary commen
 ```
 
 When Claude Code requests approval to exit plan mode, the Plannotator UI should
-open on one of `9017..9019` on host/WSL or `10017..10019` in the devcontainer.
+open on one of `9014..9019` on host/WSL or `10014..10019` in the devcontainer.
 Do not approve the README edit unless a real edit is desired.
 
 Plannotator slash commands are OpenCode TUI commands, not shell commands.
@@ -348,10 +321,10 @@ Plannotator slash commands are OpenCode TUI commands, not shell commands.
 1. Start `opencode-plannotator`.
 2. Ask any trivial question so there is a last assistant message.
 3. Type `/plannotator-last` in the OpenCode input box.
-4. Confirm Firefox opens on one of `8996..8998` on host/WSL or `9996..9998`
+4. Confirm Firefox opens on one of `8993..8998` on host/WSL or `9993..9998`
    in the devcontainer.
-5. Repeat with `opencode-plannotator-custom` and confirm `9007..9009` on
-   host/WSL or `10007..10009` in the devcontainer.
+5. Repeat with `opencode-plannotator-custom` and confirm `9004..9009` on
+   host/WSL or `10004..10009` in the devcontainer.
 
 For a full approval-path test, start a planning agent and ask it to submit a
 one-line test plan through Plannotator.

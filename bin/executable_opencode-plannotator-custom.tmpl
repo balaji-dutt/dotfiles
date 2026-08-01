@@ -2,13 +2,10 @@
 set -euo pipefail
 
 SCRIPT_NAME="${0##*/}"
-RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/tmp}"
-RUNTIME_ROOT="${RUNTIME_ROOT%/}"
-LOCK_ROOT="$RUNTIME_ROOT/opencode-plannotator-${UID:-$(id -u)}"
-DEFAULT_HOST_BUILD='{{ .plannotator_ports.host.build | join "," }}'
-DEFAULT_HOST_CUSTOM='{{ .plannotator_ports.host.custom | join "," }}'
-DEFAULT_DEVCONTAINER_BUILD='{{ .plannotator_ports.devcontainer.build | join "," }}'
-DEFAULT_DEVCONTAINER_CUSTOM='{{ .plannotator_ports.devcontainer.custom | join "," }}'
+DEFAULT_HOST_BUILD='{{ .plannotator_ports.host.build }}'
+DEFAULT_HOST_CUSTOM='{{ .plannotator_ports.host.custom }}'
+DEFAULT_DEVCONTAINER_BUILD='{{ .plannotator_ports.devcontainer.build }}'
+DEFAULT_DEVCONTAINER_CUSTOM='{{ .plannotator_ports.devcontainer.custom }}'
 
 die() {
   printf '%s: %s\n' "$SCRIPT_NAME" "$*" >&2
@@ -19,133 +16,54 @@ is_devcontainer() {
   [ "${DEVCONTAINER:-}" = "1" ] || [ -n "${REMOTE_CONTAINERS:-}" ] || [ -n "${CODESPACES:-}" ]
 }
 
-port_is_listening() {
-  local port
-  port="$1"
+select_range() {
+  local profile_name default_range env_name
+  profile_name="$1"
 
-  (: >"/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1 || \
-    (: >"/dev/tcp/localhost/$port") >/dev/null 2>&1
-}
-
-select_pool() {
-  local pool_name default_pool env_name
-  pool_name="$1"
-
-  case "$pool_name" in
+  case "$profile_name" in
     build)
       env_name="PLANNOTATOR_PORTS_BUILD"
       if is_devcontainer; then
-        default_pool="$DEFAULT_DEVCONTAINER_BUILD"
+        default_range="$DEFAULT_DEVCONTAINER_BUILD"
       else
-        default_pool="$DEFAULT_HOST_BUILD"
+        default_range="$DEFAULT_HOST_BUILD"
       fi
       ;;
     custom)
       env_name="PLANNOTATOR_PORTS_CUSTOM"
       if is_devcontainer; then
-        default_pool="$DEFAULT_DEVCONTAINER_CUSTOM"
+        default_range="$DEFAULT_DEVCONTAINER_CUSTOM"
       else
-        default_pool="$DEFAULT_HOST_CUSTOM"
+        default_range="$DEFAULT_HOST_CUSTOM"
       fi
       ;;
     *)
-      die "unknown pool: $pool_name"
+      die "unknown profile: $profile_name"
       ;;
   esac
 
-  printf '%s' "${!env_name:-$default_pool}"
+  printf '%s' "${!env_name:-$default_range}"
 }
 
-select_lock_backend() {
-  if command -v flock >/dev/null 2>&1; then
-    printf 'flock'
-  elif command -v lockf >/dev/null 2>&1; then
-    printf 'lockf'
-  else
-    die "flock or lockf is required for Plannotator port locking"
-  fi
-}
-
-lock_port_fd() {
-  case "$LOCK_BACKEND" in
-    flock)
-      flock -n "$LOCK_FD"
-      ;;
-    lockf)
-      # macOS/BSD lockf can lock an already-open shell fd; the lock is held
-      # until fd 9 is closed, including after the final exec into OpenCode.
-      lockf -s -t 0 "$LOCK_FD"
-      ;;
-    *)
-      die "unknown lock backend: $LOCK_BACKEND"
-      ;;
-  esac
-}
-
-release_port_fd() {
-  if [ "${LOCK_BACKEND:-}" = "flock" ]; then
-    flock -u "$LOCK_FD" || true
-  fi
-  # LOCK_FD is fixed at 9; closing it releases lockf locks as well.
-  exec 9>&-
-}
-
-POOL_NAME="build"
+PROFILE_NAME="build"
 if [[ "$SCRIPT_NAME" == *-custom ]]; then
-  POOL_NAME="custom"
+  PROFILE_NAME="custom"
 fi
 
-POOL="$(select_pool "$POOL_NAME")"
-[ -n "$POOL" ] || die "empty port pool for $POOL_NAME"
-LOCK_BACKEND="$(select_lock_backend)"
+PORT_RANGE="$(select_range "$PROFILE_NAME")"
+[ -n "$PORT_RANGE" ] || die "empty port range for $PROFILE_NAME"
 
-IFS=',' read -r -a PORTS <<<"$POOL"
-[ "${#PORTS[@]}" -gt 0 ] || die "empty port pool for $POOL_NAME"
-
-mkdir -p "$LOCK_ROOT"
-
-CHOSEN_PORT=""
-LOCK_FD="9"
-LOCK_PATH=""
-
-for raw_port in "${PORTS[@]}"; do
-  port="${raw_port//[[:space:]]/}"
-  [[ "$port" =~ ^[0-9]+$ ]] || die "invalid port in $POOL_NAME pool: $raw_port"
-
-  lock_path="$LOCK_ROOT/port-$port.lock"
-  exec 9>"$lock_path"
-
-  if ! lock_port_fd; then
-    release_port_fd
-    continue
-  fi
-
-  if port_is_listening "$port"; then
-    release_port_fd
-    continue
-  fi
-
-  CHOSEN_PORT="$port"
-  LOCK_PATH="$lock_path"
-  break
-done
-
-[ -n "$CHOSEN_PORT" ] || die "no available Plannotator port in $POOL_NAME pool: $POOL"
-
-export PLANNOTATOR_PORT="$CHOSEN_PORT"
-export OPENCODE_PLANNOTATOR_POOL="$POOL_NAME"
-export OPENCODE_PLANNOTATOR_LOCK="$LOCK_PATH"
+export PLANNOTATOR_PORT="$PORT_RANGE"
+export OPENCODE_PLANNOTATOR_POOL="$PROFILE_NAME"
 
 : "${ANTHROPIC_SYSTEM_PROMPT_PATH:=/dev/null}"
 export ANTHROPIC_SYSTEM_PROMPT_PATH
 
 if [ "${OPENCODE_PLANNOTATOR_VERBOSE:-}" = "1" ] || [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
-  printf '%s: pool=%s port=%s lock=%s\n' "$SCRIPT_NAME" "$POOL_NAME" "$CHOSEN_PORT" "$LOCK_PATH" >&2
+  printf '%s: profile=%s range=%s\n' "$SCRIPT_NAME" "$PROFILE_NAME" "$PORT_RANGE" >&2
 fi
 
 if [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
-  sleep "${OPENCODE_PLANNOTATOR_HOLD_SECONDS:-0}"
-  release_port_fd
   exit 0
 fi
 

@@ -17,11 +17,11 @@ macos_vdi:
 plannotator_port: 8999
 plannotator_ports:
   host:
-    build: [8996, 8997, 8998]
-    claude: [9017, 9018, 9019]
-    custom: [9007, 9008, 9009]
+    build: "8993-8998"
+    claude: "9014-9019"
+    custom: "9004-9009"
   devcontainer:
-    build: [9996, 9997, 9998]
-    claude: [10017, 10018, 10019]
-    custom: [10007, 10008, 10009]
+    build: "9993-9998"
+    claude: "10014-10019"
+    custom: "10004-10009"
 plannotator_version: "0.24.2" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
