@@ -1,13 +1,15 @@
 {
-    "enabledProviders": [
-      "openai",
-      "anthropic",
-      "opencode-go"
-    ],
+  "enabledProviders": [
+    "openai",
+    "anthropic",
+    "opencode-go"
+  ],
   "enableToast": false,
   "requestTimeoutMs": 12000,
   "minIntervalMs": 600000,
   "formatStyle": "singleWindow",
+  "tuiCommandDisplay": "dialog",
+  "sessionTokenScope": "tree",
   "tuiSidebarPanel": {
     "enabled": true
   },
