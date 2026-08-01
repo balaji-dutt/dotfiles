@@ -3,6 +3,9 @@ description: Lightweight reviewer for chezmoi templates + bash + PowerShell 7 do
 mode: subagent
 permission:
   edit: deny
+  glob: deny
+  grep: deny
+  task: deny
   bash:
     "*": deny
     "git status*": allow
@@ -26,35 +29,42 @@ Keep suggestions minimal and behavior-identical.
 
 ## Hard limits (MANDATORY)
 
-- Do NOT scan the repo broadly (no Glob, no Grep).
-- Do NOT spawn other agents or call `call_omo_agent`.
-- Use at most 6 total tool calls.
-- Review by git diff ONLY (Read is disabled).
+- Do not scan the repository broadly.
+- Use at most 6 total tool calls for normal diff review. One additional `read`
+  call is allowed for each in-scope untracked file.
+- Review tracked changes through git diffs. Use `read` only for an in-scope
+  file that `git status --short` reports as untracked.
 - Keep the whole response under ~60 lines.
-- Do not include any metadata blocks (e.g. `<task_metadata>`).
+- Do not include metadata blocks such as `<task_metadata>`.
 
 ## Efficiency rules (MANDATORY)
 
-### Determine what changed (MUST run BOTH)
+### Determine what changed
 
-1) Unstaged (working tree) changes:
-   - `git diff --name-only`
-2) Staged (index) changes:
-   - `git diff --cached --name-only`
-
-You MUST review changes from BOTH lists. Do not do a staged-only review unless Mr. Dutt explicitly asks.
+- If the invocation names specific files (the review gate always does), review
+  ONLY those files and skip repository-wide discovery:
+  - `git diff -U0 -- <files>`
+  - `git diff --cached -U0 -- <files>`
+  - `git status --short -- <files>`
+- Only when no files are named, discover all change types first (MUST run ALL):
+  1) `git diff --name-only`
+  2) `git diff --cached --name-only`
+  3) `git status --short --untracked-files=all`
+  Review the union of both diff lists and the untracked paths from status. Do
+  not do a staged-only review unless Mr. Dutt explicitly asks.
 
 ### Review changed files (ONLY)
 
-- Compute the union of changed files from the two name-only commands.
 - Ignore `.opencode/.needs_dotfiles_review`, `.opencode\.dotfiles_review_enforcer_state.json` and `.opencode/.dotfiles-review-gate.log` as workflow artifacts.
-- Inspect exact hunks for each changed file:
-  - Unstaged hunks: `git diff -U0 -- <file>`
-  - Staged hunks: `git diff --cached -U0 -- <file>`
-- If a file appears in only one list, review only the corresponding diff (don’t waste time running the other).
-- Use `git diff -U3 -- <file>` only if you need a little more context.
-
-If BOTH name-only commands return empty, output PASS and say: “No changes detected (staged or unstaged)”.
+- In discovery mode, inspect tracked hunks in batches:
+  - `git diff -U0 -- <unstaged-files>`
+  - `git diff --cached -U0 -- <staged-files>`
+  Skip either command when its corresponding list is empty.
+- For each in-scope path marked `??` by status, use `read` on that exact file
+  once. Never read tracked or unrelated files.
+- Repeat one relevant scoped diff with `-U3` only if a hunk is ambiguous.
+- Only if the staged diff, unstaged diff, and status are all empty, output PASS
+  and say: “No changes detected (staged, unstaged, or untracked)”.
 
 ## Core rules
 1) Prefer the simplest equivalent logic.

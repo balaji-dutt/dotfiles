@@ -56,8 +56,10 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
 
 ## Reviewer tool grants
 
-The reviewer works from `git diff` on both platforms, but the two harnesses
-scope that differently:
+The reviewer inspects tracked work from staged and unstaged `git diff` output
+on both platforms. It uses `git status --short` to identify in-scope untracked
+files and reads only those exact files. The two harnesses enforce that scope
+differently:
 
 - Claude Code (`.claude/agents/dotfiles-reviewer.md`): `tools: Bash, Read`.
   Claude subagent frontmatter has no per-agent bash allowlist, so
@@ -65,14 +67,18 @@ scope that differently:
   and not enforced. `permissions.allow` in `.claude/settings.json` only
   controls auto-approval and is project-wide, so it does not narrow the
   reviewer; it does mean the reviewer inherits pre-approved mutating entries
-  such as `Bash(git add:*)` and `Bash(git checkout:*)`.
+  such as `Bash(git add:*)` and `Bash(git checkout:*)`. The prompt restricts
+  `Read` to exact paths that scoped status reports as untracked.
 - OpenCode (`.opencode/agents/dotfiles-reviewer.md`): `permission.bash` is
   deny-by-default with `git status*`, `git diff*`, and `git log*` allowed, and
-  `edit: deny`. Here the rule is hard-enforced.
+  `edit`, `glob`, `grep`, and `task` denied. Here the shell and broad-discovery
+  rules are hard-enforced. `read` retains inherited sensitive-file protections,
+  while the prompt restricts it to exact paths that scoped status reports as
+  untracked.
 
-`Grep`/`Glob` are deliberately withheld on the Claude side: without them the
-reviewer cannot fall back to scanning the working tree when it should be
-reading diff hunks.
+`Grep`/`Glob` are deliberately withheld on the Claude side and `grep`/`glob`
+are denied on the OpenCode side, so the reviewer cannot fall back to scanning
+the working tree when it should be reading scoped diffs or untracked files.
 
 Claude Code snapshots subagent definitions at session start. Editing
 `.claude/agents/dotfiles-reviewer.md` does not affect reviewer runs later in

@@ -15,8 +15,11 @@ Keep suggestions minimal and behavior-identical.
 ## Hard limits (MANDATORY)
 
 - Only run these commands: `git diff`, `git status --short`, `git log`.
-- Use at most 6 total tool calls.
-- Use `Read` only to widen context on an ambiguous hunk, and at most twice.
+- Do not scan the repository broadly.
+- Use at most 6 total tool calls for normal diff review. One additional `Read`
+  call is allowed for each in-scope untracked file.
+- Review tracked changes through git diffs. Use `Read` only for an in-scope
+  file that `git status --short` reports as untracked.
 - Do NOT spawn other agents.
 - Keep the whole response under ~60 lines.
 
@@ -25,21 +28,28 @@ Keep suggestions minimal and behavior-identical.
 ### Determine what changed
 
 - If the invocation names specific files (the review gate always does), review
-  ONLY those files. Skip the discovery step entirely:
+  ONLY those files. Skip repository-wide discovery:
   - `git diff -U0 -- <files>`
   - `git diff --cached -U0 -- <files>`
-- Only when no files are named, discover them first (MUST run BOTH):
+  - `git status --short -- <files>`
+- Only when no files are named, discover all change types first (MUST run ALL):
   1) `git diff --name-only`
   2) `git diff --cached --name-only`
-  Review the union of both lists. Do not do a staged-only review unless
-  Mr. Dutt explicitly asks.
+  3) `git status --short --untracked-files=all`
+  Review the union of both diff lists and the untracked paths from status. Do
+  not do a staged-only review unless Mr. Dutt explicitly asks.
 
 ### Review changed files (ONLY)
 
-- If a file changed in only one of unstaged/staged, review only that diff.
-- Use `git diff -U3 -- <file>` when you need a little more context.
-- If both diffs are empty, output PASS and say:
-  "No changes detected (staged or unstaged)".
+- In discovery mode, inspect tracked hunks in batches:
+  - `git diff -U0 -- <unstaged-files>`
+  - `git diff --cached -U0 -- <staged-files>`
+  Skip either command when its corresponding list is empty.
+- For each in-scope path marked `??` by status, use `Read` on that exact file
+  once. Never read tracked or unrelated files.
+- Repeat one relevant scoped diff with `-U3` only if a hunk is ambiguous.
+- Only if the staged diff, unstaged diff, and status are all empty, output PASS
+  and say: "No changes detected (staged, unstaged, or untracked)".
 
 ## Core rules
 1) Prefer the simplest equivalent logic.
