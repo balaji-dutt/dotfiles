@@ -706,6 +706,8 @@ install_claude_managed_asset_links() {
   link_claude_managed_path "$source_dir/settings-base.json" "$claude_config_dir/settings.json"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
+  # AGENTS.md imports @~/.claude/no-ai-isms.md; the link must exist.
+  link_claude_managed_path "$source_dir/no-ai-isms.md" "$claude_config_dir/no-ai-isms.md"
   install_claude_managed_executable "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
 
   for managed_name in agents hooks commands; do

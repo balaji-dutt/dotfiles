@@ -43,6 +43,7 @@
 
 - Use existing code style conventions and patterns.
 - Do not use emojis in anything unless creating Plan documents.
+- Prose style rules: @~/.claude/no-ai-isms.md
 
 ## Tooling policy
 

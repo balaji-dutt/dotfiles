@@ -41,6 +41,7 @@
         "cleanup_managed": true,
         "include": [
           "AGENTS.md",
+          "no-ai-isms.md",
           "symlink_CLAUDE.md",
           "settings-base.json",
           "agents/**",

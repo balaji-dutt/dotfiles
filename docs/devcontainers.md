@@ -222,6 +222,9 @@ state file. Managed user-level Claude assets come from dotfiles instead:
   symlinks files directly and never runs chezmoi, so it needs plain JSON)
 - `dot_claude/AGENTS.md` -> `~/.claude/AGENTS.md`
 - `dot_claude/AGENTS.md` -> `~/.claude/CLAUDE.md`
+- `dot_claude/no-ai-isms.md` -> `~/.claude/no-ai-isms.md` (`AGENTS.md` pulls
+  this in with `@~/.claude/no-ai-isms.md`, so the link must exist or the
+  import resolves to a missing file)
 - `dot_claude/agents/**` -> `~/.claude/agents/**`
 
 `postCreate.sh` and `postStart.sh` prefer the read-only `/tmp/host-claude`
