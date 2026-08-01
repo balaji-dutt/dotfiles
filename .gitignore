@@ -37,3 +37,4 @@ worktrees/**
 .dolt/
 *.db
 .beads-credential-key
+.beads/proxieddb/

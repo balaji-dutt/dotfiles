@@ -133,11 +133,11 @@ the same database name (`dots`), so one shared Dolt server would also share that
 database and change clone isolation semantics. Use it only as an explicit local
 experiment.
 
-**Not every machine is a Dolt sync peer.** A machine where the clone path is
-broken (see the satellite rebuild in Recovery) runs a locally-initialized
-database with **no remote configured** and syncs by JSONL export/import
-instead. As of 2026-07-26 the native Windows checkout runs in this mode; the
-WSL2 clones and macOS sync through the Dolt remote as described above.
+As of 2026-08-01 **all four machines (WSL2 Ubuntu, WSL2 Debian, macOS,
+native Windows) are Dolt sync peers**. The native Windows checkout ran as a
+JSONL-only satellite from 2026-07-26 until it was converted back with
+`beads-sync init` (see Recovery). The satellite mode documentation is kept
+for the next time a clone path breaks somewhere.
 
 ## Schema migrations (bd version bumps)
 
@@ -265,8 +265,9 @@ on the Windows clone — same `bd` 1.1.0, same remote, repeated on two freshly
 cloned databases and on dolt 2.2.1 and 2.2.2. No documented or undocumented
 in-place repair worked there, including deleting the `.bd-dolt-ok` fast-path
 marker. The mechanism that decides whether recreation runs is not understood.
-Try the ladder in order; if step 2 fails, go straight to the satellite rebuild
-below rather than repeating variations — that path is proven.
+Try the ladder in order; if step 2 fails, go straight to `beads-sync init`
+(next section) rather than repeating variations — that path is proven on
+WSL2 and on native Windows (2026-08-01).
 
 **Step 1 — restart, then any bd command** (fixed Debian):
 
@@ -323,9 +324,10 @@ satellite** below. Related:
 
 ### Rebuild a sync peer without cloning (`beads-sync init`)
 
-Proven empirically on Ubuntu WSL2 (2026-08-01). Every known table-loss failure
-lives in the **clone** path: a clone inherits the tracked
-`ignored_schema_migrations` cursor claiming the table-creating migrations ran,
+Proven empirically on Ubuntu WSL2 and on native Windows (2026-08-01). Every
+known table-loss failure lives in the **clone** path: a clone inherits the
+tracked `ignored_schema_migrations` cursor claiming the table-creating
+migrations ran,
 but none of the dolt_ignore'd tables the cursor is about — and no in-place
 repair reliably recreates them. `beads-sync init` sidesteps cloning entirely:
 
@@ -350,9 +352,10 @@ mv .beads/dolt ~/dots-broken-dolt-$(date +%Y%m%d)
 ```
 
 Windows (PowerShell 7): same shape with `Move-Item`, then
-`pwsh ./assets/beads-sync.ps1 init`. The `.ps1` init path parses clean but
-has not yet been executed on the actual Windows machine — treat its first
-run there as the proving run.
+`pwsh ./assets/beads-sync.ps1 init`. Proven on the native Windows machine
+2026-08-01: 120 issues adopted, `bd doctor` 0 errors after the repo
+fingerprint fix below — this is what converted the Windows satellite back
+into a sync peer.
 
 **Sequencing rule: push from a current peer first** (`beads-sync push` on a
 healthy machine). The reset adopts the *remote's* migration cursor; if it
@@ -392,10 +395,19 @@ The command automates the four traps the manual run hit:
   reconcile and tells you to check `bd doctor`.
 
 If `bd doctor` afterwards reports a **Repo Fingerprint** error, do **not**
-run `bd migrate --update-repo-id` reflexively: `repo_id` lives in the tracked
-`metadata` table and is shared by every peer — rewriting it propagates on the
-next push. Investigate why the fingerprint differs first (a renamed git
-remote is one known cause).
+run `bd migrate --update-repo-id`: `repo_id` lives in the tracked `metadata`
+table and is shared by every peer — rewriting it propagates on the next
+push. The mechanism (confirmed 2026-08-01): bd fingerprints the checkout by
+the git remote **named `origin`**, nothing else — machines with different
+paths but the same `origin` URL fingerprint identically, and a checkout
+whose remote was renamed computes a different value even with the same URL.
+The fix is to make `origin` exist with the checkout's normal **git** URL —
+the public dotfiles repo, never the private Dolt remote
+(`git remote rename gitlab origin` cleared the error on the Windows
+conversion). A missing-`origin` guard is only needed on a machine with an
+**empty** `dolt_remotes` (the #5068 derivation bug needs both); after init
+the private remote is configured, so a normal `origin` is the same safe
+posture as every other peer.
 
 ### Last resort: rebuild as a local-only satellite (no Dolt sync)
 
@@ -406,14 +418,16 @@ migrations genuinely run. The cost: the new database shares no history with the
 remote, so this machine must never `bd dolt push`/`pull` again — it syncs by
 JSONL export/import instead.
 
-> **Prefer `beads-sync init` (previous section) over this.** It reaches the
-> same fresh-init state and then grafts the remote's history on top, producing
-> a full sync peer instead of a satellite. Converting an existing satellite
-> back to a peer is the same procedure: restore `.beads/config.local.yaml`
-> from the 1Password Secure Note, `bd export --all` as a floor, move
-> `.beads/dolt` aside, run `pwsh ./assets/beads-sync.ps1 init`. Push from a
-> current peer first (sequencing rule above). This section stays until that
-> conversion is proven on the actual Windows machine.
+> **Historical since 2026-08-01 — prefer `beads-sync init` (previous
+> section).** It reaches the same fresh-init state and then grafts the
+> remote's history on top, producing a full sync peer instead of a
+> satellite. The Windows satellite was converted back to a peer exactly this
+> way: restore `.beads/config.local.yaml` from the 1Password Secure Note,
+> `bd export --all` as a floor, move `.beads/dolt` aside, run
+> `pwsh ./assets/beads-sync.ps1 init`, then `git remote rename gitlab
+> origin` for the repo fingerprint. Push from a current peer first
+> (sequencing rule above). This section is kept for the next time a clone
+> path breaks with no working remote to graft from.
 
 ```powershell
 # 1. Save the issues (works even on a broken database)
@@ -479,7 +493,10 @@ repo, the *public* dotfiles repository. It does this unprompted, and a
 configured `sync.remote` in `config.local.yaml` does **not** prevent it. Both
 observed attempts were stopped only by Ctrl+C mid-upload.
 
-The working guard is to have **no git remote named `origin`** on a satellite:
+The working guard is to have **no git remote named `origin`** on a satellite
+(satellites only — undo it once the machine is a peer again, or the repo
+fingerprint check fails; see the Repo Fingerprint note in the
+`beads-sync init` section):
 
 ```powershell
 git remote rename origin gitlab
