@@ -111,6 +111,7 @@ Documents/PowerShell
 # Windows specific paths
 !/.config/
 /.config/*
+!/.config/starship.toml
 !/.config/powershell/
 !/.config/powershell/**
 !/.config/opencode/

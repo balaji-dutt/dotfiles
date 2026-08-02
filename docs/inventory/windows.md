@@ -30,12 +30,16 @@ The Windows setup has three distinct ownership classes:
 | Git | `~/.gitconfig`, `~/.gitignore_global` | `dot_gitconfig.tmpl`, `dot_gitignore_global.tmpl` |
 | Git template hooks | `~/.config/git/template/hooks/**` | `private_dot_config/git/template/hooks/**` |
 | Markdownlint | `~/.markdownlint-cli2.jsonc` | `dot_markdownlint-cli2.jsonc` |
+| Starship | `~/.config/starship.toml` | `private_dot_config/starship.toml` |
 | Claude | `~/.claude/**` | `dot_claude/**` |
 | OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Sublime Merge | `~/AppData/Roaming/Sublime Merge/Packages/**` | `AppData/Roaming/Sublime Merge/Packages/**` |
 | Espanso | `~/AppData/Roaming/espanso/{config,match,scripts}/**` | `AppData/Roaming/espanso/**`, `.chezmoitemplates/espanso/**`, `configs/espanso/**` |
 | yt-dlp | `~/AppData/Roaming/yt-dlp/{config,portable-playlist,portable-video}` | `AppData/Roaming/yt-dlp/**` |
+
+Starship is explicitly allowlisted on Windows because the managed config backs
+the Starship initialization in `~/.config/powershell/prompt.ps1`.
 
 `Documents/PowerShell/**` is deliberately absent from this table. It is a sync
 output, not a direct managed target. Browser policy registry keys are apply-hook
@@ -101,8 +105,6 @@ The Windows section of `.chezmoiignore` uses a minimal whitelist:
   hook handles it.
 - Linux/macOS configuration trees such as `.config/mise`, `.config/lazygit`,
   and `.config/sublime-merge` remain ignored.
-- `~/.config/starship.toml` is currently ignored on Windows. Its future
-  ownership is a separate policy decision.
 - The three Windows-capable hooks listed above remain explicit gaps rather than
   supported apply behavior.
 
