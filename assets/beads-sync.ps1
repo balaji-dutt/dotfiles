@@ -291,10 +291,17 @@ function Invoke-Pull {
   $remote = Get-RemoteName
   if (-not $remote) { Die 'no Dolt remote configured; see docs/beads.md' }
 
+  # Pass the branch explicitly: an init-built peer (beads-sync init) has no
+  # default remote configured for its branch - only clones get that - and a
+  # branchless dolt_pull errors with "you must specify a branch" there.
+  $branchRows = @((Invoke-DoltSql -Query 'select active_branch() as branch;' -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  $branch = if ($branchRows.Count -gt 0) { $branchRows[0].branch } else { $null }
+  if (-not $branch) { Die 'could not determine the active Dolt branch' }
+
   # THE WHOLE POINT: the reset and the merge run in ONE dolt session. Do not
   # split these, and do not call `bd dolt pull` instead - bd dirties the working
   # set inside its own pull and then fails to merge on its own dirt.
-  $sql = (Get-CheckoutSql $tables) + "call dolt_pull('$remote');"
+  $sql = (Get-CheckoutSql $tables) + "call dolt_pull('$remote','$branch');"
 
   if ($DryRun) {
     Write-Info "[dry-run] would run: $sql"

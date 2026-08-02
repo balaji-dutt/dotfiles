@@ -299,15 +299,21 @@ cmd_pull() {
   backup_if_asked
   restart_server
 
-  local tables sql remote
+  local tables sql remote branch
   tables="$(safe_reset_list)"
   remote="$(remote_name)"
   [[ -n "$remote" ]] || die "no Dolt remote configured; see docs/beads.md"
 
+  # Pass the branch explicitly: an init-built peer (beads-sync init) has no
+  # default remote configured for its branch - only clones get that - and a
+  # branchless dolt_pull errors with "you must specify a branch" there.
+  branch="$(dolt_sql -r csv -q "select active_branch() as branch;" 2>/dev/null | tail -n +2)"
+  [[ -n "$branch" ]] || die "could not determine the active Dolt branch"
+
   # THE WHOLE POINT: the reset and the merge run in ONE dolt session. Do not
   # split these, and do not call `bd dolt pull` instead - bd dirties the working
   # set inside its own pull and then fails to merge on its own dirt.
-  sql="$(checkout_sql "$tables")call dolt_pull('${remote}');"
+  sql="$(checkout_sql "$tables")call dolt_pull('${remote}','${branch}');"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] would run: $sql"
