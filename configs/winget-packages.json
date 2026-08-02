@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-07-26T23:41:07.141+08:00",
+  "CreationDate": "2026-08-03T01:27:00.416+08:00",
   "Sources": [
     {
       "Packages": [
@@ -69,9 +69,6 @@
         },
         {
           "PackageIdentifier": "Microsoft.GameInput"
-        },
-        {
-          "PackageIdentifier": "DoltHub.Dolt"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x64"
@@ -239,6 +236,9 @@
           "PackageIdentifier": "Microsoft.OneDrive"
         },
         {
+          "PackageIdentifier": "jqlang.jq"
+        },
+        {
           "PackageIdentifier": "twpayne.chezmoi"
         },
         {
@@ -297,6 +297,9 @@
         },
         {
           "PackageIdentifier": "Microsoft.WindowsAppRuntime.1.8"
+        },
+        {
+          "PackageIdentifier": "Microsoft.WindowsAppRuntime.2"
         },
         {
           "PackageIdentifier": "Microsoft.WindowsTerminal.Preview"
