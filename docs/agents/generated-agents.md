@@ -58,7 +58,7 @@ for f in d['files']:
 "
 ```
 
-As of 2026-07-28 that reports exactly two drifted entries, both expected — see
+As of 2026-08-02 that reports exactly two drifted entries, both expected — see
 "Accepted divergence" below.
 
 ## Agents
@@ -72,23 +72,24 @@ As of 2026-07-28 that reports exactly two drifted entries, both expected — see
 | `.claude/agents/dotfiles-reviewer.md` | no | hand-authored, project-scoped |
 
 The two generated agents each render twice: the Claude copy above, and an
-OpenCode copy under `private_dot_config/opencode/prompts/generated/`. The
-OpenCode renders have no frontmatter at all — their banner is on line 1 — and
-carry no `model` key. Their models are set in
+OpenCode agent under `private_dot_config/opencode/agents/`. OpenCode discovers
+those Markdown files directly; do not add a separate `prompt` file reference.
+The generated frontmatter carries runtime permissions but no `model` key. Model
+and reasoning settings are merged from
 `private_dot_config/opencode/opencode.jsonc` (target
 `~/.config/opencode/opencode.jsonc`), not in the repo-local
 `.opencode/opencode.jsonc`:
 
-- `agent-engineer` -> `anthropic/claude-opus-5`
+- `agent-engineer` -> `openai/gpt-5.6-sol`
 - `special-builder` -> `openai/gpt-5.6-sol`
 
 So the Claude and OpenCode sides of the same agent deliberately run different
 models. Changing one does not change the other.
 
-The container-dotfiles copy diverges again on purpose: it pins `agent-engineer`
-to `openai/gpt-5.6-sol`. `opencode.jsonc` is in the mirror's `exclude` list
-(`configs/devcontainer-sync.jsonc`), so that copy is hand-maintained rather than
-synced. Do not "fix" the mismatch.
+The container-dotfiles `opencode.jsonc` is in the mirror's `exclude` list
+(`configs/devcontainer-sync.jsonc`), so its model and reasoning settings remain
+hand-maintained even though generated agent Markdown is synced. Do not assume
+the two JSONC files stay identical.
 
 ## Skills
 

@@ -17,10 +17,8 @@ stateful and may contain Claude session, project, or authentication state.
 Instead, the scripts use the `claude mcp` CLI to add configured servers.
 
 This config is only for globally registered user-scope Claude MCP servers such
-as DeepWiki. Agent-scoped MCP servers can be declared in Claude subagent
-frontmatter instead; for example, `dot_claude/agents/special-builder.md` and
-`dot_claude/agents/agent-engineer.md` declare TempoGraph inline so its tools are
-available only to those agents.
+as DeepWiki. Agent-scoped MCP servers can instead be declared in Claude
+subagent frontmatter when a canonical agent specification requires them.
 
 ## Config format
 

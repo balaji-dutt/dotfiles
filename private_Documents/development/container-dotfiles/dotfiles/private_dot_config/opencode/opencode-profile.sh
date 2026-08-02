@@ -121,22 +121,24 @@ _opencode_apply_profile_dir() {
   fi
 
   local global_cfg="$config_home/opencode/opencode.jsonc"
-  local sync_script="$config_home/opencode/opencode-sync-workspace-overrides.sh"
   local _cfg_mtime="" _sync_mtime=""
+  sync_helper="$config_home/opencode/opencode-sync-workspace-overrides.sh"
+  if [ ! -r "$sync_helper" ]; then
+    sync_helper="$HOME/.local/bin/opencode-sync-workspace-overrides"
+  fi
   if [ -f "$global_cfg" ]; then
     _cfg_mtime="$(stat -c %Y "$global_cfg" 2>/dev/null || stat -f %m "$global_cfg" 2>/dev/null || true)"
   fi
-  if [ -f "$sync_script" ]; then
-    _sync_mtime="$(stat -c %Y "$sync_script" 2>/dev/null || stat -f %m "$sync_script" 2>/dev/null || true)"
+  if [ -r "$sync_helper" ]; then
+    _sync_mtime="$(stat -c %Y "$sync_helper" 2>/dev/null || stat -f %m "$sync_helper" 2>/dev/null || true)"
   fi
-  signature="$joined|$workspace_root|$workspace_config|$_cfg_mtime|$_sync_mtime"
+  signature="$joined|$workspace_root|$workspace_config|$_cfg_mtime|$sync_helper|$_sync_mtime"
   if [ "${_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}" = "$signature" ] && [ -n "${OPENCODE_CONFIG_DIR:-}" ]; then
     _opencode_apply_anthropic_api_export
     return
   fi
 
   target_dir="$config_home/opencode/profiles/$primary"
-  sync_helper="$config_home/opencode/opencode-sync-workspace-overrides.sh"
   if [ -r "$sync_helper" ]; then
     if sync_result="$(bash "$sync_helper" "$joined" "$workspace_root")"; then
       if [ -n "$sync_result" ] && [ -d "$sync_result" ]; then

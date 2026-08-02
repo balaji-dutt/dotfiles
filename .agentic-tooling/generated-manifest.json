@@ -12,32 +12,32 @@
       "path": "dot_claude/agents/agent-engineer.md",
       "platform": "claude",
       "source": "agents/agent-engineer.yaml",
-      "sourceDigest": "sha256:b49d1664e595f74daf8d7c1f21c72ec25ce882eeb81982f861b7c11e2dec0f26",
-      "digest": "sha256:f386abf5af92a8120cc3d60c4807a87073e48b63febfd47d4097a65004af67d2"
+      "sourceDigest": "sha256:93b5a75f6b25297eb15ffda7b7951c5fad4baaad69c566e5b708b2543d0eedc9",
+      "digest": "sha256:a0241543aa36c3320783fb50014649c46abdea33ea47f009207994409cfe56a0"
     },
     {
       "kind": "agent",
-      "path": "private_dot_config/opencode/prompts/generated/agent-engineer.md",
+      "path": "private_dot_config/opencode/agents/agent-engineer.md",
       "platform": "opencode",
       "source": "agents/agent-engineer.yaml",
-      "sourceDigest": "sha256:b49d1664e595f74daf8d7c1f21c72ec25ce882eeb81982f861b7c11e2dec0f26",
-      "digest": "sha256:298b03fc6d59ec46b38b53585e87f323f6db270d06af1d1fb4fce6c1cc663635"
+      "sourceDigest": "sha256:93b5a75f6b25297eb15ffda7b7951c5fad4baaad69c566e5b708b2543d0eedc9",
+      "digest": "sha256:df90552678d6e77f6a0f86c1a5570aae9794fd9f270371d47c6690641e8f98a7"
     },
     {
       "kind": "agent",
       "path": "dot_claude/agents/special-builder.md",
       "platform": "claude",
       "source": "agents/special-builder.yaml",
-      "sourceDigest": "sha256:96be11b85662cb869bf25e5321e9796b6e5fc7c53807352fcac342fbcd516cf3",
-      "digest": "sha256:d416306dc9712a948cec9144fe4326d6c46798eaef1a8257d5292e92bbe10139"
+      "sourceDigest": "sha256:58677918dda2a02efdb92e1ccb560d25afd2aa5a36c9971ad06200265369ea48",
+      "digest": "sha256:3f3f6137b3fe8d31d3bb984800dfd5c1abbe8aaa8c45ed33957eb26f6427854d"
     },
     {
       "kind": "agent",
-      "path": "private_dot_config/opencode/prompts/generated/special-builder.md",
+      "path": "private_dot_config/opencode/agents/special-builder.md",
       "platform": "opencode",
       "source": "agents/special-builder.yaml",
-      "sourceDigest": "sha256:96be11b85662cb869bf25e5321e9796b6e5fc7c53807352fcac342fbcd516cf3",
-      "digest": "sha256:358c039c1238cc3b594b8aee60f814220313718060c676d4a0146e2b45708aa7"
+      "sourceDigest": "sha256:58677918dda2a02efdb92e1ccb560d25afd2aa5a36c9971ad06200265369ea48",
+      "digest": "sha256:6c62b6ce49ecfad52b27740c5a5d3e2ab1b33e25ed29152340c6776f8bcea6f7"
     },
     {
       "kind": "skill",

@@ -532,7 +532,6 @@
       "model": "openai/gpt-5.6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
-      "prompt": "{file:./prompts/generated/special-builder.md}",
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",
@@ -551,7 +550,6 @@
       "model": "openai/gpt-5.6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
-      "prompt": "{file:./prompts/generated/agent-engineer.md}",
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",
