@@ -87,7 +87,8 @@
       "customType": "regex",
       "managerFilePatterns": [
         "/^private_dot_config\\/opencode\\/opencode\\.jsonc$/",
-        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/opencode\\.jsonc$/"
+        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/opencode\\.jsonc$/",
+        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/tui\\.json$/"
       ],
       "datasourceTemplate": "npm",
       "matchStrings": [
@@ -138,7 +139,8 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
-        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],
       "matchUpdateTypes": ["patch", "digest"],
       "minimumReleaseAge": null,
@@ -148,7 +150,8 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
-        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],
       "matchUpdateTypes": ["minor"],
       "groupName": "opencode plugins (minor)"
@@ -157,7 +160,8 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
-        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc"
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],
       "matchUpdateTypes": ["major"],
       "groupName": "opencode plugins (major)"
