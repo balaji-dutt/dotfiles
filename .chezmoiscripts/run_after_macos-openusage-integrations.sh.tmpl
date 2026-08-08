@@ -1,0 +1,107 @@
+{{- if ne .chezmoi.os "darwin" -}}
+#!/bin/bash
+exit 0
+{{- else -}}
+#!/bin/bash
+set -euo pipefail
+
+FORMULA="janekbaraniewski/tap/openusage"
+
+if ! command -v brew >/dev/null 2>&1; then
+  echo "INFO: skipping OpenUsage integrations (Homebrew is not installed)." >&2
+  exit 0
+fi
+
+formula_prefix="$(brew --prefix "$FORMULA" 2>/dev/null || true)"
+openusage_bin="${formula_prefix}/bin/openusage"
+
+if [[ -z "$formula_prefix" || ! -x "$openusage_bin" ]]; then
+  echo "INFO: skipping OpenUsage integrations ($FORMULA is not installed yet)." >&2
+  exit 0
+fi
+
+version_output="$("$openusage_bin" version)"
+expected_version="${version_output%% *}"
+if [[ -z "$expected_version" ]]; then
+  echo "ERROR: Could not determine the installed OpenUsage version." >&2
+  exit 1
+fi
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/openusage-integrations.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+temp_config_home="$tmp_dir/config"
+temp_claude_settings="$tmp_dir/claude-settings.json"
+mkdir -p "$temp_config_home"
+
+# Trust boundary: these artifacts come from the installed, trusted Homebrew formula.
+XDG_CONFIG_HOME="$temp_config_home" \
+  CLAUDE_SETTINGS_FILE="$temp_claude_settings" \
+  "$openusage_bin" integrations install claude_code >/dev/null
+
+XDG_CONFIG_HOME="$temp_config_home" \
+  CLAUDE_SETTINGS_FILE="$temp_claude_settings" \
+  "$openusage_bin" integrations install opencode >/dev/null
+
+generated_claude_hook="$temp_config_home/openusage/hooks/claude-hook.sh"
+generated_opencode_plugin="$temp_config_home/opencode/plugins/openusage-telemetry.ts"
+
+validate_artifact() {
+  local artifact_path="$1"
+  local artifact_name="$2"
+  local artifact_version
+
+  if [[ ! -s "$artifact_path" ]]; then
+    echo "ERROR: OpenUsage generated an empty or missing $artifact_name artifact." >&2
+    exit 1
+  fi
+
+  artifact_version="$(awk '/openusage-integration-version:/ { print $NF; exit }' "$artifact_path")"
+  if [[ "$artifact_version" != "$expected_version" ]]; then
+    echo "ERROR: $artifact_name integration version '$artifact_version' does not match OpenUsage '$expected_version'." >&2
+    exit 1
+  fi
+}
+
+changed=0
+
+install_if_changed() {
+  local source_path="$1"
+  local target_path="$2"
+  local target_mode="$3"
+  local target_dir
+  local temp_target
+
+  target_dir="$(dirname "$target_path")"
+  mkdir -p "$target_dir"
+
+  if [[ -f "$target_path" ]] && cmp -s "$source_path" "$target_path"; then
+    chmod "$target_mode" "$target_path"
+    return 0
+  fi
+
+  temp_target="${target_path}.tmp.$$"
+  install -m "$target_mode" "$source_path" "$temp_target"
+  mv -f "$temp_target" "$target_path"
+  changed=1
+  echo "INFO: refreshed OpenUsage integration: $target_path"
+}
+
+validate_artifact "$generated_claude_hook" "Claude Code"
+validate_artifact "$generated_opencode_plugin" "OpenCode"
+
+install_if_changed \
+  "$generated_claude_hook" \
+  "$HOME/.config/openusage/hooks/claude-hook.sh" \
+  0755
+install_if_changed \
+  "$generated_opencode_plugin" \
+  "$HOME/.config/opencode/plugins/openusage-telemetry.ts" \
+  0644
+
+if [[ "$changed" -eq 1 ]]; then
+  echo "INFO: restart Claude Code and OpenCode to load refreshed OpenUsage integrations."
+else
+  echo "INFO: OpenUsage integrations already match version $expected_version."
+fi
+{{ end -}}

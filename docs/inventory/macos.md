@@ -43,6 +43,20 @@ This page lists the main managed targets expected on macOS.
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Browser policy profiles | `~/.local/share/dotfiles/browser-policies/justthebrowser/*.mobileconfig` | `.chezmoiscripts/run_onchange_after_browser-policies.sh.tmpl`, `configs/browser-policies/**` |
 | NFS client defaults | `/etc/nfs.conf` | `.chezmoiscripts/run_after_macos-nfs-config.sh.tmpl` |
+| OpenUsage telemetry | `~/.config/openusage/hooks/claude-hook.sh`, `~/.config/opencode/plugins/openusage-telemetry.ts` | `.chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl` |
+
+## OpenUsage Telemetry
+
+The Brewfile installs two unrelated products named OpenUsage: the
+`janekbaraniewski/tap/openusage` formula provides the linked `openusage` CLI,
+while the `openusage` cask installs `OpenUsage.app`. They do not conflict.
+
+Each macOS `chezmoi apply` asks the installed formula to render its bundled
+Claude Code hook and OpenCode plugin in a temporary config root, then refreshes
+the targets listed above only when their contents change. Claude registration
+is added only to the rendered host settings; OpenCode discovers its plugin from
+the global `plugins/` directory. Restart both harnesses after an integration
+refresh.
 
 ## NFS Client Default
 

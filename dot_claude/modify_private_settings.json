@@ -3,8 +3,9 @@
      Ownership split for ~/.claude/settings.json:
 
        chezmoi owns  - dot_claude/settings-base.json (env, permissions,
-                       statusLine, ...) plus the PreToolUse/Bash
-                       gate-bd-destructive.sh hook declared in it.
+                       statusLine, ...), the PreToolUse/Bash
+                       gate-bd-destructive.sh hook declared in it, and the
+                       macOS-only OpenUsage telemetry hooks added below.
        aoe owns      - every hook group whose command carries the trailing
                        `# aoe-hooks` sentinel. Those are adopted verbatim from
                        the file on disk so `chezmoi apply` never reverts what
@@ -50,6 +51,17 @@
 {{-   if $adopted -}}
 {{-     $_ := set $hooks $event (concat ((index $hooks $event) | default list) $adopted) -}}
 {{-   end -}}
+{{- end -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   $openUsageHook := joinPath .chezmoi.homeDir ".config/openusage/hooks/claude-hook.sh" -}}
+{{-   range $event := list "Stop" "SubagentStop" -}}
+{{-     $hook := dict "type" "command" "command" $openUsageHook "timeout" 30 -}}
+{{-     $group := dict "matcher" "*" "hooks" (list $hook) -}}
+{{-     $_ := set $hooks $event (concat ((index $hooks $event) | default list) (list $group)) -}}
+{{-   end -}}
+{{-   $asyncHook := dict "type" "command" "command" $openUsageHook "timeout" 30 "async" true -}}
+{{-   $asyncGroup := dict "matcher" "*" "hooks" (list $asyncHook) -}}
+{{-   $_ := set $hooks "PostToolUse" (concat ((index $hooks "PostToolUse") | default list) (list $asyncGroup)) -}}
 {{- end -}}
 {{- $_ := set $settings "hooks" $hooks -}}
 {{- $settings | toPrettyJson -}}

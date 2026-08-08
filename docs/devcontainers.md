@@ -296,6 +296,13 @@ The broad home rsync skips OpenCode user config; lifecycle scripts install the
 writable managed copies on create and start, so rebuilds never write back
 through the read-only host mount.
 
+The macOS OpenUsage telemetry hook and plugin are intentionally not mirrored
+into devcontainers. They are generated as host runtime artifacts, and the
+OpenUsage daemon accepts hook ingestion over a host-local Unix socket. Future
+multi-machine or container aggregation should run a local daemon per source and
+use daemon `export` with an authenticated `openusage hub`, rather than exposing
+the host daemon socket as a network service.
+
 The homelab devcontainer also mounts `~/.config/unslop` read-only when that
 directory exists on the host. Seed `~/.config/unslop/style-memory.json` there
 from a trusted private source, or generate it locally before relying on
