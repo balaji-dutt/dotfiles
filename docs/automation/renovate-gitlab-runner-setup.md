@@ -126,6 +126,10 @@ renovate-config-validator renovate.json5 --no-global
 - Keep major updates grouped but separate from minor/patch groups.
 - Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
   except OpenCode plugin patch/digest updates.
+- Disable hourly and concurrent Renovate limits (`commitHourlyLimit`,
+  `prHourlyLimit`, `prConcurrentLimit`, and `branchConcurrentLimit` are `0`).
+  Eligible updates should be created in one run; release-age-blocked updates
+  remain under `Pending Status Checks`, not `Rate-Limited`.
 - After first successful run, enable weekends-only schedule.
 
 ### GitLab stability-status warning workaround
@@ -265,6 +269,12 @@ selected at token-creation time. Verify:
    - **Expand variable reference:** OFF.
 7. Click **Add variable**.
 
+If a sync job reports that `VENDOREDFILE_SYNC_TOKEN` is not set even though it
+exists in project settings, check the variable flags first. A **Protected**
+badge means GitLab withholds it from the unprotected `renovate/statusline-*`
+and `renovate/browser-policies-*` branches. Keep the token masked, but turn
+**Protect variable** off as specified above.
+
 ### How the CI job consumes the token
 
 The sync jobs in `.gitlab-ci.yml` rewrite `origin` to embed
@@ -274,8 +284,15 @@ for token-based git auth, then force-pushes:
 ```bash
 git remote set-url origin \
   "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
-git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
+git push \
+  --force-with-lease="refs/heads/${CI_COMMIT_REF_NAME}:${CI_COMMIT_SHA}" \
+  origin "HEAD:${CI_COMMIT_REF_NAME}"
 ```
+
+The explicit lease compares the remote source branch with `CI_COMMIT_SHA`.
+Merge request jobs check out `refs/merge-requests/<iid>/head` and may not have
+an `origin/<source-branch>` tracking ref, so bare `--force-with-lease` can fail
+with `stale info` even when the branch has not moved.
 
 Because the token is owned by `renovate-bot`, GitLab records the pusher
 in the project's audit log as the renovate-bot service account —

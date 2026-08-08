@@ -40,7 +40,9 @@ statusline-sync:
           private_Documents/development/container-dotfiles/dotfiles/dot_claude/executable_statusline.sh
         git commit --amend --no-edit
         git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
-        git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
+        git push \
+          --force-with-lease="refs/heads/${CI_COMMIT_REF_NAME}:${CI_COMMIT_SHA}" \
+          origin "HEAD:${CI_COMMIT_REF_NAME}"
         echo "==> amended commit pushed; superseding pipeline will validate"
       else
         echo "==> non-statusline branch; validating vendored body against pinned version"
@@ -80,7 +82,9 @@ browser-policy-sync:
           git add configs/browser-policies/justthebrowser
           git commit --amend --no-edit
           git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
-          git push --force-with-lease origin "HEAD:${CI_COMMIT_REF_NAME}"
+          git push \
+            --force-with-lease="refs/heads/${CI_COMMIT_REF_NAME}:${CI_COMMIT_SHA}" \
+            origin "HEAD:${CI_COMMIT_REF_NAME}"
           echo "==> amended commit pushed; superseding pipeline will validate"
           ;;
         *)

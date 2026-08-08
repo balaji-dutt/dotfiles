@@ -15,8 +15,11 @@
     "minimumReleaseAge": "never"
   },
   "automerge": false,
-  "prConcurrentLimit": 5,
-  "branchConcurrentLimit": 5,
+  // Zero disables Renovate's hourly and concurrent rate limits.
+  "commitHourlyLimit": 0,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "branchConcurrentLimit": 0,
   "commitMessagePrefix": "chore(deps): ",
 
   "customManagers": [
