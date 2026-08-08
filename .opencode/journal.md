@@ -178,7 +178,7 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   plus `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl`; do not
   template all of `~/.claude.json` because it carries Claude state.
 - convention: The Claude MCP registration script is user-scope only. Use Claude
-  subagent `mcpServers` frontmatter for agent-scoped servers such as TempoGraph.
+  subagent `mcpServers` frontmatter for agent-scoped code-graph servers.
 - gotcha: In zsh, `path` is a special array tied to `PATH`; avoid `for path in`
   audit loops because it can break subprocess lookup.
 - decision: Superseded by the 2026-05-09 Dolt shared-server convention for
