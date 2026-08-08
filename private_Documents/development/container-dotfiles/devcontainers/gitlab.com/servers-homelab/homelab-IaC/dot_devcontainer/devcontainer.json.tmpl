@@ -16,6 +16,7 @@
     "AOE_VERSION": "1.13.2", // renovate: datasource=github-releases depName=agent-of-empires/agent-of-empires extractVersion=^v(?<version>.*)$
     "DOLT_VERSION": "2.2.1", // renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
     "CLAUDE_CODE_VERSION": "2.1.220", // renovate: datasource=npm depName=@anthropic-ai/claude-code
+    "CBM_VERSION": "0.9.0", // renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
     "MNEMO_VERSION": "1.3.8", // renovate: datasource=github-releases depName=Pilan-AI/mnemo extractVersion=^v(?<version>.*)$
     "HOP_VERSION": "1.9.1", // renovate: datasource=github-releases depName=danmartuszewski/hop extractVersion=^v(?<version>.*)$
     "TF_MCP_VERSION": "0.5.2", // renovate: datasource=github-releases depName=hashicorp/terraform-mcp-server extractVersion=^v(?<version>.*)$
@@ -24,6 +25,7 @@
     "CERTFILES_RAW": {{ .CERTFILES_RAW | toJson }},
     "NVM_VERSION": "0.40.6", // renovate: datasource=github-tags depName=nvm-sh/nvm extractVersion=^v(?<version>.*)$
     "NODE_VERSION": "lts/*",
+    "CBM_CACHE_DIR": "/home/vscode/persistent-data/codebase-memory-mcp",
     "TF_DATA_ROOT": "/home/vscode/persistent-data/terraform-data",
     "PLANNOTATOR_VERSION": "{{ .plannotator_version }}", // source of truth: .chezmoidata.yaml (renovate-tracked there)
     "PLANNOTATOR_REMOTE": "1",

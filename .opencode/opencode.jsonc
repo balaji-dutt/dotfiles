@@ -6,6 +6,19 @@
     ".opencode/instructions/beads-backlog-workflow.md"
   ],
   // ----------------------------
+  // MCP Servers (repo-specific)
+  // ----------------------------
+  "mcp": {
+    "cbm": {
+      "type": "local",
+      "command": ["codebase-memory-mcp"]
+    }
+  },
+  // Keep CBM's full tool surface out of agent context by default.
+  "tools": {
+    "cbm_*": false
+  },
+  // ----------------------------
   // Project specific permissions
   // ----------------------------
   "permission": {
@@ -56,6 +69,14 @@
   "agent": {
     // Customize global agents for this project
     "plan": {
+      "tools": {
+        "cbm_get_graph_schema": true,
+        "cbm_get_architecture": true,
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_list_projects": true,
+        "cbm_index_status": true
+      },
       "permission": {
         "bash": {
           "bd*": "ask",
@@ -74,6 +95,14 @@
       }
     },
     "plan-GPT-xhigh": {
+      "tools": {
+        "cbm_get_graph_schema": true,
+        "cbm_get_architecture": true,
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_list_projects": true,
+        "cbm_index_status": true
+      },
       "permission": {
         "bash": {
           "bd*": "ask",
@@ -93,6 +122,17 @@
     },
     "build": {
       "prompt": "{file:./prompts/build.md}",
+      "tools": {
+        "cbm_index_repository": true,
+        "cbm_list_projects": true,
+        "cbm_index_status": true,
+        "cbm_get_graph_schema": true,
+        "cbm_get_architecture": true,
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_detect_changes": true,
+        "cbm_get_code_snippet": true
+      },
       "permission": {
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
@@ -129,6 +169,13 @@
       }
     },
     "agent-engineer": {
+      "tools": {
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_detect_changes": true,
+        "cbm_get_architecture": true,
+        "cbm_get_code_snippet": true
+      },
       "permission": {
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
@@ -165,6 +212,13 @@
       }
     },
     "special-builder": {
+      "tools": {
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_detect_changes": true,
+        "cbm_get_architecture": true,
+        "cbm_get_code_snippet": true
+      },
       "permission": {
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",

@@ -98,6 +98,13 @@ Release-binary pins such as `MNEMO_VERSION` live in the template's
 installed as a CLI only; MCP tools and automatic context injection are not
 enabled by these dotfiles.
 
+`CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
+matching Linux release archive, verifies it against the upstream checksum file,
+and installs only the binary; it never runs CBM's native installer or its client
+configuration hooks. `CBM_CACHE_DIR` points to
+`/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
+volume so the SQLite cache does not land on the workspace bind mount.
+
 ## Platform Behavior
 
 Based on the canonical `isDevcontainerHost` predicate and `.chezmoiignore`

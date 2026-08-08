@@ -22,6 +22,7 @@ __pycache__/
 .ai-wt/**
 .tempograph/
 .tempograph/**
+.codebase-memory/
 worktrees/
 worktrees/**
 

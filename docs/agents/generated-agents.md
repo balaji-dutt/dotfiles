@@ -114,22 +114,24 @@ harder to spot than the agent case, because there is no banner to read past.
 Skills *not* in that list — for example the `unslop*` family and `beads-work` —
 are hand-authored and safe to edit.
 
-## Accepted divergence: model frontmatter
+## Accepted divergence: Claude frontmatter
 
 `agent-engineer.md` and `special-builder.md` are deliberately hand-patched after
-generation so their `model:` frontmatter tracks current Claude models. Their
-manifest `digest` entries have therefore not matched the files on disk since
-`9035de0` (2026-06-06, "Refresh agentic-tooling generated agents for Claude Code
-compatibility").
+generation so their `model:` frontmatter tracks current Claude models. They also
+carry the locally managed codebase-memory-mcp tool allowlist and embedded server
+entry. Their manifest `digest` entries have therefore not matched the files on
+disk since `9035de0` (2026-06-06, "Refresh agentic-tooling generated agents for
+Claude Code compatibility").
 
 This is tolerated, not an oversight. The consequences to know about:
 
 - An `agentic-tooling` verify or drift pass will report both files as tampered.
-- A regeneration silently reverts the `model:` value. Re-apply it afterwards and
-  re-run `bash ./assets/sync-devcontainer-assets.sh` so the container-dotfiles
-  mirror follows.
+- A regeneration silently reverts the `model:` value and local MCP frontmatter.
+  Re-apply both afterwards and re-run
+  `bash ./assets/sync-devcontainer-assets.sh` so the container-dotfiles mirror
+  follows.
 
-### Why this isn't fixed upstream
+### Why the model isn't fixed upstream
 
 There is no per-agent model field to fix. The source YAMLs
 (`agents/agent-engineer.yaml`, `agents/special-builder.yaml` in the
@@ -155,6 +157,16 @@ rendered `.md` is the narrower change, and is the accepted approach here.
 
 Treat a reverted `model:` line after regeneration as expected rather than as a
 new bug.
+
+### Codebase Memory frontmatter
+
+The Claude renders add five `mcp__cbm__*` tools and an agent-scoped `cbm`
+server. Unlike the model override, these capabilities can be represented by the
+external generator source. That source is not part of this repository, so the
+rendered files use the existing accepted-divergence workflow for now. Move the
+same tool and server declarations into `agents/agent-engineer.yaml` and
+`agents/special-builder.yaml` in `agentic-tooling` before the next intentional
+regeneration; until then, preserve and re-apply the local frontmatter patch.
 
 ## Related
 

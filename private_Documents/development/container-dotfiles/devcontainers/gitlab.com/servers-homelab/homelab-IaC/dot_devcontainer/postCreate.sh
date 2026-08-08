@@ -525,6 +525,61 @@ else
   echo "WARN: HOP_VERSION not set; skipping hop install."
 fi
 
+if [[ -n "${CBM_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
+  if [[ -n "${CBM_CACHE_DIR:-}" ]]; then
+    install -d -m 0700 "$CBM_CACHE_DIR"
+  fi
+
+  CBM_INSTALLED=""
+  if command -v codebase-memory-mcp >/dev/null 2>&1; then
+    CBM_INSTALLED=$(
+      codebase-memory-mcp --version 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1 \
+        || true
+    )
+  fi
+
+  if [[ "$CBM_INSTALLED" == "$CBM_VERSION" ]]; then
+    echo "[mcp] codebase-memory-mcp ${CBM_INSTALLED} already installed."
+  else
+    echo "[mcp] installing codebase-memory-mcp v${CBM_VERSION} (${HOP_ARCH})"
+    CBM_ASSET="codebase-memory-mcp-linux-${HOP_ARCH}.tar.gz"
+    CBM_BASE_URL="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${CBM_VERSION}"
+    CBM_TMP=$(mktemp -d /tmp/codebase-memory-mcp.XXXXXX)
+
+    curl -fsSL --retry 3 "${CBM_BASE_URL}/checksums.txt" \
+      -o "${CBM_TMP}/checksums.txt"
+    curl -fsSL --retry 3 "${CBM_BASE_URL}/${CBM_ASSET}" \
+      -o "${CBM_TMP}/${CBM_ASSET}"
+
+    CBM_EXPECTED=$(
+      awk -v asset="$CBM_ASSET" '$2 == asset { print $1; exit }' \
+        "${CBM_TMP}/checksums.txt"
+    )
+    if [[ -z "$CBM_EXPECTED" ]]; then
+      echo "ERROR: No checksum found for ${CBM_ASSET}." >&2
+      exit 1
+    fi
+
+    CBM_ACTUAL=$(sha256sum "${CBM_TMP}/${CBM_ASSET}" | awk '{print $1}')
+    if [[ "$CBM_EXPECTED" != "$CBM_ACTUAL" ]]; then
+      echo "ERROR: SHA256 mismatch for ${CBM_ASSET}." >&2
+      echo "  expected: $CBM_EXPECTED" >&2
+      echo "  actual:   $CBM_ACTUAL" >&2
+      exit 1
+    fi
+
+    tar -xzf "${CBM_TMP}/${CBM_ASSET}" -C "$CBM_TMP" codebase-memory-mcp
+    sudo install -m 0755 "${CBM_TMP}/codebase-memory-mcp" \
+      /usr/local/bin/codebase-memory-mcp
+    rm -rf "$CBM_TMP"
+    codebase-memory-mcp --version
+  fi
+else
+  echo "WARN: CBM_VERSION not set or architecture unsupported; skipping codebase-memory-mcp install."
+fi
+
 step "Build & Install MCP server binaries (terraform-mcp-server)"
 if [[ -n "${TF_MCP_VERSION:-}" ]]; then
   echo "[mcp] building terraform-mcp-server v${TF_MCP_VERSION} (no pre-built binaries available)"
