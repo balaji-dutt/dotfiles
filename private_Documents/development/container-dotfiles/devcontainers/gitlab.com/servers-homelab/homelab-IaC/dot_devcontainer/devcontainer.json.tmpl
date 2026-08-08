@@ -31,6 +31,7 @@
     "PLANNOTATOR_PORTS_BUILD": "{{ .plannotator_ports.devcontainer.build }}",
     "PLANNOTATOR_PORTS_CLAUDE": "{{ .plannotator_ports.devcontainer.claude }}",
     "PLANNOTATOR_PORTS_CUSTOM": "{{ .plannotator_ports.devcontainer.custom }}",
+    "BD_DISABLE_METRICS": "1",
     "OPENSPEC_TELEMETRY": "0",
     {{- if eq .chezmoi.os "darwin" }}
     "SSH_AUTH_SOCK": "/tmp/orbstack-ssh-agent/ssh-auth.sock",

@@ -48,6 +48,19 @@ Keep `bd` at the **same minor version** across machines. Different builds of the
 same version string are fine, but a machine on an older minor that targets a
 lower Dolt schema cannot read a migrated remote.
 
+### Anonymous usage metrics
+
+Anonymous `bd` command metrics are disabled by default. Regular hosts use the
+user-global `metrics.disabled: true` setting managed from
+`private_dot_config/bd/config.yaml` and applied to `~/.config/bd/config.yaml`
+(`%USERPROFILE%\.config\bd\config.yaml` on native Windows). Beads intentionally
+ignores project-level telemetry consent settings.
+
+The `homelab-IaC` devcontainer also sets `BD_DISABLE_METRICS=1` in
+`containerEnv`, so the opt-out exists before lifecycle scripts run and survives
+container rebuilds. After applying the dotfiles (and rebuilding that container),
+verify the effective setting with `bd metrics status`; it must report `OFF`.
+
 ### Renovate gating
 
 `bd` schema bumps are deliberately kept off unattended automerge:
