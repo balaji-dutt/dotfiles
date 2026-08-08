@@ -99,8 +99,9 @@ installed as a CLI only; MCP tools and automatic context injection are not
 enabled by these dotfiles.
 
 `CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
-matching Linux release archive, verifies it against the upstream checksum file,
-and installs only the binary; it never runs CBM's native installer or its client
+matching portable Linux release archive for compatibility with the container's
+glibc/libstdc++ versions, verifies it against the upstream checksum file, and
+installs only the binary; it never runs CBM's native installer or its client
 configuration hooks. `CBM_CACHE_DIR` points to
 `/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
 volume so the SQLite cache does not land on the workspace bind mount.

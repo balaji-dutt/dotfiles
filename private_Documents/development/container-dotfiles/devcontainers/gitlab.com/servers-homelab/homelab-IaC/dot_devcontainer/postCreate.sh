@@ -544,7 +544,7 @@ if [[ -n "${CBM_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
     echo "[mcp] codebase-memory-mcp ${CBM_INSTALLED} already installed."
   else
     echo "[mcp] installing codebase-memory-mcp v${CBM_VERSION} (${HOP_ARCH})"
-    CBM_ASSET="codebase-memory-mcp-linux-${HOP_ARCH}.tar.gz"
+    CBM_ASSET="codebase-memory-mcp-linux-${HOP_ARCH}-portable.tar.gz"
     CBM_BASE_URL="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${CBM_VERSION}"
     CBM_TMP=$(mktemp -d /tmp/codebase-memory-mcp.XXXXXX)
 

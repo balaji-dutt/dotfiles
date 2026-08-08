@@ -8,7 +8,7 @@ node = "lts"
 # Reviewed 2026-08-01: @yarnpkg/libzip 3.2.2 tag/gitHead match; no provenance.
 "npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
 "pipx:lastversion" = "latest"
-"ubi:DeusData/codebase-memory-mcp" = "latest"
+"github:DeusData/codebase-memory-mcp" = "latest"
 python = "3.14"
 uv = "latest"
 "pipx:unslop" = "latest"
