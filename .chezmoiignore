@@ -112,6 +112,8 @@ Documents/PowerShell
 !/.config/
 /.config/*
 !/.config/starship.toml
+!/.config/bd/
+!/.config/bd/**
 !/.config/powershell/
 !/.config/powershell/**
 !/.config/opencode/
