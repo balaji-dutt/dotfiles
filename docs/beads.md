@@ -778,6 +778,69 @@ check integrity, stop the server and run `dolt fsck` from `.beads/dolt/dots/` �
 without the `--revive` flag it is read-only and prints `No problems found` on a
 healthy database.
 
+### Sync wedge: pull says "ahead", push is rejected non-fast-forward
+
+Two commands disagree about the same remote:
+
+```
+$ ./assets/beads-sync.sh pull
+| fast_forward | conflicts | message                                                  |
+| 0            | 0         | cannot fast forward from a to b. a is ahead of b already |
+
+$ ./assets/beads-sync.sh push
+ ! [rejected]            main -> main (non-fast-forward)
+hint: Updates were rejected because the tip of your current branch is behind
+```
+
+They are not looking at the same thing. The remote is a git repo, and dolt keeps
+a mirror of it at `.beads/dolt/dots/.dolt/git-remote-cache/<hash>/repo.git`.
+`pull` resolves the remote's state through that mirror's blobstore refs; `push`
+talks to the live remote. When the mirror goes stale, pull compares against an
+old remote root and concludes it is ahead, while push is rejected against the
+real one. Diagnosed 2026-08-08 on the WSL2 peer after the Windows peer pushed.
+
+Confirm with three read-only checks (`CACHE` is the `repo.git` path above):
+
+```bash
+CACHE=$(echo .beads/dolt/dots/.dolt/git-remote-cache/*/repo.git)
+git --git-dir "$CACHE" ls-remote origin      # live remote refs
+cat "$CACHE/packed-refs"                     # what the mirror believes
+```
+
+The wedge looks like: the mirror's `refs/dolt/blobstore/origin/dolt/data/<uuid>`
+is days behind the remote's `refs/dolt/data`; several
+`refs/dolt/remotes/origin/dolt/data/<uuid>` entries have accumulated, one per
+historical peer rebuild; and the mirror has never fetched the remote's current
+`refs/heads/main`, so the bookkeeping commit push cannot fast-forward. For proof
+that the remote holds data this machine has not seen, list the table files in
+the remote's blobstore commit and look for ones absent from
+`.beads/dolt/dots/.dolt/noms/`:
+
+```bash
+git --git-dir "$CACHE" ls-tree -r --name-only <refs/dolt/data hash>
+```
+
+The mirror is derived state — deleting it costs a slower next fetch and nothing
+else. Move it aside rather than deleting, so the old copy is the rollback:
+
+```bash
+bd export --all -o ~/dots-local-only-$(date +%Y%m%d).jsonl   # floor, always
+bd dolt stop
+mv .beads/dolt/dots/.dolt/git-remote-cache ~/dots-git-remote-cache-$(date +%Y%m%d)
+./assets/beads-sync.sh pull      # rebuilds the mirror; expect "merge successful"
+./assets/beads-sync.sh push
+```
+
+Windows (PowerShell 7): same shape with `Move-Item`, then
+`pwsh ./assets/beads-sync.ps1 pull` / `push`.
+
+If push is still rejected on `main -> main` with a fresh mirror, suspect a dolt
+version skew between peers — the remote carries both `refs/heads/main` and
+`refs/heads/__dolt_remote_info__`, and builds differ in which one they write.
+Compare `dolt version` across machines against the pin in
+`configs/packages.yaml`. That theory is **unconfirmed**: on 2026-08-08 the
+mirror reset alone fixed both directions on dolt 2.2.1, so it was never tested.
+
 ### Upstream status
 
 Both halves of this are reported upstream and **both issues are closed with no
