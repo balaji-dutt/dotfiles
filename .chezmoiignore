@@ -148,8 +148,8 @@ worktrees/
 worktrees/**
 ansible/
 ansible/**
-/assets/
-/assets/**
+assets/
+assets/**
 archive/
 archive/**
 configs/
