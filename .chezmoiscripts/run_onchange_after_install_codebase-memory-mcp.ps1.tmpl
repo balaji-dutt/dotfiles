@@ -1,0 +1,237 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# Install or upgrade the standard codebase-memory-mcp binary to the version
+# pinned in .chezmoidata.yaml. Bumping the pin changes the rendered script and
+# causes chezmoi to run it again.
+#
+# mise provisions macOS and WSL2. Dev Containers use their pinned feature
+# installer. This hook owns only the native Windows binary; MCP client
+# configuration remains under chezmoi.
+#
+# Change trigger:
+# codebase_memory_mcp_version: {{ .codebase_memory_mcp_version }}
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference    = "SilentlyContinue"
+
+$CbmVersion = "{{ .codebase_memory_mcp_version }}"
+$Repo       = "DeusData/codebase-memory-mcp"
+$InstallDir = Join-Path $HOME ".local"
+$BinPath    = Join-Path $InstallDir "codebase-memory-mcp.exe"
+$CacheDir   = $env:CBM_CACHE_DIR
+
+if ([string]::IsNullOrWhiteSpace($CacheDir)) {
+  $CacheDir = Join-Path (Join-Path $HOME ".cache") "codebase-memory-mcp"
+}
+
+if ([string]::IsNullOrWhiteSpace($CbmVersion)) {
+  throw "codebase_memory_mcp_version is empty in .chezmoidata.yaml"
+}
+
+function Get-NativeReleaseArchitecture {
+  $architecture = ""
+
+  try {
+    $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+  } catch {
+    # RuntimeInformation is unavailable on some older Windows PowerShell hosts.
+  }
+
+  if ([string]::IsNullOrWhiteSpace($architecture)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
+      $architecture = $env:PROCESSOR_ARCHITEW6432
+    } else {
+      $architecture = $env:PROCESSOR_ARCHITECTURE
+    }
+  }
+
+  switch ($architecture) {
+    "X64"   { return "amd64" }
+    "AMD64" { return "amd64" }
+    "ARM64" { return "arm64" }
+    default  { throw "Unsupported Windows architecture for codebase-memory-mcp: $architecture" }
+  }
+}
+
+function Get-CbmVersion {
+  param([Parameter(Mandatory)][string] $Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return ""
+  }
+
+  try {
+    $versionOutput = @(& $Path --version 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+      return ""
+    }
+  } catch {
+    return ""
+  }
+
+  $versionText = $versionOutput -join "`n"
+  $versionMatch = [regex]::Match(
+    $versionText,
+    '(?<!\d)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![0-9A-Za-z.-])'
+  )
+
+  if ($versionMatch.Success) {
+    return $versionMatch.Groups[1].Value
+  }
+
+  return ""
+}
+
+function Move-FileWithRetry {
+  param(
+    [Parameter(Mandatory)][string] $Source,
+    [Parameter(Mandatory)][string] $Destination,
+    [int] $Attempts = 6
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    try {
+      Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
+      return
+    } catch {
+      $lastError = $_
+      if ($attempt -lt $Attempts) {
+        Start-Sleep -Milliseconds (250 * $attempt)
+      }
+    }
+  }
+
+  throw "Could not move '$Source' to '$Destination': $($lastError.Exception.Message)"
+}
+
+function Remove-RetiredBinaries {
+  param([Parameter(Mandatory)][string] $Directory)
+
+  Get-ChildItem -LiteralPath $Directory -Filter "codebase-memory-mcp.exe.retired-*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
+New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
+
+$InstalledVersion = Get-CbmVersion -Path $BinPath
+if ($InstalledVersion -eq $CbmVersion) {
+  Remove-RetiredBinaries -Directory $InstallDir
+  Write-Host "codebase-memory-mcp $InstalledVersion already installed; nothing to do."
+  exit 0
+}
+
+if ($InstalledVersion) {
+  Write-Host "Updating codebase-memory-mcp: $InstalledVersion -> $CbmVersion"
+} else {
+  Write-Host "Installing codebase-memory-mcp $CbmVersion..."
+}
+
+$ReleaseArchitecture = Get-NativeReleaseArchitecture
+$Asset                = "codebase-memory-mcp-windows-$ReleaseArchitecture.zip"
+$BaseUrl              = "https://github.com/$Repo/releases/download/v$CbmVersion"
+$TempDir              = Join-Path ([System.IO.Path]::GetTempPath()) ("codebase-memory-mcp-" + [System.Guid]::NewGuid().ToString("N"))
+$ArchivePath          = Join-Path $TempDir $Asset
+$ChecksumsPath        = Join-Path $TempDir "checksums.txt"
+$ExtractDir           = Join-Path $TempDir "extract"
+$StagedPath           = $BinPath + ".new-" + [System.Guid]::NewGuid().ToString("N")
+$RetiredPath          = $null
+$InstallSucceeded     = $false
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+
+try {
+  Invoke-WebRequest -Uri "$BaseUrl/checksums.txt" -OutFile $ChecksumsPath -UseBasicParsing
+  Invoke-WebRequest -Uri "$BaseUrl/$Asset" -OutFile $ArchivePath -UseBasicParsing
+
+  $checksumPattern = '^(?<sha>[0-9A-Fa-f]{64})\s+\*?' + [regex]::Escape($Asset) + '\s*$'
+  $checksumMatches = @()
+  foreach ($line in (Get-Content -LiteralPath $ChecksumsPath)) {
+    $lineMatch = [regex]::Match($line, $checksumPattern)
+    if ($lineMatch.Success) {
+      $checksumMatches += $lineMatch.Groups["sha"].Value.ToLowerInvariant()
+    }
+  }
+
+  if ($checksumMatches.Count -ne 1) {
+    throw "Expected exactly one valid SHA-256 entry for $Asset; found $($checksumMatches.Count)"
+  }
+
+  $ExpectedSha = $checksumMatches[0]
+  $ActualSha   = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($ExpectedSha -ne $ActualSha) {
+    throw "SHA-256 mismatch for $Asset (expected $ExpectedSha, got $ActualSha)"
+  }
+
+  Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractDir -Force
+  $candidates = @(
+    Get-ChildItem -LiteralPath $ExtractDir -Recurse -File |
+      Where-Object { $_.Name -eq "codebase-memory-mcp.exe" }
+  )
+  if ($candidates.Count -ne 1) {
+    throw "Expected exactly one codebase-memory-mcp.exe in $Asset; found $($candidates.Count)"
+  }
+
+  $CandidatePath    = $candidates[0].FullName
+  $CandidateVersion = Get-CbmVersion -Path $CandidatePath
+  if ($CandidateVersion -ne $CbmVersion) {
+    throw "Downloaded binary reported version '$CandidateVersion'; expected '$CbmVersion'"
+  }
+
+  Copy-Item -LiteralPath $CandidatePath -Destination $StagedPath -ErrorAction Stop
+
+  if (Test-Path -LiteralPath $BinPath -PathType Leaf) {
+    try {
+      & $BinPath daemon stop *> $null
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning "codebase-memory-mcp daemon stop exited with code $LASTEXITCODE; continuing with replacement."
+      }
+    } catch {
+      Write-Warning "Could not request codebase-memory-mcp daemon shutdown; continuing with replacement."
+    }
+
+    $RetiredPath = $BinPath + ".retired-" + (Get-Date -Format "yyyyMMddHHmmss") + "-" + [System.Guid]::NewGuid().ToString("N")
+    Move-FileWithRetry -Source $BinPath -Destination $RetiredPath
+  }
+
+  try {
+    Move-FileWithRetry -Source $StagedPath -Destination $BinPath
+    $PublishedVersion = Get-CbmVersion -Path $BinPath
+    if ($PublishedVersion -ne $CbmVersion) {
+      throw "Installed binary reported version '$PublishedVersion'; expected '$CbmVersion'"
+    }
+  } catch {
+    $installError = $_
+    $rollbackError = $null
+
+    try {
+      if (Test-Path -LiteralPath $BinPath -PathType Leaf) {
+        Remove-Item -LiteralPath $BinPath -Force -ErrorAction Stop
+      }
+      if ($RetiredPath -and (Test-Path -LiteralPath $RetiredPath -PathType Leaf)) {
+        Move-FileWithRetry -Source $RetiredPath -Destination $BinPath
+      }
+    } catch {
+      $rollbackError = $_
+    }
+
+    if ($rollbackError) {
+      throw "codebase-memory-mcp installation failed: $($installError.Exception.Message). Rollback also failed: $($rollbackError.Exception.Message)"
+    }
+    throw $installError
+  }
+
+  $InstallSucceeded = $true
+  Write-Host "codebase-memory-mcp $CbmVersion installed to $BinPath"
+} finally {
+  if (Test-Path -LiteralPath $StagedPath -PathType Leaf) {
+    Remove-Item -LiteralPath $StagedPath -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+  if ($InstallSucceeded) {
+    Remove-RetiredBinaries -Directory $InstallDir
+  }
+}
+{{- end }}

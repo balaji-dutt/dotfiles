@@ -67,7 +67,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these eight
+Windows ignores `.chezmoiscripts/**` by default and then admits these nine
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -77,6 +77,7 @@ rendered hook targets:
 | `browser-policies.ps1` | `run_onchange_after_browser-policies.ps1.tmpl` | onchange, after | Import enabled Chrome and Firefox registry policies |
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
 | `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
+| `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |
@@ -86,6 +87,39 @@ A non-elevated apply skips the import with a command for running it separately
 as administrator. The startup hook prefers a per-user scheduled task and writes
 `Start-WslSshPageant.vbs` to the Startup folder only when task registration is
 denied.
+
+## codebase-memory-mcp
+
+Native Windows installs the Renovate-pinned standard codebase-memory-mcp
+release for amd64 or arm64 through the admitted onchange hook. The hook requires
+the matching entry in the release `checksums.txt`, verifies the archive with
+SHA-256, validates the candidate version, and publishes only
+`~/.local/codebase-memory-mcp.exe`. It does not use mise, Winget, the upstream
+installer, or the upstream `install` command, so it does not rewrite MCP client
+configuration.
+
+`windows-bootstrap.ps1` owns `~/.local` in the persistent user `PATH`. Restart
+OpenCode, Claude Code, and any terminal that predates the installation before
+testing command-name resolution. The existing OpenCode configuration and the
+selected Claude agents already invoke `codebase-memory-mcp`; no separate client
+registration is required.
+
+Unless `CBM_CACHE_DIR` is set at runtime, the standard v0.9.0 binary keeps its
+unmanaged databases, configuration, and logs under
+`~/.cache/codebase-memory-mcp`. The install hook creates the active cache
+directory so read-only commands work before the first index, but chezmoi does
+not manage its contents. Verify the native installation from a fresh
+PowerShell/OpenCode process:
+
+```powershell
+codebase-memory-mcp --version
+codebase-memory-mcp cli list_projects
+opencode mcp list
+```
+
+The version must match `.chezmoidata.yaml`, `list_projects` must complete
+successfully, and the `cbm` entry must report connected. Provisioning does not
+index the current repository automatically.
 
 These Windows-gated PowerShell hooks exist in the source tree but remain
 ignored, so they do not run during native Windows applies:

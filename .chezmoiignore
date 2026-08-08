@@ -107,6 +107,7 @@ Documents/PowerShell
 !/.chezmoiscripts/windows-zz-register-startup-tasks.ps1
 !/.chezmoiscripts/browser-policies.ps1
 !/.chezmoiscripts/install_beads_kanban_bd_fixes.ps1
+!/.chezmoiscripts/install_codebase-memory-mcp.ps1
 
 # Windows specific paths
 !/.config/

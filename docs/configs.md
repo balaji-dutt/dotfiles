@@ -47,8 +47,8 @@ they change.
   formulae such as `Pilan-AI/tap/mnemo`. Citrix Workspace is intentionally not
   listed there; see `docs/automation/macos-vdi-apps.md`.
 - `.chezmoidata.yaml`: public template data, including the Renovate-managed
-  `lazygit_version` pin and non-secret macOS VDI version policy under
-  `macos_vdi`.
+  `codebase_memory_mcp_version` Windows pin, the `lazygit_version` pin, and
+  non-secret macOS VDI version policy under `macos_vdi`.
 
 ## Validation
 

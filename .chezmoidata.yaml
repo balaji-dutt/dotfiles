@@ -1,4 +1,5 @@
 ccr_port: 3456
+codebase_memory_mcp_version: "0.9.0" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
 lazygit_version: "0.63.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 browser_policies:
   justthebrowser:
