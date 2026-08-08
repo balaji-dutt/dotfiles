@@ -96,6 +96,27 @@ ignored, so they do not run during native Windows applies:
 | `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` |
 
+## Claude Code `jq` Runtime Dependency
+
+Native Windows uses the `jqlang.jq` WinGet package for the `jq` executable used
+by Claude Code. `configs/winget-packages.json` records that package in the
+exported Windows inventory, but the current chezmoi flow does not import the
+manifest or install its packages automatically. On a clean host, install and
+verify `jq` from PowerShell:
+
+```powershell
+winget install --id jqlang.jq --exact --source winget
+Get-Command jq
+jq --version
+```
+
+When `jq` is absent, the Claude statusline prints `Claude [needs jq]` and exits
+successfully without its detailed status. The Beads destructive-action hook
+also exits without a decision, leaving Claude's normal permission system and
+the subagent prompt contracts in effect. This fail-open behavior prevents a
+missing parser from blocking unrelated commands, but removes that hook's
+defense-in-depth guardrail until `jq` is available.
+
 ## Current Exclusions
 
 The Windows section of `.chezmoiignore` uses a minimal whitelist:
