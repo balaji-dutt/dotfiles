@@ -90,6 +90,7 @@
       "customType": "regex",
       "managerFilePatterns": [
         "/^private_dot_config\\/opencode\\/opencode\\.jsonc$/",
+        "/^private_dot_config\\/opencode\\/tui\\.json$/",
         "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/opencode\\.jsonc$/",
         "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/private_dot_config\\/opencode\\/tui\\.json$/"
       ],
@@ -128,6 +129,12 @@
     },
     {
       "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@tarquinen/opencode-dcp"],
+      // DCP 3.1.14 cannot install its peers on OpenCode 1.18.x.
+      "allowedVersions": "!/^3\\.1\\.14$/"
+    },
+    {
+      "matchManagers": ["custom.regex"],
       "matchUpdateTypes": ["patch", "digest"],
       "automerge": true,
       "automergeType": "pr",
@@ -142,6 +149,7 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
+        "private_dot_config/opencode/tui.json",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],
@@ -153,6 +161,7 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
+        "private_dot_config/opencode/tui.json",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],
@@ -163,6 +172,7 @@
       "matchManagers": ["custom.regex"],
       "matchFileNames": [
         "private_dot_config/opencode/opencode.jsonc",
+        "private_dot_config/opencode/tui.json",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
       ],

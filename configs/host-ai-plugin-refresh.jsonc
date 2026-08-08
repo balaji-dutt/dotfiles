@@ -35,7 +35,7 @@
       },
       {
         "package": "@tarquinen/opencode-dcp",
-        "version": "3.1.14" // renovate: datasource=npm depName=@tarquinen/opencode-dcp
+        "version": "3.1.13" // renovate: datasource=npm depName=@tarquinen/opencode-dcp
       },
       {
         "package": "@mohak34/opencode-notifier",
