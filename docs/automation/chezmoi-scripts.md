@@ -36,6 +36,10 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
+| `run_onchange_after_host_ai_plugin_refresh.sh.tmpl` | onchange | Claude/OpenCode host plugin refresh |
+| `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange | Windows host plugin refresh source (not admitted) |
+| `run_onchange_after_install_plannotator.sh.tmpl` | onchange | Host Plannotator CLI installation |
+| `run_onchange_after_install_plannotator.ps1.tmpl` | onchange | Windows Plannotator CLI installation |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | non-WSL package installs |
 | `run_onchange_after_macos-vdi-apps.sh.tmpl` | onchange | macOS Citrix/Zoom VDI version reporting and opt-in installs |
 | `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload, including NFS dot-clean |
@@ -52,6 +56,8 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - Follow `docs/agents/ADDING_SCRIPTS.md` when adding new scripts.
 - User-scope Claude MCP server registration is configured by
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
+- Native Windows admits the Claude MCP and Plannotator install hooks, but keeps
+  `host_ai_plugin_refresh.ps1` excluded; see `docs/inventory/windows.md`.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.

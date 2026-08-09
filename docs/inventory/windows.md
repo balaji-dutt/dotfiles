@@ -67,7 +67,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these nine
+Windows ignores `.chezmoiscripts/**` by default and then admits these eleven
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -75,9 +75,11 @@ rendered hook targets:
 | `10-dotfiles-commit-template.ps1` | `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Configure this repo's commit template and managed Git hooks path |
 | `99-cleanup-wrong-apply.ps1` | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once, after | Remove curated repo and non-Windows paths from the Windows home directory |
 | `browser-policies.ps1` | `run_onchange_after_browser-policies.ps1.tmpl` | onchange, after | Import enabled Chrome and Firefox registry policies |
+| `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange, after | Reconcile declarative user-scope Claude MCP registrations |
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
 | `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
 | `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
+| `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |
@@ -133,14 +135,19 @@ The version must match `.chezmoidata.yaml`, `list_projects` must complete
 successfully, and the `cbm` entry must report connected. Provisioning does not
 index the current repository automatically.
 
-These Windows-gated PowerShell hooks exist in the source tree but remain
-ignored, so they do not run during native Windows applies:
+## AI Automation Hook Audit
 
-| Ignored Hook Target | Source Template |
-| :--- | :--- |
-| `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` |
-| `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` |
-| `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` |
+The Windows-capable AI automation hooks have these explicit apply decisions:
+
+| Hook Target | Decision | Rationale and Guardrails |
+| :--- | :--- | :--- |
+| `claude_mcp_servers.ps1` | Admitted | The hook accepts only user scope, stores no tokens, filters platforms and transports, skips missing executable candidates, and leaves existing registrations unchanged unless `replace` is enabled. Set `CLAUDE_MCP_DRY_RUN=1` to preview actions. |
+| `install_plannotator.ps1` | Admitted | The binary-only hook selects the native x64 or arm64 release, verifies its pinned-version sidecar checksum and candidate version, then publishes through staged replacement with rollback. It does not run the upstream installer or mutate agent/plugin state. |
+| `host_ai_plugin_refresh.ps1` | Excluded | The hook requires closed OpenCode sessions for some cache repairs and can recursively remove the OpenCode package cache. It remains ignored until cache-root containment, deletion scope, and apply-from-OpenCode behavior receive a separate native-Windows redesign and test. |
+
+Use `PLANNOTATOR_INSTALL_DRY_RUN=1` to report the selected release asset and
+destination without downloading or publishing the Plannotator binary. See
+`docs/plannotator.md` for native installation and retry details.
 
 ## Claude Code `jq` Runtime Dependency
 
@@ -172,8 +179,8 @@ The Windows section of `.chezmoiignore` uses a minimal whitelist:
   hook handles it.
 - Linux/macOS configuration trees such as `.config/mise`, `.config/lazygit`,
   and `.config/sublime-merge` remain ignored.
-- The three Windows-capable hooks listed above remain explicit gaps rather than
-  supported apply behavior.
+- `host_ai_plugin_refresh.ps1` remains excluded for the cache-safety and active
+  OpenCode-session constraints documented above.
 
 ## Verify On This Machine
 

@@ -82,12 +82,13 @@ container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   config edits alone do not trigger plugin refreshes.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
-- Chezmoi onchange scripts refresh Claude plugins and clear the OpenCode
-  packages cache when no blocking OpenCode session is detected. A plugin can
-  declare a staged npm cache install for a pinned compatibility workaround;
-  while OpenCode is running, scripts may add a new versioned cache key but
-  never replace an existing one. Detached or zombie OpenCode server processes
-  are logged and ignored.
+- The Unix-host chezmoi onchange script refreshes Claude plugins and clears the
+  OpenCode packages cache when no blocking OpenCode session is detected. A
+  plugin can declare a staged npm cache install for a pinned compatibility
+  workaround; while OpenCode is running, the script may add a new versioned
+  cache key but never replace an existing one. Detached or zombie OpenCode
+  server processes are logged and ignored. Native Windows keeps the analogous
+  host plugin-refresh hook excluded from applies.
 - Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
 
 `@ansible/ansible-mcp-server` is installed from this npm package list. During

@@ -108,6 +108,8 @@ Documents/PowerShell
 !/.chezmoiscripts/browser-policies.ps1
 !/.chezmoiscripts/install_beads_kanban_bd_fixes.ps1
 !/.chezmoiscripts/install_codebase-memory-mcp.ps1
+!/.chezmoiscripts/claude_mcp_servers.ps1
+!/.chezmoiscripts/install_plannotator.ps1
 
 # Windows specific paths
 !/.config/

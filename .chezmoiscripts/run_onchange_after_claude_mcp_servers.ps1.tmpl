@@ -8,10 +8,13 @@ $ErrorActionPreference = "Stop"
 $ConfigPath = Join-Path "{{ .chezmoi.sourceDir }}" "configs\claude-mcp.json"
 $CurrentPlatform = "windows"
 
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+$ClaudeCommand = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue |
+  Select-Object -First 1
+if ($null -eq $ClaudeCommand) {
   Write-Host "INFO: claude command not found; skipping Claude MCP configuration."
   exit 0
 }
+$ClaudePath = $ClaudeCommand.Source
 
 function Get-JsonProperty {
   param(
@@ -64,12 +67,24 @@ function Resolve-ExecutablePath {
 function Invoke-Claude {
   param([Parameter(Mandatory=$true)] [string[]] $Arguments)
 
-  $output = & claude @Arguments 2>&1
-  $exitCode = $LASTEXITCODE
-  if ($null -eq $exitCode) { $exitCode = 0 }
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    # Windows PowerShell 5.1 promotes native stderr to a terminating error when
+    # the caller uses Stop. Keep stderr in the captured output and inspect the
+    # native exit code instead.
+    $ErrorActionPreference = "Continue"
+    $output = & $ClaudePath @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($null -eq $exitCode) {
+    throw "claude did not report a native exit code."
+  }
 
   return [pscustomobject]@{
-    ExitCode = $exitCode
+    ExitCode = [int]$exitCode
     Output = (($output | Out-String).TrimEnd())
   }
 }

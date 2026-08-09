@@ -2,91 +2,238 @@
 {{- /* not Windows: do nothing */ -}}
 {{- else -}}
 # Install or upgrade the plannotator CLI to the version pinned in
-# .chezmoidata.yaml. The pinned value is interpolated below as the change
-# trigger -- bumping it (e.g. via Renovate) causes chezmoi to re-run this
-# script.
+# .chezmoidata.yaml. Bumping the pin changes the rendered script and causes
+# chezmoi to run it again.
 #
 # WSL2 is handled by ansible/wsl-playbook.yml. macOS is handled by the
 # matching .sh.tmpl. Dev Containers install plannotator from their
 # postCreate.sh using $PLANNOTATOR_VERSION.
+# This hook owns only the native Windows binary. Plugin and agent state remains
+# under the repo's declarative configuration; do not run upstream install.ps1.
 #
-# Change trigger (chezmoi re-runs on hash change):
+# Change trigger:
 # plannotator_version: {{ .plannotator_version }}
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference    = "SilentlyContinue"
 
 $PlannotatorVersion = "{{ .plannotator_version }}"
 $Repo               = "backnotprop/plannotator"
-$InstallDir         = Join-Path $HOME ".local\bin"
+$InstallDir         = Join-Path $HOME ".local"
 $BinPath            = Join-Path $InstallDir "plannotator.exe"
+$DryRun             = -not [string]::IsNullOrWhiteSpace($env:PLANNOTATOR_INSTALL_DRY_RUN)
 
 if ([string]::IsNullOrWhiteSpace($PlannotatorVersion)) {
-  Write-Host "plannotator_version is empty in .chezmoidata.yaml; skipping install."
-  exit 0
+  throw "plannotator_version is empty in .chezmoidata.yaml"
 }
 
-# Upstream publishes only a win-x64 build. ARM64 Windows runs x64 via
-# emulation so we still install the same asset; fail loudly only if we
-# detect something genuinely unsupported.
-$Arch = $env:PROCESSOR_ARCHITECTURE
-switch ($Arch) {
-  'AMD64' { $PlannotatorArch = 'x64' }
-  'ARM64' { $PlannotatorArch = 'x64' ; Write-Host "Windows ARM64 detected; installing x64 build (runs via emulation)." }
-  default {
-    throw "Unsupported Windows architecture for plannotator: $Arch"
-  }
-}
+function Get-NativeReleaseArchitecture {
+  $architecture = ""
 
-$Asset   = "plannotator-win-$PlannotatorArch.exe"
-$BaseUrl = "https://github.com/$Repo/releases/download/v$PlannotatorVersion"
-
-function Get-InstalledPlannotatorVersion {
-  if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) {
-    return ''
-  }
   try {
-    $out = & $BinPath --version 2>$null
+    $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
   } catch {
-    return ''
+    # RuntimeInformation is unavailable on some older Windows PowerShell hosts.
   }
-  if (-not $out) { return '' }
-  $match = [regex]::Match(($out -join "`n"), '\d+\.\d+\.\d+')
-  if ($match.Success) { return $match.Value } else { return '' }
+
+  if ([string]::IsNullOrWhiteSpace($architecture)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
+      $architecture = $env:PROCESSOR_ARCHITEW6432
+    } else {
+      $architecture = $env:PROCESSOR_ARCHITECTURE
+    }
+  }
+
+  switch ($architecture) {
+    "X64"   { return "x64" }
+    "AMD64" { return "x64" }
+    "ARM64" { return "arm64" }
+    default  { throw "Unsupported Windows architecture for plannotator: $architecture" }
+  }
 }
 
-$Installed = Get-InstalledPlannotatorVersion
-if ($Installed -eq $PlannotatorVersion) {
-  Write-Host "plannotator $Installed already installed; nothing to do."
+function Get-PlannotatorVersion {
+  param([Parameter(Mandatory)][string] $Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return ""
+  }
+
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $versionOutput = @(& $Path --version 2>$null)
+    $exitCode = $LASTEXITCODE
+  } catch {
+    return ""
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($null -eq $exitCode -or $exitCode -ne 0) {
+    return ""
+  }
+
+  $versionText = $versionOutput -join "`n"
+  $versionMatch = [regex]::Match(
+    $versionText,
+    '(?<!\d)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![0-9A-Za-z.-])'
+  )
+
+  if ($versionMatch.Success) {
+    return $versionMatch.Groups[1].Value
+  }
+
+  return ""
+}
+
+function Move-FileWithRetry {
+  param(
+    [Parameter(Mandatory)][string] $Source,
+    [Parameter(Mandatory)][string] $Destination,
+    [int] $Attempts = 6
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    try {
+      Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
+      return
+    } catch {
+      $lastError = $_
+      if ($attempt -lt $Attempts) {
+        Start-Sleep -Milliseconds (250 * $attempt)
+      }
+    }
+  }
+
+  throw "Could not move '$Source' to '$Destination': $($lastError.Exception.Message)"
+}
+
+function Remove-RetiredBinaries {
+  param([Parameter(Mandatory)][string] $Directory)
+
+  Get-ChildItem -LiteralPath $Directory -Filter "plannotator.exe.retired-*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
+$ReleaseArchitecture = Get-NativeReleaseArchitecture
+$Asset                = "plannotator-win32-$ReleaseArchitecture.exe"
+$BaseUrl              = "https://github.com/$Repo/releases/download/v$PlannotatorVersion"
+$InstalledVersion     = Get-PlannotatorVersion -Path $BinPath
+
+if ($DryRun) {
+  Write-Host "INFO: Pinned version: $PlannotatorVersion"
+  Write-Host "INFO: Native Windows architecture: $ReleaseArchitecture"
+  Write-Host "INFO: Release asset: $BaseUrl/$Asset"
+  Write-Host "INFO: Destination: $BinPath"
+  if ($InstalledVersion -eq $PlannotatorVersion) {
+    Write-Host "INFO: Installed version already matches; no changes would be made."
+  } elseif ($InstalledVersion) {
+    Write-Host "INFO: Would update plannotator from $InstalledVersion to $PlannotatorVersion."
+  } else {
+    Write-Host "INFO: Would install plannotator $PlannotatorVersion."
+  }
   exit 0
 }
 
-if ($Installed) {
-  Write-Host "Updating plannotator: $Installed -> $PlannotatorVersion"
+if ($InstalledVersion -eq $PlannotatorVersion) {
+  Remove-RetiredBinaries -Directory $InstallDir
+  Write-Host "plannotator $InstalledVersion already installed; nothing to do."
+  exit 0
+}
+
+if ($InstalledVersion) {
+  Write-Host "Updating plannotator: $InstalledVersion -> $PlannotatorVersion"
 } else {
   Write-Host "Installing plannotator $PlannotatorVersion..."
 }
 
+$TempDir          = Join-Path ([System.IO.Path]::GetTempPath()) ("plannotator-" + [System.Guid]::NewGuid().ToString("N"))
+$TempBinaryPath   = Join-Path $TempDir $Asset
+$ChecksumPath     = Join-Path $TempDir "$Asset.sha256"
+$StagedPath       = $BinPath + ".new-" + [System.Guid]::NewGuid().ToString("N")
+$RetiredPath      = $null
+$InstallSucceeded = $false
+
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
-$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("plannotator-" + [System.Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 try {
-  $TmpBin = Join-Path $TmpDir $Asset
-  $TmpSha = "$TmpBin.sha256"
+  Invoke-WebRequest -Uri "$BaseUrl/$Asset.sha256" -OutFile $ChecksumPath -UseBasicParsing
+  Invoke-WebRequest -Uri "$BaseUrl/$Asset" -OutFile $TempBinaryPath -UseBasicParsing
 
-  Invoke-WebRequest -Uri "$BaseUrl/$Asset.sha256" -OutFile $TmpSha -UseBasicParsing
-  Invoke-WebRequest -Uri "$BaseUrl/$Asset"        -OutFile $TmpBin -UseBasicParsing
-
-  $ExpectedSha = ((Get-Content -LiteralPath $TmpSha -Raw) -split '\s+')[0].ToLower()
-  $ActualSha   = (Get-FileHash -LiteralPath $TmpBin -Algorithm SHA256).Hash.ToLower()
-
-  if ($ExpectedSha -ne $ActualSha) {
-    throw "SHA256 mismatch for $Asset (expected $ExpectedSha, got $ActualSha)"
+  $checksumPattern = '^(?<sha>[0-9A-Fa-f]{64})\s+\*?' + [regex]::Escape($Asset) + '\s*$'
+  $checksumMatches = @()
+  foreach ($line in (Get-Content -LiteralPath $ChecksumPath)) {
+    $lineMatch = [regex]::Match($line, $checksumPattern)
+    if ($lineMatch.Success) {
+      $checksumMatches += $lineMatch.Groups["sha"].Value.ToLowerInvariant()
+    }
   }
 
-  Move-Item -Force -LiteralPath $TmpBin -Destination $BinPath
+  if ($checksumMatches.Count -ne 1) {
+    throw "Expected exactly one valid SHA-256 entry for $Asset; found $($checksumMatches.Count)"
+  }
+
+  $ExpectedSha = $checksumMatches[0]
+  $ActualSha   = (Get-FileHash -LiteralPath $TempBinaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($ExpectedSha -ne $ActualSha) {
+    throw "SHA-256 mismatch for $Asset (expected $ExpectedSha, got $ActualSha)"
+  }
+
+  $CandidateVersion = Get-PlannotatorVersion -Path $TempBinaryPath
+  if ($CandidateVersion -ne $PlannotatorVersion) {
+    throw "Downloaded binary reported version '$CandidateVersion'; expected '$PlannotatorVersion'"
+  }
+
+  Copy-Item -LiteralPath $TempBinaryPath -Destination $StagedPath -ErrorAction Stop
+
+  if (Test-Path -LiteralPath $BinPath -PathType Leaf) {
+    $RetiredPath = $BinPath + ".retired-" + (Get-Date -Format "yyyyMMddHHmmss") + "-" + [System.Guid]::NewGuid().ToString("N")
+    try {
+      Move-FileWithRetry -Source $BinPath -Destination $RetiredPath
+    } catch {
+      throw "Could not replace plannotator because the current executable may be in use. Close Plannotator and retry; the installed version was left intact. $($_.Exception.Message)"
+    }
+  }
+
+  try {
+    Move-FileWithRetry -Source $StagedPath -Destination $BinPath
+    $PublishedVersion = Get-PlannotatorVersion -Path $BinPath
+    if ($PublishedVersion -ne $PlannotatorVersion) {
+      throw "Installed binary reported version '$PublishedVersion'; expected '$PlannotatorVersion'"
+    }
+  } catch {
+    $installError = $_
+    $rollbackError = $null
+
+    try {
+      if (Test-Path -LiteralPath $BinPath -PathType Leaf) {
+        Remove-Item -LiteralPath $BinPath -Force -ErrorAction Stop
+      }
+      if ($RetiredPath -and (Test-Path -LiteralPath $RetiredPath -PathType Leaf)) {
+        Move-FileWithRetry -Source $RetiredPath -Destination $BinPath
+      }
+    } catch {
+      $rollbackError = $_
+    }
+
+    if ($rollbackError) {
+      throw "plannotator installation failed: $($installError.Exception.Message). Rollback also failed: $($rollbackError.Exception.Message)"
+    }
+    throw $installError
+  }
+
+  $InstallSucceeded = $true
   Write-Host "plannotator $PlannotatorVersion installed to $BinPath"
 } finally {
-  Remove-Item -Recurse -Force -LiteralPath $TmpDir -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $StagedPath -PathType Leaf) {
+    Remove-Item -LiteralPath $StagedPath -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+  if ($InstallSucceeded) {
+    Remove-RetiredBinaries -Directory $InstallDir
+  }
 }
-{{- end }}
+{{- end -}}

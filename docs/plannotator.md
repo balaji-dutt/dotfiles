@@ -78,6 +78,37 @@ Dry-run output reports the selected profile and native range; it does not probe
 or reserve an individual port. Start a fresh shell after applying this change so
 the old comma-separated `PLANNOTATOR_PORTS_*` values are not inherited.
 
+## Native Windows CLI provisioning
+
+Native Windows admits a binary-only onchange hook that installs the
+Renovate-pinned Plannotator release as `~/.local/plannotator.exe`.
+`windows-bootstrap.ps1` already owns `~/.local` in the user and apply-process
+`PATH`. The hook selects the upstream `win32-x64` or `win32-arm64` asset, requires
+the matching `.sha256` sidecar entry, verifies the downloaded candidate, and
+checks its reported version before publication.
+
+This path intentionally differs from Plannotator's upstream Windows installer.
+The hook downloads only the CLI binary; it does not run upstream `install.ps1`
+or modify Claude Code/OpenCode plugins, agents, skills, or MCP configuration.
+Those remain declarative dotfiles state.
+
+Publication uses a staged executable and retires the current binary only long
+enough to validate the replacement. A failed publication rolls the prior binary
+back. Windows does not permit replacing an executable that is still running; if
+that lock is detected, close Plannotator and retry `chezmoi apply`. The existing
+binary is left intact for that retry.
+
+Set `PLANNOTATOR_INSTALL_DRY_RUN=1` before the hook runs to report the pinned
+version, native architecture, release URL, and destination without creating
+directories, downloading, or publishing. After a real first installation,
+restart terminals, OpenCode, and Claude Code that inherited the old `PATH`, then
+verify from a fresh PowerShell process:
+
+```powershell
+Get-Command plannotator
+plannotator --version
+```
+
 ## Claude Code
 
 Claude Code enables the Plannotator plugin through `~/.claude/settings.json`.
