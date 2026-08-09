@@ -17,9 +17,9 @@ callers apply it:
 - The homelab-IaC devcontainer, which runs the same
   `assets/claude-mcp-apply.py` against the same config over its read-only
   `/tmp/host-dotfiles` mount. See "Dev Container registration" below.
-- `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`, a separate
-  PowerShell implementation of the same schema. See "Native Windows" below for
-  why it does not currently run.
+- `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl` on native
+  Windows applies, a separate PowerShell implementation of the same schema. See
+  "Native Windows" below.
 
 The repo does not manage `~/.claude.json` directly because that file is
 stateful and may contain Claude session, project, or authentication state.
@@ -42,7 +42,7 @@ Each entry under `servers` is keyed by the MCP server name:
       "scope": "user",
       "transport": "stdio",
       "command": "codebase-memory-mcp",
-      "platforms": ["darwin", "linux", "wsl2"],
+      "platforms": ["darwin", "linux", "wsl2", "windows"],
       "replace": false
     },
     "deepwiki": {
@@ -175,18 +175,24 @@ Containers share the host kernel, so the applier's platform detection reads the
 *host* kernel release from inside the container: a WSL2-hosted container reports
 `wsl2`, while a macOS-hosted (OrbStack) one reports `linux`. An entry meant for
 the devcontainer therefore needs **both** `linux` and `wsl2` listed, which is why
-`cbm` carries `["darwin", "linux", "wsl2"]`. Omitting either would silently skip
-the container on one of the two supported hosts.
+`cbm`'s `platforms` carries both. Omitting either would silently skip the
+container on one of the two supported hosts.
 
 ## Native Windows
 
-`.chezmoiignore` does not whitelist `claude_mcp_servers.ps1`, so native Windows
-applies register no Claude MCP servers at all — not DeepWiki and not cbm. The
-`cbm` entry carries `platforms: ["darwin", "linux", "wsl2"]` to record that
-intent explicitly.
+`.chezmoiignore` whitelists `claude_mcp_servers.ps1`, so native Windows applies
+register both DeepWiki and cbm. The `cbm` entry lists `windows` in `platforms`,
+and `codebase-memory-mcp` resolves from `~/.local` on `PATH`, so the bare
+`command` starts.
 
-Register cbm by hand on native Windows if the main session needs it (the binary
-is already on `PATH` from `~/.local`):
+The PowerShell hook parses the config with `ConvertFrom-Json`. Read list-valued
+keys through `Get-JsonProperty`, which wraps arrays with a unary comma: a bare
+`return @()` would enumerate the array away and hand the caller `$null`, and a
+one-element list would collapse to a scalar string that the `string list`
+validation then rejects.
+
+If the hook is skipped (no `claude` on `PATH` during the apply), register cbm by
+hand:
 
 ```powershell
 claude mcp add --transport stdio --scope user cbm -- codebase-memory-mcp

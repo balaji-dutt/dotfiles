@@ -5,7 +5,7 @@
       "scope": "user",
       "transport": "stdio",
       "command": "codebase-memory-mcp",
-      "platforms": ["darwin", "linux", "wsl2"],
+      "platforms": ["darwin", "linux", "wsl2", "windows"],
       "replace": false
     },
     "deepwiki": {

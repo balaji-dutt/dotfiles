@@ -107,16 +107,17 @@ testing command-name resolution.
 The existing OpenCode configuration and the `agent-engineer` /
 `special-builder` Claude subagents invoke `codebase-memory-mcp` directly, so they
 need no client registration. Claude Code's **main session** does need one, and
-because `claude_mcp_servers.ps1` stays ignored on Windows (see the table below)
-no chezmoi apply performs it. Register it once by hand if you want `cbm` in
-`/mcp` on native Windows:
+`claude_mcp_servers.ps1` performs it on apply (see the table below) because the
+`cbm` entry in `configs/claude-mcp.json` lists `windows` in `platforms`. macOS,
+WSL2, and the Dev Container use the same config; see
+`docs/automation/claude-mcp.md`.
+
+The hook skips with an `INFO:` line when `claude` is not on `PATH` during the
+apply. Register it by hand in that case:
 
 ```powershell
 claude mcp add --transport stdio --scope user cbm -- codebase-memory-mcp
 ```
-
-macOS, WSL2, and the Dev Container get this automatically from
-`configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
 
 Unless `CBM_CACHE_DIR` is set at runtime, the standard v0.9.0 binary keeps its
 unmanaged databases, configuration, and logs under

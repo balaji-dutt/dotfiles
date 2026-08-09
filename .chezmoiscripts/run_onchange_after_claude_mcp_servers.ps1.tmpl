@@ -23,9 +23,17 @@ function Get-JsonProperty {
     $Default = $null
   )
 
+  # PowerShell enumerates arrays written to the output stream, so a bare
+  # `return @()` yields $null and a one-element list collapses to a scalar.
   $property = $Object.PSObject.Properties[$Name]
-  if ($null -eq $property) { return $Default }
-  return $property.Value
+  if ($null -eq $property) {
+    if ($Default -is [array]) { return ,$Default }
+    return $Default
+  }
+
+  $value = $property.Value
+  if ($value -is [array]) { return ,$value }
+  return $value
 }
 
 function Test-StringList {

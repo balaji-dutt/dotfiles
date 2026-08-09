@@ -12,9 +12,9 @@ templated. Two callers consume it:
 
 Native Windows does not use this helper. It has a parallel PowerShell
 implementation of the same schema in
-.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl, but that hook is
-not whitelisted in .chezmoiignore, so no Windows apply currently registers Claude
-MCP servers. See docs/automation/claude-mcp.md.
+.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl, which is
+whitelisted in .chezmoiignore and runs on Windows applies. Keep the two in sync.
+See docs/automation/claude-mcp.md.
 
 Usage:
   claude-mcp-apply.py <path-to-claude-mcp.json>
