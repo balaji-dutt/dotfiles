@@ -91,7 +91,7 @@ function Get-ClaudePlugins {
   return $parsed
 }
 
-function Get-OpenCodePackages {
+function Get-OpenCodePlugins {
   param([Parameter(Mandatory=$true)] $Manifest)
 
   $opencode = Get-JsonProperty $Manifest "opencode"
@@ -106,7 +106,7 @@ function Get-OpenCodePackages {
     exit 1
   }
 
-  $packages = @()
+  $parsed = @()
   foreach ($plugin in @($plugins)) {
     $package = Get-JsonProperty $plugin "package"
     $enabled = Get-JsonProperty $plugin "enabled" $true
@@ -118,9 +118,69 @@ function Get-OpenCodePackages {
       Write-Host "ERROR: OpenCode package enabled must be a boolean."
       exit 1
     }
-    if ($enabled) { $packages += $package }
+    if (-not $enabled) { continue }
+
+    $cacheInstall = Get-JsonProperty $plugin "cacheInstall"
+    $parsedInstall = $null
+    if ($null -ne $cacheInstall) {
+      if ($cacheInstall -isnot [System.Management.Automation.PSCustomObject]) {
+        Write-Host "ERROR: OpenCode cacheInstall must be an object."
+        exit 1
+      }
+
+      $version = Get-JsonProperty $plugin "version"
+      if ($version -isnot [string] -or [string]::IsNullOrWhiteSpace($version)) {
+        Write-Host "ERROR: OpenCode package version must be a non-empty string when cacheInstall is configured."
+        exit 1
+      }
+      $legacyPeerDeps = Get-JsonProperty $cacheInstall "legacyPeerDeps" $false
+      $ignoreScripts = Get-JsonProperty $cacheInstall "ignoreScripts" $true
+      if ($legacyPeerDeps -isnot [bool]) {
+        Write-Host "ERROR: OpenCode cacheInstall legacyPeerDeps must be a boolean."
+        exit 1
+      }
+      if ($ignoreScripts -isnot [bool]) {
+        Write-Host "ERROR: OpenCode cacheInstall ignoreScripts must be a boolean."
+        exit 1
+      }
+
+      $dependencies = Get-JsonProperty $cacheInstall "dependencies" @()
+      if (-not (Test-ObjectList $dependencies)) {
+        Write-Host "ERROR: OpenCode cacheInstall dependencies must be a list."
+        exit 1
+      }
+      $parsedDependencies = @()
+      foreach ($dependency in @($dependencies)) {
+        $dependencyPackage = Get-JsonProperty $dependency "package"
+        $dependencyVersion = Get-JsonProperty $dependency "version"
+        if ($dependencyPackage -isnot [string] -or [string]::IsNullOrWhiteSpace($dependencyPackage)) {
+          Write-Host "ERROR: OpenCode cacheInstall dependency package must be a non-empty string."
+          exit 1
+        }
+        if ($dependencyVersion -isnot [string] -or [string]::IsNullOrWhiteSpace($dependencyVersion)) {
+          Write-Host "ERROR: OpenCode cacheInstall dependency version must be a non-empty string."
+          exit 1
+        }
+        $parsedDependencies += [pscustomobject]@{
+          Package = $dependencyPackage
+          Version = $dependencyVersion
+        }
+      }
+
+      $parsedInstall = [pscustomobject]@{
+        LegacyPeerDeps = $legacyPeerDeps
+        IgnoreScripts = $ignoreScripts
+        Dependencies = $parsedDependencies
+      }
+    }
+
+    $parsed += [pscustomobject]@{
+      Package = $package
+      Version = (Get-JsonProperty $plugin "version")
+      CacheInstall = $parsedInstall
+    }
   }
-  return $packages
+  return $parsed
 }
 
 function Update-ClaudePlugins {
@@ -276,20 +336,150 @@ function Get-CachedOpenCodeVersions {
   return [pscustomobject]@{ Detections = $detections; Missing = $missing }
 }
 
+
+function Get-OpenCodeCachePackageDir {
+  param(
+    [Parameter(Mandatory=$true)] [string] $PackagesDir,
+    [Parameter(Mandatory=$true)] [string] $Package,
+    [Parameter(Mandatory=$true)] [string] $Version
+  )
+
+  $segments = @($Package -split "/")
+  $segments[$segments.Count - 1] = "$($segments[$segments.Count - 1])@$Version"
+  $result = $PackagesDir
+  foreach ($segment in $segments) { $result = Join-Path $result $segment }
+  return $result
+}
+
+
+function Get-InstalledOpenCodePackageVersion {
+  param(
+    [Parameter(Mandatory=$true)] [string] $InstallDir,
+    [Parameter(Mandatory=$true)] [string] $Package
+  )
+
+  $packageJson = Join-Path $InstallDir "node_modules"
+  foreach ($segment in @($Package -split "/")) { $packageJson = Join-Path $packageJson $segment }
+  $packageJson = Join-Path $packageJson "package.json"
+  if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) { return $null }
+  try {
+    $data = Get-Content -Raw -LiteralPath $packageJson | ConvertFrom-Json
+    return (Get-JsonProperty $data "version")
+  } catch {
+    return $null
+  }
+}
+
+
+function Test-OpenCodeCacheInstallSatisfied {
+  param(
+    [Parameter(Mandatory=$true)] [string] $InstallDir,
+    [Parameter(Mandatory=$true)] $Plugin
+  )
+
+  $installed = Get-InstalledOpenCodePackageVersion -InstallDir $InstallDir -Package $Plugin.Package
+  if ($installed -cne $Plugin.Version) { return $false }
+  foreach ($dependency in @($Plugin.CacheInstall.Dependencies)) {
+    $installed = Get-InstalledOpenCodePackageVersion -InstallDir $InstallDir -Package $dependency.Package
+    if ($installed -cne $dependency.Version) { return $false }
+  }
+  return $true
+}
+
+
+function Install-OpenCodeCachePlugin {
+  param(
+    [Parameter(Mandatory=$true)] [string] $PackagesDir,
+    [Parameter(Mandatory=$true)] $Plugin,
+    [Parameter(Mandatory=$true)] [bool] $Running,
+    [Parameter(Mandatory=$true)] [bool] $CacheWillBeRemoved
+  )
+
+  $targetDir = Get-OpenCodeCachePackageDir -PackagesDir $PackagesDir -Package $Plugin.Package -Version $Plugin.Version
+  if (-not ($DryRun -and $CacheWillBeRemoved) -and (Test-OpenCodeCacheInstallSatisfied -InstallDir $targetDir -Plugin $Plugin)) {
+    Write-Host "INFO: OpenCode cache install already satisfied for $($Plugin.Package)@$($Plugin.Version): $targetDir"
+    return
+  }
+
+  if ($Running -and (Test-Path -LiteralPath $targetDir)) {
+    Write-Host "ERROR: OpenCode is running and the existing compatibility cache is incomplete: $targetDir"
+    Write-Host "ERROR: Exit OpenCode and apply the dotfiles again to replace it safely."
+    exit 1
+  }
+  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: npm is required for the configured OpenCode cache install $($Plugin.Package)@$($Plugin.Version)."
+    exit 1
+  }
+
+  $targetParent = Split-Path -Parent $targetDir
+  $targetLeaf = Split-Path -Leaf $targetDir
+  $stagingDir = Join-Path $targetParent ".$targetLeaf.installing-$PID"
+  $specs = @("$($Plugin.Package)@$($Plugin.Version)")
+  foreach ($dependency in @($Plugin.CacheInstall.Dependencies)) {
+    $specs += "$($dependency.Package)@$($dependency.Version)"
+  }
+  $arguments = @("install", "--prefix", $stagingDir)
+  if ($Plugin.CacheInstall.IgnoreScripts) { $arguments += "--ignore-scripts" }
+  if ($Plugin.CacheInstall.LegacyPeerDeps) { $arguments += "--legacy-peer-deps" }
+  $arguments += $specs
+
+  if ($DryRun) {
+    Write-Host "INFO: Would stage OpenCode compatibility cache: npm $($arguments -join ' ')"
+    Write-Host "INFO: Would publish OpenCode compatibility cache: $targetDir"
+    return
+  }
+
+  New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+  if (Test-Path -LiteralPath $stagingDir) {
+    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+  }
+  Write-Host "INFO: Staging OpenCode compatibility cache for $($Plugin.Package)@$($Plugin.Version)."
+  $install = Invoke-External -Command "npm" -Arguments $arguments
+  if ($install.ExitCode -ne 0) {
+    if (Test-Path -LiteralPath $stagingDir) { Remove-Item -LiteralPath $stagingDir -Recurse -Force }
+    Write-Host "ERROR: Failed to install OpenCode compatibility cache for $($Plugin.Package)@$($Plugin.Version)."
+    if ($install.Output) { Write-Host $install.Output }
+    exit $install.ExitCode
+  }
+  if (-not (Test-OpenCodeCacheInstallSatisfied -InstallDir $stagingDir -Plugin $Plugin)) {
+    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+    Write-Host "ERROR: Staged OpenCode compatibility cache failed version validation for $($Plugin.Package)@$($Plugin.Version)."
+    exit 1
+  }
+
+  if ($Running -and (Test-Path -LiteralPath $targetDir)) {
+    if (Test-OpenCodeCacheInstallSatisfied -InstallDir $targetDir -Plugin $Plugin) {
+      Remove-Item -LiteralPath $stagingDir -Recurse -Force
+      Write-Host "INFO: OpenCode populated the compatibility cache during installation; keeping: $targetDir"
+      return
+    }
+    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+    Write-Host "ERROR: OpenCode populated an incomplete compatibility cache during installation: $targetDir"
+    Write-Host "ERROR: Exit OpenCode and apply the dotfiles again to replace it safely."
+    exit 1
+  }
+  if (Test-Path -LiteralPath $targetDir) { Remove-Item -LiteralPath $targetDir -Recurse -Force }
+  Move-Item -LiteralPath $stagingDir -Destination $targetDir
+  Write-Host "INFO: Published OpenCode compatibility cache: $targetDir"
+}
+
+
 function Update-OpenCodeCache {
-  param([Parameter(Mandatory=$true)] [string[]] $Packages)
+  param([Parameter(Mandatory=$true)] [object[]] $Plugins)
 
   $cacheRoot = Get-OpenCodeCacheRoot
   $packagesDir = Join-Path $cacheRoot "packages"
+  $packages = @($Plugins | ForEach-Object { $_.Package })
   $processes = @(Get-OpenCodeProcessDetails)
   $running = $processes.Count -gt 0
+  $cacheWillBeRemoved = -not $running -and (Test-Path -LiteralPath $packagesDir)
 
   Write-Host "INFO: OpenCode cache root: $cacheRoot"
   Write-Host "INFO: OpenCode packages cache exists: $(if (Test-Path -LiteralPath $packagesDir -PathType Container) { 'yes' } else { 'no' })"
   Write-Host "INFO: OpenCode blocking session: $(if ($running) { 'yes' } else { 'no' })"
   Write-OpenCodeProcessDetails -Processes $processes
 
-  $versions = Get-CachedOpenCodeVersions -PackagesDir $packagesDir -Packages $Packages
+  $versions = Get-CachedOpenCodeVersions -PackagesDir $packagesDir -Packages $packages
   if ($versions.Detections.Count -gt 0) {
     Write-Host "INFO: Detected cached OpenCode plugin versions:"
     foreach ($detection in $versions.Detections) {
@@ -304,21 +494,21 @@ function Update-OpenCodeCache {
 
   if ($running) {
     Write-Host "INFO: OpenCode blocking session detected; not removing package cache."
-    return
-  }
-
-  if (-not (Test-Path -LiteralPath $packagesDir)) {
+  } elseif (-not (Test-Path -LiteralPath $packagesDir)) {
     Write-Host "INFO: OpenCode packages cache is absent; nothing to remove."
-    return
-  }
-
-  if ($DryRun) {
+  } elseif ($DryRun) {
     Write-Host "INFO: Would remove OpenCode packages cache: $packagesDir"
-    return
+  } else {
+    Write-Host "INFO: Removing OpenCode packages cache: $packagesDir"
+    Remove-Item -LiteralPath $packagesDir -Recurse -Force
   }
 
-  Write-Host "INFO: Removing OpenCode packages cache: $packagesDir"
-  Remove-Item -LiteralPath $packagesDir -Recurse -Force
+  foreach ($plugin in $Plugins) {
+    if ($null -ne $plugin.CacheInstall) {
+      Install-OpenCodeCachePlugin -PackagesDir $packagesDir -Plugin $plugin -Running $running -CacheWillBeRemoved $cacheWillBeRemoved
+    }
+  }
+
   Write-Host "INFO: Launch or restart OpenCode to repopulate the plugin cache."
 }
 
@@ -330,5 +520,5 @@ try {
 }
 
 Update-ClaudePlugins -Plugins @(Get-ClaudePlugins -Manifest $manifest)
-Update-OpenCodeCache -Packages @(Get-OpenCodePackages -Manifest $manifest)
+Update-OpenCodeCache -Plugins @(Get-OpenCodePlugins -Manifest $manifest)
 {{- end -}}

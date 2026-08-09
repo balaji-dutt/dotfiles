@@ -14,6 +14,7 @@ fi
 python3 - "$config_path" <<'PY'
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -135,7 +136,7 @@ def claude_plugins(manifest):
     return parsed
 
 
-def opencode_packages(manifest):
+def opencode_plugins(manifest):
     opencode = require_object(manifest.get("opencode", {}), "opencode")
     plugins = require_list(opencode.get("plugins", []), "opencode.plugins")
     parsed = []
@@ -149,8 +150,79 @@ def opencode_packages(manifest):
         if not isinstance(enabled, bool):
             print(f"ERROR: opencode.plugins[{index}].enabled must be a boolean.")
             sys.exit(1)
-        if enabled:
-            parsed.append(package)
+        if not enabled:
+            continue
+
+        cache_install = plugin.get("cacheInstall")
+        parsed_install = None
+        if cache_install is not None:
+            cache_install = require_object(
+                cache_install, f"opencode.plugins[{index}].cacheInstall"
+            )
+            version = plugin.get("version")
+            if not isinstance(version, str) or not version.strip():
+                print(
+                    f"ERROR: opencode.plugins[{index}].version must be a "
+                    "non-empty string when cacheInstall is configured."
+                )
+                sys.exit(1)
+            legacy_peer_deps = cache_install.get("legacyPeerDeps", False)
+            ignore_scripts = cache_install.get("ignoreScripts", True)
+            if not isinstance(legacy_peer_deps, bool):
+                print(
+                    f"ERROR: opencode.plugins[{index}].cacheInstall."
+                    "legacyPeerDeps must be a boolean."
+                )
+                sys.exit(1)
+            if not isinstance(ignore_scripts, bool):
+                print(
+                    f"ERROR: opencode.plugins[{index}].cacheInstall."
+                    "ignoreScripts must be a boolean."
+                )
+                sys.exit(1)
+
+            dependencies = require_list(
+                cache_install.get("dependencies", []),
+                f"opencode.plugins[{index}].cacheInstall.dependencies",
+            )
+            parsed_dependencies = []
+            for dependency_index, dependency in enumerate(dependencies, start=1):
+                dependency = require_object(
+                    dependency,
+                    f"opencode.plugins[{index}].cacheInstall.dependencies"
+                    f"[{dependency_index}]",
+                )
+                dependency_package = dependency.get("package")
+                dependency_version = dependency.get("version")
+                if not isinstance(dependency_package, str) or not dependency_package.strip():
+                    print(
+                        f"ERROR: opencode.plugins[{index}].cacheInstall.dependencies"
+                        f"[{dependency_index}].package must be a non-empty string."
+                    )
+                    sys.exit(1)
+                if not isinstance(dependency_version, str) or not dependency_version.strip():
+                    print(
+                        f"ERROR: opencode.plugins[{index}].cacheInstall.dependencies"
+                        f"[{dependency_index}].version must be a non-empty string."
+                    )
+                    sys.exit(1)
+                parsed_dependencies.append(
+                    {"package": dependency_package, "version": dependency_version}
+                )
+
+            parsed_install = {
+                "legacyPeerDeps": legacy_peer_deps,
+                "ignoreScripts": ignore_scripts,
+                "dependencies": parsed_dependencies,
+            }
+
+        parsed.append(
+            {
+                "package": package,
+                "version": plugin.get("version"),
+                "cacheInstall": parsed_install,
+            }
+        )
     return parsed
 
 
@@ -410,11 +482,135 @@ def detect_cached_versions(packages_dir, package_names):
     return detections, missing
 
 
-def refresh_opencode(package_names):
+def cache_package_dir(packages_dir, package_name, version):
+    parts = package_name.split("/")
+    parts[-1] = f"{parts[-1]}@{version}"
+    return packages_dir.joinpath(*parts)
+
+
+def installed_package_version(install_dir, package_name):
+    package_json = install_dir / "node_modules" / Path(*package_name.split("/")) / "package.json"
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data.get("version")
+
+
+def cache_install_satisfied(install_dir, plugin):
+    if installed_package_version(install_dir, plugin["package"]) != plugin["version"]:
+        return False
+    for dependency in plugin["cacheInstall"]["dependencies"]:
+        if (
+            installed_package_version(install_dir, dependency["package"])
+            != dependency["version"]
+        ):
+            return False
+    return True
+
+
+def install_opencode_cache_plugin(
+    packages_dir, plugin, running, cache_will_be_removed
+):
+    install = plugin["cacheInstall"]
+    target_dir = cache_package_dir(
+        packages_dir, plugin["package"], plugin["version"]
+    )
+    if not (dry_run and cache_will_be_removed) and cache_install_satisfied(
+        target_dir, plugin
+    ):
+        print(
+            f"INFO: OpenCode cache install already satisfied for "
+            f"{plugin['package']}@{plugin['version']}: {target_dir}"
+        )
+        return
+
+    if target_dir.exists() and running:
+        print(
+            "ERROR: OpenCode is running and the existing compatibility cache "
+            f"is incomplete: {target_dir}"
+        )
+        print("ERROR: Exit OpenCode and apply the dotfiles again to replace it safely.")
+        sys.exit(1)
+
+    if not command_exists("npm"):
+        print(
+            "ERROR: npm is required for the configured OpenCode cache install "
+            f"{plugin['package']}@{plugin['version']}."
+        )
+        sys.exit(1)
+
+    staging_dir = target_dir.parent / f".{target_dir.name}.installing-{os.getpid()}"
+    package_specs = [f"{plugin['package']}@{plugin['version']}"] + [
+        f"{dependency['package']}@{dependency['version']}"
+        for dependency in install["dependencies"]
+    ]
+    command = ["npm", "install", "--prefix", str(staging_dir)]
+    if install["ignoreScripts"]:
+        command.append("--ignore-scripts")
+    if install["legacyPeerDeps"]:
+        command.append("--legacy-peer-deps")
+    command.extend(package_specs)
+
+    if dry_run:
+        print("INFO: Would stage OpenCode compatibility cache: " + shlex.join(command))
+        print(f"INFO: Would publish OpenCode compatibility cache: {target_dir}")
+        return
+
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    print(
+        f"INFO: Staging OpenCode compatibility cache for "
+        f"{plugin['package']}@{plugin['version']}."
+    )
+    result = run_checked(command)
+    if result.returncode != 0:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        print(
+            f"ERROR: Failed to install OpenCode compatibility cache for "
+            f"{plugin['package']}@{plugin['version']}."
+        )
+        if result.stdout.strip():
+            print(result.stdout.rstrip())
+        sys.exit(result.returncode)
+
+    if not cache_install_satisfied(staging_dir, plugin):
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        print(
+            f"ERROR: Staged OpenCode compatibility cache failed version "
+            f"validation for {plugin['package']}@{plugin['version']}."
+        )
+        sys.exit(1)
+
+    if target_dir.exists() and running:
+        if cache_install_satisfied(target_dir, plugin):
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            print(
+                "INFO: OpenCode populated the compatibility cache during "
+                f"installation; keeping: {target_dir}"
+            )
+            return
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        print(
+            "ERROR: OpenCode populated an incomplete compatibility cache "
+            f"during installation: {target_dir}"
+        )
+        print("ERROR: Exit OpenCode and apply the dotfiles again to replace it safely.")
+        sys.exit(1)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    staging_dir.replace(target_dir)
+    print(f"INFO: Published OpenCode compatibility cache: {target_dir}")
+
+
+def refresh_opencode(plugins):
     cache_root = opencode_cache_root()
     packages_dir = cache_root / "packages"
+    package_names = [plugin["package"] for plugin in plugins]
     processes = opencode_processes()
     running = any(process["blocking"] for process in processes)
+    cache_will_be_removed = not running and packages_dir.exists()
 
     print(f"INFO: OpenCode cache root: {cache_root}")
     print(f"INFO: OpenCode packages cache exists: {'yes' if packages_dir.is_dir() else 'no'}")
@@ -433,24 +629,26 @@ def refresh_opencode(package_names):
 
     if running:
         print("INFO: OpenCode blocking session detected; not removing package cache.")
-        return
-
-    if not packages_dir.exists():
+    elif not packages_dir.exists():
         print("INFO: OpenCode packages cache is absent; nothing to remove.")
-        return
-
-    if dry_run:
+    elif dry_run:
         print(f"INFO: Would remove OpenCode packages cache: {packages_dir}")
-        return
+    else:
+        print(f"INFO: Removing OpenCode packages cache: {packages_dir}")
+        shutil.rmtree(packages_dir)
 
-    print(f"INFO: Removing OpenCode packages cache: {packages_dir}")
-    shutil.rmtree(packages_dir)
+    for plugin in plugins:
+        if plugin["cacheInstall"] is not None:
+            install_opencode_cache_plugin(
+                packages_dir, plugin, running, cache_will_be_removed
+            )
+
     print("INFO: Launch or restart OpenCode to repopulate the plugin cache.")
 
 
 manifest = require_object(load_manifest(), "manifest")
 refresh_claude(claude_plugins(manifest))
-refresh_opencode(opencode_packages(manifest))
+refresh_opencode(opencode_plugins(manifest))
 PY
 
 {{ end -}}

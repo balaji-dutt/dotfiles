@@ -129,16 +129,18 @@
     },
     {
       "matchManagers": ["custom.regex"],
-      "matchDepNames": ["@tarquinen/opencode-dcp"],
-      // DCP 3.1.14 cannot install its peers on OpenCode 1.18.x.
-      "allowedVersions": "!/^3\\.1\\.14$/"
-    },
-    {
-      "matchManagers": ["custom.regex"],
       "matchUpdateTypes": ["patch", "digest"],
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@tarquinen/opencode-dcp"],
+      // Keep server pins off 3.1.14. TUI configs opt in only with the managed
+      // peer workaround, and future DCP updates must remove or revise it.
+      "allowedVersions": "!/^3\\.1\\.14$/",
+      "automerge": false
     },
     {
       "matchManagers": ["custom.regex"],

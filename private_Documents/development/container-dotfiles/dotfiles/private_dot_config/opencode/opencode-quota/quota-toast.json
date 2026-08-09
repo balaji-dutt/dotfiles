@@ -16,6 +16,7 @@
   "tuiCompactStatus": {
     "enabled": true,
     "homeBottom": true,
-    "sessionPrompt": false
+    "sessionPrompt": false,
+    "suppressWhenNativeProviderQuota": false
   }
 }
