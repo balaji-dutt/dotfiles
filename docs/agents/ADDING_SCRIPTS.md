@@ -26,6 +26,16 @@ never templated. These live in `assets/` and are paired per platform (`*.sh` for
 macOS/Linux/WSL2, `*.ps1` for PowerShell 7) rather than using chezmoi's
 OS conditionals.
 
+A single cross-platform Python helper is an accepted alternative to the `*.sh` /
+`*.ps1` pair when both platforms would otherwise run identical logic, or when a
+chezmoi-applied script and something outside chezmoi (a devcontainer lifecycle
+hook, for example) must share one implementation. `sync-browser-policies.py` and
+`claude-mcp-apply.py` follow this shape; the latter is invoked both by the
+chezmoi hook `run_onchange_after_claude_mcp_servers.sh.tmpl` and by the
+homelab-IaC devcontainer over its read-only host mount. Such helpers still obey
+the rules above — repo-only, not templated, not applied to a target.
+
 Existing members: `cz-audit.sh` / `cz-audit.ps1`, `beads-sync.sh` /
-`beads-sync.ps1`, `agent-wt-merge`, and the `sync-*` scripts. See
-`assets/README.md` for their usage.
+`beads-sync.ps1`, `agent-wt-merge`, `claude-mcp-apply.py`,
+`sync-browser-policies.py`, and the `sync-*` scripts. See `assets/README.md` for
+their usage.

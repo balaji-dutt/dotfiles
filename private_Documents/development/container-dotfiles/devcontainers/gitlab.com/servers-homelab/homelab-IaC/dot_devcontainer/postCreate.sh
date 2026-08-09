@@ -672,6 +672,7 @@ done_step "Install plannotator CLI"
 step "Setup Claude config symlinks and permissions"
 ensure_claude_persistence_links
 install_claude_managed_asset_links
+register_claude_mcp_servers
 done_step "Setup Claude config symlinks and permissions"
 
 # --- 7) Source container env + dotfiles ---

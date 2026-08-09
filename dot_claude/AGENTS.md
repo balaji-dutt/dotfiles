@@ -59,6 +59,26 @@
   - touches secrets/credentials
 - If a command is needed, show the exact command and explain what it does and how to verify success.
 
+## Codebase Memory (MCP)
+
+The `cbm` MCP server (codebase-memory-mcp) is registered at user scope, so its
+tools are available in every session. It answers structural questions about an
+indexed repository; treat graph results as supporting evidence and verify
+important findings against the current source.
+
+- In an unfamiliar repository, call `get_graph_schema` once, then
+  `get_architecture`. For a specific task, use `search_graph` to find relevant
+  symbols and then `trace_path` on key entry points. After editing, use
+  `detect_changes` to assess affected symbols.
+- Skip it when grep or glob answers the question directly, when the change has
+  no structural impact, or when the repository is not indexed.
+- When indexing, pass `persistence: false` to `index_repository`. Without it CBM
+  exports a repository snapshot and may modify `.gitattributes` even when
+  `.codebase-memory/` is ignored.
+- **Never run `codebase-memory-mcp install`**, `uninstall`, or `update`. Chezmoi
+  owns both the binary and the MCP client configuration; the upstream installer
+  rewrites managed settings, skills, hooks, and agents.
+
 ## Commit workflow
 
 - **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.

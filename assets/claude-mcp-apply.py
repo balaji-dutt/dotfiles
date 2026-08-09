@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""Register the user-scope Claude MCP servers declared in a JSON config.
+
+Repo-only helper. It is never applied to a chezmoi target and is never
+templated. Two callers consume it:
+
+  1. .chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl, on macOS,
+     Linux and WSL2 applies, with the chezmoi source dir config.
+  2. The homelab-IaC devcontainer (devcontainer-common.sh
+     register_claude_mcp_servers), against the same config over the read-only
+     /tmp/host-dotfiles mount.
+
+Native Windows does not use this helper. It has a parallel PowerShell
+implementation of the same schema in
+.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl, but that hook is
+not whitelisted in .chezmoiignore, so no Windows apply currently registers Claude
+MCP servers. See docs/automation/claude-mcp.md.
+
+Usage:
+  claude-mcp-apply.py <path-to-claude-mcp.json>
+
+Set CLAUDE_MCP_DRY_RUN to report what would be configured without calling
+`claude mcp add`.
+"""
+
+import json
+import os
+import platform
+import subprocess
+import sys
+from pathlib import Path
+
+if len(sys.argv) != 2:
+    print("ERROR: usage: claude-mcp-apply.py <path-to-claude-mcp.json>")
+    sys.exit(2)
+
+config_path = Path(sys.argv[1])
+
+try:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    print(f"ERROR: Claude MCP config not found: {config_path}")
+    sys.exit(1)
+except json.JSONDecodeError as exc:
+    print(f"ERROR: Invalid Claude MCP JSON config: {exc}")
+    sys.exit(1)
+
+servers = config.get("servers", {})
+if not isinstance(servers, dict):
+    print('ERROR: Claude MCP config must contain an object at key "servers".')
+    sys.exit(1)
+
+valid_scopes = {"user"}
+valid_transports = {"http", "sse", "stdio"}
+
+
+def current_platform():
+    if sys.platform == "darwin":
+        return "darwin"
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        release = platform.uname().release.lower()
+        is_wsl = "microsoft" in release
+        is_wsl2 = is_wsl and "wsl2" in release
+        if is_wsl2:
+            return "wsl2"
+        if is_wsl:
+            return "wsl"
+        return "linux"
+    return sys.platform
+
+
+def in_container():
+    return (
+        os.environ.get("DEVCONTAINER") == "1"
+        or Path("/.dockerenv").exists()
+        or Path("/.containerenv").exists()
+        or Path("/run/.containerenv").exists()
+    )
+
+
+def resolve_executable_path(candidates):
+    for candidate in candidates:
+        expanded = os.path.expandvars(os.path.expanduser(candidate))
+        if Path(expanded).is_file():
+            return expanded
+    return None
+
+
+def run_checked(command):
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+platform_name = current_platform()
+inside_container = in_container()
+
+
+for name, server in sorted(servers.items()):
+    if not isinstance(server, dict):
+        print(f"ERROR: Claude MCP server {name!r} must be an object.")
+        sys.exit(1)
+
+    enabled = server.get("enabled", True)
+    if not isinstance(enabled, bool):
+        print(f"ERROR: Claude MCP server {name!r} enabled must be a boolean.")
+        sys.exit(1)
+
+    if not enabled:
+        continue
+
+    if not isinstance(name, str) or not name or any(ch.isspace() for ch in name):
+        print(f"ERROR: Invalid Claude MCP server name: {name!r}")
+        sys.exit(1)
+
+    scope = server.get("scope", "user")
+    transport = server.get("transport", "http")
+    replace = server.get("replace", False)
+    skip_devcontainer = server.get("skipDevcontainer", False)
+    if not isinstance(replace, bool):
+        print(f"ERROR: Claude MCP server {name!r} replace must be a boolean.")
+        sys.exit(1)
+    if not isinstance(skip_devcontainer, bool):
+        print(
+            f"ERROR: Claude MCP server {name!r} skipDevcontainer must be "
+            "a boolean."
+        )
+        sys.exit(1)
+
+    platforms = server.get("platforms")
+    if platforms is not None:
+        if not isinstance(platforms, list) or not all(
+            isinstance(item, str) for item in platforms
+        ):
+            print(f"ERROR: Claude MCP server {name!r} platforms must be a string list.")
+            sys.exit(1)
+        if platform_name not in platforms:
+            print(
+                f"INFO: Claude MCP server {name!r} is not enabled for "
+                f"platform {platform_name!r}; skipping."
+            )
+            continue
+
+    if skip_devcontainer and inside_container:
+        print(f"INFO: Claude MCP server {name!r} is skipped in devcontainers.")
+        continue
+
+    if scope not in valid_scopes:
+        print(f"ERROR: Claude MCP server {name!r} has invalid scope: {scope!r}")
+        sys.exit(1)
+
+    if transport not in valid_transports:
+        print(
+            f"ERROR: Claude MCP server {name!r} has invalid transport: "
+            f"{transport!r}"
+        )
+        sys.exit(1)
+
+    command = ["claude", "mcp", "add", "--transport", transport, "--scope", scope]
+
+    if transport in {"http", "sse"}:
+        url = server.get("url")
+        if not isinstance(url, str) or not url:
+            print(
+                f"ERROR: Claude MCP server {name!r} requires a non-empty "
+                f"url for transport {transport!r}."
+            )
+            sys.exit(1)
+        command.extend([name, url])
+    else:
+        server_command = server.get("command")
+        args = server.get("args", [])
+        if not isinstance(server_command, str) or not server_command:
+            print(
+                f"ERROR: Claude MCP server {name!r} requires a non-empty "
+                "command for stdio transport."
+            )
+            sys.exit(1)
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            print(f"ERROR: Claude MCP server {name!r} args must be a string list.")
+            sys.exit(1)
+        args = list(args)
+
+        executable_paths = server.get("executablePaths")
+        if executable_paths is not None:
+            if not isinstance(executable_paths, dict):
+                print(
+                    f"ERROR: Claude MCP server {name!r} executablePaths must "
+                    "be an object."
+                )
+                sys.exit(1)
+            candidates = executable_paths.get(platform_name)
+            if candidates is not None:
+                if not isinstance(candidates, list) or not all(
+                    isinstance(item, str) for item in candidates
+                ):
+                    print(
+                        f"ERROR: Claude MCP server {name!r} executablePaths "
+                        f"for {platform_name!r} must be a string list."
+                    )
+                    sys.exit(1)
+                executable_path = resolve_executable_path(candidates)
+                if executable_path is None:
+                    print(
+                        f"INFO: Claude MCP server {name!r} has no existing "
+                        f"executablePath candidates for {platform_name!r}; skipping."
+                    )
+                    continue
+                args.append(f"--executablePath={executable_path}")
+
+        command.extend([name, "--", server_command, *args])
+
+    if "CLAUDE_MCP_DRY_RUN" in os.environ:
+        print(f"INFO: Would configure Claude MCP server {name!r} ({transport}, {scope}).")
+        continue
+
+    existing = run_checked(["claude", "mcp", "get", name])
+    if existing.returncode == 0:
+        if not replace:
+            print(
+                f"INFO: Claude MCP server {name!r} already exists in Claude; "
+                "set replace=true to reapply it."
+            )
+            continue
+
+        remove = run_checked(["claude", "mcp", "remove", "--scope", scope, name])
+        if remove.returncode != 0:
+            print(f"ERROR: Failed to remove Claude MCP server {name!r}.")
+            if remove.stdout.strip():
+                print(remove.stdout.rstrip())
+            sys.exit(remove.returncode)
+
+    print(f"INFO: Configuring Claude MCP server {name!r} ({transport}, {scope}).")
+    add = run_checked(command)
+    if add.returncode != 0:
+        print(f"ERROR: Failed to configure Claude MCP server {name!r}.")
+        if add.stdout.strip():
+            print(add.stdout.rstrip())
+        sys.exit(add.returncode)
+
+    print(f"INFO: Configured Claude MCP server {name!r}.")

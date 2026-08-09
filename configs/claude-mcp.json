@@ -1,5 +1,13 @@
 {
   "servers": {
+    "cbm": {
+      "enabled": true,
+      "scope": "user",
+      "transport": "stdio",
+      "command": "codebase-memory-mcp",
+      "platforms": ["darwin", "linux", "wsl2"],
+      "replace": false
+    },
     "deepwiki": {
       "enabled": true,
       "scope": "user",

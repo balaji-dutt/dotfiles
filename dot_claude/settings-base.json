@@ -119,9 +119,19 @@
       "WebSearch",
       "TodoRead",
       "TodoWrite",
-      "Task"
+      "Task",
+      "mcp__cbm__search_graph",
+      "mcp__cbm__trace_path",
+      "mcp__cbm__get_architecture",
+      "mcp__cbm__get_graph_schema",
+      "mcp__cbm__get_code_snippet",
+      "mcp__cbm__search_code",
+      "mcp__cbm__list_projects",
+      "mcp__cbm__index_status",
+      "mcp__cbm__detect_changes"
     ],
     "deny": [
+      "mcp__cbm__delete_project",
       "Bash(rm -rf /:*)",
       "Bash(sudo rm -rf /:*)",
       "Bash(dd:*)",

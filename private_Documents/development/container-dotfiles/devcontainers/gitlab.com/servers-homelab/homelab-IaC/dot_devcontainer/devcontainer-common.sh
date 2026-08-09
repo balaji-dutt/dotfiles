@@ -721,6 +721,51 @@ install_claude_managed_asset_links() {
   rm -f "$claude_config_dir/commit-docs.sh"
 }
 
+# Register the user-scope Claude MCP servers declared by the host dotfiles.
+# The container never runs chezmoi, so it replays the SAME repo-only inputs the
+# host apply hook uses, over the read-only /tmp/host-dotfiles bind mount. The
+# applier honours the config's platforms/skipDevcontainer keys and DEVCONTAINER=1
+# is already set in containerEnv, so container-excluded entries drop out here.
+#
+# Callers must run ensure_claude_persistence_links first: `claude mcp add` writes
+# to ~/.claude.json, which has to be the persistent-volume symlink for the
+# registration to survive a rebuild.
+#
+# Never fails the lifecycle hook. Claude Code is optional plumbing, and a stale
+# or absent host mount must not block the rest of postCreate/postStart.
+register_claude_mcp_servers() {
+  local host_dotfiles applier config
+  host_dotfiles="${CLAUDE_MCP_HOST_DOTFILES:-/tmp/host-dotfiles}"
+  applier="$host_dotfiles/assets/claude-mcp-apply.py"
+  config="$host_dotfiles/configs/claude-mcp.json"
+
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "WARN: claude command not found; skipping Claude MCP registration." >&2
+    return 0
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "WARN: python3 not found; skipping Claude MCP registration." >&2
+    return 0
+  fi
+
+  if [[ ! -f "$applier" ]]; then
+    echo "WARN: Claude MCP applier not found at $applier; skipping registration." >&2
+    return 0
+  fi
+
+  if [[ ! -f "$config" ]]; then
+    echo "WARN: Claude MCP config not found at $config; skipping registration." >&2
+    return 0
+  fi
+
+  if ! python3 "$applier" "$config"; then
+    echo "WARN: Claude MCP registration failed; continuing." >&2
+  fi
+
+  return 0
+}
+
 find_vscode_cli() {
   local candidate root nullglob_state
 

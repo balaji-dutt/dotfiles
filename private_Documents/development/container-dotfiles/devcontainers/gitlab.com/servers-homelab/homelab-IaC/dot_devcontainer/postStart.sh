@@ -399,6 +399,7 @@ ensure_agent_of_empires_persistence_link
 ensure_claude_persistence_links
 ensure_beads_persistence_mounts "$workspace_root"
 install_claude_managed_asset_links
+register_claude_mcp_servers
 
 if ! install_beads_kanban_bd_fixes_vscode_extension; then
   echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing postStart." >&2

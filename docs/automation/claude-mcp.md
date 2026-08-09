@@ -8,17 +8,27 @@
 
 # Claude MCP Management
 
-Global Claude MCP intent is managed through `configs/claude-mcp.json` and the
-chezmoi scripts `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl`
-and `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`.
+Global Claude MCP intent is managed through `configs/claude-mcp.json`. Three
+callers apply it:
+
+- `.chezmoiscripts/run_onchange_after_claude_mcp_servers.sh.tmpl` on macOS,
+  Linux and WSL2 applies. It is a thin wrapper that delegates to
+  `assets/claude-mcp-apply.py`.
+- The homelab-IaC devcontainer, which runs the same
+  `assets/claude-mcp-apply.py` against the same config over its read-only
+  `/tmp/host-dotfiles` mount. See "Dev Container registration" below.
+- `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`, a separate
+  PowerShell implementation of the same schema. See "Native Windows" below for
+  why it does not currently run.
 
 The repo does not manage `~/.claude.json` directly because that file is
 stateful and may contain Claude session, project, or authentication state.
 Instead, the scripts use the `claude mcp` CLI to add configured servers.
 
-This config is only for globally registered user-scope Claude MCP servers such
-as DeepWiki. Agent-scoped MCP servers can instead be declared in Claude
-subagent frontmatter when a canonical agent specification requires them.
+This config covers globally registered user-scope Claude MCP servers: DeepWiki
+(`http`) and codebase-memory-mcp (`stdio`). Agent-scoped MCP servers can instead
+be declared in Claude subagent frontmatter when a canonical agent specification
+requires them.
 
 ## Config format
 
@@ -27,6 +37,14 @@ Each entry under `servers` is keyed by the MCP server name:
 ```json
 {
   "servers": {
+    "cbm": {
+      "enabled": true,
+      "scope": "user",
+      "transport": "stdio",
+      "command": "codebase-memory-mcp",
+      "platforms": ["darwin", "linux", "wsl2"],
+      "replace": false
+    },
     "deepwiki": {
       "enabled": true,
       "scope": "user",
@@ -48,7 +66,9 @@ Each entry under `servers` is keyed by the MCP server name:
   the same name. Leave this `false` unless you intentionally want to rewrite an
   existing Claude MCP entry.
 - `platforms`: optional list of platforms where the entry should apply. Current
-  values are `darwin`, `linux`, `wsl2`, and `windows`.
+  values are `darwin`, `linux`, `wsl2`, and `windows`. WSL1 reports `wsl`, which
+  no entry lists, so WSL1 hosts skip every gated server; that is intentional
+  since WSL1 is not a supported host here.
 - `skipDevcontainer`: optional boolean. When `true`, skip the entry inside a
   Dev Container or container runtime.
 - `executablePaths`: optional per-platform candidate paths for `stdio` servers.
@@ -67,8 +87,9 @@ design a runtime secret flow before adding it here.
 ## Script behavior
 
 The scripts run on macOS, Linux/WSL2, and Windows chezmoi applies when their
-rendered contents change. They include a hash of `configs/claude-mcp.json`, so
-config edits retrigger them.
+rendered contents change. The shell template embeds hashes of both
+`configs/claude-mcp.json` and `assets/claude-mcp-apply.py`, so edits to either
+retrigger it.
 
 On each run, the scripts:
 
@@ -84,6 +105,95 @@ On each run, the scripts:
 
 The Windows script stores `npx` stdio servers as `cmd /c npx ...` so Claude can
 start the package runner reliably on Windows.
+
+The applier lives in `assets/claude-mcp-apply.py` rather than inline in the
+template so the devcontainer can reuse it verbatim. Preview or reapply it by
+hand from the repo root:
+
+```sh
+CLAUDE_MCP_DRY_RUN=1 python3 assets/claude-mcp-apply.py configs/claude-mcp.json
+```
+
+## Codebase Memory (cbm)
+
+`cbm` is registered at **user scope**, so `codebase-memory-mcp` tools are
+available in every Claude session and appear in `/mcp`, not just inside the
+`agent-engineer` and `special-builder` subagents that declare the server in
+frontmatter.
+
+`command` is the bare `codebase-memory-mcp`, resolved from `PATH`. Provisioning
+is platform-specific and deliberately separate from this registration:
+
+| Platform | Binary source |
+| :--- | :--- |
+| macOS, WSL2 | mise (`configs/mise.toml`) |
+| Dev Container | portable release archive installed to `/usr/local/bin` by `postCreate.sh` |
+| Native Windows | `~/.local/codebase-memory-mcp.exe` via `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` |
+
+`dot_claude/settings-base.json` allows the nine read-only cbm tools outright and
+denies `mcp__cbm__delete_project`. `index_repository`, `query_graph`,
+`manage_adr`, and `ingest_traces` still prompt under `defaultMode: plan`.
+Operating rules for the tools (notably `index_repository`'s `persistence: false`
+and the prohibition on running `codebase-memory-mcp install`) live in
+`dot_claude/AGENTS.md`, with the long-form OpenCode version in
+`.opencode/instructions/mcp-usage.md`.
+
+## Dev Container registration
+
+The `homelab-IaC` devcontainer never runs chezmoi, so it replays the same
+repo-only inputs directly. `register_claude_mcp_servers` in
+`dot_devcontainer/devcontainer-common.sh` runs
+`/tmp/host-dotfiles/assets/claude-mcp-apply.py` against
+`/tmp/host-dotfiles/configs/claude-mcp.json`. It is called from both
+`postCreate.sh` and `postStart.sh`, immediately after
+`install_claude_managed_asset_links`, so a host config edit lands on the next
+container start without a rebuild.
+
+Ordering matters: `ensure_claude_persistence_links` runs first at both call
+sites, so `~/.claude.json` is already the symlink into
+`/home/vscode/persistent-data/claude/` when `claude mcp add` writes to it, and
+the registration survives a container rebuild.
+
+The step never fails the lifecycle hook — a missing `claude`, `python3`, mount,
+or a non-zero applier exit logs a `WARN:` and continues. `DEVCONTAINER=1` is set
+in `containerEnv`, so `skipDevcontainer` entries drop out automatically.
+
+`claude mcp add` does not validate that a stdio `command` resolves, and
+`replace: false` makes the entry sticky in the persistent-volume
+`~/.claude.json`. `postCreate.sh` installs the cbm binary to `/usr/local/bin`
+well before the Claude step, so the ordering is safe in the normal case — but if
+that install is skipped (unset `CBM_VERSION` or an unsupported architecture, both
+of which only `WARN`), the container registers a server whose command is missing
+and no later `postStart.sh` repairs it. Recover by hand inside the container:
+
+```sh
+claude mcp remove --scope user cbm
+```
+
+Watch the `platforms` key when adding a server that must work in the container.
+Containers share the host kernel, so the applier's platform detection reads the
+*host* kernel release from inside the container: a WSL2-hosted container reports
+`wsl2`, while a macOS-hosted (OrbStack) one reports `linux`. An entry meant for
+the devcontainer therefore needs **both** `linux` and `wsl2` listed, which is why
+`cbm` carries `["darwin", "linux", "wsl2"]`. Omitting either would silently skip
+the container on one of the two supported hosts.
+
+## Native Windows
+
+`.chezmoiignore` does not whitelist `claude_mcp_servers.ps1`, so native Windows
+applies register no Claude MCP servers at all — not DeepWiki and not cbm. The
+`cbm` entry carries `platforms: ["darwin", "linux", "wsl2"]` to record that
+intent explicitly.
+
+Register cbm by hand on native Windows if the main session needs it (the binary
+is already on `PATH` from `~/.local`):
+
+```powershell
+claude mcp add --transport stdio --scope user cbm -- codebase-memory-mcp
+```
+
+The `agent-engineer` and `special-builder` subagents work on Windows regardless,
+because they declare the server in their own frontmatter.
 
 ## claude.ai account connectors
 

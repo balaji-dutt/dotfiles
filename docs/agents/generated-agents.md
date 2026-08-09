@@ -168,6 +168,15 @@ same tool and server declarations into `agents/agent-engineer.yaml` and
 `agents/special-builder.yaml` in `agentic-tooling` before the next intentional
 regeneration; until then, preserve and re-apply the local frontmatter patch.
 
+`cbm` is now also registered at user scope through `configs/claude-mcp.json`, so
+the embedded `mcpServers` block is no longer what grants these two agents access
+to the tools. It is retained anyway: it keeps them working on native Windows,
+where no apply registers Claude MCP servers, and dropping it would be a second
+divergence from the generator source rather than a reduction. The
+`mcp__cbm__*` entries in each `tools:` line are still required — a subagent's
+`tools:` list is an allowlist regardless of where the server is defined. See
+`docs/automation/claude-mcp.md`.
+
 ## Related
 
 - `docs/devcontainers.md` — the container-dotfiles mirror these agents sync into

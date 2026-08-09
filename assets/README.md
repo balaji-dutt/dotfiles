@@ -27,6 +27,23 @@ python3 assets/sync-browser-policies.py --write
 
 No mode flag is equivalent to `--write`.
 
+### Claude MCP registration
+
+Registers the user-scope Claude MCP servers declared in `configs/claude-mcp.json`.
+Normally invoked for you — by the chezmoi hook
+`run_onchange_after_claude_mcp_servers.sh.tmpl` on macOS/Linux/WSL2 applies, and
+by the homelab-IaC devcontainer over its read-only `/tmp/host-dotfiles` mount.
+Run it by hand to preview or reapply:
+
+```sh
+CLAUDE_MCP_DRY_RUN=1 python3 assets/claude-mcp-apply.py configs/claude-mcp.json
+python3 assets/claude-mcp-apply.py configs/claude-mcp.json
+```
+
+Windows has a separate PowerShell implementation inside
+`.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`. See
+`docs/automation/claude-mcp.md`.
+
 ### macOS / Linux / WSL2
 
 ```sh

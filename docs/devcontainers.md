@@ -107,7 +107,9 @@ glibc/libstdc++ versions, verifies it against the upstream checksum file, and
 installs only the binary; it never runs CBM's native installer or its client
 configuration hooks. `CBM_CACHE_DIR` points to
 `/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
-volume so the SQLite cache does not land on the workspace bind mount.
+volume so the SQLite cache does not land on the workspace bind mount. Registering
+the binary as a Claude MCP server is a separate step handled by the Claude
+lifecycle wiring below, not by the install block.
 
 ## Platform Behavior
 
@@ -242,6 +244,19 @@ state file. Managed user-level Claude assets come from dotfiles instead:
 bind mount and fall back to the mirrored container-dotfiles copy seeded by
 `configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
 `commit-docs.sh` helper are no longer installed.
+
+Both hooks then call `register_claude_mcp_servers`, which registers the
+user-scope Claude MCP servers declared in the host's `configs/claude-mcp.json`
+(DeepWiki and codebase-memory-mcp) by running the host's
+`assets/claude-mcp-apply.py` over the read-only `/tmp/host-dotfiles` mount. The
+container never runs chezmoi, so this replays the same repo-only inputs the host
+apply hook uses instead of duplicating the intent. It runs after
+`ensure_claude_persistence_links` so `claude mcp add` writes through to
+`/home/vscode/persistent-data/claude/.claude.json` and the registration survives
+a rebuild; running it from `postStart.sh` as well means host config edits apply
+on the next container start. A missing mount, missing `claude`/`python3`, or a
+failed applier logs a `WARN:` and never fails the hook. Full schema and
+behaviour: `docs/automation/claude-mcp.md`.
 
 `postCreate.sh` installs the Claude Code CLI from Anthropic's signed apt repo at
 the `CLAUDE_CODE_VERSION` pin from `devcontainer.json.tmpl`. It removes any old
