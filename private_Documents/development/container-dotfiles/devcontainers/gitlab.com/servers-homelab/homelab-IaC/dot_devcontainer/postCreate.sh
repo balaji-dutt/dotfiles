@@ -219,6 +219,77 @@ install_dolt_if_missing() {
   dolt version
 }
 
+install_terraform_mcp_server() {
+  local version machine arch asset_name checksums_name base_url tmp_dir
+  local archive_path checksums_path extract_dir extracted_bin expected actual
+
+  version="${TF_MCP_VERSION:-}"
+  if [[ -z "$version" ]]; then
+    echo "WARN: TF_MCP_VERSION not set; skipping terraform-mcp-server install."
+    return 0
+  fi
+
+  machine="$(uname -m)"
+  case "$machine" in
+    x86_64|amd64)
+      arch="amd64"
+      ;;
+    aarch64|arm64)
+      arch="arm64"
+      ;;
+    *)
+      echo "ERROR: Unsupported terraform-mcp-server architecture: $machine" >&2
+      return 1
+      ;;
+  esac
+
+  asset_name="terraform-mcp-server_${version}_linux_${arch}.zip"
+  checksums_name="terraform-mcp-server_${version}_SHA256SUMS"
+  base_url="https://releases.hashicorp.com/terraform-mcp-server/${version}"
+  tmp_dir="$(mktemp -d /tmp/terraform-mcp-server.XXXXXX)"
+  archive_path="$tmp_dir/$asset_name"
+  checksums_path="$tmp_dir/$checksums_name"
+  extract_dir="$tmp_dir/extracted"
+  extracted_bin="$extract_dir/terraform-mcp-server"
+
+  (
+    trap 'rm -rf "$tmp_dir"' EXIT
+
+    echo "[mcp] installing terraform-mcp-server v${version} (${arch})"
+    curl -fsSL --retry 3 "$base_url/$checksums_name" -o "$checksums_path"
+    curl -fsSL --retry 3 "$base_url/$asset_name" -o "$archive_path"
+
+    expected=$(
+      awk -v asset="$asset_name" \
+        '$2 == asset || $2 == "*" asset { print $1; exit }' \
+        "$checksums_path"
+    )
+    if [[ -z "$expected" ]]; then
+      echo "ERROR: No checksum found for $asset_name." >&2
+      exit 1
+    fi
+
+    actual="$(sha256sum "$archive_path" | awk '{print $1}')"
+    if [[ "$expected" != "$actual" ]]; then
+      echo "ERROR: SHA256 mismatch for $asset_name." >&2
+      echo "  expected: $expected" >&2
+      echo "  actual:   $actual" >&2
+      exit 1
+    fi
+
+    mkdir -p "$extract_dir"
+    unzip -q "$archive_path" -d "$extract_dir"
+    if [[ ! -f "$extracted_bin" ]]; then
+      echo "ERROR: terraform-mcp-server binary not found after extracting $asset_name." >&2
+      exit 1
+    fi
+
+    sudo install -m 0755 "$extracted_bin" /usr/local/bin/terraform-mcp-server
+  ) || return 1
+
+  terraform-mcp-server --help 2>&1 | head -1 || true
+}
+
 install_claude_code_apt_package() {
   local claude_code_version apt_keyring apt_source_list installed_version
   local claude_version_output
@@ -580,30 +651,8 @@ else
   echo "WARN: CBM_VERSION not set or architecture unsupported; skipping codebase-memory-mcp install."
 fi
 
-step "Build & Install MCP server binaries (terraform-mcp-server)"
-if [[ -n "${TF_MCP_VERSION:-}" ]]; then
-  echo "[mcp] building terraform-mcp-server v${TF_MCP_VERSION} (no pre-built binaries available)"
-  TF_MCP_GO_VERSION="1.24.3"
-  TF_MCP_GO_ARCH="${HOP_ARCH:-amd64}"
-  TF_MCP_GOROOT="/tmp/go-tf-mcp"
-  TF_MCP_GOPATH="/tmp/go-tf-mcp-path"
-
-  curl -fsSL "https://go.dev/dl/go${TF_MCP_GO_VERSION}.linux-${TF_MCP_GO_ARCH}.tar.gz" \
-    | tar xz -C /tmp
-  mv /tmp/go "$TF_MCP_GOROOT"
-
-  GOROOT="$TF_MCP_GOROOT" GOPATH="$TF_MCP_GOPATH" GOBIN="$TF_MCP_GOPATH/bin" \
-    "$TF_MCP_GOROOT/bin/go" install \
-    "github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@v${TF_MCP_VERSION}"
-
-  sudo install -m 0755 "$TF_MCP_GOPATH/bin/terraform-mcp-server" /usr/local/bin/terraform-mcp-server
-  terraform-mcp-server --help 2>&1 | head -1 || true
-
-  sudo rm -rf "$TF_MCP_GOROOT" "$TF_MCP_GOPATH"
-  echo "[mcp] cleaned up temporary Go toolchain"
-else
-  echo "WARN: TF_MCP_VERSION not set; skipping terraform-mcp-server install."
-fi
+step "Install MCP server binary (terraform-mcp-server)"
+install_terraform_mcp_server
 done_step "Install MCP server binaries"
 
 # --- 5c) plannotator CLI ---

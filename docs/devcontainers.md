@@ -109,6 +109,12 @@ configuration hooks. `CBM_CACHE_DIR` points to
 `/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
 volume so the SQLite cache does not land on the workspace bind mount.
 
+`TF_MCP_VERSION` pins terraform-mcp-server. `postCreate.sh` selects the Linux
+amd64 or arm64 archive for the container architecture, downloads it from
+HashiCorp Releases, and verifies it against the upstream SHA256SUMS file before
+installation. This supports WSL2 Docker Desktop and macOS OrbStack
+devcontainers without a local Go toolchain or nested Docker.
+
 ## Platform Behavior
 
 Based on the canonical `isDevcontainerHost` predicate and `.chezmoiignore`
