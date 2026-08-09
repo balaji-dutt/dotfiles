@@ -68,22 +68,28 @@ pwsh ./assets/cz-audit.ps1 check bootstrap-wsl.sh
 
 ## Beads sync
 
-`bd dolt pull` cannot succeed in this repo — `bd` dirties an ignored table inside
-its own pull path and then fails to merge on it. Use the helper instead. It is
-the only `bd` command that is replaced; every other `bd` operation is unaffected.
+The interactive shell wrappers redirect exact `bd dolt pull` and `bd dolt push`
+commands to the helper. Pull avoids the dirty-table merge bug; push verifies a
+Dolt remote before doing any push work. Every other `bd` operation is unaffected.
+
+Agents bypass the interactive wrapper with `command bd` on POSIX or `bd.exe` on
+native Windows. They must invoke the helper explicitly when synchronization is
+intended rather than sourcing shell startup files.
 
 ### macOS / Linux / WSL2
 
 ```sh
 ./assets/beads-sync.sh status
 ./assets/beads-sync.sh pull
+./assets/beads-sync.sh push
 ```
 
 ### Windows (PowerShell 7)
 
 ```powershell
-pwsh ./assets/beads-sync.ps1 status
-pwsh ./assets/beads-sync.ps1 pull
+pwsh -NoProfile -File ./assets/beads-sync.ps1 status
+pwsh -NoProfile -File ./assets/beads-sync.ps1 pull
+pwsh -NoProfile -File ./assets/beads-sync.ps1 push
 ```
 
 Commands are `status`, `clean`, `pull`, `push`, `init`; both accept a dry-run

@@ -44,9 +44,10 @@ $PSNativeCommandArgumentPassing = 'Standard'
 # must run as ONE dolt SQL session (reset the ignored tables, then dolt_pull)
 # with no bd process in between.
 #
-# SCOPE: only `pull` is affected. Every other bd command works normally. `push`
-# is not broken either - it is wrapped here only to bundle the server restart
-# that gives the server a live ssh-agent.
+# SCOPE: only `pull` needs the one-session SQL workaround. `push` is routed here
+# too so an empty Dolt remote cannot fall through to bd's git-origin derivation,
+# and to restart the server with a live ssh-agent. Other bd commands work
+# normally.
 
 function Write-Info([string]$Message) {
   [Console]::Error.WriteLine("INFO: $Message")
@@ -81,7 +82,9 @@ if (-not (HaveCmd 'dolt')) {
     Die "dolt not found on PATH and not at $fallback"
   }
 }
-if (-not (HaveCmd 'bd')) { Die 'bd not found on PATH' }
+$BdCommand = Get-Command bd -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $BdCommand) { Die 'bd executable not found on PATH' }
+$BdExe = $BdCommand.Source
 
 if (-not (Test-Path -LiteralPath '.beads/metadata.json' -PathType Leaf)) {
   Die '.beads/metadata.json not found; is this a Beads repo?'
@@ -208,7 +211,7 @@ function Invoke-BackupIfAsked {
   } else {
     # Out-Null: bd's stdout must not leak into this function's output stream,
     # or it contaminates the caller's return value. See Restart-DoltServer.
-    & bd export --all -o $out | Out-Null
+    & $BdExe export --all -o $out | Out-Null
     if ($LASTEXITCODE -ne 0) { Die "bd export failed (exit $LASTEXITCODE)" }
     Write-Info "backup written: $out"
   }
@@ -229,8 +232,8 @@ function Restart-DoltServer {
   # into the caller's, and turns `return 0` into an Object[] that `exit` cannot
   # cast to int - silently exiting 0. Same failure mode as the Write-Output bug.
   # Out-Null discards stdout without disturbing $LASTEXITCODE.
-  & bd dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
-  & bd dolt start | Out-Null
+  & $BdExe dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
+  & $BdExe dolt start | Out-Null
   if ($LASTEXITCODE -ne 0) { Die "bd dolt start failed (exit $LASTEXITCODE)" }
   $script:DbPort = (Get-Content -Raw -LiteralPath '.beads/dolt-server.port').Trim()
 }
@@ -318,6 +321,9 @@ function Invoke-Pull {
 }
 
 function Invoke-Push {
+  $remote = Get-RemoteName
+  if (-not $remote) { Die 'no Dolt remote configured; refusing push; see docs/beads.md' }
+
   Invoke-BackupIfAsked
   Restart-DoltServer
   if ($DryRun) {
@@ -327,9 +333,9 @@ function Invoke-Push {
   # push does not merge, so the deadlock does not apply and bd is fine here.
   # Commit failure is tolerated ("nothing to commit" is normal); push failure is
   # not - bash propagates it via pipefail + set -e, so this must match.
-  [Console]::Out.WriteLine((Redact ((& bd dolt commit 2>&1 | Out-String))))
+  [Console]::Out.WriteLine((Redact ((& $BdExe dolt commit 2>&1 | Out-String))))
 
-  $pushOut = (& bd dolt push 2>&1 | Out-String)
+  $pushOut = (& $BdExe dolt push 2>&1 | Out-String)
   $pushRc  = $LASTEXITCODE
   [Console]::Out.WriteLine((Redact $pushOut))
   if ($pushRc -ne 0) { Die "bd dolt push failed (exit $pushRc)" }
@@ -372,7 +378,7 @@ function Invoke-Init {
   # and bd init happily adopts whatever answers on an advertised port
   # (2026-08-01: that stamped a live database with a scratch identity). Stop
   # this checkout's server, then refuse if the port still has a listener.
-  & bd dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
+  & $BdExe dolt stop 2>$null | Out-Null   # may already be stopped; tolerated
   if ($env:BEADS_DOLT_SERVER_PORT -and (Test-PortInUse ([int]$env:BEADS_DOLT_SERVER_PORT))) {
     Die "port $($env:BEADS_DOLT_SERVER_PORT) still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server or unset BEADS_DOLT_SERVER_PORT."
   }
@@ -414,7 +420,7 @@ function Invoke-Init {
     $env:BD_SYNC_REMOTE = $null
 
     Write-Info "running bd init (fresh local database, prefix '$initPrefix')"
-    & bd init --server --non-interactive --skip-agents --skip-hooks --prefix $initPrefix | Out-Null
+    & $BdExe init --server --non-interactive --skip-agents --skip-hooks --prefix $initPrefix | Out-Null
     $initRc = $LASTEXITCODE
   } finally {
     $env:BD_SYNC_REMOTE = $savedSyncRemote
@@ -520,7 +526,7 @@ function Invoke-Init {
   # bd command re-runs the missing ignored migrations. Windows is where that
   # machinery has failed historically - push from a current peer before
   # running init so there is nothing to re-run.
-  & bd list --limit 1 2>$null | Out-Null
+  & $BdExe list --limit 1 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) {
     [Console]::Error.WriteLine("WARNING: 'bd list' failed after init; run 'bd doctor' before using this checkout.")
   }

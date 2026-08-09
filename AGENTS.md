@@ -78,6 +78,12 @@ this repo.
   auto-export (`export.auto: false`), and ignores the file via
   `.gitignore`/`.chezmoiignore` to avoid churn and leaking git identity
   metadata.
+- **CLI invocation**: Agent and non-interactive shell commands must call the
+  executable directly with `command bd ...` on POSIX or `bd.exe ...` on native
+  Windows. Do not source shell rc files or `beads-helpers.*`; those wrappers are
+  for interactive use. To synchronize this repo, invoke
+  `./assets/beads-sync.sh pull|push` or
+  `pwsh -NoProfile -File ./assets/beads-sync.ps1 pull|push` explicitly.
 - **Commits**: Use `cc-commit` (Claude Code) or `oc-commit` (OpenCode), never
   `git commit` directly — see **Commit message workflow (required)** below.
   Format follows the same 50/72 rule documented below; include a
