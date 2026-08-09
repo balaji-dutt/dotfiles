@@ -805,7 +805,24 @@ talks to the live remote. When the mirror goes stale, pull compares against an
 old remote root and concludes it is ahead, while push is rejected against the
 real one. Diagnosed 2026-08-08 on the WSL2 peer after the Windows peer pushed.
 
-Confirm with three read-only checks (`CACHE` is the `repo.git` path above):
+**First rule out the benign case.** On its own, `a is ahead of b already` is
+also what dolt says when there is genuinely nothing to pull. Settle it with the
+commit graph before touching anything:
+
+```bash
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port)}
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  --use-db dots sql -q "select count(*) from dolt_log('main..remotes/origin/main');"
+```
+
+`0` means the remote's head is already contained in local `main` — nothing to
+pull, and the only pending action is `beads-sync push`. A non-zero count means
+the remote really does have commits this peer lacks, so read on. Verified
+2026-08-09: a peer 106 commits ahead reported `a is ahead of b already` and was
+perfectly healthy.
+
+For a genuine wedge, confirm with two read-only checks (`CACHE` is the
+`repo.git` path above):
 
 ```bash
 CACHE=$(echo .beads/dolt/dots/.dolt/git-remote-cache/*/repo.git)
@@ -817,14 +834,15 @@ The wedge looks like: the mirror's `refs/dolt/blobstore/origin/dolt/data/<uuid>`
 is days behind the remote's `refs/dolt/data`; several
 `refs/dolt/remotes/origin/dolt/data/<uuid>` entries have accumulated, one per
 historical peer rebuild; and the mirror has never fetched the remote's current
-`refs/heads/main`, so the bookkeeping commit push cannot fast-forward. For proof
-that the remote holds data this machine has not seen, list the table files in
-the remote's blobstore commit and look for ones absent from
-`.beads/dolt/dots/.dolt/noms/`:
+`refs/heads/main`, so the bookkeeping commit push cannot fast-forward.
 
-```bash
-git --git-dir "$CACHE" ls-tree -r --name-only <refs/dolt/data hash>
-```
+**Do not** compare the table file names under the remote's blobstore commit
+against `.beads/dolt/dots/.dolt/noms/` and read absences as missing data. Dolt
+table files are content-addressed per *file*, and peers pack identical chunks
+into differently named files, so the lists diverge routinely on databases that
+are perfectly in sync. That check reported 20+ "missing" files on the healthy
+peer above. Compare the manifest **root hashes** instead (field 4 of
+`manifest`), and trust `dolt_log('main..remotes/origin/main')` over both.
 
 The mirror is derived state — deleting it costs a slower next fetch and nothing
 else. Move it aside rather than deleting, so the old copy is the rollback:
