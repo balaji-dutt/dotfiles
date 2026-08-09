@@ -77,25 +77,30 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
 
 ## Cross-machine sync
 
-Sync Beads state through the Dolt remote, not JSONL.
+Sync Beads state through the Dolt remote, not JSONL. The interactive Bash, Zsh,
+and PowerShell `bd` wrappers redirect exact `bd dolt pull` and `bd dolt push`
+commands to the platform helper with a visible notice. Extra arguments are
+refused rather than dropped. Other `bd` commands are unaffected.
 
-**`bd dolt pull` does not work in this repo — use `beads-sync pull`.** It is the
-only `bd` command that is replaced; everything else is unaffected.
+Agents and non-interactive automation deliberately bypass those wrappers. Use
+`command bd ...` on POSIX or `bd.exe ...` on native Windows for ordinary Beads
+commands, and call the sync helper explicitly for pull or push. Do not source a
+shell rc file or `beads-helpers.*` in an agent shell.
 
 ```bash
 ./assets/beads-sync.sh status    # dirty tables, is a sync safe?
-./assets/beads-sync.sh pull      # THE replacement for `bd dolt pull`
-./assets/beads-sync.sh push      # bd dolt commit + push, after a server restart
+./assets/beads-sync.sh pull      # guarded replacement for `bd dolt pull`
+./assets/beads-sync.sh push      # guarded replacement for `bd dolt push`
 ./assets/beads-sync.sh init      # rebuild a wedged peer from the remote (Recovery)
 ```
 
 Windows (PowerShell 7):
 
 ```powershell
-pwsh ./assets/beads-sync.ps1 status
-pwsh ./assets/beads-sync.ps1 pull
-pwsh ./assets/beads-sync.ps1 push
-pwsh ./assets/beads-sync.ps1 init
+pwsh -NoProfile -File ./assets/beads-sync.ps1 status
+pwsh -NoProfile -File ./assets/beads-sync.ps1 pull
+pwsh -NoProfile -File ./assets/beads-sync.ps1 push
+pwsh -NoProfile -File ./assets/beads-sync.ps1 init
 ```
 
 Both accept `-DryRun` / `--dry-run` and `-Backup` / `--backup` (`init` rejects
@@ -103,14 +108,15 @@ the backup flag — there is no database to export at that point).
 
 | What you're doing | Command |
 | --- | --- |
-| `bd create` / `update` / `close` / `list` / `ready` / `show` / `dep` … | plain `bd`, unchanged |
-| `bd dolt commit`, `bd dolt status` / `start` / `stop` | plain `bd`, unchanged |
-| push | `beads-sync push`, or plain `bd dolt push` after `bd dolt stop && bd dolt start` |
-| **pull** | **`beads-sync pull` — required** |
+| `bd create` / `update` / `close` / `list` / `ready` / `show` / `dep` … | Interactive `bd`; agents use `command bd` / `bd.exe` |
+| `bd dolt commit`, `bd dolt status` / `start` / `stop` | Interactive `bd`; agents use `command bd` / `bd.exe` |
+| **push** | **`beads-sync push` — wrapper redirect or explicit agent call** |
+| **pull** | **`beads-sync pull` — wrapper redirect or explicit agent call** |
 
 `bd dolt pull` fails with `cannot merge with uncommitted changes` every time; see
-the recovery section below for why. `push` is not broken — the wrapper only
-bundles the server restart that gives the server a live `SSH_AUTH_SOCK`.
+the recovery section below for why. Push uses the same helper because it checks
+that a Dolt remote exists before any push work and restarts the server with a
+live `SSH_AUTH_SOCK`.
 
 The tracked config intentionally omits the private remote URL. On each machine,
 create this gitignored local override after reading the URL from the 1Password

@@ -26,8 +26,9 @@ bd show <issue-id>
 bd update <issue-id> --claim
 bd update <issue-id> --status done
 
-# Sync with Dolt remote
-bd dolt push
+# Sync safely with the configured Dolt remote
+./assets/beads-sync.sh pull
+./assets/beads-sync.sh push
 ```
 
 ### Working with Issues

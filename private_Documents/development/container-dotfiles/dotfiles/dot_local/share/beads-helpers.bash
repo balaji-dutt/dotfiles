@@ -1,8 +1,8 @@
 # Beads shell helpers for this dotfiles repo (bash variant).
 #
-# Mirrors dot_local/share/beads-helpers.zsh. Sourced from dot_bashrc.tmpl so
-# non-interactive bash (e.g. agent Bash tool invocations) also benefit from
-# the create-assignee default and repository-aware auto-import noise handling.
+# Mirrors dot_local/share/beads-helpers.zsh. Shell startup may load this helper
+# in interactive or configured non-interactive sessions; automation can bypass
+# the wrapper with `command bd`.
 
 _bd_filter_auto_import_noise() {
     command grep -v -E '^auto-import(ing|ed) '
@@ -157,6 +157,107 @@ _bd_primary_command() {
     return 1
 }
 
+_bd_dolt_sync_action() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --)
+                shift
+                break
+                ;;
+            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global)
+                shift
+                ;;
+            -C|--directory|--db|--actor|--dolt-auto-commit)
+                [[ $# -gt 1 ]] || return 1
+                shift 2
+                ;;
+            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*)
+                shift
+                ;;
+            -*)
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [[ $# -ge 2 && "$1" == dolt ]] || return 1
+    case "$2" in
+        pull|push)
+            printf '%s\n' "$2"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+_bd_run_dolt_sync() {
+    local action="$1"
+    shift
+
+    local workdir repo_root sync_script arg
+    local unsupported=0
+    local -a original_args
+    original_args=("$@")
+
+    workdir="$(_bd_command_directory "$@")"
+    repo_root="$(_bd_repo_root_from_workdir "$workdir")"
+    sync_script="$repo_root/assets/beads-sync.sh"
+
+    if [[ -z "$repo_root" || ! -f "$sync_script" ]]; then
+        _bd_run_filtered "${original_args[@]}"
+        return $?
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --)
+                shift
+                break
+                ;;
+            -C|--directory)
+                if [[ $# -gt 1 ]]; then
+                    shift 2
+                else
+                    unsupported=1
+                    break
+                fi
+                ;;
+            -C=*|--directory=*)
+                shift
+                ;;
+            --db|--actor|--dolt-auto-commit)
+                unsupported=1
+                [[ $# -gt 1 ]] || break
+                shift 2
+                ;;
+            *)
+                [[ "$1" == dolt ]] && break
+                unsupported=1
+                shift
+                ;;
+        esac
+    done
+
+    [[ $# -ge 2 && "$1" == dolt && "$2" == "$action" ]] || unsupported=1
+    if [[ $# -gt 2 ]]; then
+        unsupported=1
+    fi
+
+    if [[ $unsupported -ne 0 ]]; then
+        printf 'bd: refusing redirected `bd dolt %s` with unsupported arguments; run `%s %s` explicitly\n' \
+            "$action" "$sync_script" "$action" >&2
+        return 2
+    fi
+
+    printf 'bd: redirecting `bd dolt %s` to `%s %s`\n' \
+        "$action" "$sync_script" "$action" >&2
+    (cd "$repo_root" && "$sync_script" "$action")
+}
+
 _bd_default_create_assignee() {
     local assignee="${BD_DEFAULT_CREATE_ASSIGNEE-balaji}"
 
@@ -295,8 +396,13 @@ _bd_autocommit_issues_jsonl() {
 }
 
 bd() {
-    local default_assignee exit_code inserted primary_command workdir arg
+    local default_assignee exit_code inserted primary_command workdir arg sync_action
     local -a bd_args defaulted_bd_args
+
+    if sync_action="$(_bd_dolt_sync_action "$@")"; then
+        _bd_run_dolt_sync "$sync_action" "$@"
+        return $?
+    fi
 
     bd_args=("$@")
     if _bd_should_default_create_assignee "$@"; then

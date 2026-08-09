@@ -24,13 +24,14 @@ set -euo pipefail
 # tables, then dolt_pull) with no bd process in between. This was tried the
 # naive way first and it failed on the Windows clone.
 #
-# SCOPE: only `pull` is affected. Every other bd command works normally. `push`
-# is not broken either - it is wrapped here only to bundle the server restart
-# that gives the server a live SSH_AUTH_SOCK.
+# SCOPE: only `pull` needs the one-session SQL workaround. `push` is routed here
+# too so an empty Dolt remote cannot fall through to bd's git-origin derivation,
+# and to restart the server with a live SSH_AUTH_SOCK. Other bd commands work
+# normally.
 #
 # This is a workaround for an upstream bd bug. If bd stops dirtying the table
 # before merging, the `pull` command here can be deleted and plain `bd dolt pull`
-# used again; `status`, `clean` and `push` do not depend on it.
+# used again; the push remote guard remains independently useful.
 
 usage() {
   cat >&2 <<'EOF'
@@ -97,7 +98,8 @@ ROOT="$(repo_root)"
 cd "$ROOT"
 
 have dolt || die "dolt not found on PATH"
-have bd || die "bd not found on PATH"
+BD_EXE="$(type -P bd || true)"
+[[ -n "$BD_EXE" ]] || die "bd executable not found on PATH"
 [[ -f .beads/metadata.json ]] || die ".beads/metadata.json not found; is this a Beads repo?"
 
 # Connection details come from metadata.json so this also works for other Beads
@@ -227,7 +229,7 @@ backup_if_asked() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] would run: bd export --all -o $out"
   else
-    bd export --all -o "$out" >&2
+    "$BD_EXE" export --all -o "$out" >&2
     info "backup written: $out"
   fi
 }
@@ -238,8 +240,8 @@ restart_server() {
     return 0
   fi
   info "restarting Dolt server so it inherits this shell's SSH_AUTH_SOCK"
-  bd dolt stop >&2 || true
-  bd dolt start >&2
+  "$BD_EXE" dolt stop >&2 || true
+  "$BD_EXE" dolt start >&2
   PORT="$(tr -d '[:space:]' < .beads/dolt-server.port)"
 }
 
@@ -325,6 +327,10 @@ cmd_pull() {
 }
 
 cmd_push() {
+  local remote
+  remote="$(remote_name)"
+  [[ -n "$remote" ]] || die "no Dolt remote configured; refusing push; see docs/beads.md"
+
   backup_if_asked
   restart_server
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -332,8 +338,8 @@ cmd_push() {
     return 0
   fi
   # push does not merge, so the deadlock does not apply and bd is fine here.
-  bd dolt commit 2>&1 | redact || true
-  bd dolt push 2>&1 | redact
+  "$BD_EXE" dolt commit 2>&1 | redact || true
+  "$BD_EXE" dolt push 2>&1 | redact
 }
 
 # Rebuild this peer from the sync remote without cloning. Proven 2026-08-01:
@@ -372,7 +378,7 @@ cmd_init() {
   # the advertised port (2026-08-01: that stamped a live database with a
   # scratch project identity). Stop this checkout's server, then refuse to
   # continue if the port still has a listener - it belongs to someone else.
-  bd dolt stop >/dev/null 2>&1 || true
+  "$BD_EXE" dolt stop >/dev/null 2>&1 || true
   if [[ -n "${BEADS_DOLT_SERVER_PORT:-}" ]] && port_in_use "$BEADS_DOLT_SERVER_PORT"; then
     die "port ${BEADS_DOLT_SERVER_PORT} still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server or unset BEADS_DOLT_SERVER_PORT."
   fi
@@ -401,7 +407,7 @@ cmd_init() {
   fi
 
   info "running bd init (fresh local database, prefix '${db_prefix}')"
-  env -u BD_SYNC_REMOTE bd init --server --non-interactive --skip-agents --skip-hooks --prefix "$db_prefix" >&2
+  env -u BD_SYNC_REMOTE "$BD_EXE" init --server --non-interactive --skip-agents --skip-hooks --prefix "$db_prefix" >&2
 
   restore_init_holds
   trap - EXIT INT
@@ -486,7 +492,7 @@ PY
   # Trap 4: if the adopted migration cursor trails this bd version, the first
   # bd command re-runs the missing ignored migrations (idempotent on Linux;
   # avoid entirely by pushing from a current peer before running init).
-  if ! bd list --limit 1 >/dev/null 2>&1; then
+  if ! "$BD_EXE" list --limit 1 >/dev/null 2>&1; then
     echo "WARNING: 'bd list' failed after init; run 'bd doctor' before using this checkout." >&2
   fi
 

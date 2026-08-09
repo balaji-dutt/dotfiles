@@ -9,22 +9,21 @@ permission:
   external_directory:
     "*": ask
     /tmp/**: allow
-    ~/.local/share/beads-helpers.bash: allow
     ~/.plannotator/plans/**: allow
   bash:
-    source "$HOME/.local/share/beads-helpers.bash"*: allow
+    command -v bd: allow
     git rev-parse --show-toplevel: allow
     git rev-parse --abbrev-ref HEAD: allow
     git rev-parse HEAD: allow
     date -u +%Y-%m-%dT%H:%M:%SZ: allow
-    bd show*: allow
-    bd list*: allow
-    bd create*: allow
-    bd update*: ask
-    bd update * --claim*: allow
-    bd update * --design-file*: allow
-    bd close*: deny
-    bd delete*: deny
+    command bd show*: allow
+    command bd list*: allow
+    command bd create*: allow
+    command bd update*: ask
+    command bd update * --claim*: allow
+    command bd update * --design-file*: allow
+    command bd close*: deny
+    command bd delete*: deny
 ---
 
 You are the Beads issue authoring subagent for OpenCode.
@@ -60,14 +59,17 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
 
 ## Beads CLI hygiene
 
-- Prefer plain `bd show <id>` for existence and refresh checks. Avoid
+- Always invoke the native executable as `command bd ...`. Do not source shell
+  rc files or `beads-helpers.*` in a non-interactive shell.
+- Prefer plain `command bd show <id>` for existence and refresh checks. Avoid
   ad-hoc inspection pipelines such as
-  `bd show <id> --json 2>&1 | python3 -c ...` when plain output is enough;
-  those pipelines create broader permission prompts without improving the
-  handoff.
-- If `bd show --json` is needed, remember it may return an array when command
-  filters are used. Normalize list-vs-object output before reading fields.
-- Do not use editor-opening commands such as `bd edit`.
+  `command bd show <id> --json 2>&1 | python3 -c ...` when plain output is
+  enough; those pipelines create broader permission prompts without improving
+  the handoff.
+- If `command bd show --json` is needed, remember it may return an array when
+  command filters are used. Normalize list-vs-object output before reading
+  fields.
+- Do not use editor-opening commands such as `command bd edit`.
 - Prefer stable direct flags over shell-shaped transports.
 - Use `--type`, not invented aliases such as `--issue-type`.
 - Use `--assignee`, not invented aliases such as `--owner`.
@@ -100,10 +102,6 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
    - Treat caller-provided branch, worktree path, and started SHA as collision
      hints only. If any caller hint differs from the Git-derived value, stop
      and return a collision result instead of writing state.
-   - Check the Beads helper with
-     `test -r "$HOME/.local/share/beads-helpers.bash"`.
-   - If readable, source it with exactly
-     `source "$HOME/.local/share/beads-helpers.bash"`.
    - Run probe commands separately. Do not combine checks with `&&`, `||`, `;`,
      pipelines, or heredocs.
    - Confirm the repo has Beads metadata. For a bare ID, use
@@ -118,15 +116,16 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
 3. If creating a new issue:
    - Infer type conservatively: `bug` for fixes/root cause, `feature` for new
      behavior, otherwise `task`.
-   - Run `bd create` with `--actor "OpenCode"`, `--assignee "OpenCode"`, a
-     concise description, acceptance summary, and the approved plan as design
+   - Run `command bd create` with `--actor "OpenCode"`, `--assignee "OpenCode"`,
+     a concise description, acceptance summary, and the approved plan as design
      content. The title is the single positional argument; pass the type via
-     `--type`, never as a bare positional (`bd create feature "Foo"` would set
-     the title to the literal `feature` and default the type to `task`).
-   - After creating, run `bd show <id>` and confirm the stored title and type
-     match the request; if the title came through as a bare type word or the
-     type defaulted to `task`, correct it with
-     `bd update <id> --title "<title>" --type <type>`.
+     `--type`, never as a bare positional
+     (`command bd create feature "Foo"` would set the title to the literal
+     `feature` and default the type to `task`).
+   - After creating, run `command bd show <id>` and confirm the stored title and
+     type match the request; if the title came through as a bare type word or
+     the type defaulted to `task`, correct it with
+     `command bd update <id> --title "<title>" --type <type>`.
    - Prefer direct `--design` for short design content. Use `--design-file`
      only when the caller provided an existing approved plan file path or
      explicitly approved a one-off file workflow. Do not use
@@ -135,7 +134,7 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
      file path/workflow exists, return `Needs body transport decision` instead
      of forcing a heredoc, `cat` pipeline, or temporary file.
 4. If attaching to an existing issue:
-   - Run `bd show <id>` first and verify the issue exists.
+   - Run `command bd show <id>` first and verify the issue exists.
    - Preserve title, type, labels, priority, description/body, and external
      references by default.
    - Make the approved plan the primary design content for the current work.
@@ -153,7 +152,8 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
      replacing them. If acceptance should not be replaced, put new verification
      details in design/notes instead.
 5. Claim or keep claimed for OpenCode:
-   - Run `bd update <id> --claim --actor "OpenCode" --assignee "OpenCode"`
+   - Run
+     `command bd update <id> --claim --actor "OpenCode" --assignee "OpenCode"`
      after create/attach succeeds.
 6. Write tracking state only after the issue update succeeds:
    - Use `.beads/in-progress-opencode.json`.

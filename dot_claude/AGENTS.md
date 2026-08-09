@@ -59,6 +59,15 @@
   - touches secrets/credentials
 - If a command is needed, show the exact command and explain what it does and how to verify success.
 
+## Beads CLI
+
+- In agent and non-interactive shells, invoke the Beads executable with
+  `command bd ...` on POSIX or `bd.exe ...` on native Windows.
+- Do not source shell rc files or `beads-helpers.*`; interactive wrappers can
+  change command behavior and are not an agent dependency.
+- When a repository documents a guarded sync helper, call that helper
+  explicitly instead of using native `bd dolt pull` or `bd dolt push`.
+
 ## Commit workflow
 
 - **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.

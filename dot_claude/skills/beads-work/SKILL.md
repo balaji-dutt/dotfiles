@@ -36,7 +36,7 @@ than hard-coding details for any one project.
   naming an issue ID.
 - The work item is tracked elsewhere (GitHub issue, Jira) and not in `bd`.
 - The user only wants to inspect issues without claiming or modifying them
-  (just run `bd show` or `bd list` directly).
+  (just run `command bd show` or `command bd list` directly).
 - The work originated from a Claude Code plan-mode session with no
   pre-existing issue ID. Use the repo's "Beads plan handoff" protocol
   (in `.claude/CLAUDE.md`) and the `beads-issue-author` subagent instead
@@ -56,21 +56,18 @@ once at the start of the session and reuse the answer.
 
 ## Preflight
 
-Confirm `bd` is available and load the noise-filter wrapper:
+Confirm the native `bd` executable is available:
 
 ```bash
 command -v bd >/dev/null || { echo "ERROR: bd not installed in this environment"; exit 1; }
-[ -r "$HOME/.local/share/beads-helpers.bash" ] && . "$HOME/.local/share/beads-helpers.bash"
 ```
 
-The first line bails out cleanly inside environments (some devcontainers)
-where `bd` isn't installed. The second line sources the bash wrapper that
-filters dolt `auto-importing`/`auto-imported` lines from `bd` output so they
-don't distract you mid-workflow. The wrapper is a no-op if it isn't present.
-
-Every `bd` invocation in the rest of this skill assumes the wrapper has been
-sourced. If you spawn a fresh non-interactive bash (e.g. via the Bash tool
-for a one-off command), re-source the helper at the top of that command.
+This bails out cleanly inside environments (some devcontainers) where `bd`
+isn't installed. Do not source shell rc files or `beads-helpers.*`; they are
+interactive wrappers and are not an agent dependency. Invoke every Beads
+command below as `command bd ...` on POSIX or `bd.exe ...` on native Windows.
+When synchronizing a repository that documents a guarded sync helper, invoke
+that helper explicitly instead of native `bd dolt pull` or `bd dolt push`.
 
 ## Workflow
 
@@ -102,13 +99,13 @@ continue or overwrite another session's state.
 ### Step 2: Fetch the issue
 
 ```bash
-bd show <id>
+command bd show <id>
 ```
 
 Read the title, description, acceptance criteria, design notes, status, and
 dependencies. Refuse to proceed and surface to the user when:
 
-- Status is `closed` — ask whether to `bd reopen` or abort.
+- Status is `closed` — ask whether to `command bd reopen` or abort.
 - Status is `in_progress` and the assignee is not the current agent
   identity — surface the conflict and ask before claiming.
 - The issue has unmet open dependencies — list them and ask whether to
@@ -121,13 +118,13 @@ Run the literal command matching the harness:
 Claude Code:
 
 ```bash
-bd update <id> --claim --actor "Claude" --assignee "Claude"
+command bd update <id> --claim --actor "Claude" --assignee "Claude"
 ```
 
 OpenCode:
 
 ```bash
-bd update <id> --claim --actor "OpenCode" --assignee "OpenCode"
+command bd update <id> --claim --actor "OpenCode" --assignee "OpenCode"
 ```
 
 The `--actor` flag overrides the audit-trail default (which would otherwise
@@ -214,7 +211,7 @@ file path on disk:
 Claude Code:
 
 ```bash
-bd update <id> \
+command bd update <id> \
   --design-file - \
   --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
@@ -226,7 +223,7 @@ EOF
 OpenCode:
 
 ```bash
-bd update <id> \
+command bd update <id> \
   --design-file - \
   --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
@@ -284,7 +281,7 @@ command for the harness:
 Claude Code:
 
 ```bash
-bd close <id> \
+command bd close <id> \
   --reason "Fixed with commit(s) <sha1>[, <sha2>...]" \
   --actor "Claude"
 ```
@@ -292,7 +289,7 @@ bd close <id> \
 OpenCode:
 
 ```bash
-bd close <id> \
+command bd close <id> \
   --reason "Fixed with commit(s) <sha1>[, <sha2>...]" \
   --actor "OpenCode"
 ```
@@ -318,7 +315,7 @@ Summarize:
 
 - The issue ID and one-line title.
 - Every commit SHA produced (8-char form is fine).
-- Verification that `bd show <id>` reports `status=closed` with the
+- Verification that `command bd show <id>` reports `status=closed` with the
   expected close reason.
 - Confirmation that the state file was removed.
 
@@ -343,14 +340,14 @@ Either signal triggers the release sequence:
 Claude Code:
 
 ```bash
-bd update <id> --status open --assignee "" --actor "Claude"
+command bd update <id> --status open --assignee "" --actor "Claude"
 rm -f .beads/in-progress-claude.json
 ```
 
 OpenCode:
 
 ```bash
-bd update <id> --status open --assignee "" --actor "OpenCode"
+command bd update <id> --status open --assignee "" --actor "OpenCode"
 rm -f .beads/in-progress-opencode.json
 ```
 
@@ -370,13 +367,13 @@ place so the work can resume.
 
 ### Issue not found
 
-`bd show <id>` returns no such issue → stop and ask the user whether
+`command bd show <id>` returns no such issue → stop and ask the user whether
 the ID is correct or whether to create a new issue first.
 
 ### OpenCode plan-to-build handoff
 
 When OpenCode switches from the Plan agent to the Build agent mid-issue,
-the Build agent re-discovers state from `bd show <id>` plus
+the Build agent re-discovers state from `command bd show <id>` plus
 `.beads/in-progress-opencode.json`. If the Build agent loses skill
 context, the user can re-invoke with "continue work on <id>" and
 the resume path in step 1 picks it up.
