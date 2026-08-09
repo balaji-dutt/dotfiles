@@ -4,15 +4,15 @@ set -euo pipefail
 
 # Install the forked Beads-Kanban VSIX release used for local bd work.
 # Change trigger (chezmoi re-runs on hash change):
-# tag: bd-fixes-v2.1.4-bd.1-13ed786
-# sha256: 7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79
+# tag: bd-fixes-v2.1.4-bd.2-45f59e9
+# sha256: 58344a593b89bfef1944c742fa5640b9e8d3ea34023d6dc45d2586f8202f30b6
 
 REPO="balaji-dutt/Beads-Kanban"
-TAG="bd-fixes-v2.1.4-bd.1-13ed786"
-ASSET="beads-kanban-bd-fixes-2.1.4-bd.1-integration-bd-fixes-13ed786.vsix"
-EXPECTED_SHA="7731e1b0711437fabb93f56a544d53e1cacd8ffcf8b412a568d6421b84af6e79"
+TAG="bd-fixes-v2.1.4-bd.2-45f59e9"
+ASSET="beads-kanban-bd-fixes-2.1.4-bd.2-integration-bd-fixes-45f59e9.vsix"
+EXPECTED_SHA="58344a593b89bfef1944c742fa5640b9e8d3ea34023d6dc45d2586f8202f30b6"
 FORK_EXTENSION_ID="balaji-dutt.beads-kanban-bd-fixes"
-FORK_VERSION="2.1.4-bd.1"
+FORK_VERSION="2.1.4-bd.2"
 UPSTREAM_EXTENSION_ID="davidcforbes.beads-kanban"
 
 if ! command -v code >/dev/null 2>&1; then
