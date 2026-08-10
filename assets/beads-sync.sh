@@ -35,19 +35,21 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: ./assets/beads-sync.sh <command> [--dry-run] [--backup]
+usage: ./assets/beads-sync.sh <command> [--dry-run] [--backup] [--if-due]
 
 commands:
   status   Show server, dirty tables, and whether a sync is safe (read-only)
   clean    Restore dirty dolt_ignore'd tables from HEAD
   pull     Restart server, then clean + dolt_pull in ONE dolt session
   push     Restart server, then bd dolt commit + bd dolt push
+  snapshot Export a JSONL recovery snapshot to the shared snapshot root
   init     Rebuild this peer from the sync remote after `.beads/dolt` was
            dropped (bd init + dolt_fetch + hard reset; see docs/beads.md)
 
 flags:
   --dry-run     Print what would run; change nothing
-  --backup      Run `bd export --all` to a timestamped file first (not init)
+  --backup      pull/push only: abort when the pre-sync snapshot fails
+  --if-due      snapshot only: respect the automatic snapshot throttle
   --prefix <p>  init only: issue prefix passed to bd init (default: the
                 dolt_database name; throwaway - the reset adopts the remote's)
 EOF
@@ -67,14 +69,127 @@ repo_root() {
   (cd -- "$script_dir/.." && pwd -P)
 }
 
+# All operations below this point touch the shared filesystem. The parent
+# always runs this private worker in a separate process group with a deadline.
+snapshot_worker() {
+  python3 - "$@" <<'PY'
+import datetime
+import os
+import pathlib
+import shutil
+import sys
+import time
+
+root, database, machine, source, count, due, interval, retention = sys.argv[1:]
+interval = int(interval)
+retention = int(retention)
+due = due == "1"
+if os.environ.get("BD_SNAPSHOT_TEST_DELAY_SECONDS"):
+    time.sleep(float(os.environ["BD_SNAPSHOT_TEST_DELAY_SECONDS"]))
+root_path = pathlib.Path(root)
+machine_dir = root_path / "beads-snapshots" / database / machine
+lock_dir = machine_dir / ".snapshot.lock"
+lock_held = False
+published_tmp = None
+
+try:
+    if not root_path.is_dir():
+        raise RuntimeError(f"snapshot root is unavailable: {root}")
+    machine_dir.mkdir(parents=True, exist_ok=True)
+    if not os.access(machine_dir, os.W_OK):
+        raise RuntimeError(f"snapshot directory is not writable: {machine_dir}")
+
+    try:
+        lock_dir.mkdir()
+        lock_held = True
+    except FileExistsError:
+        try:
+            lock_age = time.time() - lock_dir.stat().st_mtime
+        except OSError:
+            lock_age = 0
+        if lock_age > max(300, interval * 2):
+            shutil.rmtree(lock_dir, ignore_errors=True)
+            try:
+                lock_dir.mkdir()
+            except FileExistsError:
+                raise RuntimeError("snapshot worker is already active")
+            lock_held = True
+        elif due:
+            print("SKIP: snapshot worker is already active")
+            raise SystemExit(0)
+        else:
+            raise RuntimeError("snapshot worker is already active")
+
+    stale_after = max(300, interval * 2)
+    for stale_tmp in machine_dir.glob(f".{database}-{machine}-*.tmp"):
+        try:
+            if time.time() - stale_tmp.stat().st_mtime > stale_after:
+                stale_tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    completed = sorted(
+        machine_dir.glob(f"{database}-{machine}-*.jsonl"),
+        key=lambda item: (item.stat().st_mtime, item.name),
+        reverse=True,
+    )
+    if due and completed and time.time() - completed[0].stat().st_mtime < interval:
+        print(f"SKIP: newest snapshot is still inside the {interval}-second window")
+        raise SystemExit(0)
+
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    final_path = machine_dir / f"{database}-{machine}-{stamp}-{count}.jsonl"
+    published_tmp = machine_dir / f".{final_path.name}.{os.getpid()}.tmp"
+    with open(source, "rb") as src, open(published_tmp, "xb") as dst:
+        shutil.copyfileobj(src, dst)
+        dst.flush()
+        os.fsync(dst.fileno())
+    os.replace(published_tmp, final_path)
+    published_tmp = None
+
+    completed = sorted(
+        machine_dir.glob(f"{database}-{machine}-*.jsonl"),
+        key=lambda item: (item.stat().st_mtime, item.name),
+        reverse=True,
+    )
+    for old_snapshot in completed[retention:]:
+        old_snapshot.unlink(missing_ok=True)
+    print(f"SNAPSHOT: {final_path}")
+except SystemExit:
+    raise
+except Exception as exc:
+    print(f"ERROR: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+finally:
+    if published_tmp is not None:
+        try:
+            published_tmp.unlink()
+        except OSError:
+            pass
+    if lock_held:
+        try:
+            lock_dir.rmdir()
+        except OSError:
+            pass
+PY
+}
+
+if [[ "${1:-}" == "__snapshot-worker" ]]; then
+  shift
+  snapshot_worker "$@"
+  exit $?
+fi
+
 COMMAND="${1:-}"; shift || true
 DRY_RUN=0
 DO_BACKUP=0
+IF_DUE=0
 PREFIX_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
     --backup)  DO_BACKUP=1 ;;
+    --if-due)  IF_DUE=1 ;;
     --prefix)
       shift
       [[ $# -gt 0 && -n "$1" ]] || die "--prefix needs a value"
@@ -87,20 +202,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$COMMAND" in
-  status|clean|pull|push|init) ;;
+  status|clean|pull|push|snapshot|init) ;;
   ""|-h|--help) usage ;;
   *) die "unknown command: $COMMAND" ;;
 esac
 
 [[ -z "$PREFIX_OVERRIDE" || "$COMMAND" == "init" ]] || die "--prefix is init-only"
+[[ "$IF_DUE" -eq 0 || "$COMMAND" == "snapshot" ]] || die "--if-due is snapshot-only"
+[[ "$DO_BACKUP" -eq 0 || "$COMMAND" == "pull" || "$COMMAND" == "push" ]] || die "--backup is pull/push-only"
 
 ROOT="$(repo_root)"
 cd "$ROOT"
+SCRIPT_PATH="$ROOT/assets/beads-sync.sh"
 
-have dolt || die "dolt not found on PATH"
 BD_EXE="$(type -P bd || true)"
 [[ -n "$BD_EXE" ]] || die "bd executable not found on PATH"
 [[ -f .beads/metadata.json ]] || die ".beads/metadata.json not found; is this a Beads repo?"
+
+if [[ "$COMMAND" != "snapshot" ]]; then
+  have dolt || die "dolt not found on PATH"
+fi
 
 # Connection details come from metadata.json so this also works for other Beads
 # databases (e.g. the devcontainer's hliac), not just dots.
@@ -125,8 +246,9 @@ PORT="${BEADS_DOLT_SERVER_PORT:-}"
 if [[ -z "$PORT" && -f .beads/dolt-server.port ]]; then
   PORT="$(tr -d '[:space:]' < .beads/dolt-server.port)"
 fi
-# init establishes the server itself; every other command needs one running.
-if [[ "$COMMAND" != "init" ]]; then
+# init establishes the server itself; snapshot exports through bd without
+# requiring an external Dolt CLI or a pre-existing port file.
+if [[ "$COMMAND" != "init" && "$COMMAND" != "snapshot" ]]; then
   [[ -n "$PORT" ]] || die "no Dolt port; run 'bd dolt start' first"
 fi
 
@@ -222,16 +344,206 @@ safe_reset_list() {
   printf '%s\n' "${safe[@]:-}"
 }
 
-backup_if_asked() {
-  [[ "$DO_BACKUP" -eq 1 ]] || return 0
-  local out
-  out="$HOME/${DB}-backup-$(date +%Y%m%d-%H%M%S).jsonl"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    info "[dry-run] would run: bd export --all -o $out"
+normalize_snapshot_component() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+value = re.sub(r'[^a-z0-9._-]+', '-', sys.argv[1].lower()).strip('._-')
+print(value or sys.argv[2])
+PY
+}
+
+snapshot_root_and_machine() {
+  local root="${BD_SNAPSHOT_ROOT:-}" platform host distro machine
+  host="$(normalize_snapshot_component "$(hostname 2>/dev/null || true)" host)"
+
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && command grep -qi microsoft /proc/version; }; then
+    platform=wsl
+    [[ -n "$root" ]] || root=/mnt/devdrive
+    distro="$(normalize_snapshot_component "${WSL_DISTRO_NAME:-wsl}" wsl)"
+    machine="${host}-${distro}"
+  elif [[ "$(uname -s 2>/dev/null || true)" == Darwin ]]; then
+    platform=macos
+    [[ -n "$root" ]] || root=/Volumes/devdrive
+    machine="${host}-${platform}"
   else
-    "$BD_EXE" export --all -o "$out" >&2
-    info "backup written: $out"
+    platform=linux
+    machine="${host}-${platform}"
   fi
+
+  machine="$(normalize_snapshot_component "${BD_SNAPSHOT_MACHINE:-$machine}" machine)"
+  printf '%s\n%s\n' "$root" "$machine"
+}
+
+validate_snapshot_settings() {
+  local interval="$1" retention="$2" deadline="$3"
+  [[ "$interval" =~ ^[0-9]+$ ]] || die "BD_SNAPSHOT_INTERVAL_SECONDS must be a non-negative integer"
+  [[ "$retention" =~ ^[1-9][0-9]*$ ]] || die "BD_SNAPSHOT_RETENTION must be a positive integer"
+  [[ "$deadline" =~ ^[1-9][0-9]*$ ]] || die "BD_SNAPSHOT_DEADLINE_SECONDS must be a positive integer"
+}
+
+automatic_snapshots_enabled() {
+  case "${BD_AUTO_SNAPSHOT:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  esac
+  return 0
+}
+
+attempt_is_recent() {
+  local marker="$1" interval="$2"
+  python3 - "$marker" "$interval" <<'PY'
+import os
+import sys
+import time
+try:
+    recent = time.time() - os.path.getmtime(sys.argv[1]) < int(sys.argv[2])
+except OSError:
+    recent = False
+raise SystemExit(0 if recent else 1)
+PY
+}
+
+run_snapshot_worker_with_deadline() {
+  local deadline="$1"
+  shift
+  python3 - "$deadline" "$SCRIPT_PATH" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+deadline = int(sys.argv[1])
+command = [sys.argv[2], "__snapshot-worker", *sys.argv[3:]]
+try:
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+except Exception as exc:
+    print(f"ERROR: could not start snapshot worker: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+try:
+    stdout, stderr = process.communicate(timeout=deadline)
+except subprocess.TimeoutExpired:
+    os.killpg(process.pid, signal.SIGKILL)
+    stdout, stderr = process.communicate()
+    if stdout:
+        print(stdout, end="")
+    if stderr:
+        print(stderr, end="", file=sys.stderr)
+    print(f"ERROR: shared snapshot operation exceeded {deadline}s deadline", file=sys.stderr)
+    raise SystemExit(124)
+if stdout:
+    print(stdout, end="")
+if stderr:
+    print(stderr, end="", file=sys.stderr)
+raise SystemExit(process.returncode)
+PY
+}
+
+cmd_snapshot() {
+  local interval="${BD_SNAPSHOT_INTERVAL_SECONDS:-600}"
+  local retention="${BD_SNAPSHOT_RETENTION:-10}"
+  local deadline="${BD_SNAPSHOT_DEADLINE_SECONDS:-2}"
+  local root machine cache_dir marker local_tmp count rc snapshot_identity
+
+  validate_snapshot_settings "$interval" "$retention" "$deadline"
+  snapshot_identity="$(snapshot_root_and_machine)"
+  root="${snapshot_identity%%$'\n'*}"
+  machine="${snapshot_identity#*$'\n'}"
+  [[ "$machine" != "$snapshot_identity" ]] || machine=machine
+
+  if [[ "$IF_DUE" -eq 1 ]] && ! automatic_snapshots_enabled; then
+    info "automatic JSONL snapshots are disabled by BD_AUTO_SNAPSHOT"
+    return 0
+  fi
+  if [[ -z "$root" ]]; then
+    if [[ "$IF_DUE" -eq 1 ]]; then
+      info "no default snapshot root on this platform; skipping"
+      return 0
+    fi
+    echo "ERROR: no snapshot root configured; set BD_SNAPSHOT_ROOT" >&2
+    return 2
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    info "[dry-run] would export bd export --all and publish under $root/beads-snapshots/$DB/$machine"
+    return 0
+  fi
+
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/beads-snapshots"
+  mkdir -p "$cache_dir"
+  marker="$cache_dir/${DB}-${machine}.attempt"
+  if [[ "$IF_DUE" -eq 1 ]] && attempt_is_recent "$marker" "$interval"; then
+    info "snapshot attempt is still inside the ${interval}-second window; skipping"
+    return 0
+  fi
+  : > "$marker"
+
+  local_tmp="$(mktemp "${TMPDIR:-/tmp}/${DB}-${machine}-snapshot.XXXXXX")"
+  if ! BD_EXPORT_GIT_ADD=false "$BD_EXE" export --all -o "$local_tmp" >/dev/null; then
+    rm -f -- "$local_tmp"
+    if [[ "$IF_DUE" -eq 1 ]]; then
+      echo "WARNING: automatic Beads JSONL snapshot skipped: bd export --all failed; no snapshot published" >&2
+      return 0
+    fi
+    echo "ERROR: bd export --all failed; no snapshot published" >&2
+    return 1
+  fi
+  if ! count="$(python3 - "$local_tmp" <<'PY'
+import json
+import sys
+count = 0
+with open(sys.argv[1], encoding='utf-8') as stream:
+    for line in stream:
+        if not line.strip():
+            continue
+        json.loads(line)
+        count += 1
+if count == 0:
+    raise SystemExit(1)
+print(count)
+PY
+  )"; then
+    rm -f -- "$local_tmp"
+    if [[ "$IF_DUE" -eq 1 ]]; then
+      echo "WARNING: automatic Beads JSONL snapshot skipped: bd export produced empty or invalid JSONL; no snapshot published" >&2
+      return 0
+    fi
+    echo "ERROR: bd export produced empty or invalid JSONL; no snapshot published" >&2
+    return 1
+  fi
+
+  if run_snapshot_worker_with_deadline "$deadline" \
+      "$root" "$DB" "$machine" "$local_tmp" "$count" "$IF_DUE" "$interval" "$retention"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  rm -f -- "$local_tmp"
+
+  if [[ "$rc" -ne 0 && "$IF_DUE" -eq 1 ]]; then
+    echo "WARNING: automatic Beads JSONL snapshot skipped (exit $rc)" >&2
+    return 0
+  fi
+  return "$rc"
+}
+
+sync_boundary_snapshot() {
+  local mode="$1"
+  local saved_if_due="$IF_DUE"
+  local rc=0
+  if [[ "$mode" == due ]]; then IF_DUE=1; else IF_DUE=0; fi
+  cmd_snapshot || rc=$?
+  IF_DUE="$saved_if_due"
+  [[ "$rc" -ne 0 ]] || return 0
+  if [[ "$DO_BACKUP" -eq 1 ]]; then
+    die "required pre-sync snapshot failed (exit $rc)"
+  fi
+  echo "WARNING: pre-sync Beads JSONL snapshot failed (exit $rc); continuing" >&2
+  return 0
 }
 
 restart_server() {
@@ -298,7 +610,7 @@ cmd_clean() {
 }
 
 cmd_pull() {
-  backup_if_asked
+  sync_boundary_snapshot forced
   restart_server
 
   local tables sql remote branch
@@ -331,7 +643,11 @@ cmd_push() {
   remote="$(remote_name)"
   [[ -n "$remote" ]] || die "no Dolt remote configured; refusing push; see docs/beads.md"
 
-  backup_if_asked
+  if [[ "$DO_BACKUP" -eq 1 ]]; then
+    sync_boundary_snapshot forced
+  else
+    sync_boundary_snapshot due
+  fi
   restart_server
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] would run: bd dolt commit && bd dolt push"
@@ -355,7 +671,7 @@ cmd_init() {
   [[ "$DO_BACKUP" -eq 0 ]] || die "init does not take --backup: there is no database to export yet"
 
   # The destructive step stays human: this command never deletes data.
-  [[ ! -e .beads/dolt ]] || die ".beads/dolt already exists; init only rebuilds a dropped data dir. Export first (bd export --all -o ~/${DB}-backup.jsonl), move .beads/dolt aside yourself, then re-run."
+  [[ ! -e .beads/dolt ]] || die ".beads/dolt already exists; init only rebuilds a dropped data dir. Run './assets/beads-sync.sh snapshot' (or export manually), move .beads/dolt aside yourself, then re-run."
 
   local url
   url="$(sync_remote_url)"
@@ -507,5 +823,6 @@ case "$COMMAND" in
   clean)  cmd_clean ;;
   pull)   cmd_pull ;;
   push)   cmd_push ;;
+  snapshot) cmd_snapshot ;;
   init)   cmd_init ;;
 esac

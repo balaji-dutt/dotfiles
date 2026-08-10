@@ -1,14 +1,24 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('status', 'clean', 'pull', 'push', 'init')]
+  [ValidateSet('status', 'clean', 'pull', 'push', 'snapshot', 'init', '__snapshot-worker')]
   [string] $Command,
 
   [switch] $DryRun,
   [switch] $Backup,
+  [switch] $IfDue,
 
   # init only: issue prefix passed to bd init (default: the dolt_database
   # name; throwaway - the reset adopts the remote's counters anyway).
-  [string] $Prefix
+  [string] $Prefix,
+
+  # Private arguments used only by the deadline-controlled snapshot worker.
+  [string] $SnapshotRoot,
+  [string] $SnapshotDatabase,
+  [string] $SnapshotMachine,
+  [string] $SnapshotSource,
+  [int] $SnapshotCount,
+  [int] $SnapshotInterval,
+  [int] $SnapshotRetention
 )
 
 Set-StrictMode -Version Latest
@@ -70,16 +80,98 @@ function Redact([string]$Text) {
   return ($Text -replace '(git\+ssh://|ssh://|https://)[^\s"]*', '$1<REDACTED>')
 }
 
+function Invoke-SnapshotWorker {
+  $machineDir = Join-Path (Join-Path (Join-Path $SnapshotRoot 'beads-snapshots') $SnapshotDatabase) $SnapshotMachine
+  $lockDir = Join-Path $machineDir '.snapshot.lock'
+  $lockHeld = $false
+  $publishedTmp = $null
+  try {
+    if ($env:BD_SNAPSHOT_TEST_DELAY_SECONDS) {
+      Start-Sleep -Milliseconds ([int]([double]$env:BD_SNAPSHOT_TEST_DELAY_SECONDS * 1000))
+    }
+    if (-not (Test-Path -LiteralPath $SnapshotRoot -PathType Container)) {
+      throw "snapshot root is unavailable: $SnapshotRoot"
+    }
+    New-Item -ItemType Directory -Path $machineDir -Force | Out-Null
+    try {
+      New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null
+      $lockHeld = $true
+    } catch {
+      $lockAge = 0
+      try { $lockAge = ((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $lockDir).LastWriteTimeUtc).TotalSeconds } catch {}
+      if ($lockAge -gt [Math]::Max(300, $SnapshotInterval * 2)) {
+        Remove-Item -LiteralPath $lockDir -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+          New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null
+        } catch {
+          throw 'snapshot worker is already active'
+        }
+        $lockHeld = $true
+      } elseif ($IfDue) {
+        [Console]::Out.WriteLine('SKIP: snapshot worker is already active')
+        return 0
+      } else {
+        throw 'snapshot worker is already active'
+      }
+    }
+
+    $staleAfter = [Math]::Max(300, $SnapshotInterval * 2)
+    $staleTmpPattern = ".$SnapshotDatabase-$SnapshotMachine-*.tmp"
+    Get-ChildItem -LiteralPath $machineDir -Filter $staleTmpPattern -File -Force -ErrorAction SilentlyContinue |
+      Where-Object {
+        ((Get-Date).ToUniversalTime() - $_.LastWriteTimeUtc).TotalSeconds -gt $staleAfter
+      } |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+
+    $pattern = "$SnapshotDatabase-$SnapshotMachine-*.jsonl"
+    $completed = @(Get-ChildItem -LiteralPath $machineDir -Filter $pattern -File |
+      Sort-Object LastWriteTimeUtc, Name -Descending)
+    if ($IfDue -and $completed.Count -gt 0 -and
+        ((Get-Date).ToUniversalTime() - $completed[0].LastWriteTimeUtc).TotalSeconds -lt $SnapshotInterval) {
+      [Console]::Out.WriteLine("SKIP: newest snapshot is still inside the $SnapshotInterval-second window")
+      return 0
+    }
+
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffffffZ')
+    $finalPath = Join-Path $machineDir "$SnapshotDatabase-$SnapshotMachine-$stamp-$SnapshotCount.jsonl"
+    $publishedTmp = Join-Path $machineDir ".$([IO.Path]::GetFileName($finalPath)).$PID.tmp"
+    [IO.File]::Copy($SnapshotSource, $publishedTmp, $false)
+    [IO.File]::Move($publishedTmp, $finalPath)
+    $publishedTmp = $null
+
+    $completed = @(Get-ChildItem -LiteralPath $machineDir -Filter $pattern -File |
+      Sort-Object LastWriteTimeUtc, Name -Descending)
+    foreach ($oldSnapshot in @($completed | Select-Object -Skip $SnapshotRetention)) {
+      Remove-Item -LiteralPath $oldSnapshot.FullName -Force -ErrorAction SilentlyContinue
+    }
+    [Console]::Out.WriteLine("SNAPSHOT: $finalPath")
+    return 0
+  } catch {
+    [Console]::Error.WriteLine("ERROR: $($_.Exception.Message)")
+    return 1
+  } finally {
+    if ($publishedTmp) { Remove-Item -LiteralPath $publishedTmp -Force -ErrorAction SilentlyContinue }
+    if ($lockHeld) { Remove-Item -LiteralPath $lockDir -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+if ($Command -eq '__snapshot-worker') {
+  exit (Invoke-SnapshotWorker)
+}
+
 Set-Location (Get-RepoRoot)
 
 # dolt is not always on PATH on Windows; fall back to the default install path.
-$DoltExe = 'dolt'
-if (-not (HaveCmd 'dolt')) {
-  $fallback = 'C:\Program Files\Dolt\bin\dolt.exe'
-  if (Test-Path -LiteralPath $fallback -PathType Leaf) {
-    $DoltExe = $fallback
-  } else {
-    Die "dolt not found on PATH and not at $fallback"
+$DoltExe = $null
+if ($Command -ne 'snapshot') {
+  $DoltExe = 'dolt'
+  if (-not (HaveCmd 'dolt')) {
+    $fallback = 'C:\Program Files\Dolt\bin\dolt.exe'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
+      $DoltExe = $fallback
+    } else {
+      Die "dolt not found on PATH and not at $fallback"
+    }
   }
 }
 $BdCommand = Get-Command bd -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -105,10 +197,12 @@ $DbPort = $env:BEADS_DOLT_SERVER_PORT
 if (-not $DbPort -and (Test-Path -LiteralPath '.beads/dolt-server.port' -PathType Leaf)) {
   $DbPort = (Get-Content -Raw -LiteralPath '.beads/dolt-server.port').Trim()
 }
-# init establishes the server itself; every other command needs one running.
-if (-not $DbPort -and $Command -ne 'init') { Die "no Dolt port; run 'bd dolt start' first" }
+# init establishes the server itself; snapshot exports without external Dolt.
+if (-not $DbPort -and $Command -notin @('init', 'snapshot')) { Die "no Dolt port; run 'bd dolt start' first" }
 
 if ($Prefix -and $Command -ne 'init') { Die '-Prefix is init-only' }
+if ($IfDue -and $Command -ne 'snapshot') { Die '-IfDue is snapshot-only' }
+if ($Backup -and $Command -notin @('pull', 'push')) { Die '-Backup is pull/push-only' }
 
 function Invoke-DoltSql {
   # -Quiet drops stderr instead of merging it, matching `2>/dev/null` in the .sh.
@@ -202,19 +296,209 @@ function Get-CheckoutSql([string[]]$Tables) {
   return $sql
 }
 
-function Invoke-BackupIfAsked {
-  if (-not $Backup) { return }
-  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-  $out   = Join-Path $HOME "$DbName-backup-$stamp.jsonl"
-  if ($DryRun) {
-    Write-Info "[dry-run] would run: bd export --all -o $out"
+function ConvertTo-SnapshotComponent([string]$Value, [string]$Fallback) {
+  $normalized = (($Value.ToLowerInvariant() -replace '[^a-z0-9._-]+', '-').Trim('.', '_', '-'))
+  if ($normalized) { return $normalized }
+  return $Fallback
+}
+
+function Get-SnapshotIdentity {
+  $root = $env:BD_SNAPSHOT_ROOT
+  $hostName = ConvertTo-SnapshotComponent ([Environment]::MachineName) 'host'
+  if ($IsWindows) {
+    if (-not $root) { $root = 'V:\' }
+    $machine = "$hostName-windows"
+  } elseif ($IsMacOS) {
+    if (-not $root) { $root = '/Volumes/devdrive' }
+    $machine = "$hostName-macos"
   } else {
-    # Out-Null: bd's stdout must not leak into this function's output stream,
-    # or it contaminates the caller's return value. See Restart-DoltServer.
-    & $BdExe export --all -o $out | Out-Null
-    if ($LASTEXITCODE -ne 0) { Die "bd export failed (exit $LASTEXITCODE)" }
-    Write-Info "backup written: $out"
+    $isWsl = [bool]$env:WSL_DISTRO_NAME
+    if (-not $isWsl -and (Test-Path -LiteralPath '/proc/version' -PathType Leaf)) {
+      $isWsl = (Get-Content -Raw -LiteralPath '/proc/version') -match 'microsoft'
+    }
+    if ($isWsl) {
+      if (-not $root) { $root = '/mnt/devdrive' }
+      $distro = ConvertTo-SnapshotComponent $env:WSL_DISTRO_NAME 'wsl'
+      $machine = "$hostName-$distro"
+    } else {
+      $machine = "$hostName-linux"
+    }
   }
+  if ($env:BD_SNAPSHOT_MACHINE) {
+    $machine = ConvertTo-SnapshotComponent $env:BD_SNAPSHOT_MACHINE 'machine'
+  }
+  return [PSCustomObject]@{ Root = $root; Machine = $machine }
+}
+
+function Test-AutomaticSnapshotsEnabled {
+  return $env:BD_AUTO_SNAPSHOT -notin @('0', 'false', 'FALSE', 'no', 'NO', 'off', 'OFF')
+}
+
+function Invoke-SnapshotWorkerWithDeadline {
+  param(
+    [string] $Root,
+    [string] $Machine,
+    [string] $Source,
+    [int] $Count,
+    [int] $Interval,
+    [int] $Retention,
+    [int] $Deadline,
+    [switch] $Due
+  )
+  $pwsh = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $pwsh) {
+    [Console]::Error.WriteLine('ERROR: pwsh is required to enforce the shared-filesystem deadline')
+    return 1
+  }
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $pwsh.Source
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  foreach ($argument in @(
+      '-NoProfile', '-File', $PSCommandPath, '__snapshot-worker',
+      '-SnapshotRoot', $Root, '-SnapshotDatabase', $DbName,
+      '-SnapshotMachine', $Machine, '-SnapshotSource', $Source,
+      '-SnapshotCount', [string]$Count, '-SnapshotInterval', [string]$Interval,
+      '-SnapshotRetention', [string]$Retention
+    )) {
+    $startInfo.ArgumentList.Add($argument)
+  }
+  if ($Due) { $startInfo.ArgumentList.Add('-IfDue') }
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  try {
+    if (-not $process.Start()) { throw 'process did not start' }
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($Deadline * 1000)) {
+      $process.Kill($true)
+      $process.WaitForExit()
+      [Console]::Error.WriteLine("ERROR: shared snapshot operation exceeded ${Deadline}s deadline")
+      return 124
+    }
+    $stdout = $stdoutTask.Result
+    $stderr = $stderrTask.Result
+    if ($stdout) { [Console]::Out.Write($stdout) }
+    if ($stderr) { [Console]::Error.Write($stderr) }
+    return $process.ExitCode
+  } catch {
+    [Console]::Error.WriteLine("ERROR: could not run snapshot worker: $($_.Exception.Message)")
+    return 1
+  } finally {
+    $process.Dispose()
+  }
+}
+
+function Invoke-Snapshot {
+  try {
+    $interval = if ($env:BD_SNAPSHOT_INTERVAL_SECONDS) { [int]$env:BD_SNAPSHOT_INTERVAL_SECONDS } else { 600 }
+    $retention = if ($env:BD_SNAPSHOT_RETENTION) { [int]$env:BD_SNAPSHOT_RETENTION } else { 10 }
+    $deadline = if ($env:BD_SNAPSHOT_DEADLINE_SECONDS) { [int]$env:BD_SNAPSHOT_DEADLINE_SECONDS } else { 2 }
+  } catch {
+    Die 'snapshot interval, retention, and deadline must be integers'
+  }
+  if ($interval -lt 0) { Die 'BD_SNAPSHOT_INTERVAL_SECONDS must be a non-negative integer' }
+  if ($retention -lt 1) { Die 'BD_SNAPSHOT_RETENTION must be a positive integer' }
+  if ($deadline -lt 1) { Die 'BD_SNAPSHOT_DEADLINE_SECONDS must be a positive integer' }
+
+  $identity = Get-SnapshotIdentity
+  if ($IfDue -and -not (Test-AutomaticSnapshotsEnabled)) {
+    Write-Info 'automatic JSONL snapshots are disabled by BD_AUTO_SNAPSHOT'
+    return 0
+  }
+  if (-not $identity.Root) {
+    if ($IfDue) {
+      Write-Info 'no default snapshot root on this platform; skipping'
+      return 0
+    }
+    [Console]::Error.WriteLine('ERROR: no snapshot root configured; set BD_SNAPSHOT_ROOT')
+    return 2
+  }
+  if ($DryRun) {
+    Write-Info "[dry-run] would export bd export --all and publish under $($identity.Root)/beads-snapshots/$DbName/$($identity.Machine)"
+    return 0
+  }
+
+  $cacheBase = if ($env:XDG_CACHE_HOME) { $env:XDG_CACHE_HOME } else { Join-Path $HOME '.cache' }
+  $cacheDir = Join-Path $cacheBase 'beads-snapshots'
+  New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+  $marker = Join-Path $cacheDir "$DbName-$($identity.Machine).attempt"
+  if ($IfDue -and (Test-Path -LiteralPath $marker -PathType Leaf)) {
+    $age = ((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $marker).LastWriteTimeUtc).TotalSeconds
+    if ($age -lt $interval) {
+      Write-Info "snapshot attempt is still inside the $interval-second window; skipping"
+      return 0
+    }
+  }
+  Set-Content -LiteralPath $marker -Value '' -NoNewline
+
+  $localTemp = [IO.Path]::GetTempFileName()
+  try {
+    $previousExportGitAdd = $env:BD_EXPORT_GIT_ADD
+    try {
+      $env:BD_EXPORT_GIT_ADD = 'false'
+      & $BdExe export --all -o $localTemp | Out-Null
+      $exportExit = $LASTEXITCODE
+    } finally {
+      if ($null -eq $previousExportGitAdd) {
+        Remove-Item Env:BD_EXPORT_GIT_ADD -ErrorAction SilentlyContinue
+      } else {
+        $env:BD_EXPORT_GIT_ADD = $previousExportGitAdd
+      }
+    }
+    if ($exportExit -ne 0) {
+      if ($IfDue) {
+        [Console]::Error.WriteLine('WARNING: automatic Beads JSONL snapshot skipped: bd export --all failed; no snapshot published')
+        return 0
+      }
+      [Console]::Error.WriteLine("ERROR: bd export --all failed (exit $exportExit); no snapshot published")
+      return 1
+    }
+    $count = 0
+    try {
+      foreach ($line in (Get-Content -LiteralPath $localTemp)) {
+        if (-not $line.Trim()) { continue }
+        $line | ConvertFrom-Json | Out-Null
+        $count++
+      }
+    } catch {
+      if ($IfDue) {
+        [Console]::Error.WriteLine('WARNING: automatic Beads JSONL snapshot skipped: bd export produced invalid JSONL; no snapshot published')
+        return 0
+      }
+      [Console]::Error.WriteLine('ERROR: bd export produced invalid JSONL; no snapshot published')
+      return 1
+    }
+    if ($count -eq 0) {
+      if ($IfDue) {
+        [Console]::Error.WriteLine('WARNING: automatic Beads JSONL snapshot skipped: bd export produced empty JSONL; no snapshot published')
+        return 0
+      }
+      [Console]::Error.WriteLine('ERROR: bd export produced empty JSONL; no snapshot published')
+      return 1
+    }
+    $workerRc = Invoke-SnapshotWorkerWithDeadline -Root $identity.Root -Machine $identity.Machine `
+      -Source $localTemp -Count $count -Interval $interval -Retention $retention `
+      -Deadline $deadline -Due:$IfDue
+    if ($workerRc -ne 0 -and $IfDue) {
+      [Console]::Error.WriteLine("WARNING: automatic Beads JSONL snapshot skipped (exit $workerRc)")
+      return 0
+    }
+    return $workerRc
+  } finally {
+    Remove-Item -LiteralPath $localTemp -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Invoke-SyncBoundarySnapshot([ValidateSet('forced', 'due')] [string]$Mode) {
+  $savedDue = $IfDue
+  $script:IfDue = $Mode -eq 'due'
+  try { $rc = Invoke-Snapshot } finally { $script:IfDue = $savedDue }
+  if ($rc -eq 0) { return 0 }
+  if ($Backup) { Die "required pre-sync snapshot failed (exit $rc)" }
+  [Console]::Error.WriteLine("WARNING: pre-sync Beads JSONL snapshot failed (exit $rc); continuing")
+  return 0
 }
 
 function Restart-DoltServer {
@@ -287,7 +571,7 @@ function Invoke-Clean {
 }
 
 function Invoke-Pull {
-  Invoke-BackupIfAsked
+  Invoke-SyncBoundarySnapshot forced | Out-Null
   Restart-DoltServer
 
   $tables = @(Get-SafeResetList)   # @() required - see Get-SafeResetList note
@@ -324,7 +608,11 @@ function Invoke-Push {
   $remote = Get-RemoteName
   if (-not $remote) { Die 'no Dolt remote configured; refusing push; see docs/beads.md' }
 
-  Invoke-BackupIfAsked
+  if ($Backup) {
+    Invoke-SyncBoundarySnapshot forced | Out-Null
+  } else {
+    Invoke-SyncBoundarySnapshot due | Out-Null
+  }
   Restart-DoltServer
   if ($DryRun) {
     Write-Info '[dry-run] would run: bd dolt commit && bd dolt push'
@@ -356,7 +644,7 @@ function Invoke-Init {
 
   # The destructive step stays human: this command never deletes data.
   if (Test-Path -LiteralPath '.beads/dolt') {
-    Die ".beads/dolt already exists; init only rebuilds a dropped data dir. Export first (bd export --all -o `$HOME/$DbName-backup.jsonl), move .beads/dolt aside yourself, then re-run."
+    Die ".beads/dolt already exists; init only rebuilds a dropped data dir. Run 'pwsh ./assets/beads-sync.ps1 snapshot' (or export manually), move .beads/dolt aside yourself, then re-run."
   }
 
   $url = Get-SyncRemoteUrl
@@ -543,5 +831,6 @@ switch ($Command) {
   'clean'  { exit (Invoke-Clean) }
   'pull'   { exit (Invoke-Pull) }
   'push'   { exit (Invoke-Push) }
+  'snapshot' { exit (Invoke-Snapshot) }
   'init'   { exit (Invoke-Init) }
 }

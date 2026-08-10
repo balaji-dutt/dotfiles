@@ -134,41 +134,6 @@ _bd_command_directory() {
     printf '%s\n' "$dir"
 }
 
-_bd_primary_command() {
-    emulate -L zsh
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --)
-                shift
-                break
-                ;;
-            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global)
-                shift
-                ;;
-            -C|--directory|--db|--actor|--dolt-auto-commit)
-                [[ $# -gt 1 ]] || return 1
-                shift 2
-                ;;
-            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*)
-                shift
-                ;;
-            -h|--help|--version|-V)
-                return 1
-                ;;
-            -*)
-                shift
-                ;;
-            *)
-                printf '%s\n' "$1"
-                return 0
-                ;;
-        esac
-    done
-
-    return 1
-}
-
 _bd_dolt_sync_action() {
     emulate -L zsh
 
@@ -274,158 +239,100 @@ _bd_run_dolt_sync() {
     (cd "$repo_root" && "$sync_script" "$action")
 }
 
-_bd_default_create_assignee() {
+# Intentionally over-approximate mixed command families: an extra throttled
+# snapshot is safer than missing a write when bd adds a mutating code path.
+_bd_mutation_requested() {
     emulate -L zsh
 
-    local assignee="${BD_DEFAULT_CREATE_ASSIGNEE-balaji}"
-
-    [[ -n "$assignee" ]] || return 1
-    printf '%s\n' "$assignee"
-}
-
-_bd_create_args_have_assignee() {
-    emulate -L zsh
-
-    local primary_command_seen=0
-
+    local primary subcommand arg
     while [[ $# -gt 0 ]]; do
-        if [[ $primary_command_seen -eq 1 ]]; then
-            case "$1" in
-                --)
-                    return 1
-                    ;;
-                --assignee|-a|--assignee=*|-a=*)
-                    return 0
-                    ;;
-            esac
-            shift
-            continue
-        fi
-
         case "$1" in
-            --)
-                return 1
-                ;;
-            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global)
-                shift
-                ;;
+            --) shift; break ;;
+            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global) shift ;;
             -C|--directory|--db|--actor|--dolt-auto-commit)
                 [[ $# -gt 1 ]] || return 1
                 shift 2
                 ;;
-            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*)
-                shift
-                ;;
-            -h|--help|--version|-V)
-                return 1
-                ;;
-            -*)
-                shift
-                ;;
-            *)
-                case "$1" in
-                    create|new)
-                        primary_command_seen=1
-                        shift
-                        ;;
-                    *)
-                        return 1
-                        ;;
-                esac
-                ;;
+            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*) shift ;;
+            -h|--help|--version|-V) return 1 ;;
+            -*) shift ;;
+            *) break ;;
         esac
     done
+    [[ $# -gt 0 ]] || return 1
+    primary="$1"
+    shift
 
-    return 1
-}
-
-_bd_should_default_create_assignee() {
-    emulate -L zsh
-
-    local primary_command
-
-    _bd_default_create_assignee >/dev/null || return 1
-    _bd_arg_requests_help "$@" && return 1
-
-    primary_command="$(_bd_primary_command "$@")" || return 1
-    case "$primary_command" in
-        create|new)
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-
-    _bd_create_args_have_assignee "$@" && return 1
-    return 0
-}
-
-_bd_should_refresh_issues_export() {
-    emulate -L zsh
-
-    case "$1" in
-        assign|batch|close|comment|comments|create|defer|delete|dep|duplicate|edit|epic|gate|label|link|merge-slot|note|priority|promote|q|rename|reopen|set-state|supersede|tag|todo|undefer|update)
+    case "$primary" in
+        assign|batch|close|comment|create|new|create-form|defer|delete|duplicate|edit|forget|import|link|note|priority|promote|q|remember|rename|reopen|set-state|supersede|tag|undefer|update)
             return 0
             ;;
+        comments)
+            [[ "${1:-}" == add ]]
+            return
+            ;;
+        dep)
+            subcommand="${1:-}"
+            [[ "$subcommand" == add || "$subcommand" == remove || "$subcommand" == relate || "$subcommand" == unrelate ]]
+            return
+            ;;
+        label)
+            subcommand="${1:-}"
+            [[ "$subcommand" == add || "$subcommand" == remove || "$subcommand" == propagate ]]
+            return
+            ;;
+        epic)
+            [[ "${1:-}" == close-eligible ]]
+            return
+            ;;
+        gate)
+            subcommand="${1:-}"
+            [[ "$subcommand" == add-waiter || "$subcommand" == check || "$subcommand" == create || "$subcommand" == resolve ]]
+            return
+            ;;
+        merge-slot)
+            subcommand="${1:-}"
+            [[ "$subcommand" == acquire || "$subcommand" == create || "$subcommand" == release ]]
+            return
+            ;;
+        todo)
+            subcommand="${1:-}"
+            [[ "$subcommand" == add || "$subcommand" == done ]]
+            return
+            ;;
+        restore)
+            for arg in "$@"; do
+                [[ "$arg" == --apply ]] && return 0
+            done
+            ;;
     esac
-
     return 1
 }
 
-_bd_autocommit_issues_jsonl() {
+_bd_snapshot_if_due() {
     emulate -L zsh
 
-    local workdir="${1:-$PWD}"
-    local repo_root issues_path issues_status conflicts
-    local commit_message='chore(beads): Commit updated issues.jsonl'
-
-    [[ "${BD_AUTO_COMMIT_ISSUES_JSONL:-0}" != 0 ]] || return 0
+    local workdir="$1" repo_root metadata sync_script
     [[ -z "${BD_GIT_HOOK:-}" ]] || return 0
-
-    if ! command git -C "$workdir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        return 0
-    fi
-
-    repo_root="$(command git -C "$workdir" rev-parse --show-toplevel 2>/dev/null)" || return 0
-    issues_path='.beads/issues.jsonl'
-
-    if _bd_repo_is_dolt_source_of_truth "$repo_root"; then
-        print -u2 -- 'bd: warning: skipping .beads/issues.jsonl auto-commit; Dolt is source of truth for this repo'
-        return 0
-    fi
-
-    [[ -f "$repo_root/$issues_path" ]] || return 0
-
-    if ! ( cd "$repo_root" && _bd_run_filtered -q export -o "$issues_path" ); then
-        print -u2 -- 'bd: warning: failed to refresh .beads/issues.jsonl for auto-commit'
-        return 0
-    fi
-
-    conflicts="$(command git -C "$repo_root" diff --name-only --diff-filter=U -- "$issues_path" 2>/dev/null)"
-    if [[ -n "$conflicts" ]]; then
-        print -u2 -- 'bd: warning: .beads/issues.jsonl has merge conflicts; skipping auto-commit'
-        return 0
-    fi
-
-    issues_status="$(command git -C "$repo_root" status --porcelain -- "$issues_path" 2>/dev/null)"
-    [[ -n "$issues_status" ]] || return 0
-
-    if ! command git -C "$repo_root" add -- "$issues_path"; then
-        print -u2 -- 'bd: warning: failed to stage .beads/issues.jsonl for auto-commit'
-        return 0
-    fi
-
-    if ! command git -C "$repo_root" commit -m "$commit_message" -- "$issues_path"; then
-        print -u2 -- 'bd: warning: failed to auto-commit .beads/issues.jsonl'
-        command git -C "$repo_root" restore --staged -- "$issues_path" >/dev/null 2>&1 || true
+    case "${BD_AUTO_SNAPSHOT:-1}" in
+        0|false|FALSE|no|NO|off|OFF) return 0 ;;
+    esac
+    repo_root="$(_bd_repo_root_from_workdir "$workdir")"
+    [[ -n "$repo_root" ]] || return 0
+    metadata="$repo_root/.beads/metadata.json"
+    sync_script="$repo_root/assets/beads-sync.sh"
+    [[ -f "$metadata" && -x "$sync_script" ]] || return 0
+    command grep -Eq '"dolt_database"[[:space:]]*:[[:space:]]*"dots"' "$metadata" || return 0
+    if ! (cd "$repo_root" && "$sync_script" snapshot --if-due); then
+        print -u2 -- 'bd: warning: automatic Beads JSONL snapshot failed'
     fi
 }
 
 bd() {
     emulate -L zsh
 
-    local default_assignee exit_code inserted primary_command workdir sync_action
-    local -a bd_args defaulted_bd_args
+    local exit_code workdir sync_action
+    local -a bd_args
 
     if sync_action="$(_bd_dolt_sync_action "$@")"; then
         _bd_run_dolt_sync "$sync_action" "$@"
@@ -433,31 +340,12 @@ bd() {
     fi
 
     bd_args=("$@")
-    if _bd_should_default_create_assignee "$@"; then
-        default_assignee="$(_bd_default_create_assignee)" || return 1
-        inserted=0
-        for arg in "${bd_args[@]}"; do
-            if [[ "$arg" == -- ]] && [[ $inserted -eq 0 ]]; then
-                defaulted_bd_args+=(--assignee "$default_assignee")
-                inserted=1
-            fi
-            defaulted_bd_args+=("$arg")
-        done
-        if [[ $inserted -eq 0 ]]; then
-            defaulted_bd_args+=(--assignee "$default_assignee")
-        fi
-        bd_args=("${defaulted_bd_args[@]}")
-    fi
-
     _bd_run_filtered "${bd_args[@]}"
     exit_code=$?
 
-    if [[ $exit_code -eq 0 ]] && ! _bd_arg_requests_help "${bd_args[@]}"; then
-        primary_command="$(_bd_primary_command "${bd_args[@]}")"
-        if _bd_should_refresh_issues_export "$primary_command"; then
-            workdir="$(_bd_command_directory "${bd_args[@]}")"
-            _bd_autocommit_issues_jsonl "$workdir"
-        fi
+    if [[ $exit_code -eq 0 ]] && ! _bd_arg_requests_help "${bd_args[@]}" && _bd_mutation_requested "${bd_args[@]}"; then
+        workdir="$(_bd_command_directory "${bd_args[@]}")"
+        _bd_snapshot_if_due "$workdir"
     fi
 
     return $exit_code
