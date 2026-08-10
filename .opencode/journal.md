@@ -19,6 +19,16 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-08-10
+
+- decision: Native Windows AI tooling is managed under `~/.local`: `ai-wt.cmd`
+  runs the canonical Python payload with an existing Python 3.10+ runtime, and
+  `oc-commit.cmd` / `cc-commit.cmd` scope Git identities to child commits.
+- decision: Keep Agent of Empires WSL2-only; containerized source builds isolate
+  its toolchain but cannot replace its tmux/POSIX runtime dependencies.
+- convention: Windows `ai-wt` launches native agent executables without a shell
+  and rejects configured `.cmd`/`.bat` agents before worktree creation.
+
 ## 2026-08-01
 
 - decision: Retired WSL and devcontainer `snip` provisioning after the

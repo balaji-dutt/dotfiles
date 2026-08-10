@@ -12,6 +12,12 @@
 It is meant for direct tool usage outside Agent of Empires while keeping the
 same basic session shape: one branch, one worktree, and safe cleanup.
 
+On macOS, Linux, and WSL2, chezmoi installs the canonical Python script as
+`~/bin/ai-wt`. On native Windows, chezmoi renders the same source to
+`~/.local/ai-wt.py` and installs `~/.local/ai-wt.cmd` as the command entry point.
+The Windows launcher requires an existing Python 3.10 or newer runtime; it does
+not install Python.
+
 ## Basic Usage
 
 ```sh
@@ -162,6 +168,11 @@ crashes, reboots, `SIGKILL`, or detached child processes can leave a managed
 worktree behind. Use `ai-wt list`, `ai-wt cleanup`, and `ai-wt prune` for
 recovery.
 
+On native Windows, configured command strings use Windows command-line parsing
+and child tools still launch directly without a command shell. Native `.exe`
+tools are supported. `.cmd` and `.bat` agent commands are rejected before
+worktree creation; configure the corresponding native executable instead.
+
 Agent-driven merges are handled by the repo-local `assets/agent-wt-merge`
 helper instead of extra `ai-wt` subcommands. The helper supports `ai-wt` and
 non-`ai-wt` worktrees and only uses `.ai-wt` metadata for cleanup suggestions.
@@ -218,8 +229,9 @@ implicit project argument.
 
 ## Devcontainer Availability
 
-The canonical source is `bin/executable_ai-wt.tmpl`. The homelab devcontainer
-receives the same file through the selective mirror in
+The canonical source is `bin/executable_ai-wt.tmpl`. The Windows Python payload
+includes that template rather than maintaining a copy. The homelab devcontainer
+receives the same canonical file through the selective mirror in
 `configs/devcontainer-sync.jsonc`:
 
 ```sh

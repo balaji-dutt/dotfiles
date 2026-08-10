@@ -33,6 +33,7 @@ The Windows setup has three distinct ownership classes:
 | Starship | `~/.config/starship.toml` | `private_dot_config/starship.toml` |
 | Claude | `~/.claude/**` | `dot_claude/**` |
 | OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
+| Native AI launchers | `~/.local/{ai-wt.py,ai-wt.cmd,oc-commit.cmd,cc-commit.cmd}` | `dot_local/**` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Sublime Merge | `~/AppData/Roaming/Sublime Merge/Packages/**` | `AppData/Roaming/Sublime Merge/Packages/**` |
 | Espanso | `~/AppData/Roaming/espanso/{config,match,scripts}/**` | `AppData/Roaming/espanso/**`, `.chezmoitemplates/espanso/**`, `configs/espanso/**` |
@@ -44,6 +45,38 @@ the Starship initialization in `~/.config/powershell/prompt.ps1`.
 `Documents/PowerShell/**` is deliberately absent from this table. It is a sync
 output, not a direct managed target. Browser policy registry keys are apply-hook
 side effects for the same reason.
+
+## Native AI Launchers
+
+Windows directly manages `ai-wt`, `oc-commit`, and `cc-commit` entry points in
+`~/.local`, which `windows-bootstrap.ps1` owns in the user and current-process
+`PATH`. PowerShell and agent subprocesses resolve the `.cmd` files by their bare
+command names through `PATHEXT`.
+
+`ai-wt.cmd` runs the adjacent managed `ai-wt.py` payload with the first Python
+3.10-or-newer runtime found through `py -3`, `python3`, or `python`. It skips
+Microsoft Store app-execution aliases and never installs or upgrades Python.
+Python itself remains an external host prerequisite.
+
+The native launcher supports the installed OpenCode and Claude `.exe` commands.
+Configured `.cmd` or `.bat` agent commands are rejected before a worktree is
+created because safe batch-command quoting would require shell execution. The
+commit wrappers set agent-specific Git author and committer variables only for
+the child `git commit` process and return Git's exit status.
+
+Verify command resolution from a fresh PowerShell process after `chezmoi apply`:
+
+```powershell
+Get-Command ai-wt, oc-commit, cc-commit
+ai-wt --help
+oc-commit --help
+cc-commit --help
+```
+
+Agent of Empires remains WSL2-only on Windows. Its tmux and POSIX process
+dependencies mean that a Docker or WSL source build produces a Linux binary,
+not a native Windows application. Use the existing WSL2 installation for AoE or
+native `ai-wt` for host OpenCode and Claude sessions.
 
 ## Windows Sync Outputs
 

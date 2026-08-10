@@ -444,6 +444,11 @@ temporary build root and remove them after successful install, keeping long-live
 `$HOME` paths (for example `~/.cargo` and `~/.rustup`) from accumulating AoE
 bootstrap residue.
 
+This source-build isolation does not provide native Windows support. AoE relies
+on tmux and POSIX process handling, so Windows use remains limited to WSL2 or a
+Linux devcontainer; a native port would require upstream runtime changes rather
+than a different build package.
+
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
 

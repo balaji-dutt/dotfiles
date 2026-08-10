@@ -20,14 +20,7 @@ These rules apply to all OpenCode sessions regardless of repository.
   - `oc-commit -m "subject"`
   - `oc-commit -m "subject" -m "body"`
   - `oc-commit -F <message-file>`
-- `oc-commit` is a Bash script. On native Windows (PowerShell), use Git's
-  environment variable overrides directly:
-  ```powershell
-  $env:GIT_AUTHOR_NAME = "OpenCode"
-  $env:GIT_AUTHOR_EMAIL = "noreply@opencode.ai"
-  $env:GIT_COMMITTER_NAME = "OpenCode"
-  $env:GIT_COMMITTER_EMAIL = "noreply@opencode.ai"
-  git commit <args>
-  ```
+- `oc-commit` is available as a Bash wrapper on POSIX and a managed `.cmd`
+  wrapper on native Windows. Pass the same arguments in either environment.
 - When work is complete and verified, propose a commit message for approval before running `oc-commit`.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.

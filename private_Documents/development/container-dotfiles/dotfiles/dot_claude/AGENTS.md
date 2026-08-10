@@ -91,15 +91,9 @@ important findings against the current source.
 ## Commit workflow
 
 - **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.
-- `cc-commit` is a Bash script. On native Windows (PowerShell), use Git's
-  environment variable overrides directly:
-  ```powershell
-  $env:GIT_AUTHOR_NAME = "Claude"
-  $env:GIT_AUTHOR_EMAIL = "noreply@anthropic.com"
-  $env:GIT_COMMITTER_NAME = "Claude"
-  $env:GIT_COMMITTER_EMAIL = "noreply@anthropic.com"
-  git commit <args>
-  ```
+- `cc-commit` is available as a Bash wrapper on POSIX and a managed `.cmd`
+  wrapper on native Windows. Pass normal `git commit` arguments to it from
+  either environment.
 - When work is complete and verified, propose a commit message for approval before running `cc-commit`.
 - When drafting or cleaning up that commit message, use the `unslop-commit` skill to keep it in direct engineer voice (Conventional Commits, no AI/marketing slop). The skill only writes the message; it never stages or runs `git`.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.

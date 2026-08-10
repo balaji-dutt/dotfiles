@@ -76,6 +76,10 @@ AppData
 AppData/**
 Documents/PowerShell
 .config/powershell
+.local/ai-wt.py
+.local/ai-wt.cmd
+.local/oc-commit.cmd
+.local/cc-commit.cmd
 {{ end }}
 
 {{/* Windows minimal whitelist */}}
@@ -112,6 +116,11 @@ Documents/PowerShell
 !/.chezmoiscripts/install_plannotator.ps1
 
 # Windows specific paths
+!/.local/
+!/.local/ai-wt.py
+!/.local/ai-wt.cmd
+!/.local/oc-commit.cmd
+!/.local/cc-commit.cmd
 !/.config/
 /.config/*
 !/.config/starship.toml

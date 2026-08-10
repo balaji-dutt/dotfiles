@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import importlib.machinery
 import importlib.util
 import io
+import json
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +20,11 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = REPO_ROOT / "bin" / "executable_ai-wt.tmpl"
+WINDOWS_LAUNCHER = REPO_ROOT / "dot_local" / "executable_ai-wt.cmd"
+WINDOWS_COMMIT_WRAPPERS = {
+    "OpenCode": REPO_ROOT / "dot_local" / "executable_oc-commit.cmd",
+    "Claude": REPO_ROOT / "dot_local" / "executable_cc-commit.cmd",
+}
 
 
 def load_ai_wt():
@@ -237,6 +248,275 @@ class AutoCommandTests(unittest.TestCase):
                 {"tool_command": ["claude-plannotator"]},
                 auto=True,
             )
+
+
+class PlatformCommandTests(unittest.TestCase):
+    def test_display_name_hides_windows_python_suffix(self) -> None:
+        self.assertEqual(ai_wt.display_script_name(r"C:\Users\Example\.local\ai-wt.py"), "ai-wt")
+        self.assertEqual(ai_wt.display_script_name("/home/example/bin/ai-wt"), "ai-wt")
+
+    def test_posix_command_parsing_and_formatting(self) -> None:
+        with mock.patch.object(ai_wt, "IS_WINDOWS", False):
+            self.assertEqual(
+                ai_wt.parse_command("opencode --model 'provider/model name'"),
+                ["opencode", "--model", "provider/model name"],
+            )
+            self.assertEqual(ai_wt.format_command(["opencode", "two words"]), "opencode 'two words'")
+
+    def test_windows_command_parsing_uses_native_parser(self) -> None:
+        expected = [r"C:\Program Files\OpenCode\opencode.exe", "two words"]
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.object(ai_wt, "split_windows_command_line", return_value=expected) as split,
+        ):
+            self.assertEqual(ai_wt.parse_command("configured command"), expected)
+            self.assertEqual(ai_wt.format_command(expected), subprocess.list2cmdline(expected))
+        split.assert_called_once_with("configured command")
+
+    @unittest.skipUnless(os.name == "nt", "requires CommandLineToArgvW")
+    def test_windows_native_parser_preserves_paths_and_quotes(self) -> None:
+        command = subprocess.list2cmdline(
+            [r"C:\Program Files\OpenCode\opencode.exe", "--model", "provider/model name"]
+        )
+        self.assertEqual(
+            ai_wt.split_windows_command_line(command),
+            [r"C:\Program Files\OpenCode\opencode.exe", "--model", "provider/model name"],
+        )
+
+    def test_command_path_recognizes_alternate_separator(self) -> None:
+        with (
+            mock.patch.object(ai_wt.os, "sep", "\\"),
+            mock.patch.object(ai_wt.os, "altsep", "/"),
+            mock.patch.object(ai_wt.os, "access", return_value=True) as access,
+            mock.patch.object(ai_wt.shutil, "which") as which,
+        ):
+            self.assertEqual(ai_wt.command_path("C:/Tools/opencode.exe"), "C:/Tools/opencode.exe")
+        access.assert_called_once_with("C:/Tools/opencode.exe", os.X_OK)
+        which.assert_not_called()
+
+    def test_windows_rejects_batch_backed_agents(self) -> None:
+        with mock.patch.object(ai_wt, "IS_WINDOWS", True):
+            for command in ([r"C:\Tools\opencode.cmd"], [r"C:\Tools\claude.BAT", "--flag"]):
+                with self.subTest(command=command), self.assertRaisesRegex(
+                    ai_wt.AiWtError, "native .exe"
+                ):
+                    ai_wt.validate_child_command(command)
+            ai_wt.validate_child_command([r"C:\Tools\opencode.exe", "--flag"])
+
+
+class RepoLockTests(unittest.TestCase):
+    def test_windows_lock_retries_contention_and_releases(self) -> None:
+        calls: list[int] = []
+        fake_msvcrt = SimpleNamespace(LK_NBLCK=1, LK_UNLCK=2)
+
+        def locking(_fd, mode, _length):
+            calls.append(mode)
+            if mode == fake_msvcrt.LK_NBLCK and calls.count(mode) == 1:
+                raise OSError(errno.EACCES, "locked")
+
+        fake_msvcrt.locking = locking
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}),
+            mock.patch.object(ai_wt.time, "sleep") as sleep,
+        ):
+            lock = ai_wt.RepoLock(Path(temp_dir) / "lock")
+            with lock:
+                self.assertIsNotNone(lock.handle)
+            self.assertIsNone(lock.handle)
+
+        self.assertEqual(calls, [fake_msvcrt.LK_NBLCK, fake_msvcrt.LK_NBLCK, fake_msvcrt.LK_UNLCK])
+        sleep.assert_called_once_with(0.05)
+
+    def test_windows_lock_does_not_retry_unexpected_errors(self) -> None:
+        fake_msvcrt = SimpleNamespace(
+            LK_NBLCK=1,
+            LK_UNLCK=2,
+            locking=mock.Mock(side_effect=OSError(errno.EINVAL, "invalid")),
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}),
+            mock.patch.object(ai_wt.time, "sleep") as sleep,
+        ):
+            lock = ai_wt.RepoLock(Path(temp_dir) / "lock")
+            with self.assertRaises(OSError):
+                lock.__enter__()
+            self.assertIsNone(lock.handle)
+        sleep.assert_not_called()
+
+
+@unittest.skipUnless(os.name == "nt", "requires cmd.exe")
+class WindowsLauncherTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.comspec = os.environ.get("ComSpec", r"C:\Windows\System32\cmd.exe")
+        self.git = shutil.which("git")
+        if not self.git:
+            self.skipTest("git is required")
+
+    def run_git(self, cwd: Path, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [self.git, *args],
+            cwd=cwd,
+            env=env,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def isolated_path(self) -> str:
+        system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+        return os.pathsep.join([str(Path(sys.executable).parent), str(system32), str(Path(self.git).parent)])
+
+    def test_ai_wt_cmd_reports_missing_python_without_installing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            shutil.copy2(WINDOWS_LAUNCHER, root / "ai-wt.cmd")
+            shutil.copy2(SOURCE_WRAPPER, root / "ai-wt.py")
+            env = os.environ.copy()
+            env["PATH"] = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32")
+            result = subprocess.run(
+                [self.comspec, "/d", "/c", str(root / "ai-wt.cmd"), "--help"],
+                env=env,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Python 3.10 or newer was not found", result.stderr)
+
+    def test_ai_wt_cmd_runs_windows_lifecycle_and_preserves_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            launcher_dir = root / "launcher"
+            launcher_dir.mkdir()
+            shutil.copy2(WINDOWS_LAUNCHER, launcher_dir / "ai-wt.cmd")
+            shutil.copy2(SOURCE_WRAPPER, launcher_dir / "ai-wt.py")
+            fake_agent = root / "fake agent.py"
+            output = root / "agent-output.json"
+            fake_agent.write_text(
+                "import json, os, pathlib, sys\n"
+                "pathlib.Path(os.environ['AI_WT_TEST_OUTPUT']).write_text(\n"
+                "    json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}), encoding='utf-8')\n"
+                "raise SystemExit(7)\n",
+                encoding="utf-8",
+            )
+            repo = root / "repo with spaces"
+            repo.mkdir()
+            self.run_git(repo, "init")
+            self.run_git(repo, "config", "user.name", "Test User")
+            self.run_git(repo, "config", "user.email", "test@example.com")
+            (repo / "README.md").write_text("test\n", encoding="utf-8")
+            self.run_git(repo, "add", "README.md")
+            self.run_git(repo, "commit", "-m", "Initial")
+
+            env = os.environ.copy()
+            env["PATH"] = self.isolated_path()
+            env["AI_WT_PROMPT_BACKEND"] = "plain"
+            env["AI_WT_TEST_OUTPUT"] = str(output)
+            env["AI_WT_OPENCODE_COMMAND"] = subprocess.list2cmdline([sys.executable, str(fake_agent)])
+            result = subprocess.run(
+                [
+                    self.comspec,
+                    "/d",
+                    "/c",
+                    str(launcher_dir / "ai-wt.cmd"),
+                    "opencode",
+                    "--auto",
+                    "feat/windows-lifecycle",
+                    "--",
+                    "--agent",
+                    "build",
+                ],
+                cwd=repo,
+                env=env,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 7, result.stderr)
+            launched = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(launched["argv"], ["--agent", "build", "--auto"])
+            self.assertIn("worktrees", launched["cwd"])
+            sessions = repo / ".ai-wt" / "sessions"
+            self.assertEqual(list(sessions.glob("*.json")), [])
+            self.assertEqual(
+                self.run_git(repo, "branch", "--list", "feat/windows-lifecycle").stdout.strip(),
+                "feat/windows-lifecycle",
+            )
+
+
+@unittest.skipUnless(os.name == "nt", "requires cmd.exe")
+class WindowsCommitWrapperTests(unittest.TestCase):
+    def test_wrappers_set_identity_preserve_args_and_scope_environment(self) -> None:
+        comspec = os.environ.get("ComSpec", r"C:\Windows\System32\cmd.exe")
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("git is required")
+        expected = {
+            "OpenCode": "OpenCode <noreply@opencode.ai>|OpenCode <noreply@opencode.ai>",
+            "Claude": "Claude <noreply@anthropic.com>|Claude <noreply@anthropic.com>",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "GIT_AUTHOR_NAME": "Parent Author",
+                    "GIT_AUTHOR_EMAIL": "parent-author@example.com",
+                    "GIT_COMMITTER_NAME": "Parent Committer",
+                    "GIT_COMMITTER_EMAIL": "parent-committer@example.com",
+                }
+            )
+            for index, (identity, wrapper) in enumerate(WINDOWS_COMMIT_WRAPPERS.items(), start=1):
+                tracked = repo / f"file-{index}.txt"
+                tracked.write_text(f"{identity}\n", encoding="utf-8")
+                subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
+                message = f"Commit as {identity}!"
+                result = subprocess.run(
+                    [comspec, "/d", "/v:on", "/c", str(wrapper), "-m", message],
+                    cwd=repo,
+                    env=env,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                actual = subprocess.run(
+                    [git, "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip()
+                self.assertEqual(actual, expected[identity])
+                subject = subprocess.run(
+                    [git, "log", "-1", "--format=%s"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip()
+                self.assertEqual(subject, message)
+
+            self.assertEqual(env["GIT_AUTHOR_NAME"], "Parent Author")
+            failed = subprocess.run(
+                [comspec, "/d", "/c", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]), "-m", "No changes"],
+                cwd=repo,
+                env=env,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertNotEqual(failed.returncode, 0)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime as dt
+import errno
 import hashlib
 import json
 import os
@@ -16,6 +18,7 @@ import string
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +30,13 @@ except ImportError:  # pragma: no cover - platform dependent fallback
     pass
 
 
-SCRIPT_NAME = Path(sys.argv[0]).name
+def display_script_name(value: str) -> str:
+    path = Path(re.split(r"[\\/]", value)[-1])
+    return path.stem if path.suffix.lower() == ".py" else path.name
+
+
+SCRIPT_NAME = display_script_name(sys.argv[0])
+IS_WINDOWS = os.name == "nt"
 VERSION = 1
 BRANCH_TYPES = ("feat", "fix", "chore", "docs", "refactor", "test", "build", "ci")
 DEFAULT_PATH_TEMPLATE = "worktrees/{safe_branch}-{session_id}"
@@ -428,19 +437,58 @@ class RepoLock:
         self.handle: Any = None
 
     def __enter__(self) -> "RepoLock":
-        import fcntl
-
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+")
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        if IS_WINDOWS:
+            self.handle = self.path.open("a+b")
+            try:
+                self.handle.seek(0, os.SEEK_END)
+                if self.handle.tell() == 0:
+                    self.handle.write(b"\0")
+                    self.handle.flush()
+                self.handle.seek(0)
+                self._lock_windows()
+            except BaseException:
+                self.handle.close()
+                self.handle = None
+                raise
+        else:
+            import fcntl
+
+            self.handle = self.path.open("a+")
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
         return self
 
     def __exit__(self, *_: object) -> None:
-        import fcntl
+        if self.handle is None:
+            return
+        try:
+            if IS_WINDOWS:
+                import msvcrt
 
-        if self.handle is not None:
-            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        finally:
             self.handle.close()
+            self.handle = None
+
+    def _lock_windows(self) -> None:
+        import msvcrt
+
+        contention_errnos = {errno.EACCES, errno.EAGAIN, errno.EDEADLK}
+        contention_winerrors = {33, 36, 158}
+        while True:
+            try:
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError as exc:
+                if exc.errno not in contention_errnos and getattr(exc, "winerror", None) not in contention_winerrors:
+                    raise
+                time.sleep(0.05)
 
 
 def git_check_ignored(repo_root: Path, rel_probe: str) -> bool:
@@ -589,10 +637,28 @@ def print_sessions(sessions: list[dict[str, Any]]) -> None:
         print(f"{session_id:26} {tool:8} {branch:30} {status:13} {path}")
 
 
+def split_windows_command_line(value: str) -> list[str]:
+    argc = ctypes.c_int()
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    shell32.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
+    if not argv:
+        error = ctypes.get_last_error()
+        raise OSError(error, "CommandLineToArgvW failed")
+    try:
+        return [argv[index] for index in range(argc.value)]
+    finally:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+        kernel32.LocalFree(argv)
+
+
 def parse_command(value: str) -> list[str]:
     try:
-        command = shlex.split(value)
-    except ValueError as exc:
+        command = split_windows_command_line(value) if IS_WINDOWS else shlex.split(value)
+    except (OSError, ValueError) as exc:
         die(f"could not parse command {value!r}: {exc}")
     if not command:
         die("configured command is empty")
@@ -600,9 +666,21 @@ def parse_command(value: str) -> list[str]:
 
 
 def command_path(name: str) -> str | None:
-    if os.sep in name:
+    separators = tuple(sep for sep in (os.sep, os.altsep) if sep)
+    if any(sep in name for sep in separators):
         return name if os.access(name, os.X_OK) else None
     return shutil.which(name)
+
+
+def validate_child_command(command: list[str]) -> None:
+    if not IS_WINDOWS:
+        return
+    suffix = Path(command[0]).suffix.lower()
+    if suffix in {".bat", ".cmd"}:
+        die(
+            f"Windows batch-backed agent commands are not supported: {command[0]}; "
+            "configure the native .exe instead"
+        )
 
 
 def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args: list[str]) -> tuple[list[str], Path]:
@@ -618,7 +696,9 @@ def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args
             if not opencode:
                 die("opencode-plannotator or opencode not found in PATH")
             command = [opencode]
-        return [*command, *tool_args], worktree_path
+        command = [*command, *tool_args]
+        validate_child_command(command)
+        return command, worktree_path
 
     if tool == "claude":
         for arg in tool_args:
@@ -631,7 +711,9 @@ def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args
             if not claude:
                 die("claude-plannotator or claude not found in PATH")
             command = [claude]
-        return [*command, *tool_args], worktree_path
+        command = [*command, *tool_args]
+        validate_child_command(command)
+        return command, worktree_path
 
     die(f"unsupported tool: {tool}")
 
@@ -643,13 +725,17 @@ def worktree_dirty(path: Path) -> bool:
     return bool(result.stdout.strip())
 
 
+def format_command(command: list[str]) -> str:
+    return subprocess.list2cmdline(command) if IS_WINDOWS else shlex.join(command)
+
+
 def remove_worktree(repo_root: Path, path: Path, force: bool, dry_run: bool) -> bool:
     args = ["worktree", "remove"]
     if force:
         args.append("--force")
     args.append(str(path))
     if dry_run:
-        print("would run:", shlex.join(["git", "-C", str(repo_root), *args]))
+        print("would run:", format_command(["git", "-C", str(repo_root), *args]))
         return True
     try:
         run_git(repo_root, args, capture=False)
@@ -663,7 +749,7 @@ def delete_branch(repo_root: Path, branch: str, force: bool, dry_run: bool) -> b
     flag = "-D" if force else "-d"
     args = ["branch", flag, branch]
     if dry_run:
-        print("would run:", shlex.join(["git", "-C", str(repo_root), *args]))
+        print("would run:", format_command(["git", "-C", str(repo_root), *args]))
         return True
     try:
         run_git(repo_root, args, capture=False)
@@ -724,7 +810,8 @@ def cleanup_session(
 
 
 def launch_child(command: list[str], cwd: Path) -> int:
-    eprint(f"launching: {shlex.join(command)}")
+    validate_child_command(command)
+    eprint(f"launching: {format_command(command)}")
     child = subprocess.Popen(command, cwd=str(cwd))
     try:
         return child.wait()
@@ -939,7 +1026,8 @@ def find_session(config: Config, target: str) -> dict[str, Any]:
     matches: list[dict[str, Any]] = []
     target_path = Path(target).expanduser()
     resolved_target: Path | None = None
-    if target_path.is_absolute() or any(sep in target for sep in ("/", os.sep)):
+    separators = tuple(sep for sep in ("/", os.sep, os.altsep) if sep)
+    if target_path.is_absolute() or any(sep in target for sep in separators):
         try:
             resolved_target = target_path.resolve()
         except OSError:
