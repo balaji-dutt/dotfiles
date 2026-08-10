@@ -72,6 +72,28 @@ def die(message: str) -> None:
     raise AiWtError(message)
 
 
+def git_process_environment() -> dict[str, str] | None:
+    if not IS_WINDOWS:
+        return None
+
+    env = os.environ.copy()
+    raw_count = env.get("GIT_CONFIG_COUNT", "0")
+    try:
+        count = int(raw_count)
+    except ValueError:
+        count = -1
+    if count < 0:
+        die(
+            f"invalid inherited GIT_CONFIG_COUNT={raw_count!r}; "
+            "unset it or set it to a non-negative integer"
+        )
+
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+    env[f"GIT_CONFIG_KEY_{count}"] = "core.longpaths"
+    env[f"GIT_CONFIG_VALUE_{count}"] = "true"
+    return env
+
+
 def run_git(
     repo_root: Path | None,
     args: list[str],
@@ -87,6 +109,7 @@ def run_git(
     return subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
+        env=git_process_environment(),
         check=check,
         text=True,
         stdout=subprocess.PIPE if capture else None,
@@ -812,7 +835,7 @@ def cleanup_session(
 def launch_child(command: list[str], cwd: Path) -> int:
     validate_child_command(command)
     eprint(f"launching: {format_command(command)}")
-    child = subprocess.Popen(command, cwd=str(cwd))
+    child = subprocess.Popen(command, cwd=str(cwd), env=git_process_environment())
     try:
         return child.wait()
     except KeyboardInterrupt:

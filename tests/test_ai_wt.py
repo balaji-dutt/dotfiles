@@ -250,6 +250,86 @@ class AutoCommandTests(unittest.TestCase):
             )
 
 
+class GitProcessEnvironmentTests(unittest.TestCase):
+    def test_windows_adds_longpaths_without_existing_process_config(self) -> None:
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.dict(ai_wt.os.environ, {}, clear=True),
+        ):
+            env = ai_wt.git_process_environment()
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env["GIT_CONFIG_COUNT"], "1")
+        self.assertEqual(env["GIT_CONFIG_KEY_0"], "core.longpaths")
+        self.assertEqual(env["GIT_CONFIG_VALUE_0"], "true")
+
+    def test_windows_preserves_and_appends_existing_process_config(self) -> None:
+        inherited = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "test.existing",
+            "GIT_CONFIG_VALUE_0": "kept",
+        }
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.dict(ai_wt.os.environ, inherited, clear=True),
+        ):
+            env = ai_wt.git_process_environment()
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env["GIT_CONFIG_COUNT"], "2")
+        self.assertEqual(env["GIT_CONFIG_KEY_0"], "test.existing")
+        self.assertEqual(env["GIT_CONFIG_VALUE_0"], "kept")
+        self.assertEqual(env["GIT_CONFIG_KEY_1"], "core.longpaths")
+        self.assertEqual(env["GIT_CONFIG_VALUE_1"], "true")
+
+    def test_windows_rejects_malformed_or_negative_config_count(self) -> None:
+        for raw_count in ("not-a-number", "-1"):
+            with (
+                self.subTest(raw_count=raw_count),
+                mock.patch.object(ai_wt, "IS_WINDOWS", True),
+                mock.patch.dict(
+                    ai_wt.os.environ,
+                    {"GIT_CONFIG_COUNT": raw_count},
+                    clear=True,
+                ),
+                self.assertRaisesRegex(
+                    ai_wt.AiWtError,
+                    "unset it or set it to a non-negative integer",
+                ),
+            ):
+                ai_wt.git_process_environment()
+
+    def test_posix_uses_normal_inherited_environment(self) -> None:
+        with mock.patch.object(ai_wt, "IS_WINDOWS", False):
+            self.assertIsNone(ai_wt.git_process_environment())
+
+    def test_run_git_passes_process_environment(self) -> None:
+        env = {"GIT_CONFIG_COUNT": "1"}
+        completed = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+        with (
+            mock.patch.object(ai_wt, "git_process_environment", return_value=env),
+            mock.patch.object(ai_wt.subprocess, "run", return_value=completed) as run,
+        ):
+            result = ai_wt.run_git(None, ["status"])
+
+        self.assertIs(result, completed)
+        self.assertIs(run.call_args.kwargs["env"], env)
+
+    def test_launch_child_passes_process_environment(self) -> None:
+        env = {"GIT_CONFIG_COUNT": "1"}
+        child = mock.Mock()
+        child.wait.return_value = 7
+        with (
+            mock.patch.object(ai_wt, "git_process_environment", return_value=env),
+            mock.patch.object(ai_wt, "validate_child_command"),
+            mock.patch.object(ai_wt.subprocess, "Popen", return_value=child) as popen,
+        ):
+            result = ai_wt.launch_child(["agent"], Path("/tmp/worktree"))
+
+        self.assertEqual(result, 7)
+        self.assertIs(popen.call_args.kwargs["env"], env)
+
+
 class PlatformCommandTests(unittest.TestCase):
     def test_display_name_hides_windows_python_suffix(self) -> None:
         self.assertEqual(ai_wt.display_script_name(r"C:\Users\Example\.local\ai-wt.py"), "ai-wt")
@@ -371,6 +451,21 @@ class WindowsLauncherTests(unittest.TestCase):
         system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
         return os.pathsep.join([str(Path(sys.executable).parent), str(system32), str(Path(self.git).parent)])
 
+    def nested_path_with_length(self, total_length: int) -> Path:
+        filename = "long-path.txt"
+        directory_count = max(1, (total_length - len(filename) + 32) // 33)
+        directory_characters = total_length - len(filename) - directory_count
+        if directory_characters < directory_count or directory_characters > 32 * directory_count:
+            raise ValueError(f"cannot construct nested path with length {total_length}")
+        directory_lengths: list[int] = []
+        remaining = directory_characters
+        for index in range(directory_count):
+            remaining_directories = directory_count - index - 1
+            length = min(32, remaining - remaining_directories)
+            directory_lengths.append(length)
+            remaining -= length
+        return Path(*("d" * length for length in directory_lengths), filename)
+
     def test_ai_wt_cmd_reports_missing_python_without_installing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -399,9 +494,28 @@ class WindowsLauncherTests(unittest.TestCase):
             fake_agent = root / "fake agent.py"
             output = root / "agent-output.json"
             fake_agent.write_text(
-                "import json, os, pathlib, sys\n"
+                "import json, os, pathlib, subprocess, sys\n"
+                "cwd = pathlib.Path.cwd()\n"
+                "long_path = cwd / os.environ['AI_WT_TEST_LONG_PATH']\n"
+                "long_path_io = pathlib.Path(chr(92) * 2 + '?' + chr(92) + str(long_path))\n"
+                "git_config = subprocess.run(\n"
+                "    ['git', 'config', '--get', 'core.longpaths'],\n"
+                "    check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n"
+                "git_status = subprocess.run(\n"
+                "    ['git', 'status', '--short'],\n"
+                "    check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n"
                 "pathlib.Path(os.environ['AI_WT_TEST_OUTPUT']).write_text(\n"
-                "    json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}), encoding='utf-8')\n"
+                "    json.dumps({\n"
+                "        'argv': sys.argv[1:],\n"
+                "        'cwd': os.getcwd(),\n"
+                "        'long_path': str(long_path),\n"
+                "        'long_path_exists': long_path_io.is_file(),\n"
+                "        'git_longpaths': git_config.stdout.strip(),\n"
+                "        'git_config_returncode': git_config.returncode,\n"
+                "        'git_status_returncode': git_status.returncode,\n"
+                "        'git_status_stdout': git_status.stdout,\n"
+                "        'git_status_stderr': git_status.stderr,\n"
+                "    }), encoding='utf-8')\n"
                 "raise SystemExit(7)\n",
                 encoding="utf-8",
             )
@@ -411,13 +525,21 @@ class WindowsLauncherTests(unittest.TestCase):
             self.run_git(repo, "config", "user.name", "Test User")
             self.run_git(repo, "config", "user.email", "test@example.com")
             (repo / "README.md").write_text("test\n", encoding="utf-8")
-            self.run_git(repo, "add", "README.md")
+            # Stay below legacy MAX_PATH in the repo but cross it in the worktree.
+            relative_length = 245 - len(str(repo)) - 1
+            long_relative_path = self.nested_path_with_length(relative_length)
+            long_source_path = repo / long_relative_path
+            long_source_path.parent.mkdir(parents=True)
+            long_source_path.write_text("tracked long path\n", encoding="utf-8")
+            self.assertEqual(len(str(long_source_path)), 245)
+            self.run_git(repo, "add", "README.md", long_relative_path.as_posix())
             self.run_git(repo, "commit", "-m", "Initial")
 
             env = os.environ.copy()
             env["PATH"] = self.isolated_path()
             env["AI_WT_PROMPT_BACKEND"] = "plain"
             env["AI_WT_TEST_OUTPUT"] = str(output)
+            env["AI_WT_TEST_LONG_PATH"] = long_relative_path.as_posix()
             env["AI_WT_OPENCODE_COMMAND"] = subprocess.list2cmdline([sys.executable, str(fake_agent)])
             result = subprocess.run(
                 [
@@ -444,6 +566,12 @@ class WindowsLauncherTests(unittest.TestCase):
             launched = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(launched["argv"], ["--agent", "build", "--auto"])
             self.assertIn("worktrees", launched["cwd"])
+            self.assertGreater(len(launched["long_path"]), 260)
+            self.assertTrue(launched["long_path_exists"])
+            self.assertEqual(launched["git_longpaths"], "true")
+            self.assertEqual(launched["git_config_returncode"], 0)
+            self.assertEqual(launched["git_status_returncode"], 0, launched["git_status_stderr"])
+            self.assertEqual(launched["git_status_stdout"], "")
             sessions = repo / ".ai-wt" / "sessions"
             self.assertEqual(list(sessions.glob("*.json")), [])
             self.assertEqual(

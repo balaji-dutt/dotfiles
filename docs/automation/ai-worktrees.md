@@ -18,6 +18,12 @@ On macOS, Linux, and WSL2, chezmoi installs the canonical Python script as
 The Windows launcher requires an existing Python 3.10 or newer runtime; it does
 not install Python.
 
+On native Windows, `ai-wt` gives its Git commands and launched agent process
+tree a process-scoped `core.longpaths=true` setting. This allows Git to check
+out long worktree paths without changing repository, global, or system Git
+configuration or Windows registry policy. The setting applies to Git, not to
+unrelated legacy Windows applications.
+
 ## Basic Usage
 
 ```sh

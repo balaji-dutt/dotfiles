@@ -61,8 +61,11 @@ Python itself remains an external host prerequisite.
 The native launcher supports the installed OpenCode and Claude `.exe` commands.
 Configured `.cmd` or `.bat` agent commands are rejected before a worktree is
 created because safe batch-command quoting would require shell execution. The
-commit wrappers set agent-specific Git author and committer variables only for
-the child `git commit` process and return Git's exit status.
+launcher gives its Git commands and child agent a process-scoped
+`core.longpaths=true` setting without changing persistent Git configuration or
+Windows registry policy. The commit wrappers set agent-specific Git author and
+committer variables only for the child `git commit` process and return Git's
+exit status.
 
 Verify command resolution from a fresh PowerShell process after `chezmoi apply`:
 

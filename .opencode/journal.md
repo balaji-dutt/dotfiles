@@ -28,6 +28,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   its toolchain but cannot replace its tmux/POSIX runtime dependencies.
 - convention: Windows `ai-wt` launches native agent executables without a shell
   and rejects configured `.cmd`/`.bat` agents before worktree creation.
+- decision: Native Windows `ai-wt` appends `core.longpaths=true` through
+  process-scoped Git configuration for itself and child agents. Persistent Git
+  configuration is too broad, while truncating worktree names only adds finite
+  headroom and reduces readability.
 
 ## 2026-08-01
 
