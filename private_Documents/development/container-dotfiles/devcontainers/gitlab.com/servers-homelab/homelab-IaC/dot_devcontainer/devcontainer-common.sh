@@ -30,6 +30,32 @@ load_opencode_env_file() {
   fi
 }
 
+# AoE 1.13.2 reads first-run state from this sibling TOML file. Seed only a
+# missing file; AoE owns it after creation and existing state must survive.
+initialize_agent_of_empires_state() {
+  local aoe_persist_dir state_file
+  aoe_persist_dir="$1"
+  state_file="$aoe_persist_dir/state.toml"
+
+  if [[ -e "$state_file" || -L "$state_file" ]]; then
+    return 0
+  fi
+
+  if ! (
+    set -o noclobber
+    umask 077
+    printf '%s\n' 'has_seen_welcome = true' >"$state_file"
+  ) 2>/dev/null; then
+    if [[ -e "$state_file" || -L "$state_file" ]]; then
+      return 0
+    fi
+    echo "ERROR: Failed initializing Agent of Empires state: $state_file" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 ensure_agent_of_empires_persistence_link() {
   local aoe_persist_dir aoe_config_dir
   aoe_persist_dir="/home/vscode/persistent-data/agent-of-empires"
@@ -39,20 +65,21 @@ ensure_agent_of_empires_persistence_link() {
 
   if [[ -L "$aoe_config_dir" ]]; then
     ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
-    return 0
-  fi
-
-  if [[ -d "$aoe_config_dir" ]]; then
-    if ! cp -a "$aoe_config_dir"/. "$aoe_persist_dir"/; then
-      echo "ERROR: Failed migrating existing AoE config directory to persistent storage." >&2
-      return 1
+  else
+    if [[ -d "$aoe_config_dir" ]]; then
+      if ! cp -a "$aoe_config_dir"/. "$aoe_persist_dir"/; then
+        echo "ERROR: Failed migrating existing AoE config directory to persistent storage." >&2
+        return 1
+      fi
+      rm -rf "$aoe_config_dir"
+    elif [[ -e "$aoe_config_dir" ]]; then
+      rm -f "$aoe_config_dir"
     fi
-    rm -rf "$aoe_config_dir"
-  elif [[ -e "$aoe_config_dir" ]]; then
-    rm -f "$aoe_config_dir"
+
+    ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
   fi
 
-  ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+  initialize_agent_of_empires_state "$aoe_persist_dir"
 }
 
 migrate_directory_to_persistent_target() {
