@@ -451,6 +451,10 @@ if [[ -d /home/vscode/persistent-data ]]; then
 fi
 done_step "Fix ownership for persistent-data"
 
+step "Configure Git safe directories"
+ensure_git_safe_directories "$WORKSPACE_PATH"
+done_step "Configure Git safe directories"
+
 step "Prepare Beads persistence mounts"
 ensure_beads_persistence_mounts "$WORKSPACE_PATH"
 done_step "Prepare Beads persistence mounts"

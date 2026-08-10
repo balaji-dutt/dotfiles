@@ -30,6 +30,82 @@ load_opencode_env_file() {
   fi
 }
 
+ensure_git_safe_directories() (
+  set -Eeuo pipefail
+
+  local workspace_root safe_dirs_file safe_dirs_dir safe_dirs_tmp
+  local existing_output existing_dir candidate_dir git_config_rc
+  local -a safe_dirs
+
+  workspace_root="${1:-}"
+  safe_dirs_file="${2:-/home/vscode/persistent-data/git/safe-dirs}"
+
+  if [[ -z "$workspace_root" || -z "$safe_dirs_file" ]]; then
+    echo "ERROR: Git safe-directory configuration is missing required input." >&2
+    return 1
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: Git safe-directory configuration requires git." >&2
+    return 1
+  fi
+
+  while [[ "$workspace_root" != / && "$workspace_root" == */ ]]; do
+    workspace_root="${workspace_root%/}"
+  done
+
+  safe_dirs=()
+  if [[ -e "$safe_dirs_file" && ! -f "$safe_dirs_file" ]]; then
+    echo "ERROR: Existing Git safe-directory configuration is invalid." >&2
+    return 1
+  fi
+  if [[ -f "$safe_dirs_file" ]]; then
+    git_config_rc=0
+    existing_output="$(git config --file "$safe_dirs_file" --get-all safe.directory 2>/dev/null)" || git_config_rc=$?
+    if [[ "$git_config_rc" -gt 1 ]]; then
+      echo "ERROR: Existing Git safe-directory configuration is invalid." >&2
+      return 1
+    fi
+    while IFS= read -r existing_dir; do
+      [[ -n "$existing_dir" ]] || continue
+      case "$existing_dir" in
+        "*" | "/*" | */\*\*) continue ;;
+      esac
+      safe_dirs+=("$existing_dir")
+    done <<<"$existing_output"
+  fi
+
+  safe_dirs+=( \
+    "$workspace_root" \
+    "$workspace_root/.git" \
+    "$workspace_root/worktrees/*" \
+  )
+
+  safe_dirs_dir="$(dirname -- "$safe_dirs_file")"
+  if ! mkdir -p "$safe_dirs_dir"; then
+    echo "ERROR: Could not prepare Git safe-directory storage." >&2
+    return 1
+  fi
+  if ! safe_dirs_tmp="$(mktemp "$safe_dirs_dir/safe-dirs.XXXXXX")"; then
+    echo "ERROR: Could not prepare Git safe-directory configuration." >&2
+    return 1
+  fi
+  trap 'rm -f "$safe_dirs_tmp"' EXIT
+
+  while IFS= read -r candidate_dir; do
+    [[ -n "$candidate_dir" ]] || continue
+    if ! git config --file "$safe_dirs_tmp" --add safe.directory "$candidate_dir"; then
+      echo "ERROR: Could not write Git safe-directory configuration." >&2
+      return 1
+    fi
+  done < <(printf '%s\n' "${safe_dirs[@]}" | LC_ALL=C sort -u)
+
+  if ! mv -f "$safe_dirs_tmp" "$safe_dirs_file"; then
+    echo "ERROR: Could not install Git safe-directory configuration." >&2
+    return 1
+  fi
+  trap - EXIT
+)
+
 ensure_agent_of_empires_persistence_link() {
   local aoe_persist_dir aoe_config_dir
   aoe_persist_dir="/home/vscode/persistent-data/agent-of-empires"
