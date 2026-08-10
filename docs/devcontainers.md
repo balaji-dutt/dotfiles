@@ -71,13 +71,17 @@ Claude Code release version.
 
 ## Host AI Plugin Refresh Signals
 
-Host Claude Code and OpenCode plugin refreshes are tracked separately from
-container package pins in `configs/host-ai-plugin-refresh.jsonc`.
+Host Claude Code and OpenCode plugin refreshes are normally tracked separately
+from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
 
 - The file is a Renovate trigger/sentinel only; host runtime configs may still
   use `@latest`.
 - OpenCode sentinel versions should come from the host package cache (or npm
   latest), not from devcontainer pins.
+- `@slkiser/opencode-quota` is the exception: keep its host and container
+  OpenCode/TUI registrations and refresh sentinel on the same exact version.
+  Renovate groups all five references so native Windows does not reuse stale
+  package content behind an unchanged `@latest` cache key.
 - Update the manifest when host Claude/OpenCode plugin entries change; runtime
   config edits alone do not trigger plugin refreshes.
 - Keep each manifest `version` and its `// renovate:` comment on one line so

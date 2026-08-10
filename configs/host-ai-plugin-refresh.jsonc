@@ -74,7 +74,7 @@
       },
       {
         "package": "@slkiser/opencode-quota",
-        "version": "4.4.1" // renovate: datasource=npm depName=@slkiser/opencode-quota
+        "version": "4.6.1" // renovate: datasource=npm depName=@slkiser/opencode-quota
       }
     ]
   }

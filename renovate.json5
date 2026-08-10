@@ -96,7 +96,7 @@
       ],
       "datasourceTemplate": "npm",
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\",?[ \\t]*(?:\\r?\\n|$)",
+        "(?:^|\\r?\\n)[ \\t]*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\",?[ \\t]*",
         "(?:^|\\r?\\n)[ \\t]*\\[[ \\t]*\\\"(?<depName>(?:@[^\\/\\\"\\s]+\\/)?[^@\\\"\\s]+)@(?<currentValue>[0-9][^\\\"\\s]*)\\\"[ \\t]*,"
       ]
     },
@@ -198,6 +198,29 @@
       "matchFileNames": ["configs/host-ai-plugin-refresh.jsonc"],
       "matchUpdateTypes": ["major"],
       "groupName": "host ai plugin refresh (major)"
+    },
+    {
+      // Keep the Windows-safe quota cache key aligned with both runtime
+      // registrations, the devcontainer pins, and the host refresh sentinel.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@slkiser/opencode-quota"],
+      "matchFileNames": [
+        "configs/host-ai-plugin-refresh.jsonc",
+        "private_dot_config/opencode/opencode.jsonc",
+        "private_dot_config/opencode/tui.json",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
+      ],
+      "groupName": "opencode quota"
+    },
+    {
+      // Match the runtime patch policy so strict release-age filtering cannot
+      // omit the host sentinel from the quota update group.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@slkiser/opencode-quota"],
+      "matchFileNames": ["configs/host-ai-plugin-refresh.jsonc"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "minimumReleaseAge": null
     },
     {
       "matchManagers": ["custom.regex"],
