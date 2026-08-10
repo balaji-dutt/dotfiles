@@ -1,0 +1,5 @@
+description = "Auto-approve OpenCode permissions that are not explicitly denied"
+
+[session.agent_extra_args]
+opencode = "--auto"
+opencode-custom = "--auto"

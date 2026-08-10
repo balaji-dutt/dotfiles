@@ -149,6 +149,12 @@ default_tool = "opencode"
 [session.agent_command_override]
 claude = "claude-plannotator"
 opencode = "opencode-plannotator"
+
+[session.agent_detect_as]
+opencode-custom = "opencode"
+
+[session.custom_agents]
+opencode-custom = "opencode-plannotator-custom"
 ```
 
 The managed host AoE config emits these overrides on Linux and macOS targets.
@@ -161,16 +167,19 @@ use these Bash wrappers.
 Do not set `default_tool` to a wrapper command. `default_tool` selects the tool;
 `agent_command_override` changes the command used to launch that tool.
 
-For a custom/stay-current session, create the AoE session with a command override:
+The built-in `opencode` agent continues to use the build-handoff wrapper. Select
+the separate custom agent for a stay-current session:
 
 ```sh
-aoe add --cmd opencode --cmd-override opencode-plannotator-custom --title <TITLE> --launch <repo-path>
+aoe add --tool opencode-custom --title <TITLE> --launch <repo-path>
 ```
 
-Use the normal global default for build-handoff sessions:
+Use the normal global default, or name the built-in agent explicitly, for a
+build-handoff session:
 
 ```sh
-aoe add --cmd opencode --launch <repo-path>
+aoe add --launch <repo-path>
+aoe add --tool opencode --launch <repo-path>
 ```
 
 Claude Code sessions use the Claude wrapper by default:
@@ -178,6 +187,21 @@ Claude Code sessions use the Claude wrapper by default:
 ```sh
 aoe add --cmd claude --launch <repo-path>
 ```
+
+The managed `auto` profile passes OpenCode's `--auto` CLI flag to both OpenCode
+agents:
+
+```sh
+aoe --profile auto add --tool opencode --launch <repo-path>
+aoe --profile auto add --tool opencode-custom --launch <repo-path>
+```
+
+The default profile does not add the flag. The `auto` profile affects newly
+launched processes; it does not change an already-running OpenCode session.
+This intentionally avoids AoE YOLO mode, which injects an
+`OPENCODE_PERMISSION` environment override that can be shadowed by stricter
+permission configuration. OpenCode `--auto` auto-approves permissions that are
+not explicitly denied.
 
 ## Firefox Multi-Account Containers
 

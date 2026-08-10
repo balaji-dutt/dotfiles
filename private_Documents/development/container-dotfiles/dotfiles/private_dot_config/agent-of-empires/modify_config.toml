@@ -48,6 +48,12 @@ row_tag = "none"
 claude = "claude-plannotator"
 opencode = "opencode-plannotator"
 
+[session.agent_detect_as]
+opencode-custom = "opencode"
+
+[session.custom_agents]
+opencode-custom = "opencode-plannotator-custom"
+
 [status_hooks]
 debounce_ms = 500
 enabled = true

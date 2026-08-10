@@ -304,6 +304,41 @@ def prompt_for_description_gum(*, backend: str) -> str | None:
     return run_gum_prompt(["input", "--prompt", "Description: "], backend=backend)
 
 
+def prompt_for_auto_plain() -> bool:
+    while True:
+        answer = input("Enable OpenCode --auto? [y/N]: ").strip().lower()
+        if answer in {"", "n", "no"}:
+            return False
+        if answer in {"y", "yes"}:
+            return True
+        eprint("please answer yes or no")
+
+
+def prompt_for_auto_gum(*, backend: str) -> bool | None:
+    gum = gum_path(backend)
+    if gum is None:
+        return None
+    result = subprocess.run(
+        [gum, "confirm", "Enable OpenCode --auto?"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    die("auto prompt cancelled")
+
+
+def prompt_for_auto() -> bool:
+    backend = prompt_backend()
+    selected = prompt_for_auto_gum(backend=backend)
+    if selected is not None:
+        return selected
+    return prompt_for_auto_plain()
+
+
 def prompt_for_branch(repo_root: Path) -> str:
     if not sys.stdin.isatty():
         die("branch is required when stdin is not interactive")
@@ -704,6 +739,40 @@ def split_passthrough(args: list[str]) -> tuple[list[str], list[str]]:
     return args[:index], args[index + 1 :]
 
 
+def add_opencode_auto_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="auto-approve OpenCode permissions that are not explicitly denied",
+    )
+
+
+def resolve_auto_choice(
+    tool: str,
+    *,
+    explicit: bool,
+    branch_prompted: bool,
+    tool_args: list[str],
+) -> bool:
+    if tool != "opencode":
+        return False
+    if explicit or "--auto" in tool_args:
+        return True
+    if not branch_prompted:
+        return False
+    return prompt_for_auto()
+
+
+def append_opencode_auto(command: list[str], tool: str, enabled: bool) -> list[str]:
+    if not enabled:
+        return command
+    if tool != "opencode":
+        die("--auto is only supported for OpenCode sessions")
+    if "--auto" in command:
+        return command
+    return [*command, "--auto"]
+
+
 def add_run_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--worktree-parent", help="parent directory for new managed worktrees")
     parser.add_argument("--path-template", help="template used to name new worktree paths")
@@ -748,6 +817,8 @@ def parse_run_args(
         description=f"Create a managed worktree and launch {tool} inside it.",
     )
     add_run_options(parser)
+    if tool == "opencode":
+        add_opencode_auto_option(parser)
     parser.add_argument(
         "branch",
         nargs="?",
@@ -762,8 +833,15 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
     ensure_state(config)
+    branch_prompted = branch is None
     if branch is None:
         branch = prompt_for_branch(repo_root)
+    auto = resolve_auto_choice(
+        tool,
+        explicit=bool(getattr(parsed, "auto", False)),
+        branch_prompted=branch_prompted,
+        tool_args=tool_args,
+    )
     validate_ref_name(repo_root, branch)
 
     with RepoLock(config.state_dir / "lock"):
@@ -771,6 +849,7 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
         worktree_path = render_worktree_path(config, branch, session_id)
         ensure_ignores(config, worktree_path)
         command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+        command = append_opencode_auto(command, tool, auto)
         branch_created = create_worktree(config, branch, worktree_path)
         metadata: dict[str, Any] = {
             "version": VERSION,
@@ -817,6 +896,7 @@ def cmd_run_dispatch(raw_args: list[str]) -> int:
         parser.add_argument("tool", choices=("opencode", "claude"), help="AI tool to launch")
         parser.add_argument("branch", nargs="?", help="branch name to create or reuse")
         add_run_options(parser)
+        add_opencode_auto_option(parser)
         parser.epilog = "Use '--' after the branch to pass arguments to the selected tool."
         parser.print_help()
         return 0
@@ -898,6 +978,25 @@ def next_resume_count(metadata: dict[str, Any]) -> int:
         return 1
 
 
+def build_resume_tool_command(
+    config: Config,
+    tool: str,
+    worktree_path: Path,
+    tool_args: list[str],
+    metadata: dict[str, Any],
+    *,
+    auto: bool,
+) -> tuple[list[str], Path]:
+    if auto and tool != "opencode":
+        die("--auto is only supported for OpenCode sessions")
+    if tool_args:
+        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+    else:
+        command = stored_tool_command(metadata)
+        cwd = worktree_path
+    return append_opencode_auto(command, tool, auto), cwd
+
+
 def cmd_resume_list(raw_args: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog=f"{SCRIPT_NAME} resume list",
@@ -921,6 +1020,7 @@ def cmd_resume(raw_args: list[str]) -> int:
         description="Resume a retained ai-wt session in its existing worktree.",
     )
     add_run_options(parser)
+    add_opencode_auto_option(parser)
     parser.add_argument(
         "target",
         help="session ID, exact branch name, or exact worktree path to resume",
@@ -944,11 +1044,14 @@ def cmd_resume(raw_args: list[str]) -> int:
     tool = str(metadata.get("tool", ""))
     if tool not in {"opencode", "claude"}:
         die(f"session uses unsupported tool: {tool or '<missing>'}")
-    if tool_args:
-        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
-    else:
-        command = stored_tool_command(metadata)
-        cwd = worktree_path
+    command, cwd = build_resume_tool_command(
+        config,
+        tool,
+        worktree_path,
+        tool_args,
+        metadata,
+        auto=parsed.auto,
+    )
 
     metadata["last_resumed_at"] = now_iso()
     metadata["resume_count"] = next_resume_count(metadata)

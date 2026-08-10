@@ -16,8 +16,10 @@ same basic session shape: one branch, one worktree, and safe cleanup.
 
 ```sh
 ai-wt opencode feat/example-change
+ai-wt opencode --auto feat/auto-approved-change
 ai-wt claude fix/example-bug
 ai-wt run opencode docs/update-notes -- --agent build
+ai-wt run opencode --auto docs/auto-update
 ```
 
 If no branch is passed and stdin is interactive, `ai-wt` prompts for a branch
@@ -29,6 +31,12 @@ type prompt and the terminal's normal `input()` line editing for the
 description.
 The Espanso `:aoens` expansion can still be used to paste a branch name, but
 it is not required.
+
+For `ai-wt opencode` and `ai-wt run opencode`, interactive branch creation asks
+`Enable OpenCode --auto?` after the type and description prompts. The choice
+defaults to No. Gum provides the confirmation UI when available; the plain
+fallback accepts `y`/`yes` and `n`/`no`. Supplying `--auto` before the branch,
+or passing it after `--`, skips the redundant question.
 
 Each command has its own help output:
 
@@ -77,6 +85,7 @@ Retained sessions can be resumed in the same worktree and branch context:
 ```sh
 ai-wt resume list
 ai-wt resume <session-id>
+ai-wt resume --auto <session-id>
 ai-wt resume <session-id> -- --agent build
 ```
 
@@ -85,6 +94,13 @@ arguments passed after `--` replace those recorded tool arguments for that
 launch. After the resumed tool exits, normal automatic cleanup runs again: clean
 worktrees are removed, while dirty worktrees stay retained for another resume or
 manual cleanup.
+
+On an OpenCode session, `resume --auto` appends the flag for that launch without
+discarding the recorded command or rewriting it in metadata. A later resume
+without the flag returns to the recorded command unless the session was created
+with `--auto`. First-class and interactive `--auto` handling is OpenCode-only;
+Claude launches are unchanged. The existing `-- --auto` tool-argument form
+remains available for compatibility.
 
 Manual cleanup accepts a session ID, exact branch name, or exact worktree path:
 
@@ -132,6 +148,8 @@ OpenCode launches with its current working directory set to the worktree path.
 The wrapper prefers `opencode-plannotator` when it is available and falls back
 to `opencode`. Custom OpenCode commands may still use an explicit `{worktree}`
 placeholder when they need the absolute worktree path as an argument.
+OpenCode's `--auto` flag auto-approves permissions that are not explicitly
+denied; it does not replace configured denials.
 
 Claude launches with its current working directory set to the worktree path. The
 wrapper prefers `claude-plannotator` when it is available and falls back to
