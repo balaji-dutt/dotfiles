@@ -6,6 +6,11 @@
 $ErrorActionPreference = "Stop"
 
 $ConfigPath = Join-Path '{{ .chezmoi.sourceDir }}' 'configs\host-ai-plugin-refresh.jsonc'
+# Read at runtime rather than via `include` so this script's text - and therefore
+# the onchange trigger above - stays keyed to the manifest alone. Including
+# settings-base.json here would re-run the whole refresh, package-cache removal
+# included, on every unrelated settings edit.
+$SettingsBasePath = Join-Path '{{ .chezmoi.sourceDir }}' 'dot_claude\settings-base.json'
 $DryRun = -not [string]::IsNullOrWhiteSpace($env:HOST_AI_PLUGIN_REFRESH_DRY_RUN)
 
 function ConvertFrom-JsoncText {
@@ -89,6 +94,69 @@ function Get-ClaudePlugins {
     }
   }
   return $parsed
+}
+
+function Get-EnabledPluginIds {
+  if (-not (Test-Path -LiteralPath $SettingsBasePath)) {
+    Write-Host "ERROR: Claude settings base not found: $SettingsBasePath"
+    exit 1
+  }
+
+  try {
+    $settings = Get-Content -Raw -LiteralPath $SettingsBasePath | ConvertFrom-Json
+  } catch {
+    Write-Host "ERROR: Invalid Claude settings base JSON: $($_.Exception.Message)"
+    exit 1
+  }
+
+  # Absent enabledPlugins is treated as empty, matching the POSIX port's
+  # settings.get("enabledPlugins", {}); the mismatch is then reported per plugin
+  # rather than as a shape error.
+  $enabledPlugins = Get-JsonProperty $settings "enabledPlugins" ([pscustomobject]@{})
+  if ($enabledPlugins -is [array]) {
+    Write-Host "ERROR: settings-base.json enabledPlugins must be an object."
+    exit 1
+  }
+
+  return @($enabledPlugins.PSObject.Properties | Where-Object { $_.Value -is [bool] -and $_.Value } | ForEach-Object { $_.Name })
+}
+
+# The plugin id is duplicated across the refresh manifest and the settings base
+# that actually enables it. Nothing else cross-checks the pair, so a rename in
+# one file used to surface only as an opaque `claude plugin update` failure
+# part-way through the refresh.
+function Test-ClaudeEnablement {
+  param(
+    [Parameter(Mandatory=$true)] $Manifest,
+    [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [array] $Plugins
+  )
+
+  $claude = Get-JsonProperty $Manifest "claude"
+  if ($null -eq $claude -or $claude -is [array]) {
+    Write-Host "ERROR: claude must be an object."
+    exit 1
+  }
+
+  $manifestIds = @(Get-JsonProperty $claude "plugins" @() | ForEach-Object { Get-JsonProperty $_ "id" })
+  $enabledIds = @($Plugins | ForEach-Object { $_.Id })
+  $settingsIds = @(Get-EnabledPluginIds)
+
+  # -cnotcontains, not -notcontains: the latter compares case-insensitively and
+  # would wave through a case-only drift that the POSIX port's set difference
+  # rejects.
+  $problems = @()
+  foreach ($pluginId in @($enabledIds | Where-Object { $settingsIds -cnotcontains $_ } | Sort-Object)) {
+    $problems += "ERROR: Claude plugin '$pluginId' is enabled in $ConfigPath but not enabled in $SettingsBasePath."
+  }
+  foreach ($pluginId in @($settingsIds | Where-Object { $manifestIds -cnotcontains $_ } | Sort-Object)) {
+    $problems += "ERROR: Claude plugin '$pluginId' is enabled in $SettingsBasePath but absent from $ConfigPath."
+  }
+
+  if ($problems.Count -gt 0) {
+    foreach ($problem in $problems) { Write-Host $problem }
+    Write-Host "ERROR: Claude plugin ids must match between the refresh manifest and the settings base. Reconcile both files and re-apply."
+    exit 1
+  }
 }
 
 function Get-OpenCodePlugins {
@@ -519,6 +587,8 @@ try {
   exit 1
 }
 
-Update-ClaudePlugins -Plugins @(Get-ClaudePlugins -Manifest $manifest)
+$claudePlugins = @(Get-ClaudePlugins -Manifest $manifest)
+Test-ClaudeEnablement -Manifest $manifest -Plugins $claudePlugins
+Update-ClaudePlugins -Plugins $claudePlugins
 Update-OpenCodeCache -Plugins @(Get-OpenCodePlugins -Manifest $manifest)
 {{- end -}}

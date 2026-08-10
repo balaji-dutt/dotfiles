@@ -217,7 +217,7 @@
   "enabledPlugins": {
     "claude-pace@claude-pace-marketplace": true,
     "plannotator@plannotator": true,
-    "safety-net@cc-marketplace": true
+    "cc-safety-net@cc-marketplace": true
   },
   "extraKnownMarketplaces": {
     "cc-marketplace": {

@@ -5,13 +5,18 @@ set -euo pipefail
 # configs/host-ai-plugin-refresh.jsonc hash: {{ include "configs/host-ai-plugin-refresh.jsonc" | sha256sum }}
 
 config_path={{ printf "%s/configs/host-ai-plugin-refresh.jsonc" .chezmoi.sourceDir | quote }}
+# Read at runtime rather than via `include` so this script's text - and therefore
+# the onchange trigger above - stays keyed to the manifest alone. Including
+# settings-base.json here would re-run the whole refresh, package-cache removal
+# included, on every unrelated settings edit.
+settings_path={{ printf "%s/dot_claude/settings-base.json" .chezmoi.sourceDir | quote }}
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "INFO: python3 command not found; skipping host AI plugin refresh."
   exit 0
 fi
 
-python3 - "$config_path" <<'PY'
+python3 - "$config_path" "$settings_path" <<'PY'
 import json
 import os
 import shlex
@@ -21,6 +26,7 @@ import sys
 from pathlib import Path
 
 config_path = Path(sys.argv[1])
+settings_path = Path(sys.argv[2])
 dry_run = bool(os.environ.get("HOST_AI_PLUGIN_REFRESH_DRY_RUN"))
 
 
@@ -134,6 +140,64 @@ def claude_plugins(manifest):
         if enabled:
             parsed.append({"id": plugin_id, "scope": scope})
     return parsed
+
+
+def load_enabled_plugins():
+    try:
+        text = settings_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"ERROR: Claude settings base not found: {settings_path}")
+        sys.exit(1)
+
+    try:
+        settings = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: Invalid Claude settings base JSON: {exc}")
+        sys.exit(1)
+
+    settings = require_object(settings, "settings-base.json")
+    return require_object(
+        settings.get("enabledPlugins", {}), "settings-base.json enabledPlugins"
+    )
+
+
+def validate_claude_enablement(manifest, plugins):
+    # The plugin id is duplicated across the refresh manifest and the settings
+    # base that actually enables it. Nothing else cross-checks the pair, so a
+    # rename in one file used to surface only as an opaque `claude plugin
+    # update` failure part-way through the refresh.
+    claude = require_object(manifest.get("claude", {}), "claude")
+    manifest_ids = {
+        entry.get("id")
+        for entry in require_list(claude.get("plugins", []), "claude.plugins")
+    }
+    enabled_ids = {plugin["id"] for plugin in plugins}
+    settings_ids = {
+        plugin_id
+        for plugin_id, value in load_enabled_plugins().items()
+        if value is True
+    }
+
+    problems = []
+    for plugin_id in sorted(enabled_ids - settings_ids):
+        problems.append(
+            f"ERROR: Claude plugin {plugin_id!r} is enabled in {config_path} "
+            f"but not enabled in {settings_path}."
+        )
+    for plugin_id in sorted(settings_ids - manifest_ids):
+        problems.append(
+            f"ERROR: Claude plugin {plugin_id!r} is enabled in {settings_path} "
+            f"but absent from {config_path}."
+        )
+
+    if problems:
+        for problem in problems:
+            print(problem)
+        print(
+            "ERROR: Claude plugin ids must match between the refresh manifest "
+            "and the settings base. Reconcile both files and re-apply."
+        )
+        sys.exit(1)
 
 
 def opencode_plugins(manifest):
@@ -647,7 +711,9 @@ def refresh_opencode(plugins):
 
 
 manifest = require_object(load_manifest(), "manifest")
-refresh_claude(claude_plugins(manifest))
+claude_enabled = claude_plugins(manifest)
+validate_claude_enablement(manifest, claude_enabled)
+refresh_claude(claude_enabled)
 refresh_opencode(opencode_plugins(manifest))
 PY
 

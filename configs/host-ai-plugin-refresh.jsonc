@@ -21,9 +21,9 @@
         "version": "0.25.1" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
       },
       {
-        "id": "safety-net@cc-marketplace",
+        "id": "cc-safety-net@cc-marketplace",
         "scope": "user",
-        "version": "1.0.6" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
+        "version": "2.0.1" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
       }
     ]
   },
@@ -62,7 +62,7 @@
       },
       {
         "package": "cc-safety-net",
-        "version": "1.0.6" // renovate: datasource=npm depName=cc-safety-net
+        "version": "2.0.1" // renovate: datasource=npm depName=cc-safety-net
       },
       {
         "package": "envsitter-guard",

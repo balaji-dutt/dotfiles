@@ -58,6 +58,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
 - Native Windows admits the Claude MCP and Plannotator install hooks, but keeps
   `host_ai_plugin_refresh.ps1` excluded; see `docs/inventory/windows.md`.
+- The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
+  `dot_claude/settings-base.json`, but only the former is hashed into its
+  onchange trigger; see `docs/devcontainers.md`.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.

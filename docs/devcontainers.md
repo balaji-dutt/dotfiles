@@ -84,6 +84,11 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   package content behind an unchanged `@latest` cache key.
 - Update the manifest when host Claude/OpenCode plugin entries change; runtime
   config edits alone do not trigger plugin refreshes.
+- Claude plugin ids must match between the manifest and the `enabledPlugins`
+  keys in `dot_claude/settings-base.json`. The refresh script reads that file at
+  runtime rather than via `include`, so settings edits do not re-trigger a
+  refresh, and aborts before any `claude plugin` call when the two disagree. An
+  upstream plugin rename therefore needs both files updated together.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
 - The Unix-host chezmoi onchange script refreshes Claude plugins and clears the
