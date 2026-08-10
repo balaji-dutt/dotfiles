@@ -950,6 +950,81 @@ Compare `dolt version` across machines against the pin in
 `configs/packages.yaml`. That theory is **unconfirmed**: on 2026-08-08 the
 mirror reset alone fixed both directions on dolt 2.2.1, so it was never tested.
 
+### Windows peer: `fork/exec ... Not enough memory resources`
+
+`bd dolt push` / `pull` fail on the native Windows peer with a useless surface
+message:
+
+```
+Pushing to Dolt remote...
+Error: dolt push failed: - Uploading...: exit status 1
+```
+
+**The real error is only in `.beads\dolt-server.log`.** Nothing is swallowed by
+`beads-sync.ps1` — it captures `2>&1` — the detail is below bd, in the `git`
+child dolt spawns:
+
+```powershell
+Select-String -Path .beads\dolt-server.log -Pattern 'error running query' |
+  Select-Object -Last 3 | ForEach-Object { $_.Line }
+```
+
+```
+error="failed to get remote db; git command failed
+command: git cat-file -s <sha>
+error: fork/exec C:\Program Files\Git\cmd\git.exe:
+       Not enough memory resources are available to process this command."
+```
+
+That is Windows `ERROR_NO_SYSTEM_RESOURCES` (1450) raised on **process
+creation**. Dolt's git-backed remote shells out to `git` once per object, and on
+Windows that eventually fails. Diagnosed 2026-08-10; **unresolved, and believed
+to be an upstream dolt bug** rather than anything configurable here.
+
+**Ruled out** (each cost real time — don't re-test):
+
+| Suspect | Measured |
+| --- | --- |
+| SSH / auth | `git cat-file -s` is a local object read; no network involved |
+| Memory / commit | 45.7 GB free RAM, 47.2 GB free commit, pagefile usage 0 |
+| Desktop heap | `SharedSection=1024,20480,768`; fails on the interactive desktop too |
+| Concurrency fan-out | fails with a single git child |
+| Defender ASR | no rules configured |
+| Defender AV | exclusions verified for `.beads\dolt` paths and `dolt.exe`/`git.exe` |
+| Kernel resources | 4.29e9 free system PTEs, paged pool 853 MB, nonpaged 1.17 GB |
+| Mirror bloat | git-remote-cache held only 52 objects / 7.4 MB |
+
+The decisive control: a shell loop of 300 `git --version` spawns completed in
+16.9 s with zero failures on the same box. `CreateProcess` fails **only when
+dolt is the parent**.
+
+**Mitigation worth keeping.** Put `C:\Program Files\Git\mingw64\bin` ahead of
+`C:\Program Files\Git\cmd` on PATH. The `cmd\git.exe` shim creates the real
+binary suspended and dies before resuming it, leaving an orphan
+(`ThreadState=Wait`, `WaitReason=Suspended`) that dolt waits on forever. This
+turned a silent 9m33s hang into an immediate error. It does not fix sync — a
+fast honest failure just beats a hang.
+
+**Working around it.** The Windows peer is offline for Dolt sync in *both*
+directions, but local `bd` writes still work. Round-trip through JSONL instead:
+
+```powershell
+bd export --all -o V:\beads-snapshots\dots\big-rig-windows\handoff.jsonl   # on Windows
+```
+
+```bash
+command bd import /mnt/devdrive/beads-snapshots/dots/big-rig-windows/handoff.jsonl
+```
+
+`bd import` upserts and only rewrites a local row when the incoming `updated_at`
+is **strictly newer**, so a stale peer's export cannot clobber current state.
+Never pass `--allow-stale`.
+
+**Caution: `bd import --dry-run` is not trustworthy.** It reported
+`created: 184, skipped: 0` for a file whose 184 issues all already existed
+locally with none newer. It counts lines; it does not model the upsert or the
+`updated_at` guard. Compare `updated_at` directly before acting on it.
+
 ### Upstream status
 
 Both halves of this are reported upstream and **both issues are closed with no
