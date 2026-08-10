@@ -90,6 +90,11 @@ pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 chezmoi doctor
 ```
 
+`cz-audit` renders and syntax-checks shell and PowerShell hooks, preferring
+local validators before Docker/Podman fallbacks. See the
+[audit dependency contract](docs/tooling/cz-audit.md) for platform behavior,
+strict-mode rules, and container image lifecycle details.
+
 ## Discovery Commands
 
 - List managed targets on current machine: `chezmoi managed`

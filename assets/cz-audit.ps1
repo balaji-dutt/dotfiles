@@ -96,6 +96,7 @@ $script:AUDIT_RC = 0
 function Invoke-AuditCapture([scriptblock]$ScriptBlock) {
   $script:AUDIT_OUT = ''
   $script:AUDIT_RC = 0
+  $global:LASTEXITCODE = 0
 
   try {
     $script:AUDIT_OUT = (& $ScriptBlock 2>&1 | Out-String)
@@ -160,10 +161,75 @@ function Invoke-AuditHandle(
   Write-Info "Set $strictVar=1 (or CZ_AUDIT_STRICT=1) to enforce; set $showVar=1 (or CZ_AUDIT_SHOW=1) to print output."
 }
 
+function Test-AuditStrict([string]$Check) {
+  $strict = [Environment]::GetEnvironmentVariable("CZ_AUDIT_STRICT_$Check")
+  if ([string]::IsNullOrEmpty($strict)) { $strict = $env:CZ_AUDIT_STRICT }
+  return $strict -eq '1'
+}
+
+function Invoke-AuditUnavailable(
+  [Parameter(Mandatory = $true)][string]$Check,
+  [Parameter(Mandatory = $false)][string]$Subject = 'unknown',
+  [Parameter(Mandatory = $false)][int]$Advisory = 1
+) {
+  if ($Advisory -eq 0 -or (Test-AuditStrict $Check)) {
+    if (-not [string]::IsNullOrEmpty($script:AUDIT_OUT)) {
+      [Console]::Error.WriteLine($script:AUDIT_OUT)
+    }
+    throw "$Check unavailable"
+  }
+
+  if (-not [string]::IsNullOrEmpty($script:AUDIT_OUT)) {
+    $logdir = Get-AuditLogDir
+    $key = Sanitize-Key $Subject
+    $logfile = Join-Path $logdir "$Check.$key.unavailable.log"
+    Set-Content -LiteralPath $logfile -Value $script:AUDIT_OUT -Encoding UTF8
+    Write-Info "$Check unavailable; check skipped. Details saved to: $logfile"
+  } else {
+    Write-Info "$Check unavailable; check skipped."
+  }
+  Write-Info "Set CZ_AUDIT_STRICT_$Check=1 (or CZ_AUDIT_STRICT=1) to require this validator."
+}
+
+function Invoke-AuditResult(
+  [Parameter(Mandatory = $true)][string]$Check,
+  [Parameter(Mandatory = $false)][string]$Subject = 'unknown',
+  [Parameter(Mandatory = $false)][int]$Advisory = 1
+) {
+  if ($script:AUDIT_RC -in @(125, 126, 127)) {
+    Invoke-AuditUnavailable -Check $Check -Subject $Subject -Advisory $Advisory
+    return
+  }
+  Invoke-AuditHandle -Check $Check -Subject $Subject -Advisory $Advisory
+}
+
 function Get-ContainerRuntime {
   if (HaveCmd 'docker') { return 'docker' }
   if (HaveCmd 'podman') { return 'podman' }
   return $null
+}
+
+function Set-UnavailableExitCode([string]$Message) {
+  Write-Output $Message
+  $global:LASTEXITCODE = 127
+}
+
+function Ensure-ContainerImage(
+  [Parameter(Mandatory = $true)][string]$Runtime,
+  [Parameter(Mandatory = $true)][string]$Image,
+  [Parameter(Mandatory = $true)][string]$Dockerfile
+) {
+  & $Runtime image inspect $Image *> $null
+  if ($LASTEXITCODE -eq 0) { return $true }
+
+  Write-Info "Building missing audit image $Image from $Dockerfile; this may access the network."
+  & $Runtime build -f $Dockerfile -t $Image $script:ROOT
+  if ($LASTEXITCODE -ne 0) {
+    Set-UnavailableExitCode "Unable to build required audit image: $Image"
+    return $false
+  }
+
+  return $true
 }
 
 function Get-CzExecutable {
@@ -276,10 +342,12 @@ function Test-ChezmoiConfigFile([string]$relsrc) {
 
 function Classify([string]$relsrc) {
   if (Test-ChezmoiConfigFile $relsrc) { return "chezmoi-config:$relsrc" }
+  # Chezmoi scripts need source-level syntax checks even when chezmoi reports
+  # their generated targets as managed.
+  if ($relsrc -like '.chezmoiscripts/*') { return "chezmoiscript:$relsrc" }
   if (Test-ManagedSourceRel $relsrc) { return "managed:$((Get-TargetFromSourceRel $relsrc))" }
 
   switch -Wildcard ($relsrc) {
-    '.chezmoiscripts/*' { return "chezmoiscript:$relsrc" }
     'ansible/*' { return "ansible:$relsrc" }
     'assets/*' { return "assets:$relsrc" }
     'configs/*' { return "configs:$relsrc" }
@@ -314,7 +382,7 @@ function DryRun-IfManaged([string]$relsrc) {
 function Invoke-ShellCheckContainer([string]$fileRel) {
   $rt = Get-ContainerRuntime
   if (-not $rt) {
-    Write-Info 'No docker/podman; shellcheck skipped'
+    Set-UnavailableExitCode 'shellcheck and docker/podman are unavailable'
     return
   }
 
@@ -334,22 +402,26 @@ function Invoke-ShellCheck([string]$fileRel) {
 function Invoke-AnsibleContainerSyntax([string]$fileRel) {
   $rt = Get-ContainerRuntime
   if (-not $rt) {
-    Write-Info 'No docker/podman; ansible syntax-check skipped'
+    Set-UnavailableExitCode 'ansible-playbook and docker/podman are unavailable'
     return
   }
 
   $image = 'local/ansible-syntax:repo'
+  $ready = Ensure-ContainerImage -Runtime $rt -Image $image -Dockerfile 'assets/Dockerfile.ansible-syntax'
+  if (-not $ready) { return }
   & $rt run --rm -t -v "$($script:ROOT):/work" -w /work $image ansible-playbook -i localhost, --syntax-check $fileRel
 }
 
 function Invoke-AnsibleContainerLint([string]$fileRel) {
   $rt = Get-ContainerRuntime
   if (-not $rt) {
-    Write-Info 'No docker/podman; ansible-lint skipped'
+    Set-UnavailableExitCode 'ansible-lint and docker/podman are unavailable'
     return
   }
 
   $image = 'local/ansible-syntax:repo'
+  $ready = Ensure-ContainerImage -Runtime $rt -Image $image -Dockerfile 'assets/Dockerfile.ansible-syntax'
+  if (-not $ready) { return }
   $cfg = 'ansible/.ansible-lint.yml'
   if (Test-Path -LiteralPath $cfg -PathType Leaf) {
     & $rt run --rm -t -v "$($script:ROOT):/work" -w /work $image ansible-lint -c $cfg $fileRel
@@ -412,7 +484,9 @@ function Get-PythonCmdForToml {
 function Invoke-YamlParse([string]$fileRel) {
   $py = Get-PythonCmd
   if (-not $py) {
-    Write-Info 'python3/python not available; YAML parse skipped'
+    $script:AUDIT_OUT = 'python3/python not available; YAML validator unavailable'
+    $script:AUDIT_RC = 127
+    Invoke-AuditUnavailable -Check 'YAML' -Subject $fileRel -Advisory 1
     return
   }
 
@@ -422,14 +496,14 @@ import sys
 try:
   import yaml
 except Exception:
-  print("PyYAML not installed; YAML parse skipped", file=sys.stderr)
-  sys.exit(0)
+  print("PyYAML not installed; YAML validator unavailable", file=sys.stderr)
+  sys.exit(127)
 with open(sys.argv[1], "r", encoding="utf-8") as f:
   yaml.safe_load(f)
 print("YAML OK")
 '@ $fileRel
   }
-  Invoke-AuditHandle -Check 'YAML' -Subject $fileRel -Advisory 1
+  Invoke-AuditResult -Check 'YAML' -Subject $fileRel -Advisory 1
 }
 
 function Invoke-TomlParse([string]$fileRel) {
@@ -437,10 +511,12 @@ function Invoke-TomlParse([string]$fileRel) {
   if (-not $py) {
     $fallback = Get-PythonCmd
     if ($fallback) {
-      Write-Info "TOML parse skipped (need Python 3.11+ for tomllib; found $fallback but version too old)"
+      $script:AUDIT_OUT = "TOML validator unavailable (need Python 3.11+ for tomllib; found $fallback but version too old)"
     } else {
-      Write-Info 'python3/python not available; TOML parse skipped'
+      $script:AUDIT_OUT = 'python3/python not available; TOML validator unavailable'
     }
+    $script:AUDIT_RC = 127
+    Invoke-AuditUnavailable -Check 'TOML' -Subject $fileRel -Advisory 1
     return
   }
 
@@ -450,14 +526,14 @@ import sys
 try:
   import tomllib
 except Exception:
-  print("tomllib not available (need Python 3.11+); TOML parse skipped", file=sys.stderr)
-  sys.exit(0)
+  print("tomllib not available (need Python 3.11+); TOML validator unavailable", file=sys.stderr)
+  sys.exit(127)
 with open(sys.argv[1], "rb") as f:
   tomllib.load(f)
 print("TOML OK")
 '@ $fileRel
   }
-  Invoke-AuditHandle -Check 'TOML' -Subject $fileRel -Advisory 1
+  Invoke-AuditResult -Check 'TOML' -Subject $fileRel -Advisory 1
 }
 
 function Check-ConfigsFileRel([string]$fileRel) {
@@ -508,10 +584,18 @@ function Get-BashPath([string]$WindowsPath) {
 function Invoke-BashSyntaxCheckPath([string]$Path) {
   $full = [IO.Path]::GetFullPath($Path)
 
+  if (-not $IsWindows) {
+    if (-not (HaveCmd 'bash')) { throw 'bash unavailable; syntax check is required' }
+    bash -n $full
+    if ($LASTEXITCODE -ne 0) { throw "Bash syntax check failed for $Path" }
+    return
+  }
+
   if (HaveCmd 'bash') {
     $bashPath = Get-BashPath $full
     if (-not [string]::IsNullOrEmpty($bashPath)) {
       bash -n $bashPath
+      if ($LASTEXITCODE -ne 0) { throw "Bash syntax check failed for $Path" }
       return
     }
   }
@@ -519,30 +603,30 @@ function Invoke-BashSyntaxCheckPath([string]$Path) {
   if (HaveCmd 'wsl') {
     $wslPath = Get-WslPath $full
     if ([string]::IsNullOrEmpty($wslPath)) {
-      Write-Info 'WSL available but wslpath failed; bash -n skipped'
-      return
+      throw 'WSL is available but wslpath failed; required bash syntax check could not run'
     }
 
     & wsl bash -n $wslPath
+    if ($LASTEXITCODE -ne 0) { throw "Bash syntax check failed for $Path" }
     return
   }
 
-  Write-Info 'bash not available; bash -n skipped'
+  throw 'bash unavailable; syntax check is required'
 }
 
 function Check-ShellFileRel([string]$fileRel) {
   Invoke-BashSyntaxCheckPath $fileRel
 
   Invoke-AuditCapture { Invoke-ShellCheck $fileRel }
-  Invoke-AuditHandle -Check 'SHELLCHECK' -Subject $fileRel -Advisory 1
+  Invoke-AuditResult -Check 'SHELLCHECK' -Subject $fileRel -Advisory 1
 }
 
 function Check-AnsibleFileRel([string]$fileRel) {
   Invoke-AuditCapture { Invoke-AnsibleSyntax $fileRel }
-  Invoke-AuditHandle -Check 'ANSIBLE_SYNTAX' -Subject $fileRel -Advisory 0
+  Invoke-AuditResult -Check 'ANSIBLE_SYNTAX' -Subject $fileRel -Advisory 0
 
   Invoke-AuditCapture { Invoke-AnsibleLint $fileRel }
-  Invoke-AuditHandle -Check 'ANSIBLE_LINT' -Subject $fileRel -Advisory 1
+  Invoke-AuditResult -Check 'ANSIBLE_LINT' -Subject $fileRel -Advisory 1
 }
 
 function Check-ChezmoiConfig([string]$relsrc) {
@@ -562,29 +646,40 @@ function Check-ChezmoiConfig([string]$relsrc) {
 }
 
 function Check-PowerShellFileRel([string]$relsrc) {
+  $sourceText = $null
   if ($relsrc -like '*.ps1.tmpl') {
     $abs = Join-Path (Get-SourceDir) $relsrc
-    $tmp = New-TemporaryFile
-    try {
-      Invoke-Cz @('execute-template', '-f', $abs) | Set-Content -LiteralPath $tmp -Encoding UTF8
-      $null = [System.Management.Automation.Language.Parser]::ParseFile($tmp, [ref]$null, [ref]$null)
-      Write-Info "PowerShell template renders + parses OK: $relsrc"
-    } finally {
-      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-    }
-
+    $sourceText = (Invoke-Cz @('execute-template', '-f', $abs) | Out-String)
+  } elseif ($relsrc -like '*.ps1' -and (Test-Path -LiteralPath $relsrc -PathType Leaf)) {
+    $sourceText = Get-Content -LiteralPath $relsrc -Raw
+  } else {
     return
   }
 
-  if ($relsrc -like '*.ps1') {
-    if (Test-Path -LiteralPath $relsrc -PathType Leaf) {
-      $path = [IO.Path]::GetFullPath($relsrc)
-      $null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-      Write-Info "PowerShell parse OK: $relsrc"
-    }
+  $tokens = $null
+  $parseErrors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseInput(
+    $sourceText,
+    $relsrc,
+    [ref]$tokens,
+    [ref]$parseErrors
+  )
 
-    return
+  foreach ($parseError in $parseErrors) {
+    $extent = $parseError.Extent
+    [Console]::Error.WriteLine(
+      'ERROR: {0}:{1}:{2}: {3}',
+      $relsrc,
+      $extent.StartLineNumber,
+      $extent.StartColumnNumber,
+      $parseError.Message
+    )
   }
+  if ($parseErrors.Count -gt 0) {
+    throw "PowerShell parse failed for $relsrc"
+  }
+
+  Write-Info "PowerShell renders and parses OK: $relsrc"
 }
 
 function Check([string]$relsrc) {
@@ -627,7 +722,12 @@ function Check([string]$relsrc) {
       return
     }
 
-    Write-Info "No automated check for $relsrc (non-shell chezmoi script). Review manually."
+    if ($relsrc -like '*.ps1' -or $relsrc -like '*.ps1.tmpl') {
+      Check-PowerShellFileRel $relsrc
+      return
+    }
+
+    Write-Info "No automated check for $relsrc. Review manually."
     return
   }
 
@@ -650,6 +750,8 @@ function Check([string]$relsrc) {
   if ($kind.StartsWith('assets:')) {
     if ($relsrc -like '*.sh') {
       Check-ShellFileRel $relsrc
+    } elseif ($relsrc -like '*.ps1' -or $relsrc -like '*.ps1.tmpl') {
+      Check-PowerShellFileRel $relsrc
     } else {
       Write-Info 'Assets changed; run project-specific checks if any.'
     }
