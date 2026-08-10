@@ -46,6 +46,7 @@ Use these curated inventories when aligning environments:
 - macOS: `docs/inventory/macos.md`
 - WSL2: `docs/inventory/wsl2.md`
 - Windows: `docs/inventory/windows.md`
+- AI tooling support: `docs/inventory/ai-tooling.md`
 
 Legacy exhaustive grid (deprecated snapshot): `docs/inventory/legacy-program-dotfiles.md`
 

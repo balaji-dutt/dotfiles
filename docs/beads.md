@@ -42,7 +42,12 @@ the Dolt server.
 | --- | --- | --- |
 | macOS | Homebrew `beads` formula | Homebrew `dolt` |
 | WSL2 | `gastownhall/beads` GitHub release via mise (`configs/mise_wsl2.toml`) | GitHub release tarball via ansible; pinned in `configs/packages.yaml` |
-| Windows | `@beads/bd` (npm) | `dolt` release |
+| Windows | Winget `GasTownHall.Beads` package (manual install) | `dolt` release (manual install) |
+
+On Windows, `configs/winget-packages.json` is an exported inventory rather than
+an automatically imported chezmoi manifest. It records the supported `bd`
+package, but a clean host still needs a manual Winget installation. Dolt remains
+a separate release install.
 
 Keep `bd` at the **same minor version** across machines. Different builds of the
 same version string are fine, but a machine on an older minor that targets a
