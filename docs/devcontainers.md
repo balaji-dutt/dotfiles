@@ -428,6 +428,13 @@ tracked separately in Beads issue `dots-vlk`; until then, start the bridge
 manually on the Docker Desktop host when container desktop notifications are
 needed.
 
+The template sets `terminal.integrated.allowChords` to `false` so AoE receives
+Ctrl+K for its command palette in non-live mode. The pinned AoE release does not
+provide a configurable command-palette binding. VS Code Ctrl+K chords continue
+to work when the editor has focus; when the integrated terminal has focus,
+chord-prefix shortcuts are sent to the terminal instead. Reopen or rebuild an
+existing devcontainer if the customization has not taken effect.
+
 AoE is installed from the upstream Linux release archive for the detected
 container architecture. WSL2/amd64 containers use `aoe-linux-amd64.tar.gz`, and
 OrbStack on Apple ARM still uses `aoe-linux-arm64.tar.gz` because the process is
