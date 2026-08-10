@@ -133,13 +133,16 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
     - `chezmoi diff --verbose <target>`
     - `chezmoi apply --dry-run --verbose <target>`
     - If not managed (repo-only inputs like `.chezmoiscripts/**`, `ansible/**`, `assets/**`, `configs/**`, `docs/**`), it will not run `chezmoi apply --dry-run --verbose <target>`.
-    - For repo-only inputs it runs best-effort checks:
-      - `.chezmoiscripts/** and bootstrap-wsl.sh:`
-        - Uses `shellcheck` if available locally; otherwise runs ShellCheck in a Docker/Podman container (if available).
+    - For repo-only inputs it runs targeted checks:
+      - Shell files under `.chezmoiscripts/**` and `bootstrap-wsl.sh`:
+        - Renders templates and enforces Bash syntax. Raw shell files also use local ShellCheck or its Docker/Podman fallback as an advisory check.
+      - PowerShell files under `.chezmoiscripts/**`:
+        - Renders templates and enforces PowerShell AST parsing without executing the script. On POSIX hosts, the parser uses local `pwsh`, WSL host `pwsh.exe`, or a retained Docker/Podman image.
       - `ansible/**`:
-        - Uses `ansible-playbook --syntax-check` if available locally; otherwise runs it in a Docker/Podman container (if available).
+        - Uses `ansible-playbook --syntax-check` if available locally; otherwise lazily builds and runs the retained Docker/Podman fallback image.
       - `configs/**`:
-        - Attempts to validate YAML/TOML if Python tooling is available; otherwise skips.
+        - Attempts advisory YAML/TOML validation when Python tooling is available. Missing advisory validators fail in strict mode.
+      - The full required/optional dependency and missing-tool contract is documented in `docs/tooling/cz-audit.md`.
     - **chezmoi configuration / special files**:
       - These are special files and should **not** be treated like normal managed dotfiles (i.e. do **not** run `chezmoi apply --dry-run` directly for them).
         - Examples:
