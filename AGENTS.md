@@ -187,6 +187,9 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
 - If the audit tool run has been completed successfully as defined in the previous section, run `chezmoi doctor`
   - If any findings appear related to your changes, fix them before moving on.
   - Errors relating to a `vault` command failure can be ignored.
+  - On native Windows, the exact `upgrade-method` failure
+    `json: unknown field "$schema"` can be ignored. This is a known upstream
+    failure parsing WinGet settings. Every other `failed` result remains blocking.
 
 ### Final step (required)
 
@@ -263,6 +266,9 @@ chezmoi apply <target-path>
 - Run the `chezmoi doctor` command.
   - If any findings appear related to your changes, fix them before moving on.
   - Errors relating to a `vault` command failure can be ignored.
+  - On native Windows, the exact `upgrade-method` failure
+    `json: unknown field "$schema"` can be ignored. This is a known upstream
+    failure parsing WinGet settings. Every other `failed` result remains blocking.
 
 ### Final step (required)
 
