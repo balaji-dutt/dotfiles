@@ -33,6 +33,7 @@ if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
 fi
 workspace_root="${workspace_root:-$PWD}"
 log_run_header "$workspace_root"
+ensure_git_safe_directories "$workspace_root"
 
 read_opencode_profiles_from_env_file() {
   local env_file
@@ -462,32 +463,4 @@ install_sset_helper
 if ! "$HOME/.local/bin/sset"; then
   echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
   echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
-fi
-
-SAFE_DIRS_FILE="/home/vscode/persistent-data/git/safe-dirs"
-if command -v git >/dev/null 2>&1; then
-  mkdir -p "$(dirname "$SAFE_DIRS_FILE")"
-  SAFE_DIRS_TMP="$(mktemp "$(dirname "$SAFE_DIRS_FILE")/safe-dirs.XXXXXX")"
-  trap 'rm -f "$SAFE_DIRS_TMP"' EXIT
-
-  safe_dirs_count=0
-  shopt -s nullglob
-  for workspace in /workspaces/*; do
-    [[ -d "$workspace" ]] || continue
-    git config --file "$SAFE_DIRS_TMP" --add safe.directory "$workspace"
-    safe_dirs_count=$((safe_dirs_count + 1))
-    if [[ -d "$workspace/.git" ]]; then
-      git config --file "$SAFE_DIRS_TMP" --add safe.directory "$workspace/.git"
-      safe_dirs_count=$((safe_dirs_count + 1))
-    fi
-  done
-  shopt -u nullglob
-
-  if [[ "$safe_dirs_count" -gt 0 ]]; then
-    mv -f "$SAFE_DIRS_TMP" "$SAFE_DIRS_FILE"
-  else
-    rm -f "$SAFE_DIRS_TMP"
-  fi
-
-  trap - EXIT
 fi

@@ -290,6 +290,14 @@ installing the managed symlink.
 For the `homelab-IaC` template, OpenCode is configured for browser-based
 Plannotator plan review from inside the container.
 
+The lifecycle hooks maintain `/home/vscode/persistent-data/git/safe-dirs`,
+which the container Git config includes. They preserve existing narrow trust
+entries and ensure the workspace, its `.git` directory, and the literal
+`/workspaces/homelab-IaC/worktrees/*` pattern are present without duplicates.
+`postCreate.sh` writes the file before supporting tools attach, and
+`postStart.sh` refreshes it on each start, so OpenCode can identify generated
+linked worktrees as Git worktrees instead of falling back to `/`.
+
 Configuration ownership is split intentionally:
 
 - User-level OpenCode config in the container (`~/.config/opencode/**`) is sourced

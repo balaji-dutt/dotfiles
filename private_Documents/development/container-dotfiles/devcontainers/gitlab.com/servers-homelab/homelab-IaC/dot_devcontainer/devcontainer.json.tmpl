@@ -101,6 +101,8 @@
 
   "postCreateCommand": ["bash", "/tmp/host-homelab-devcontainer/postCreate.sh", "${containerWorkspaceFolder}"],
 
+  "waitFor": "postCreateCommand",
+
   "postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh", "${containerWorkspaceFolder}"],
 
   "customizations": {
