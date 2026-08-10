@@ -424,6 +424,18 @@ Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
 Runtime-managed files (for example `state.toml`, `profiles/*/sessions.json`,
 `trusted_repos.toml`, and logs) are left intact.
 
+The managed config pins `tmux.clipboard = "enabled"`. With AoE 1.13.2, this
+turns on tmux's `set-clipboard` and `allow-passthrough` options. OpenCode OSC 52
+copy sequences can then cross the AoE tmux session and reach VS Code's host
+clipboard even when a user tmux config would make AoE's `auto` mode opt out.
+The tradeoff is that programs inside the session, including model-generated
+terminal output, can pass terminal escape sequences through to the outer
+terminal.
+
+AoE applies the tmux options when it creates a session. After the managed config
+is refreshed, quit and recreate existing AoE sessions before testing clipboard
+copying.
+
 AoE 1.13.2 reads first-run application state from the sibling `state.toml`. If
 that file is missing, the lifecycle helper creates the minimal native AoE state
 `has_seen_welcome = true` before the first launch. This skips the intro because

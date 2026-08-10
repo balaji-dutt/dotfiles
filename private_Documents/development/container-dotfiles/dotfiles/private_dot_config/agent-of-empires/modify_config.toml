@@ -70,6 +70,11 @@ on_waiting = "$HOME/bin/aoe-notify waiting"
 [telemetry]
 enabled = false
 
+# "auto" opts out when a user tmux config exists. Force OSC52 forwarding; this
+# also permits wrapped programs to pass terminal escape sequences through tmux.
+[tmux]
+clipboard = "enabled"
+
 [updates]
 update_check_mode = "off"
 
