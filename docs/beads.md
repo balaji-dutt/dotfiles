@@ -28,8 +28,9 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
   Remote`; write it to gitignored `.beads/config.local.yaml` or export it as
   `BD_SYNC_REMOTE` before bootstrapping.
 - **JSONL:** auto-export is disabled (`export.auto: false`) and
-  `.beads/issues.jsonl` is git-ignored. Dolt is the single source of truth;
-  quarantine or remove a stale `issues.jsonl` before syncing.
+  `.beads/issues.jsonl` is git-ignored. Dolt is the source of truth; validated
+  point-in-time JSONL recovery snapshots live on the homelab share instead of
+  in Git. Quarantine or remove a stale `issues.jsonl` before syncing.
 
 ## Install per platform
 
@@ -96,6 +97,7 @@ shell rc file or `beads-helpers.*` in an agent shell.
 ./assets/beads-sync.sh status    # dirty tables, is a sync safe?
 ./assets/beads-sync.sh pull      # guarded replacement for `bd dolt pull`
 ./assets/beads-sync.sh push      # guarded replacement for `bd dolt push`
+./assets/beads-sync.sh snapshot  # force a JSONL recovery snapshot
 ./assets/beads-sync.sh init      # rebuild a wedged peer from the remote (Recovery)
 ```
 
@@ -105,11 +107,14 @@ Windows (PowerShell 7):
 pwsh -NoProfile -File ./assets/beads-sync.ps1 status
 pwsh -NoProfile -File ./assets/beads-sync.ps1 pull
 pwsh -NoProfile -File ./assets/beads-sync.ps1 push
+pwsh -NoProfile -File ./assets/beads-sync.ps1 snapshot
 pwsh -NoProfile -File ./assets/beads-sync.ps1 init
 ```
 
-Both accept `-DryRun` / `--dry-run` and `-Backup` / `--backup` (`init` rejects
-the backup flag — there is no database to export at that point).
+Both accept `-DryRun` / `--dry-run`. On `pull` and `push`, `-Backup` /
+`--backup` makes a failed forced snapshot abort the sync. `snapshot` is forced
+by default; `-IfDue` / `--if-due` applies the automatic throttle. `init`
+rejects backup flags because there is no database to export at that point.
 
 | What you're doing | Command |
 | --- | --- |
@@ -117,11 +122,72 @@ the backup flag — there is no database to export at that point).
 | `bd dolt commit`, `bd dolt status` / `start` / `stop` | Interactive `bd`; agents use `command bd` / `bd.exe` |
 | **push** | **`beads-sync push` — wrapper redirect or explicit agent call** |
 | **pull** | **`beads-sync pull` — wrapper redirect or explicit agent call** |
+| **force recovery snapshot** | **`beads-sync snapshot`** |
 
 `bd dolt pull` fails with `cannot merge with uncommitted changes` every time; see
 the recovery section below for why. Push uses the same helper because it checks
 that a Dolt remote exists before any push work and restarts the server with a
 live `SSH_AUTH_SOCK`.
+
+### JSONL recovery snapshots
+
+Interactive Bash, Zsh, and PowerShell wrappers request one throttled snapshot
+after a successful command form known to mutate `dots`. Read-only commands,
+failed mutations, help, `BD_GIT_HOOK` calls, and direct native invocations do
+not trigger it. Agents deliberately use direct `command bd` / `bd.exe`, so they
+get snapshots when they call `beads-sync pull` or `push`: pull takes a forced
+best-effort pre-sync snapshot, while push takes a throttled pre-sync snapshot
+after confirming that a Dolt remote exists. Use `--backup` / `-Backup` when a
+failed pre-sync snapshot must abort pull or push.
+
+The platform-selected roots and machine directories are:
+
+| Platform | Root | Machine key |
+| --- | --- | --- |
+| WSL2 | `/mnt/devdrive` | `<hostname>-<WSL_DISTRO_NAME>` |
+| macOS | `/Volumes/devdrive` | `<hostname>-macos` |
+| native Windows | `V:\` | `<computername>-windows` |
+
+Components are lowercased, runs outside `[a-z0-9._-]` become `-`, and leading
+or trailing separators are removed. Thus `Ubuntu-24.04` remains distinct from
+another WSL distro on the same host. Snapshots land under
+`<root>/beads-snapshots/dots/<machine>/`. Generic Linux and devcontainers have
+no default root. The mirrored devcontainer wrappers also skip their separate
+`hliac` database because the automatic hook is scoped to `dots`.
+
+Automatic attempts are limited to once every 10 minutes and retain the newest
+10 completed snapshots for the current machine. A local attempt marker avoids
+repeatedly probing a missing share; a destination lock handles concurrent
+shells. Every potentially blocking shared-filesystem operation runs in a worker
+with a two-second deadline. The worker validates the root, copies a validated
+local `bd export --all` to a hidden temporary file, atomically renames it, and
+then prunes only this machine's older completed files. A missing, unwritable, or
+slow share warns and skips automatic work without changing the original `bd`
+exit code.
+
+Force a snapshot without waiting for the throttle:
+
+```bash
+./assets/beads-sync.sh snapshot
+```
+
+```powershell
+pwsh -NoProfile -File ./assets/beads-sync.ps1 snapshot
+```
+
+Set `BD_AUTO_SNAPSHOT=0` to opt out of throttled wrapper and push snapshots. It
+does not suppress forced manual, pull, or `--backup` snapshots. Test or unusual
+hosts can override `BD_SNAPSHOT_ROOT`, `BD_SNAPSHOT_MACHINE`,
+`BD_SNAPSHOT_INTERVAL_SECONDS`, `BD_SNAPSHOT_RETENTION`, and
+`BD_SNAPSHOT_DEADLINE_SECONDS`.
+
+These JSONL files are a portable recovery floor, not a full database backup.
+`--all` includes issues plus labels, dependencies, comments, infra items,
+templates, gates, and memories, so keep the share private. JSONL does not retain
+Dolt branches, commit history, the working set, or non-issue tables. Native
+`bd backup` preserves that Dolt state and is complementary; the JSONL floor is
+useful when bad remote history or an accidental hard reset has already
+propagated.
 
 The tracked config intentionally omits the private remote URL. On each machine,
 create this gitignored local override after reading the URL from the 1Password
@@ -370,11 +436,11 @@ repair reliably recreates them. `beads-sync init` sidesteps cloning entirely:
    `beads-sync pull`/`push` work normally. A follow-up `dolt_pull` reported
    `Everything up-to-date`.
 
-Usage — after exporting a JSONL floor and moving `.beads/dolt` aside yourself
-(the command refuses to delete anything):
+Usage — after forcing a JSONL floor and moving `.beads/dolt` aside yourself (the
+command refuses to delete anything):
 
 ```bash
-bd export --all -o ~/dots-pre-init-$(date +%Y%m%d).jsonl   # if bd still runs
+./assets/beads-sync.sh snapshot                            # if bd still runs
 mv .beads/dolt ~/dots-broken-dolt-$(date +%Y%m%d)
 ./assets/beads-sync.sh init
 ```
@@ -384,6 +450,20 @@ Windows (PowerShell 7): same shape with `Move-Item`, then
 2026-08-01: 120 issues adopted, `bd doctor` 0 errors after the repo
 fingerprint fix below — this is what converted the Windows satellite back
 into a sync peer.
+
+After init, import the newest snapshot only when it contains local work that
+was never pushed. Do not pass `--allow-stale`:
+
+```bash
+bd import /mnt/devdrive/beads-snapshots/dots/<machine>/<snapshot>.jsonl
+```
+
+```powershell
+bd.exe import 'V:\beads-snapshots\dots\<machine>\<snapshot>.jsonl'
+```
+
+Normal import keeps strictly newer local scalar fields. Review the import
+summary, run `bd doctor`, and push the recovered work through `beads-sync`.
 
 **Sequencing rule: push from a current peer first** (`beads-sync push` on a
 healthy machine). The reset adopts the *remote's* migration cursor; if it
@@ -897,11 +977,33 @@ If either upstream bug is fixed, plain `bd dolt pull` can be used again and the
 
 ## Recovering local-only issues before a destructive step
 
-If a clone has issues created locally that were never pushed, export them before
-dropping or re-bootstrapping, then re-import after:
+If a clone has issues created locally that were never pushed, force a snapshot
+before dropping or re-bootstrapping, then import that exact file after init:
 
 ```bash
-bd export --all -o ~/dots-local-only.jsonl   # before
-# ... drop + bootstrap ...
-bd import ~/dots-local-only.jsonl            # after, if needed
+./assets/beads-sync.sh snapshot               # before
+# ... move .beads/dolt aside, then beads-sync init ...
+bd import /mnt/devdrive/beads-snapshots/dots/<machine>/<snapshot>.jsonl
 ```
+
+### Import behavior verified on bd 1.1.2
+
+An isolated disposable-repo test on 2026-08-10 used `bd version 1.1.2`
+(`20e493e56`) and exercised scalar fields, labels, comments, and dependencies:
+
+- An older incoming row was reported in `stale_skipped_ids`. Newer local scalar
+  fields and local collections survived; collections from that stale row did
+  not merge.
+- At an equal `updated_at`, the row appeared in `tie_kept_local_ids`. Local
+  scalar fields won, while incoming labels, comments, and dependencies merged.
+- A strictly newer incoming row updated scalar fields and merged, rather than
+  replaced, labels, comments, and dependencies.
+- Re-importing the same row deduplicated labels, comment IDs, and dependency
+  keys.
+- `--allow-stale` overwrote newer local scalar fields and timestamps. Relations
+  still unioned, but the scalar overwrite makes this an explicitly destructive
+  recovery option.
+
+Therefore normal recovery uses `bd import <snapshot>` without `--allow-stale`.
+Import is still not a database restore: it cannot recreate Dolt history,
+branches, working-set state, or non-issue tables.

@@ -136,17 +136,19 @@ shell.
 
 The host and dev-container shells source `~/.local/share/beads-helpers.zsh`
 (zsh) or `~/.local/share/beads-helpers.bash` (bash) — the bash variant lets
-agent Bash-tool invocations pick up the same helper behavior. Both helpers
-default `bd create` / `bd new` to `--assignee balaji` unless an assignee is
-supplied explicitly. Set `BD_DEFAULT_CREATE_ASSIGNEE` to override the default,
-or set it to an empty value to disable the injected assignee.
+agent Bash-tool invocations pick up the same helper behavior. The wrappers pass
+`bd create` / `bd new` arguments unchanged. After a successful recognized
+mutation in the `dots` database, they request a throttled JSONL recovery
+snapshot; read-only commands and direct `command bd` / `bd.exe` calls do not.
 
 In Dolt-backed repos, the helpers do not hide Beads auto-import diagnostics or
-refresh, stage, or commit `.beads/issues.jsonl`. Set
+refresh, stage, or commit `.beads/issues.jsonl`. Snapshots are stored outside
+the repository on the homelab share; `beads-sync pull` and `push` also snapshot
+at their sync boundaries. Set
 `BD_FILTER_AUTO_IMPORT_NOISE=1` only when you explicitly want the old filtering
 behavior in another repo. If Beads reports auto-importing a stale
 `.beads/issues.jsonl` in this repo, quarantine or remove that file before
-syncing.
+syncing. See [`docs/beads.md`](docs/beads.md) for locations and recovery steps.
 
 ### Routine cross-machine sync
 
