@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+exec 3>&2
 
 cmd="${1:-}"; shift || true
 relsrc="${1:-}"
@@ -21,13 +22,16 @@ runtime() {
   return 1
 }
 
+readonly ANSIBLE_IMAGE="local/ansible-syntax:repo"
+readonly POWERSHELL_IMAGE="local/powershell-audit:lts"
+
 repo_root() {
   local script_dir
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
   (cd -- "$script_dir/.." && pwd -P)
 }
 
-info(){ echo "INFO: $*" >&2; }
+info(){ echo "INFO: $*" >&3; }
 
 # Always run checks from repo root so "repo-relative paths" actually resolve.
 ROOT="$(repo_root)"
@@ -160,9 +164,64 @@ audit_handle() {
   return 0
 }
 
+audit_unavailable() {
+  local check="$1"
+  local subject="${2:-unknown}"
+  local advisory="${3:-1}"
+  local strict_var="CZ_AUDIT_STRICT_${check}"
+  local strict="${!strict_var-}"
+
+  [[ -z "${strict:-}" ]] && strict="${CZ_AUDIT_STRICT:-0}"
+
+  if [[ "$advisory" == "0" || "$strict" == "1" ]]; then
+    [[ -n "${AUDIT_OUT:-}" ]] && printf '%s\n' "$AUDIT_OUT" >&2
+    return "${AUDIT_RC:-127}"
+  fi
+
+  if [[ -n "${AUDIT_OUT:-}" ]]; then
+    local logdir key logfile
+    logdir="$(audit_logdir)"
+    key="$(sanitize_key "$subject")"
+    logfile="$logdir/${check}.${key}.unavailable.log"
+    printf '%s\n' "$AUDIT_OUT" >"$logfile"
+    info "${check} unavailable; check skipped. Details saved to: $logfile"
+  else
+    info "${check} unavailable; check skipped."
+  fi
+  info "Set ${strict_var}=1 (or CZ_AUDIT_STRICT=1) to require this validator."
+  return 0
+}
+
+audit_finish() {
+  local check="$1"
+  local subject="${2:-unknown}"
+  local advisory="${3:-1}"
+
+  case "$AUDIT_RC" in
+    125|126|127) audit_unavailable "$check" "$subject" "$advisory" ;;
+    *) audit_handle "$check" "$subject" "$advisory" ;;
+  esac
+}
+
+ensure_container_image() {
+  local rt="$1"
+  local image="$2"
+  local dockerfile="$3"
+
+  if "$rt" image inspect "$image" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  info "Building missing audit image $image from $dockerfile; this may access the network."
+  if ! "$rt" build -f "$dockerfile" -t "$image" "$ROOT"; then
+    printf 'Unable to build required audit image: %s\n' "$image" >&2
+    return 127
+  fi
+}
+
 shellcheck_container() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { info "No docker/podman; shellcheck skipped"; return 0; }
+  local rt; rt="$(runtime)" || { printf 'shellcheck and docker/podman are unavailable\n' >&2; return 127; }
   # koalaman/shellcheck image uses shellcheck as ENTRYPOINT
   "$rt" run --rm -v "$ROOT:/work" -w /work koalaman/shellcheck:stable \
     "$file_rel"
@@ -170,21 +229,86 @@ shellcheck_container() {
 
 ansible_container_syntax() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { info "No docker/podman; ansible syntax-check skipped"; return 0; }
-  local image="local/ansible-syntax:repo"
+  local rt; rt="$(runtime)" || { printf 'ansible-playbook and docker/podman are unavailable\n' >&2; return 127; }
+  ensure_container_image "$rt" "$ANSIBLE_IMAGE" "assets/Dockerfile.ansible-syntax" || return 127
   "$rt" run --rm -t \
     -v "$ROOT:/work" -w /work \
-    "$image" ansible-playbook -i localhost, --syntax-check "$file_rel"
+    "$ANSIBLE_IMAGE" ansible-playbook -i localhost, --syntax-check "$file_rel"
 }
 
 ansible_container_lint() {
   local file_rel="$1"
-  local rt; rt="$(runtime)" || { info "No docker/podman; ansible-lint skipped"; return 0; }
-  local image="local/ansible-syntax:repo"
+  local rt; rt="$(runtime)" || { printf 'ansible-lint and docker/podman are unavailable\n' >&2; return 127; }
+  ensure_container_image "$rt" "$ANSIBLE_IMAGE" "assets/Dockerfile.ansible-syntax" || return 127
   local cfg="ansible/.ansible-lint.yml"
   "$rt" run --rm -t \
     -v "$ROOT:/work" -w /work \
-    "$image" ansible-lint -c "$cfg" "$file_rel"
+    "$ANSIBLE_IMAGE" ansible-lint -c "$cfg" "$file_rel"
+}
+
+is_wsl() {
+  [[ -r /proc/sys/kernel/osrelease ]] || return 1
+  grep -qi microsoft /proc/sys/kernel/osrelease
+}
+
+powershell_parser_script() {
+  local source_label="${1//\'/\'\'}"
+  # shellcheck disable=SC2016 # PowerShell variable must remain literal.
+  printf '$sourceLabel = '\''%s'\''\n' "$source_label"
+  cat <<'POWERSHELL'
+$sourceText = [Console]::In.ReadToEnd()
+$tokens = $null
+$parseErrors = $null
+[void][System.Management.Automation.Language.Parser]::ParseInput(
+  $sourceText,
+  $sourceLabel,
+  [ref]$tokens,
+  [ref]$parseErrors
+)
+foreach ($parseError in $parseErrors) {
+  $extent = $parseError.Extent
+  [Console]::Error.WriteLine(
+    '{0}:{1}:{2}: {3}',
+    $sourceLabel,
+    $extent.StartLineNumber,
+    $extent.StartColumnNumber,
+    $parseError.Message
+  )
+}
+if ($parseErrors.Count -gt 0) { exit 1 }
+POWERSHELL
+}
+
+parse_powershell_content() {
+  local source_label="$1"
+  local content_file="$2"
+  local parser
+  parser="$(powershell_parser_script "$source_label")"
+
+  if have pwsh; then
+    pwsh -NoLogo -NoProfile -NonInteractive -Command "$parser" <"$content_file"
+    return
+  fi
+
+  if is_wsl; then
+    local host_pwsh=""
+    if have pwsh.exe; then
+      host_pwsh="$(command -v pwsh.exe)"
+    elif [[ -x "/mnt/c/Program Files/PowerShell/7/pwsh.exe" ]]; then
+      host_pwsh="/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+    fi
+
+    if [[ -n "$host_pwsh" ]]; then
+      "$host_pwsh" -NoLogo -NoProfile -NonInteractive -Command "$parser" <"$content_file"
+      return
+    fi
+  fi
+
+  local rt
+  rt="$(runtime)" || { printf 'pwsh and docker/podman are unavailable\n' >&2; return 127; }
+  ensure_container_image "$rt" "$POWERSHELL_IMAGE" "assets/Dockerfile.powershell-audit" || return 127
+  "$rt" run --rm -i --entrypoint pwsh "$POWERSHELL_IMAGE" \
+    -NoLogo -NoProfile -NonInteractive -Command "$parser" <"$content_file"
 }
 
 srcdir(){ cm source-path; }
@@ -233,6 +357,13 @@ classify() {
     return 0
   fi
 
+  # Chezmoi scripts need source-level syntax checks even when chezmoi reports
+  # their generated targets as managed.
+  if [[ "$relsrc" == .chezmoiscripts/* ]]; then
+    echo "chezmoiscript:$relsrc"
+    return 0
+  fi
+
   # Normal managed-target detection
   if is_managed_source_rel; then
     echo "managed:$(target_from_source_rel)"
@@ -240,7 +371,6 @@ classify() {
   fi
 
   case "$relsrc" in
-    .chezmoiscripts/*) echo "chezmoiscript:$relsrc" ;;
     ansible/*)         echo "ansible:$relsrc" ;;
     assets/*)          echo "assets:$relsrc" ;;
     configs/*)         echo "configs:$relsrc" ;;
@@ -280,7 +410,7 @@ check_shell_file_rel() {
   else
     audit_capture shellcheck_container "$file_rel"
   fi
-  audit_handle "SHELLCHECK" "$file_rel" 1
+  audit_finish "SHELLCHECK" "$file_rel" 1
 }
 
 check_ansible_file_rel() {
@@ -293,7 +423,7 @@ check_ansible_file_rel() {
     audit_capture ansible_container_syntax "$file_rel"
   fi
   # advisory=0 (enforced)
-  audit_handle "ANSIBLE_SYNTAX" "$file_rel" 0
+  audit_finish "ANSIBLE_SYNTAX" "$file_rel" 0
 
   # Advisory: ansible-lint; do not print raw output by default.
   if have ansible-lint; then
@@ -306,7 +436,7 @@ check_ansible_file_rel() {
   else
     audit_capture ansible_container_lint "$file_rel"
   fi
-  audit_handle "ANSIBLE_LINT" "$file_rel" 1
+  audit_finish "ANSIBLE_LINT" "$file_rel" 1
 }
 
 check_configs_file_rel() {
@@ -320,15 +450,17 @@ import sys
 try:
   import yaml
 except Exception:
-  print("PyYAML not installed; YAML parse skipped", file=sys.stderr)
-  sys.exit(0)
+  print("PyYAML not installed; YAML validator unavailable", file=sys.stderr)
+  sys.exit(127)
 with open(sys.argv[1], "r", encoding="utf-8") as f:
   yaml.safe_load(f)
 print("YAML OK")
 PY
-        audit_handle "YAML" "$file_rel" 1
+        audit_finish "YAML" "$file_rel" 1
       else
-        info "python3 not available; YAML parse skipped"
+        AUDIT_OUT="python3 not available; YAML validator unavailable"
+        AUDIT_RC=127
+        audit_unavailable "YAML" "$file_rel" 1
       fi
       ;;
     *.toml)
@@ -338,18 +470,46 @@ import sys
 try:
   import tomllib
 except Exception:
-  print("tomllib not available (need Python 3.11+); TOML parse skipped", file=sys.stderr)
-  sys.exit(0)
+  print("tomllib not available (need Python 3.11+); TOML validator unavailable", file=sys.stderr)
+  sys.exit(127)
 with open(sys.argv[1], "rb") as f:
   tomllib.load(f)
 print("TOML OK")
 PY
-        audit_handle "TOML" "$file_rel" 1
+        audit_finish "TOML" "$file_rel" 1
       else
-        info "python3 not available; TOML parse skipped"
+        AUDIT_OUT="python3 not available; TOML validator unavailable"
+        AUDIT_RC=127
+        audit_unavailable "TOML" "$file_rel" 1
       fi
       ;;
   esac
+}
+
+check_powershell_file_rel() {
+  local file_rel="$1"
+  local tmp
+  tmp="$(mktemp)"
+
+  if [[ "$file_rel" == *.ps1.tmpl ]]; then
+    if ! cm execute-template -f "$(srcdir)/$file_rel" >"$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  elif [[ "$file_rel" == *.ps1 ]]; then
+    if ! cp -- "$file_rel" "$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  else
+    rm -f "$tmp"
+    return 0
+  fi
+
+  audit_capture parse_powershell_content "$file_rel" "$tmp"
+  rm -f "$tmp"
+  audit_finish "POWERSHELL_PARSE" "$file_rel" 0
+  info "PowerShell renders and parses OK: $file_rel"
 }
 
 check_chezmoi_config() {
@@ -391,14 +551,17 @@ check() {
       ;;
     chezmoiscript:*)
       if [[ "$relsrc" == *.sh.tmpl ]]; then
+        local tmp
         tmp="$(mktemp)"
         cm execute-template -f "$(srcdir)/$relsrc" >"$tmp"
         bash -n "$tmp"
         rm -f "$tmp"
       elif [[ "$relsrc" == *.sh ]]; then
         check_shell_file_rel "$relsrc"
+      elif [[ "$relsrc" == *.ps1 || "$relsrc" == *.ps1.tmpl ]]; then
+        check_powershell_file_rel "$relsrc"
       else
-        info "No automated check for $relsrc (non-shell chezmoi script). Review manually."
+        info "No automated check for $relsrc. Review manually."
       fi
       ;;
     ansible:*)
@@ -414,12 +577,18 @@ check() {
     assets:*)
       if [[ "$relsrc" == *.sh ]]; then
         check_shell_file_rel "$relsrc"
+      elif [[ "$relsrc" == *.ps1 || "$relsrc" == *.ps1.tmpl ]]; then
+        check_powershell_file_rel "$relsrc"
       else
         info "Assets changed; run project-specific checks if any."
       fi
       ;;
     docs:*|repo:*)
-      info "Repo-only file; no chezmoi apply/diff required."
+      if [[ "$relsrc" == *.ps1 || "$relsrc" == *.ps1.tmpl ]]; then
+        check_powershell_file_rel "$relsrc"
+      else
+        info "Repo-only file; no chezmoi apply/diff required."
+      fi
       ;;
   esac
 }
