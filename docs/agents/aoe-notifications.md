@@ -124,9 +124,9 @@ to own both files outright, so the two fought on every release. Both are now
   command carries a trailing `# aoe-hooks` sentinel is adopted verbatim from
   disk.
 - [`private_dot_config/agent-of-empires/modify_config.toml`](../../private_dot_config/agent-of-empires/modify_config.toml)
-  — the live file is the merge base, so `[app_state]` (including
-  `has_acknowledged_agent_hooks`) and any newly added keys survive. Only the
-  ~17 keys in the overlay are enforced.
+  — the live file is the merge base, so settings outside the small overlay and
+  any newly added keys survive. Since AoE 1.13.2, application state is stored
+  separately in the AoE-owned sibling `state.toml`.
 
 Consequence: on a fresh machine chezmoi writes base-only hooks, AoE prompts
 once on first launch, and its hooks stick from then on.
@@ -150,8 +150,7 @@ Check every key it declares still exists in the schema:
 for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
          session.confirm_before_quit session.default_attach_mode \
          session.default_tool session.delete_to_trash \
-         session.new_session_attach_mode session.row_tag \
-         session.agent_command_override status_hooks.debounce_ms \
+         session.row_tag session.agent_command_override \
          status_hooks.enabled status_hooks.on_error status_hooks.on_waiting \
          telemetry.enabled updates.update_check_mode \
          worktree.delete_branch_on_cleanup worktree.enabled \
@@ -165,4 +164,5 @@ Use `aoe settings explain <section>.<field>` to see whether a value is a
 persisted user value or a schema default before adding it to the overlay. Note
 that "equals the schema default" is not sufficient reason to drop a key: AoE
 1.12.1 persisted `session.default_attach_mode = "live_send"` even though the
-default is `tmux`, which is why that key is pinned explicitly.
+default is `tmux`. AoE 1.13.2 uses that one setting for both existing-session
+and new-session attach behavior, which is why it remains pinned explicitly.

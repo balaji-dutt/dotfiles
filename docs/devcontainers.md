@@ -417,8 +417,22 @@ scripts migrate its current contents into persistent storage before replacing it
 with the symlink.
 
 Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
-Runtime-managed files (for example `profiles/*/sessions.json`,
+Runtime-managed files (for example `state.toml`, `profiles/*/sessions.json`,
 `trusted_repos.toml`, and logs) are left intact.
+
+AoE 1.13.2 reads first-run application state from the sibling `state.toml`. If
+that file is missing, the lifecycle helper creates the minimal native AoE state
+`has_seen_welcome = true` before the first launch. This skips the intro because
+the devcontainer already supplies a managed attach mode; otherwise the intro
+can replace `session.default_attach_mode = "tmux"` with Live mode. The helper
+uses no-clobber creation and never reads, rewrites, or changes permissions on an
+existing `state.toml`; after initialization, AoE owns the file.
+
+If an existing container already completed the intro with Live mode, quit AoE
+and reopen or restart the container. `postStart.sh` will refresh `config.toml`
+and restore full tmux attach behavior for Enter/double-click. A rebuild is not
+required; single-click Live mode remains controlled separately by AoE's
+`session.click_action` default.
 
 The managed AoE config enables status hooks for `waiting` and `error` events.
 Those hooks call `~/bin/aoe-notify`, which first tries an optional host-side
