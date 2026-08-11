@@ -78,11 +78,17 @@ intended rather than sourcing shell startup files.
 
 ### macOS / Linux / WSL2
 
+With direnv loaded inside this repository, `assets/` is on `PATH`, so an
+interactive shell can use the extensionless launcher:
+
 ```sh
-./assets/beads-sync.sh status
-./assets/beads-sync.sh pull
-./assets/beads-sync.sh push
+beads-sync status
+beads-sync pull
+beads-sync push
 ```
+
+Without direnv, including in agent and non-interactive shells, keep using the
+explicit entrypoint (for example, `./assets/beads-sync.sh status`).
 
 ### Windows (PowerShell 7)
 

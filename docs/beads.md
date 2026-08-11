@@ -91,14 +91,18 @@ refused rather than dropped. Other `bd` commands are unaffected.
 Agents and non-interactive automation deliberately bypass those wrappers. Use
 `command bd ...` on POSIX or `bd.exe ...` on native Windows for ordinary Beads
 commands, and call the sync helper explicitly for pull or push. Do not source a
-shell rc file or `beads-helpers.*` in an agent shell.
+shell rc file or `beads-helpers.*` in an agent shell. The explicit POSIX form
+remains `./assets/beads-sync.sh <command>`.
+
+In an interactive POSIX shell, direnv adds this checkout's `assets/` directory
+to `PATH`, so the repo-local launcher is available by bare name:
 
 ```bash
-./assets/beads-sync.sh status    # dirty tables, is a sync safe?
-./assets/beads-sync.sh pull      # guarded replacement for `bd dolt pull`
-./assets/beads-sync.sh push      # guarded replacement for `bd dolt push`
-./assets/beads-sync.sh snapshot  # force a JSONL recovery snapshot
-./assets/beads-sync.sh init      # rebuild a wedged peer from the remote (Recovery)
+beads-sync status    # dirty tables, is a sync safe?
+beads-sync pull      # guarded replacement for `bd dolt pull`
+beads-sync push      # guarded replacement for `bd dolt push`
+beads-sync snapshot  # force a JSONL recovery snapshot
+beads-sync init      # rebuild a wedged peer from the remote (Recovery)
 ```
 
 Windows (PowerShell 7):

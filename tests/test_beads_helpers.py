@@ -322,6 +322,54 @@ class BeadsShellDispatchTests(unittest.TestCase):
                 self.assertEqual(self.read_log(), ["native:update dots-1"])
 
 
+class BeadsLauncherTests(unittest.TestCase):
+    def test_bare_launcher_delegates_arguments_and_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir) / "repo with spaces"
+            assets = repo / "assets"
+            assets.mkdir(parents=True)
+            launcher = assets / "beads-sync"
+            shutil.copy2(ROOT / "assets/beads-sync", launcher)
+            log = Path(temp_dir) / "calls.log"
+            write_executable(
+                assets / "beads-sync.sh",
+                r"""
+                #!/bin/sh
+                {
+                  printf '%s\n' "$#"
+                  printf '%s\n' "$@"
+                } > "$BEADS_LAUNCHER_TEST_LOG"
+                printf 'delegated stdout\n'
+                printf 'delegated stderr\n' >&2
+                exit 23
+                """,
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{assets}{os.pathsep}{env['PATH']}",
+                    "BEADS_LAUNCHER_TEST_LOG": str(log),
+                }
+            )
+
+            result = subprocess.run(
+                ["beads-sync", "status", "--dry-run", "value with spaces"],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertEqual(result.stdout, "delegated stdout\n")
+            self.assertEqual(result.stderr, "delegated stderr\n")
+            self.assertEqual(
+                log.read_text(encoding="utf-8").splitlines(),
+                ["3", "status", "--dry-run", "value with spaces"],
+            )
+
+
 class BeadsSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()

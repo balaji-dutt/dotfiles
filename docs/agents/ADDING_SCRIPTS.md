@@ -36,6 +36,6 @@ homelab-IaC devcontainer over its read-only host mount. Such helpers still obey
 the rules above — repo-only, not templated, not applied to a target.
 
 Existing members: `cz-audit.sh` / `cz-audit.ps1`, `beads-sync.sh` /
-`beads-sync.ps1`, `agent-wt-merge`, `claude-mcp-apply.py`,
-`sync-browser-policies.py`, and the `sync-*` scripts. See `assets/README.md` for
-their usage.
+`beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge`,
+`claude-mcp-apply.py`, `sync-browser-policies.py`, and the `sync-*` scripts.
+See `assets/README.md` for their usage.
