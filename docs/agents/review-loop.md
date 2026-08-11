@@ -118,6 +118,8 @@ the same session, so verify changes to it from a fresh session.
 ## Manual command wrapper
 
 - Use `/refresh-docs` as a manual wrapper around the `refresh-docs` skill.
+- Both harnesses ship the skill and the command, project-scoped: OpenCode under
+  `.opencode/`, Claude Code under `.claude/`.
 - Supported modes: `auto`, `human-only`, `agent-only`, `deep`.
 - Optional target docs can be passed after the mode.
 - If mode is omitted or unrecognized, the command defaults to `auto`.
@@ -147,7 +149,11 @@ the same session, so verify changes to it from a fresh session.
   `.claude/hooks/enforce-review-on-stop.sh`
 - Claude clear hook:
   `.claude/hooks/clear-needs-review-on-pass.sh`
-- Skill:
+- OpenCode docs-refresh skill:
   `.opencode/skills/refresh-docs/SKILL.md`
-- Command:
+- OpenCode docs-refresh command:
   `.opencode/commands/refresh-docs.md`
+- Claude docs-refresh skill:
+  `.claude/skills/refresh-docs/SKILL.md`
+- Claude docs-refresh command:
+  `.claude/commands/refresh-docs.md`
