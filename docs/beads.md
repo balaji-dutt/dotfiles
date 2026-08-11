@@ -997,6 +997,7 @@ to be an upstream dolt bug** rather than anything configurable here.
 | Defender AV | exclusions verified for `.beads\dolt` paths and `dolt.exe`/`git.exe` |
 | Kernel resources | 4.29e9 free system PTEs, paged pool 853 MB, nonpaged 1.17 GB |
 | Mirror bloat | git-remote-cache held only 52 objects / 7.4 MB |
+| Dolt version skew | both peers on dolt 2.2.1; the WSL2 half of the same box syncs fine |
 
 The decisive control: a shell loop of 300 `git --version` spawns completed in
 16.9 s with zero failures on the same box. `CreateProcess` fails **only when
@@ -1008,6 +1009,14 @@ binary suspended and dies before resuming it, leaving an orphan
 (`ThreadState=Wait`, `WaitReason=Suspended`) that dolt waits on forever. This
 turned a silent 9m33s hang into an immediate error. It does not fix sync — a
 fast honest failure just beats a hang.
+
+**`beads-sync init` is NOT a recovery path for this.** Its final step is
+`call dolt_fetch(...); call dolt_reset('--hard','origin/main')` — the failing
+call — and it runs *after* the local database has been replaced. Verified
+2026-08-11 non-destructively: `dolt init` + `dolt remote add` + `dolt fetch` in
+a scratch `%TEMP%` directory, empty store, fresh mirror, `mingw64\bin\git.exe`
+on PATH, fails with the same `fork/exec` error on its first objects. The failure
+has nothing to do with local store state, mirror size, or the Git shim.
 
 **Working around it.** The Windows peer is offline for Dolt sync in *both*
 directions, but local `bd` writes still work. Round-trip through JSONL instead:
