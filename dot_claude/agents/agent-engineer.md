@@ -3,7 +3,7 @@ name: agent-engineer
 description: Designs, builds, evaluates, and packages AI agent systems from loose requirements into reusable artifacts.
 model: fable
 effort: xhigh
-tools: Read, Grep, Glob, LS, Bash, Edit, Write, WebFetch, WebSearch, TodoRead, TodoWrite, mcp__cbm__search_graph, mcp__cbm__trace_path, mcp__cbm__detect_changes, mcp__cbm__get_architecture, mcp__cbm__get_code_snippet
+tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__search_graph, mcp__cbm__trace_path, mcp__cbm__detect_changes, mcp__cbm__get_architecture, mcp__cbm__get_code_snippet
 skills:
   - prompt-optimizer
   - prompt-engineer

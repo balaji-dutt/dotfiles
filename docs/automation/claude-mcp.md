@@ -136,7 +136,9 @@ denies `mcp__cbm__delete_project`. `index_repository`, `query_graph`,
 Operating rules for the tools (notably `index_repository`'s `persistence: false`
 and the prohibition on running `codebase-memory-mcp install`) live in
 `dot_claude/AGENTS.md`, with the long-form OpenCode version in
-`.opencode/instructions/mcp-usage.md`.
+`.opencode/instructions/mcp-usage.md`. The non-MCP entries in that same allow
+list, and the rule syntax they follow, are covered in
+`docs/automation/claude-permissions.md`.
 
 ## Dev Container registration
 

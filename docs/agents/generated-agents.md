@@ -119,9 +119,9 @@ are hand-authored and safe to edit.
 `agent-engineer.md` and `special-builder.md` are deliberately hand-patched after
 generation so their `model:` frontmatter tracks current Claude models. They also
 carry the locally managed codebase-memory-mcp tool allowlist and embedded server
-entry. Their manifest `digest` entries have therefore not matched the files on
-disk since `9035de0` (2026-06-06, "Refresh agentic-tooling generated agents for
-Claude Code compatibility").
+entry, and a corrected `tools:` vocabulary. Their manifest `digest` entries have
+therefore not matched the files on disk since `9035de0` (2026-06-06, "Refresh
+agentic-tooling generated agents for Claude Code compatibility").
 
 This is tolerated, not an oversight. The consequences to know about:
 
@@ -177,7 +177,48 @@ divergence from the generator source rather than a reduction. The
 `tools:` list is an allowlist regardless of where the server is defined. See
 `docs/automation/claude-mcp.md`.
 
+### Tool vocabulary
+
+The generated `tools:` line named tools that Claude Code has since retired. Both
+files were hand-patched to:
+
+```
+tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__* (five explicit entries, unchanged)
+```
+
+The `mcp__cbm__*` shorthand above stands for the five names spelled out in the
+files themselves; read the real frontmatter before copying this line.
+
+- `LS` and `TodoRead` were dropped. Neither exists in Claude Code 2.1.227.
+- `Grep` and `Glob` were **kept**. Both are still real tools; a session that
+  does not expose them is showing a model- or gate-specific tool list, not a
+  retirement. See `docs/automation/claude-permissions.md` for the evidence and
+  the recipe to re-check after an upgrade.
+- `TaskCreate`, `TaskGet`, `TaskList` and `TaskUpdate` were added beside
+  `TodoWrite`, because a feature gate decides which family a session gets.
+- `TaskStop` and `TaskOutput` were added to close a pre-existing gap: both
+  agents have `Bash` and can therefore background a shell, but the generated
+  list named neither `BashOutput` nor `KillShell`, so they could not read or
+  stop what they started. The canonical names were used deliberately —
+  `KillShell`/`KillBash` and `BashOutput`/`AgentOutput` are aliases *pointing
+  at* `TaskStop`/`TaskOutput` in 2.1.227, and tool lookup at invocation time
+  is alias-aware, so the canonical form is the one that survives either
+  direction of the mapping.
+- The `mcp__deepwiki__*` tools were **not** added. Both agents already have
+  `WebFetch` and `WebSearch`, there is no demonstrated need, and widening a
+  subagent allowlist without one is the wrong default. Revisit only if a
+  concrete task calls for it.
+
+Unlike the `model:` and MCP patches, this one was applied without a matching
+upstream fix queued. `agentic-tooling` is not in active development, so filing
+the change against `agents/agent-engineer.yaml` / `agents/special-builder.yaml`
+was dropped rather than deferred — it would have held the correction open
+indefinitely. If regeneration ever happens, re-apply this patch along with the
+other two.
+
 ## Related
 
 - `docs/devcontainers.md` — the container-dotfiles mirror these agents sync into
 - `configs/devcontainer-sync.jsonc` — the mirror manifest
+- `docs/automation/claude-permissions.md` — the Claude tool-name vocabulary
+  these `tools:` lines draw from
