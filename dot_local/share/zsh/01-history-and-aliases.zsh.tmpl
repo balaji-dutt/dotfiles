@@ -26,6 +26,100 @@ zshaddhistory() {
     return 0
 }
 
+# Remove short Claude Code transcripts created around the /login flow.
+cc-clean() {
+    emulate -L zsh
+
+    local force=false
+    case "${1:-}" in
+        -f|--force)
+            force=true
+            shift
+            ;;
+    esac
+    if (( $# != 0 )); then
+        print -u2 'Usage: cc-clean [-f|--force]'
+        return 2
+    fi
+
+    if ! (( $+commands[jq] )); then
+        print -u2 'cc-clean: jq is required but was not found in PATH.'
+        return 1
+    fi
+
+    local config_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    local projects_root="$config_root/projects"
+    if [[ ! -d "$projects_root" ]]; then
+        print 'cc-clean: no Claude project transcripts found.'
+        return 0
+    fi
+
+    local jq_filter='length < 20 and any(.[]; .type == "user" and (.message.content | type) == "string" and (.message.content | contains("<command-name>/login</command-name>")))'
+    local transcript rc
+    local skipped=0
+    local -a candidates
+    for transcript in "$projects_root"/*/*.jsonl(N.); do
+        if [[ ! -r "$transcript" ]]; then
+            print -u2 "cc-clean: skipping unreadable transcript: $transcript"
+            (( ++skipped ))
+            continue
+        fi
+
+        if command jq -e -s "$jq_filter" "$transcript" >/dev/null 2>&1; then
+            rc=0
+        else
+            rc=$?
+        fi
+        if (( rc == 0 )); then
+            candidates+=("$transcript")
+        elif (( rc > 1 )); then
+            print -u2 "cc-clean: skipping malformed transcript: $transcript"
+            (( ++skipped ))
+        fi
+    done
+
+    if (( ${#candidates} == 0 )); then
+        print "cc-clean: no matching transcripts found; skipped $skipped."
+        return 0
+    fi
+
+    print "cc-clean: ${#candidates} transcript(s) eligible for removal:"
+    printf '  %s\n' "${candidates[@]}"
+
+    if [[ "$force" != true ]]; then
+        local reply
+        read -r "reply?Remove these transcripts? [y/N] " || return 1
+        if [[ "${reply:l}" != y && "${reply:l}" != yes ]]; then
+            print 'cc-clean: no transcripts removed.'
+            return 0
+        fi
+    fi
+
+    local removed=0
+    for transcript in "${candidates[@]}"; do
+        if [[ ! -r "$transcript" ]]; then
+            print -u2 "cc-clean: transcript changed or became unreadable; skipping: $transcript"
+            (( ++skipped ))
+            continue
+        fi
+
+        if ! command jq -e -s "$jq_filter" "$transcript" >/dev/null 2>&1; then
+            print -u2 "cc-clean: transcript changed since preview; skipping: $transcript"
+            (( ++skipped ))
+            continue
+        fi
+
+        if command rm -- "$transcript"; then
+            (( ++removed ))
+        else
+            print -u2 "cc-clean: unable to remove transcript: $transcript"
+            (( ++skipped ))
+        fi
+    done
+
+    print "cc-clean: removed $removed, skipped $skipped."
+}
+
 # Universal custom aliases
 alias cd=" cd"
 {{- if ne .chezmoi.os "darwin" }}
