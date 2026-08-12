@@ -27,6 +27,10 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
   credentials. The remote URL lives in the 1Password Secure Note `dotfiles Dolt
   Remote`; write it to gitignored `.beads/config.local.yaml` or export it as
   `BD_SYNC_REMOTE` before bootstrapping.
+- **Native Windows is a client, not a peer.** It holds no Dolt clone and runs no
+  server of its own; `bd` there connects to the server WSL2 already hosts on
+  `127.0.0.1`. One database, so nothing syncs between the two halves of that
+  box. See **Windows client mode** below.
 - **JSONL:** auto-export is disabled (`export.auto: false`) and
   `.beads/issues.jsonl` is git-ignored. Dolt is the source of truth; validated
   point-in-time JSONL recovery snapshots live on the homelab share instead of
@@ -43,12 +47,20 @@ the Dolt server.
 | --- | --- | --- |
 | macOS | Homebrew `beads` formula | Homebrew `dolt` |
 | WSL2 | `gastownhall/beads` GitHub release via mise (`configs/mise_wsl2.toml`) | GitHub release tarball via ansible; pinned in `configs/packages.yaml` |
-| Windows | Winget `GasTownHall.Beads` package (manual install) | `dolt` release (manual install) |
+| Windows | Winget `GasTownHall.Beads` package (manual install) | none — client mode; see below |
 
 On Windows, `configs/winget-packages.json` is an exported inventory rather than
 an automatically imported chezmoi manifest. It records the supported `bd`
-package, but a clean host still needs a manual Winget installation. Dolt remains
-a separate release install.
+package, but a clean host still needs a manual Winget installation.
+
+`dolt` is deliberately **not** installed on Windows. That box is a client of the
+WSL2 server (**Windows client mode** below), and removing the binary is what
+makes a stray second database impossible rather than merely loud. Nothing in
+this repo reinstalls it: `configs/packages.yaml` pins dolt only for
+`ansible/wsl-playbook.yml`, and `configs/winget-packages.json` has no dolt
+entry. If you ever do need it back, do not use the `winget` PowerShell function
+— it re-exports and commits the winget manifest. Use `pwsh -NoProfile` with
+`winget.exe`, or Settings → Installed apps.
 
 Keep `bd` at the **same minor version** across machines. Different builds of the
 same version string are fine, but a machine on an older minor that targets a
@@ -105,7 +117,7 @@ beads-sync snapshot  # force a JSONL recovery snapshot
 beads-sync init      # rebuild a wedged peer from the remote (Recovery)
 ```
 
-Windows (PowerShell 7):
+Windows (PowerShell 7) — on a machine that still hosts its own database:
 
 ```powershell
 pwsh -NoProfile -File ./assets/beads-sync.ps1 status
@@ -114,6 +126,10 @@ pwsh -NoProfile -File ./assets/beads-sync.ps1 push
 pwsh -NoProfile -File ./assets/beads-sync.ps1 snapshot
 pwsh -NoProfile -File ./assets/beads-sync.ps1 init
 ```
+
+On the client-mode Windows box every verb above except `snapshot` is refused —
+there is no local database to sync. Run the `.sh` helper in WSL2 instead; see
+**Windows client mode** below.
 
 Both accept `-DryRun` / `--dry-run`. On `pull` and `push`, `-Backup` /
 `--backup` makes a failed forced snapshot abort the sync. `snapshot` is forced
@@ -132,6 +148,80 @@ rejects backup flags because there is no database to export at that point.
 the recovery section below for why. Push uses the same helper because it checks
 that a Dolt remote exists before any push work and restarts the server with a
 live `SSH_AUTH_SOCK`.
+
+### Windows client mode
+
+Native Windows cannot use the Dolt remote at all: dolt's git transport dies
+there with `fork/exec <git.exe>: Not enough memory resources are available`.
+That bug is upstream's and still unfixed (the diagnosis is in
+[`archive/docs/beads.md`](../archive/docs/beads.md)).
+
+Since 2026-08-12 that box does not try. It holds no Dolt clone and starts no
+server; `bd.exe` connects to the server WSL2 hosts on `127.0.0.1`, so both
+halves read and write **one** database and there is nothing to sync between
+them. The broken transport never runs.
+
+How it is wired:
+
+- `.chezmoidata.yaml` carries `beads_client.wsl_distro` and
+  `beads_client.wsl_repo_rel`. The WSL2 `$HOME` is resolved at runtime, so no
+  Linux path is hardcoded.
+- `.chezmoiscripts/run_after_windows-beads-client.ps1.tmpl` reads the port from
+  the WSL2 checkout's `.beads/dolt-server.port` and exports
+  `BEADS_DOLT_SERVER_PORT` at **User** scope, so bare `bd.exe` callers — agents,
+  OpenCode, the VSCode Beads Kanban extension — inherit it without a shell
+  profile. It also exports `BEADS_CLIENT_WSL_DISTRO` and
+  `BEADS_CLIENT_WSL_REPO_REL` for `assets/beads-sync.ps1`, which is never
+  templated.
+- `~/.config/powershell/beads-env.ps1` supplies the helpers the PowerShell `bd`
+  wrapper uses, and fills in the port when the User-scope value is missing.
+- `.beads\dolt` on the Windows checkout has been moved aside, and `dolt.exe`
+  uninstalled. With no local store and no server binary, a second database is
+  structurally impossible rather than merely detectable.
+
+What the `bd` wrapper does there:
+
+| `bd` invocation | Behavior on the client |
+| --- | --- |
+| ordinary commands (`list`, `create`, `close`, `show`, …) | preflight the port, then run `bd.exe` against the WSL2 server |
+| `bd dolt pull` / `push` | delegated into WSL2, which runs `./assets/beads-sync.sh` with a live `SSH_AUTH_SOCK` |
+| `bd dolt start` / `stop` | refused — this machine is a client, not a host |
+| server unreachable | refused with the `wsl` command to start it; `bd.exe` is never invoked, so nothing can start a local server |
+
+The delegation is deliberately independent of WSL2 rc files. `bash -lc` leaves
+`SSH_AUTH_SOCK` empty and resolves `bd` to the `beads-helpers` shell function
+rather than the binary, and `wsl --cd <linux-path>` fails with
+`Wsl/ERROR_PATH_NOT_FOUND`. The working form exports the pageant socket and the
+mise shims explicitly, then runs the command under `direnv exec`.
+
+`direnv exec` is not cosmetic. `beads-sync.sh push` restarts the Dolt server, and
+without `.envrc` loaded the restart binds a fresh port instead of the
+deterministic per-checkout one — leaving the client chasing drift after every
+push. The `bd` preflight recovers from that by re-reading
+`.beads/dolt-server.port`, but the delegation should not cause it in the first
+place. If `direnv` is missing or the `.envrc` is not allowed, the command still
+runs, just without the pinned port.
+
+**When WSL2 is down there is no Windows fallback, by design.** Wait, or work in
+WSL2. Do not stand up a local database and reconcile it later: two environments
+that can both mutate Beads state means remembering which one wrote last and
+which export is current, which is a worse reimplementation of what the Dolt
+remote already does. JSONL snapshots remain what they always were —
+point-in-time recovery for one database, not a second writer.
+
+Costs, accepted knowingly:
+
+- WSL2 is a hard dependency for Beads on Windows.
+- `BEADS_DOLT_SERVER_PORT` is set for the whole user, so a *second* Beads repo
+  on Windows would need a per-shell override.
+- No raw `dolt ... sql -q` diagnostics from Windows. There is nothing local to
+  inspect; query from WSL2 against the same database.
+- `.beads/last-touched` and `in-progress-*.json` stay per-checkout, so a bare
+  `bd update` with no ID targets that host's last issue.
+
+`bd doctor` on Windows does **not** complain about the absent `dolt` binary —
+verified 2026-08-12 after removing it. It needs the binary only to start a
+server, which a client never does.
 
 ### JSONL recovery snapshots
 
@@ -523,118 +613,11 @@ posture as every other peer.
 
 ### Last resort: rebuild as a local-only satellite (no Dolt sync)
 
-Proven on the Windows clone (2026-07-26) after every in-place repair failed.
-The insight: all known failures live in the **clone** path. `bd init` with no
-remote reachable builds the schema locally from zero, where the table-creating
-migrations genuinely run. The cost: the new database shares no history with the
-remote, so this machine must never `bd dolt push`/`pull` again — it syncs by
-JSONL export/import instead.
-
-> **Historical since 2026-08-01 — prefer `beads-sync init` (previous
-> section).** It reaches the same fresh-init state and then grafts the
-> remote's history on top, producing a full sync peer instead of a
-> satellite. The Windows satellite was converted back to a peer exactly this
-> way: restore `.beads/config.local.yaml` from the 1Password Secure Note,
-> `bd export --all` as a floor, move `.beads/dolt` aside, run
-> `pwsh ./assets/beads-sync.ps1 init`, then `git remote rename gitlab
-> origin` for the repo fingerprint. Push from a current peer first
-> (sequencing rule above). This section is kept for the next time a clone
-> path breaks with no working remote to graft from.
-
-```powershell
-# 1. Save the issues (works even on a broken database)
-bd export --all -o $HOME\dots-pre-satellite.jsonl
-
-# 2. Make sure NO remote is discoverable, or init will clone and re-break:
-#    - move the local override aside (do NOT restore it afterwards)
-#    - check the TRACKED config too: a prior bootstrap may have leaked
-#      sync.remote into it (see Cross-machine sync above)
-Move-Item .beads\config.local.yaml .beads\config.local.yaml.bak
-git diff .beads\config.yaml          # if a sync: block appears:
-git checkout -- .beads\config.yaml
-
-# 3. Fresh local database
-bd dolt stop
-Remove-Item -Recurse -Force .beads\dolt
-Remove-Item .beads\dolt-server.port, .beads\dolt-server.pid, .beads\dolt-server.lock -ErrorAction SilentlyContinue
-bd init --server --non-interactive --skip-agents --skip-hooks --prefix dots
-```
-
-Then three cleanups `bd init` makes necessary:
-
-1. **It auto-derives a Dolt remote from the git repo's `origin`** — for this
-   repo that is the *public* dotfiles repository, so an accidental
-   `bd dolt push` would publish issue data there. Remove it and verify:
-
-   ```powershell
-   bd dolt remote remove origin
-   bd dolt remote list      # must print "No remotes configured."
-   ```
-
-2. **It commits to git on your behalf** (`✓ Committed beads files to git`).
-   Inspect `git log origin/main..HEAD` and reset anything you did not author.
-
-3. Verify no git hooks appeared despite `--skip-hooks`
-   (`ls .git/hooks` / `Get-ChildItem .git\hooks`) — on the Windows rebuild the
-   hooks actually came from an earlier `bd doctor --fix`, not from init, but
-   check rather than assume. See the caution below for removal.
-
-Finally, load the issues and verify:
-
-```powershell
-bd import $HOME\dots-pre-satellite.jsonl
-bd doctor            # expect 0 errors, no missing-tables warning
-bd ready
-```
-
-**Satellite workflow from here on.** `bd import` has upsert semantics — new
-issues are created, existing ones updated, newest `updated_at` wins, nothing is
-deleted — so refreshes are repeatable and safe in both directions:
-
-- refresh the satellite: `bd export --all` on a sync peer, `bd import` here
-- publish satellite work: `bd export --all` here, `bd import` on a sync peer,
-  which then pushes to the Dolt remote as usual
-- avoid editing the *same issue* on both sides between refreshes; newer-wins
-  resolves conflicts silently
-
-**A satellite is NOT safe against a habitual `bd dolt push` by default.**
-Verified 2026-07-26, twice: with `dolt_remotes` empty, `bd dolt push` prints
-`Configured Dolt remote origin from git origin.` and **begins uploading the
-issue database to whatever the git remote named `origin` points at** — for this
-repo, the *public* dotfiles repository. It does this unprompted, and a
-configured `sync.remote` in `config.local.yaml` does **not** prevent it. Both
-observed attempts were stopped only by Ctrl+C mid-upload.
-
-The working guard is to have **no git remote named `origin`** on a satellite
-(satellites only — undo it once the machine is a peer again, or the repo
-fingerprint check fails; see the Repo Fingerprint note in the
-`beads-sync init` section):
-
-```powershell
-git remote rename origin gitlab
-git branch -u gitlab/main main
-```
-
-Ordinary `git push`/`pull` are unaffected (the remote is just named `gitlab`).
-With no `origin` to derive from, `bd dolt push` fails safely and prints:
-
-```
-Pushing to Dolt remote...
-No remote is configured — skipping.
-
-For solo use, pushing is optional — your issues are stored locally
-in .beads/ and versioned by Dolt automatically.
-```
-
-That message is the guard working. After any accidental push attempt, check
-`bd dolt remote list` and remove anything bd wired, and check
-`git log <remote>/main..HEAD` — bd has been observed committing to git under
-the *user's* identity (message `bd: clear sync.remote`) during push/remote
-operations; reset any commit you did not author.
-
-Also delete `config.local.yaml.bak` on a satellite (the real URL lives in
-1Password) — a stray backup invites an accidental restore, and as above it
-would not even function as a guard.
+Retired 2026-08-12. A satellite makes a second environment that can mutate Beads
+state, which then has to be reconciled by hand — the problem client mode exists
+to remove. A peer that cannot sync should stop being a peer and connect to a
+server instead. Kept for reference in
+[`archive/docs/beads.md`](../archive/docs/beads.md).
 
 ### Caution: `bd doctor --fix` and bd-installed git hooks
 
@@ -956,87 +939,11 @@ mirror reset alone fixed both directions on dolt 2.2.1, so it was never tested.
 
 ### Windows peer: `fork/exec ... Not enough memory resources`
 
-`bd dolt push` / `pull` fail on the native Windows peer with a useless surface
-message:
-
-```
-Pushing to Dolt remote...
-Error: dolt push failed: - Uploading...: exit status 1
-```
-
-**The real error is only in `.beads\dolt-server.log`.** Nothing is swallowed by
-`beads-sync.ps1` — it captures `2>&1` — the detail is below bd, in the `git`
-child dolt spawns:
-
-```powershell
-Select-String -Path .beads\dolt-server.log -Pattern 'error running query' |
-  Select-Object -Last 3 | ForEach-Object { $_.Line }
-```
-
-```
-error="failed to get remote db; git command failed
-command: git cat-file -s <sha>
-error: fork/exec C:\Program Files\Git\cmd\git.exe:
-       Not enough memory resources are available to process this command."
-```
-
-That is Windows `ERROR_NO_SYSTEM_RESOURCES` (1450) raised on **process
-creation**. Dolt's git-backed remote shells out to `git` once per object, and on
-Windows that eventually fails. Diagnosed 2026-08-10; **unresolved, and believed
-to be an upstream dolt bug** rather than anything configurable here.
-
-**Ruled out** (each cost real time — don't re-test):
-
-| Suspect | Measured |
-| --- | --- |
-| SSH / auth | `git cat-file -s` is a local object read; no network involved |
-| Memory / commit | 45.7 GB free RAM, 47.2 GB free commit, pagefile usage 0 |
-| Desktop heap | `SharedSection=1024,20480,768`; fails on the interactive desktop too |
-| Concurrency fan-out | fails with a single git child |
-| Defender ASR | no rules configured |
-| Defender AV | exclusions verified for `.beads\dolt` paths and `dolt.exe`/`git.exe` |
-| Kernel resources | 4.29e9 free system PTEs, paged pool 853 MB, nonpaged 1.17 GB |
-| Mirror bloat | git-remote-cache held only 52 objects / 7.4 MB |
-| Dolt version skew | both peers on dolt 2.2.1; the WSL2 half of the same box syncs fine |
-
-The decisive control: a shell loop of 300 `git --version` spawns completed in
-16.9 s with zero failures on the same box. `CreateProcess` fails **only when
-dolt is the parent**.
-
-**Mitigation worth keeping.** Put `C:\Program Files\Git\mingw64\bin` ahead of
-`C:\Program Files\Git\cmd` on PATH. The `cmd\git.exe` shim creates the real
-binary suspended and dies before resuming it, leaving an orphan
-(`ThreadState=Wait`, `WaitReason=Suspended`) that dolt waits on forever. This
-turned a silent 9m33s hang into an immediate error. It does not fix sync — a
-fast honest failure just beats a hang.
-
-**`beads-sync init` is NOT a recovery path for this.** Its final step is
-`call dolt_fetch(...); call dolt_reset('--hard','origin/main')` — the failing
-call — and it runs *after* the local database has been replaced. Verified
-2026-08-11 non-destructively: `dolt init` + `dolt remote add` + `dolt fetch` in
-a scratch `%TEMP%` directory, empty store, fresh mirror, `mingw64\bin\git.exe`
-on PATH, fails with the same `fork/exec` error on its first objects. The failure
-has nothing to do with local store state, mirror size, or the Git shim.
-
-**Working around it.** The Windows peer is offline for Dolt sync in *both*
-directions, but local `bd` writes still work. Round-trip through JSONL instead:
-
-```powershell
-bd export --all -o V:\beads-snapshots\dots\big-rig-windows\handoff.jsonl   # on Windows
-```
-
-```bash
-command bd import /mnt/devdrive/beads-snapshots/dots/big-rig-windows/handoff.jsonl
-```
-
-`bd import` upserts and only rewrites a local row when the incoming `updated_at`
-is **strictly newer**, so a stale peer's export cannot clobber current state.
-Never pass `--allow-stale`.
-
-**Caution: `bd import --dry-run` is not trustworthy.** It reported
-`created: 184, skipped: 0` for a file whose 184 issues all already existed
-locally with none newer. It counts lines; it does not model the upsert or the
-`updated_at` guard. Compare `updated_at` directly before acting on it.
+Retired 2026-08-12. Native Windows no longer hosts a `dots` database, so dolt's
+git transport never runs there and this failure is unreachable — see **Windows
+client mode** above. The diagnosis, the ruled-out list and the `beads-sync init`
+verdict are kept in
+[`archive/docs/beads.md`](../archive/docs/beads.md).
 
 ### Upstream status
 
@@ -1095,3 +1002,8 @@ An isolated disposable-repo test on 2026-08-10 used `bd version 1.1.2`
 Therefore normal recovery uses `bd import <snapshot>` without `--allow-stale`.
 Import is still not a database restore: it cannot recreate Dolt history,
 branches, working-set state, or non-issue tables.
+
+**Caution: `bd import --dry-run` is not trustworthy.** It reported
+`created: 184, skipped: 0` for a file whose 184 issues all already existed
+locally with none newer. It counts lines; it does not model the upsert or the
+`updated_at` guard. Compare `updated_at` directly before acting on it.

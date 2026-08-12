@@ -114,6 +114,7 @@ Documents/PowerShell
 !/.chezmoiscripts/install_codebase-memory-mcp.ps1
 !/.chezmoiscripts/claude_mcp_servers.ps1
 !/.chezmoiscripts/install_plannotator.ps1
+!/.chezmoiscripts/windows-beads-client.ps1
 
 # Windows specific paths
 !/.local/

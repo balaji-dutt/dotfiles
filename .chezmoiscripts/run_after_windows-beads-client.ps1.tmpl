@@ -1,0 +1,64 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# Beads client mode (dots-to5): point this machine's Beads at the Dolt server
+# WSL2 hosts, at User scope so bare `bd.exe` callers - OpenCode, the VSCode
+# Beads Kanban extension, agent shells - inherit it without the PowerShell
+# profile. Nothing here starts a server, and BEADS_DOLT_CLI_DIR is deliberately
+# never set: in client mode there is no local Dolt data directory.
+#
+# This is run_after_, not run_onchange_after_, on purpose. The WSL2 port can
+# change without this script's rendered content changing, so a content hash is
+# the wrong trigger. The body is three reads and is idempotent.
+#
+# A Windows host without this distro or checkout resolves nothing and is left
+# exactly as it was. That absence is the opt-out.
+
+$distro  = "{{ .beads_client.wsl_distro }}"
+$repoRel = ("{{ .beads_client.wsl_repo_rel }}").Trim('/')
+
+function Set-UserScopeVariable {
+  param(
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][string]$Value
+  )
+
+  if ([Environment]::GetEnvironmentVariable($Name, 'User') -eq $Value) { return }
+
+  [Environment]::SetEnvironmentVariable($Name, $Value, 'User')
+  Set-Item -Path "Env:$Name" -Value $Value
+  Write-Host "INFO: set $Name=$Value for the current user (Beads client mode)"
+}
+
+$wsl = Get-Command wsl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $wsl) {
+  Write-Host "INFO: wsl.exe not found; leaving Beads client-mode variables unchanged"
+  exit 0
+}
+
+# Read the port the WSL2 Dolt server last bound. $HOME is expanded inside WSL2
+# so no Linux username is baked into this repo.
+$portRaw = & $wsl.Source -d $distro -- bash -c ('cat "$HOME/' + $repoRel + '/.beads/dolt-server.port" 2>/dev/null')
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "INFO: no readable Beads port at ${distro}:~/$repoRel; leaving client-mode variables unchanged"
+  exit 0
+}
+
+# wsl.exe can emit UTF-16 for its own diagnostics; keep only printable ASCII.
+$portText = ((($portRaw | Out-String) -replace '[^\x20-\x7E]', '')).Trim()
+$port = 0
+if (-not [int]::TryParse($portText, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+  Write-Host "INFO: Beads port in $distro is not a usable number; leaving client-mode variables unchanged"
+  exit 0
+}
+
+Set-UserScopeVariable -Name 'BEADS_DOLT_SERVER_PORT' -Value ([string]$port)
+
+# assets/beads-sync.ps1 is a repo-only helper and is never templated, so it
+# reads these two to compose the same WSL2 guidance the profile prints.
+Set-UserScopeVariable -Name 'BEADS_CLIENT_WSL_DISTRO' -Value $distro
+Set-UserScopeVariable -Name 'BEADS_CLIENT_WSL_REPO_REL' -Value $repoRel
+{{- end -}}

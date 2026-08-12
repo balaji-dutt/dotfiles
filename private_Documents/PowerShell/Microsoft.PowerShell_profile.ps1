@@ -3,6 +3,34 @@
 $globalEnv = Join-Path $HOME ".config\powershell\claude-env.ps1"
 if (Test-Path -LiteralPath $globalEnv) { . $globalEnv }
 
+# Load Beads client-mode helpers (Get-BeadsWslPort, Test-BeadsServerPort,
+# Invoke-BeadsWslSync, Get-BeadsWslHint). Used by the bd wrapper below.
+$globalEnv = Join-Path $HOME ".config\powershell\beads-env.ps1"
+if (Test-Path -LiteralPath $globalEnv) { . $globalEnv }
+
+# True when this checkout's Beads database is hosted elsewhere: it tracks `dots`
+# and the local store no longer holds that database, because `.beads\dolt\dots`
+# was moved aside when Windows became a client of the WSL2 server (dots-to5).
+#
+# Test the database directory, not `.beads\dolt` itself: an accidental server
+# start recreates an empty `.beads\dolt` root, and treating that as "hosts its
+# own database" would silently switch client mode back off.
+#
+# Returns false when beads-env.ps1 is missing, so a broken or absent module
+# degrades to the previous behavior rather than to a half-applied one.
+function global:Test-BdClientMode([string] $RepoRoot) {
+    if (-not $RepoRoot) { return $false }
+    if (-not (Get-Command Get-BeadsWslHint -ErrorAction SilentlyContinue)) { return $false }
+
+    $metadata = Join-Path $RepoRoot '.beads/metadata.json'
+    if (-not (Test-Path -LiteralPath $metadata -PathType Leaf)) { return $false }
+
+    try { $database = (Get-Content -Raw -LiteralPath $metadata | ConvertFrom-Json).dolt_database } catch { return $false }
+    if ($database -ne 'dots') { return $false }
+
+    return -not (Test-Path -LiteralPath (Join-Path $RepoRoot ".beads/dolt/$database") -PathType Container)
+}
+
 # Return true only for command forms known to write issue data.
 function global:Test-BdMutation([object[]] $BdArgs) {
     $index = 0
@@ -92,9 +120,62 @@ function global:bd {
     }
     $syncScript = if ($repoRoot) { Join-Path $repoRoot 'assets/beads-sync.ps1' } else { $null }
 
-    $isSync = $index + 1 -lt $bdArgs.Count -and
-        [string]$bdArgs[$index] -eq 'dolt' -and
-        [string]$bdArgs[$index + 1] -in @('pull', 'push')
+    $doltSubcommand = ''
+    if ($index + 1 -lt $bdArgs.Count -and [string]$bdArgs[$index] -eq 'dolt') {
+        $doltSubcommand = [string]$bdArgs[$index + 1]
+    }
+
+    # Client mode: the database lives on the WSL2 Dolt server. Nothing here may
+    # fall through to bd.exe when the server is unreachable - bd would answer by
+    # starting a local server, which is the split brain this arrangement exists
+    # to remove.
+    $clientMode = Test-BdClientMode $repoRoot
+    if ($clientMode) {
+        if ($doltSubcommand -in @('start', 'stop')) {
+            [Console]::Error.WriteLine("bd: refusing ``bd dolt $doltSubcommand`` - this machine is a client of the WSL2 Dolt server, not a host")
+            [Console]::Error.WriteLine('bd: run it there instead:')
+            [Console]::Error.WriteLine("bd:   $(Get-BeadsWslHint -Command "bd dolt $doltSubcommand")")
+            $global:LASTEXITCODE = 2
+            return
+        }
+
+        if ($doltSubcommand -in @('pull', 'push')) {
+            if ($index + 2 -ne $bdArgs.Count) { $unsupported = $true }
+            if ($unsupported) {
+                [Console]::Error.WriteLine(
+                    "bd: refusing delegated ``bd dolt $doltSubcommand`` with unsupported arguments; run it in WSL2 explicitly"
+                )
+                $global:LASTEXITCODE = 2
+                return
+            }
+            Invoke-BeadsWslSync -Action $doltSubcommand
+            return
+        }
+
+        $port = 0
+        if ($env:BEADS_DOLT_SERVER_PORT) { [void][int]::TryParse($env:BEADS_DOLT_SERVER_PORT, [ref]$port) }
+
+        # The WSL2 server may have rebound since this variable was written. Pay
+        # the ~140 ms WSL probe only on the failing path.
+        if (-not (Test-BeadsServerPort -Port $port)) {
+            $freshPort = Get-BeadsWslPort
+            if ($freshPort -gt 0 -and $freshPort -ne $port) {
+                $env:BEADS_DOLT_SERVER_PORT = [string]$freshPort
+                $port = $freshPort
+            }
+        }
+
+        if (-not (Test-BeadsServerPort -Port $port)) {
+            [Console]::Error.WriteLine("bd: WSL2 Dolt server not reachable on 127.0.0.1:$port")
+            [Console]::Error.WriteLine('bd: start it with:')
+            [Console]::Error.WriteLine("bd:   $(Get-BeadsWslHint -Command 'bd dolt start')")
+            [Console]::Error.WriteLine('bd: refusing to run bd.exe - it would try to start a local server')
+            $global:LASTEXITCODE = 3
+            return
+        }
+    }
+
+    $isSync = -not $clientMode -and $doltSubcommand -in @('pull', 'push')
     if ($isSync -and $syncScript -and (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
         $action = [string]$bdArgs[$index + 1]
         if ($index + 2 -ne $bdArgs.Count) { $unsupported = $true }
@@ -120,7 +201,11 @@ function global:bd {
 
     & $bdCommand.Source @bdArgs
     $nativeExit = $global:LASTEXITCODE
-    if ($nativeExit -eq 0 -and (Test-BdMutation $bdArgs) -and -not $env:BD_GIT_HOOK -and
+    # In client mode the WSL2 wrappers already snapshot this database. Repeating
+    # it here would export the whole thing over TCP on every mutation and file
+    # the result under a second machine name for one database.
+    if (-not $clientMode -and
+        $nativeExit -eq 0 -and (Test-BdMutation $bdArgs) -and -not $env:BD_GIT_HOOK -and
         $env:BD_AUTO_SNAPSHOT -notin @('0', 'false', 'FALSE', 'no', 'NO', 'off', 'OFF') -and
         $repoRoot -and $syncScript -and (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
         $metadata = Join-Path $repoRoot '.beads/metadata.json'

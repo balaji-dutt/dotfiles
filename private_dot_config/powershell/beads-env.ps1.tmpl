@@ -1,0 +1,142 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows */ -}}
+{{- else -}}
+
+# Beads client mode (dots-to5).
+#
+# Native Windows cannot use the Dolt git remote at all - dolt's git transport
+# fails there with `fork/exec <git.exe>: Not enough memory resources are
+# available` (see archive/docs/beads.md). Instead of running a second database
+# and reconciling it, Windows connects to the Dolt server WSL2 already hosts.
+#
+# Nothing here starts a server. The WSL2 repo path is derived from the WSL2
+# $HOME at runtime, so no Linux username is baked into a public repo.
+
+$script:BeadsWslDistro  = '{{ .beads_client.wsl_distro }}'
+$script:BeadsWslRepoRel = ('{{ .beads_client.wsl_repo_rel }}').Trim('/')
+$script:BeadsWslHome    = $null
+$script:BeadsWslHomeResolved = $false
+
+function Get-BeadsWslExe {
+  return (Get-Command wsl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+# wsl.exe can emit UTF-16 for its own diagnostics; strip anything that is not
+# printable ASCII before parsing a path or a port out of the output.
+function ConvertTo-BeadsPlainText([object[]]$Lines) {
+  $text = ($Lines | Out-String)
+  return ($text -replace '[^\x20-\x7E]', '').Trim()
+}
+
+# The WSL2 home directory, resolved once per session (~140 ms per call).
+function Get-BeadsWslHome {
+  if ($script:BeadsWslHomeResolved) { return $script:BeadsWslHome }
+  $script:BeadsWslHomeResolved = $true
+
+  $wsl = Get-BeadsWslExe
+  if (-not $wsl) { return $null }
+
+  $output = & $wsl.Source -d $script:BeadsWslDistro -- bash -c 'printf %s "$HOME"' 2>$null
+  if ($LASTEXITCODE -ne 0) { return $null }
+
+  $wslHome = ConvertTo-BeadsPlainText $output
+  if (-not $wslHome.StartsWith('/')) { return $null }
+
+  $script:BeadsWslHome = $wslHome.TrimEnd('/')
+  return $script:BeadsWslHome
+}
+
+function Get-BeadsWslRepoPath {
+  $wslHome = Get-BeadsWslHome
+  if (-not $wslHome) { return $null }
+  return "$wslHome/$script:BeadsWslRepoRel"
+}
+
+# The port the WSL2 Dolt server last bound. Returns 0 when it cannot be read -
+# WSL2 down, distro missing, or no checkout there.
+function Get-BeadsWslPort {
+  $wsl = Get-BeadsWslExe
+  if (-not $wsl) { return 0 }
+
+  $read = 'cat "$HOME/' + $script:BeadsWslRepoRel + '/.beads/dolt-server.port" 2>/dev/null'
+  $output = & $wsl.Source -d $script:BeadsWslDistro -- bash -c $read 2>$null
+  if ($LASTEXITCODE -ne 0) { return 0 }
+
+  $port = 0
+  if (-not [int]::TryParse((ConvertTo-BeadsPlainText $output), [ref]$port)) { return 0 }
+  if ($port -lt 1 -or $port -gt 65535) { return 0 }
+  return $port
+}
+
+# Is anything listening? WSL2 localhost forwarding is visible to
+# Get-NetTCPConnection under NAT but not under every networking mode, so
+# connect instead of inspecting the listener table.
+function Test-BeadsServerPort {
+  param(
+    [Parameter(Mandatory)][int]$Port,
+    [int]$TimeoutMs = 500
+  )
+
+  if ($Port -lt 1 -or $Port -gt 65535) { return $false }
+
+  $client = [System.Net.Sockets.TcpClient]::new()
+  try {
+    if (-not $client.ConnectAsync('127.0.0.1', $Port).Wait($TimeoutMs)) { return $false }
+    return $client.Connected
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
+# The WSL2 side of every delegated command.
+#
+# Deliberately independent of WSL2 rc files: `bash -lc` leaves SSH_AUTH_SOCK
+# empty and resolves `bd` to the beads-helpers shell function rather than the
+# binary, and `wsl --cd <linux-path>` fails with Wsl/ERROR_PATH_NOT_FOUND.
+#
+# `direnv exec` supplies what the rc files would have: the deterministic
+# per-checkout BEADS_DOLT_SERVER_PORT and BEADS_DOLT_CLI_DIR from .envrc.
+# Without it `beads-sync.sh push` restarts the Dolt server on a fresh port and
+# this client has to chase the drift.
+function Get-BeadsWslBashPayload {
+  param([Parameter(Mandatory)][string]$Command)
+
+  return 'export SSH_AUTH_SOCK="${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent/ssh-agent.sock}"; export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"; cd "$HOME/' +
+    $script:BeadsWslRepoRel + '" || exit 1; if command -v direnv >/dev/null 2>&1; then exec direnv exec . ' +
+    $Command + '; fi; exec ' + $Command
+}
+
+# The single source of "run it in WSL2 like this" wording.
+function Get-BeadsWslHint {
+  param([Parameter(Mandatory)][string]$Command)
+
+  return ("wsl -d {0} -- bash -c '{1}'" -f $script:BeadsWslDistro, (Get-BeadsWslBashPayload -Command $Command))
+}
+
+function Invoke-BeadsWslSync {
+  param([Parameter(Mandatory)][ValidateSet('pull', 'push', 'status', 'snapshot')][string]$Action)
+
+  $wsl = Get-BeadsWslExe
+  if (-not $wsl) {
+    [Console]::Error.WriteLine('bd: wsl.exe not found; cannot reach the WSL2 Beads checkout')
+    $global:LASTEXITCODE = 127
+    return
+  }
+
+  $payload = Get-BeadsWslBashPayload -Command "./assets/beads-sync.sh $Action"
+  [Console]::Error.WriteLine("bd: delegating ./assets/beads-sync.sh $Action to $script:BeadsWslDistro")
+  & $wsl.Source -d $script:BeadsWslDistro -- bash -c $payload
+}
+
+# Session fallback only. The User-scope variable set by
+# .chezmoiscripts/run_after_windows-beads-client.ps1.tmpl normally covers this,
+# and that path costs no WSL call. BEADS_DOLT_CLI_DIR is deliberately never set:
+# there is no local data directory in client mode.
+if ([string]::IsNullOrWhiteSpace($env:BEADS_DOLT_SERVER_PORT)) {
+  $beadsPort = Get-BeadsWslPort
+  if ($beadsPort -gt 0) { $env:BEADS_DOLT_SERVER_PORT = [string]$beadsPort }
+  Remove-Variable -Name beadsPort -ErrorAction SilentlyContinue
+}
+{{- end -}}

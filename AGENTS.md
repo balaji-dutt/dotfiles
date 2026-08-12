@@ -92,6 +92,14 @@ this repo.
   for interactive use. To synchronize this repo, invoke
   `./assets/beads-sync.sh pull|push` or
   `pwsh -NoProfile -File ./assets/beads-sync.ps1 pull|push` explicitly.
+- **Windows is a client, not a peer**: on native Windows `bd.exe` talks to the
+  Dolt server WSL2 hosts, so both machines share one database and there is
+  nothing to sync between them. `beads-sync.ps1 status|clean|pull|push|init` is
+  refused there; delegate into WSL2 instead:
+  `wsl -d Debian -- bash -c 'cd "$HOME/<repo>" && ./assets/beads-sync.sh push'`.
+  Never run `bd dolt start|stop` on Windows. If `bd.exe` reports the server is
+  unreachable, start it in WSL2 rather than working around it — there is no
+  Windows fallback by design. See `docs/beads.md` → **Windows client mode**.
 - **Commits**: Use `cc-commit` (Claude Code) or `oc-commit` (OpenCode), never
   `git commit` directly — see **Commit message workflow (required)** below.
   Format follows the same 50/72 rule documented below; include a

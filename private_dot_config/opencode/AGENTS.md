@@ -10,6 +10,11 @@ These rules apply to all OpenCode sessions regardless of repository.
   change command behavior and are not an agent dependency.
 - When a repository documents a guarded sync helper, call that helper
   explicitly instead of using native `bd dolt pull` or `bd dolt push`.
+- When a repository documents Beads client mode on native Windows, `bd.exe`
+  there is a client of a Dolt server hosted elsewhere. Do not run
+  `bd dolt start|stop` and do not run the PowerShell sync helper; delegate sync
+  to the host as that repo describes. A server-unreachable error means start the
+  host, not stand up a local database.
 
 ## Commit Workflow
 

@@ -138,11 +138,16 @@ grep -q "Beads fork protection" .git/info/exclude && \
 bd list                                    # should show issues
 ```
 
-`.envrc` exports a stable per-checkout `BEADS_DOLT_SERVER_PORT`, so Windows and
-WSL2 clones do not share a single hardcoded Dolt port. If an old clone keeps
-trying to use `3318`, stop its Dolt server, remove stale
-`.beads/dolt-server.port` / `.beads/dolt-server.pid`, then reload direnv or the
-shell.
+`.envrc` exports a stable per-checkout `BEADS_DOLT_SERVER_PORT`, so POSIX clones
+do not share a single hardcoded Dolt port. If an old clone keeps trying to use
+`3318`, stop its Dolt server, remove stale `.beads/dolt-server.port` /
+`.beads/dolt-server.pid`, then reload direnv or the shell.
+
+The steps above do not apply to native Windows. That machine hosts no database
+of its own: `chezmoi apply` points `BEADS_DOLT_SERVER_PORT` at the Dolt server
+WSL2 runs, and `bd.exe` connects to it over `127.0.0.1`. Do not run `bd init`,
+`bd dolt start`, or the PowerShell sync helper there, and do not install `dolt`.
+See [`docs/beads.md`](docs/beads.md) → **Windows client mode**.
 
 The host and dev-container shells source `~/.local/share/beads-helpers.zsh`
 (zsh) or `~/.local/share/beads-helpers.bash` (bash) — the bash variant lets

@@ -161,19 +161,6 @@ if ($Command -eq '__snapshot-worker') {
 
 Set-Location (Get-RepoRoot)
 
-# dolt is not always on PATH on Windows; fall back to the default install path.
-$DoltExe = $null
-if ($Command -ne 'snapshot') {
-  $DoltExe = 'dolt'
-  if (-not (HaveCmd 'dolt')) {
-    $fallback = 'C:\Program Files\Dolt\bin\dolt.exe'
-    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
-      $DoltExe = $fallback
-    } else {
-      Die "dolt not found on PATH and not at $fallback"
-    }
-  }
-}
 $BdCommand = Get-Command bd -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $BdCommand) { Die 'bd executable not found on PATH' }
 $BdExe = $BdCommand.Source
@@ -192,6 +179,65 @@ $DbUser = if ($meta.PSObject.Properties['dolt_server_user']) { $meta.dolt_server
 # Override the target database. Used to exercise the refusal path against a
 # scratch database without touching real issue data.
 if ($env:BEADS_SYNC_DB) { $DbName = $env:BEADS_SYNC_DB }
+
+# Beads client mode (dots-to5). On native Windows this checkout no longer holds
+# the database - bd talks to the server WSL2 hosts, and `.beads/dolt/<db>` was
+# moved aside so nothing here can serve a second copy. Every verb below needs
+# both a local store and a local dolt binary, so say that plainly instead of
+# failing later with "no Dolt port" or "dolt not found on PATH".
+#
+# Test the database directory, not `.beads/dolt` itself: an accidental server
+# start recreates an empty `.beads/dolt` root.
+#
+# Detection must not depend on the environment: a caller that did not inherit
+# the User-scope variables would otherwise fall through to the misleading
+# "dolt not found on PATH". A missing local database is reason enough to refuse
+# these verbs on any platform - they cannot work without one.
+#
+# `init` is the exception. It is the bootstrap path for a peer that has no
+# database yet, so refuse it only where client mode is actually configured.
+#
+# This script is a repo-only helper and is never templated, so the WSL2 command
+# text comes from what the chezmoi client-mode script exported. The canonical
+# copy of that command lives in
+# private_dot_config/powershell/beads-env.ps1.tmpl (Get-BeadsWslBashPayload).
+$ClientWslDistro = $env:BEADS_CLIENT_WSL_DISTRO
+$ClientVerbs = if ($ClientWslDistro) {
+  @('status', 'clean', 'pull', 'push', 'init')
+} else {
+  @('status', 'clean', 'pull', 'push')
+}
+if ($Command -in $ClientVerbs -and
+    -not (Test-Path -LiteralPath ".beads/dolt/$DbName" -PathType Container)) {
+  [Console]::Error.WriteLine("ERROR: this checkout does not hold the '$DbName' database.")
+  [Console]::Error.WriteLine("ERROR: looked for .beads/dolt/$DbName under $(Get-RepoRoot)")
+  $ClientWslRepoRel = $env:BEADS_CLIENT_WSL_REPO_REL
+  if ($ClientWslRepoRel) {
+    $ClientCmd = "./assets/beads-sync.sh $Command"
+    $ClientPayload = 'export SSH_AUTH_SOCK="${WSL2_PAGEANT_SSH_AUTH_SOCK:-/tmp/wsl2-ssh-agent/ssh-agent.sock}"; export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"; cd "$HOME/' +
+      $ClientWslRepoRel.Trim('/') + '" || exit 1; if command -v direnv >/dev/null 2>&1; then exec direnv exec . ' +
+      $ClientCmd + '; fi; exec ' + $ClientCmd
+    [Console]::Error.WriteLine('ERROR: run it from the WSL2 checkout:')
+    [Console]::Error.WriteLine(("ERROR:   wsl -d {0} -- bash -c '{1}'" -f $ClientWslDistro, $ClientPayload))
+  } else {
+    [Console]::Error.WriteLine("ERROR: run ./assets/beads-sync.sh $Command from the WSL2 checkout instead.")
+  }
+  exit 2
+}
+
+# dolt is not always on PATH on Windows; fall back to the default install path.
+$DoltExe = $null
+if ($Command -ne 'snapshot') {
+  $DoltExe = 'dolt'
+  if (-not (HaveCmd 'dolt')) {
+    $fallback = 'C:\Program Files\Dolt\bin\dolt.exe'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) {
+      $DoltExe = $fallback
+    } else {
+      Die "dolt not found on PATH and not at $fallback"
+    }
+  }
+}
 
 $DbPort = $env:BEADS_DOLT_SERVER_PORT
 if (-not $DbPort -and (Test-Path -LiteralPath '.beads/dolt-server.port' -PathType Leaf)) {
