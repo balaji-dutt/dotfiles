@@ -71,6 +71,7 @@ Note: wrappers can auto-commit package-manifest updates. Review before relying o
 ## Decisions
 
 - Continue investing in Agent of Empires (multiplexer fit-gap): `docs/decisions/0001-continue-agent-of-empires.md`
+- Agent isolation tiers and autonomy posture (trust tier × autonomy): `docs/decisions/0002-agent-isolation-tiers.md`
 
 ## Variables and Secrets
 
