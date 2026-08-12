@@ -76,6 +76,11 @@ fi
 [ -n "$OPENCODE_BIN" ] || die "opencode not found in PATH"
 [ -x "$OPENCODE_BIN" ] || die "opencode is not executable: $OPENCODE_BIN"
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+DEPS_GUARD="$SCRIPT_DIR/opencode-project-deps-guard"
+[ -x "$DEPS_GUARD" ] || die "OpenCode project dependency guard is not executable: $DEPS_GUARD"
+"$DEPS_GUARD" --opencode-bin "$OPENCODE_BIN" --cwd "$PWD"
+
 export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1
 export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
