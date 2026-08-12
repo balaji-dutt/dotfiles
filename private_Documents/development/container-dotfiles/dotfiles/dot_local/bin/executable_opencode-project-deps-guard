@@ -1,0 +1,368 @@
+#!/usr/bin/env python3
+"""Keep OpenCode from rewriting tracked project dependency metadata."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+PLUGIN_NAME = "@opencode-ai/plugin"
+MANIFEST_REL = Path(".opencode/package.json")
+LOCKFILE_REL = Path(".opencode/package-lock.json")
+INSTALLED_REL = Path("node_modules/@opencode-ai/plugin/package.json")
+FINGERPRINT_REL = Path("node_modules/.opencode-project-deps-guard.sha256")
+SEMVER_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\."
+    r"(0|[1-9][0-9]*)\."
+    r"(0|[1-9][0-9]*)"
+    r"(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
+
+
+class GuardError(RuntimeError):
+    """An actionable dependency guard failure."""
+
+
+def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def git_root(cwd: Path) -> Path | None:
+    try:
+        result = run(["git", "rev-parse", "--show-toplevel"], cwd=cwd)
+    except FileNotFoundError as error:
+        raise GuardError("git is required to inspect project dependency metadata") from error
+    if result.returncode != 0:
+        return None
+    root = result.stdout.strip()
+    if not root:
+        raise GuardError("git returned an empty worktree root")
+    return Path(root)
+
+
+def is_tracked(root: Path, relative_path: Path) -> bool:
+    result = run(
+        ["git", "ls-files", "--error-unmatch", "--", relative_path.as_posix()],
+        cwd=root,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    detail = result.stderr.strip() or "unknown git error"
+    raise GuardError(f"could not inspect tracked file {relative_path}: {detail}")
+
+
+def load_json(path: Path, label: str) -> tuple[dict[str, object], bytes]:
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise GuardError(f"tracked {label} is unavailable: {path}: {error}") from error
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise GuardError(f"tracked {label} is malformed: {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise GuardError(f"tracked {label} must contain a JSON object: {path}")
+    return value, raw
+
+
+def exact_semver(value: object, location: str) -> str:
+    if not isinstance(value, str) or not SEMVER_RE.fullmatch(value):
+        raise GuardError(f"{location} must be an exact semantic version; found {value!r}")
+    return value
+
+
+def nested_mapping(mapping: dict[str, object], key: str, location: str) -> dict[str, object]:
+    value = mapping.get(key)
+    if not isinstance(value, dict):
+        raise GuardError(f"{location} must be a JSON object")
+    return value
+
+
+def metadata_versions(
+    manifest: dict[str, object], lockfile: dict[str, object]
+) -> tuple[str, str, str]:
+    dependencies = nested_mapping(manifest, "dependencies", "package.json dependencies")
+    manifest_version = exact_semver(
+        dependencies.get(PLUGIN_NAME),
+        f'package.json dependencies["{PLUGIN_NAME}"]',
+    )
+
+    packages = nested_mapping(lockfile, "packages", "package-lock.json packages")
+    lock_root = nested_mapping(packages, "", 'package-lock.json packages[""]')
+    lock_dependencies = nested_mapping(
+        lock_root,
+        "dependencies",
+        'package-lock.json packages[""].dependencies',
+    )
+    lock_root_version = exact_semver(
+        lock_dependencies.get(PLUGIN_NAME),
+        f'package-lock.json packages[""].dependencies["{PLUGIN_NAME}"]',
+    )
+    resolved = nested_mapping(
+        packages,
+        f"node_modules/{PLUGIN_NAME}",
+        f'package-lock.json packages["node_modules/{PLUGIN_NAME}"]',
+    )
+    resolved_version = exact_semver(
+        resolved.get("version"),
+        f'package-lock.json packages["node_modules/{PLUGIN_NAME}"].version',
+    )
+    return manifest_version, lock_root_version, resolved_version
+
+
+def cli_version(opencode_bin: str, cwd: Path) -> str:
+    try:
+        result = run([opencode_bin, "--version"], cwd=cwd)
+    except FileNotFoundError as error:
+        raise GuardError(f"selected OpenCode executable was not found: {opencode_bin}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise GuardError(f"could not read OpenCode version from {opencode_bin}: {detail}")
+    return exact_semver(result.stdout.strip(), f"{opencode_bin} --version output")
+
+
+def installed_version(opencode_dir: Path) -> str | None:
+    path = opencode_dir / INSTALLED_REL
+    try:
+        value = json.loads(path.read_bytes())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    version = value.get("version")
+    if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
+        return None
+    return version
+
+
+def fingerprint(manifest_raw: bytes, lockfile_raw: bytes, cli: str, installed: str) -> str:
+    digest = hashlib.sha256()
+    for value in (manifest_raw, lockfile_raw, cli.encode(), installed.encode()):
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+    return digest.hexdigest()
+
+
+def fingerprint_matches(
+    opencode_dir: Path,
+    manifest_raw: bytes,
+    lockfile_raw: bytes,
+    cli: str,
+) -> bool:
+    installed = installed_version(opencode_dir)
+    if installed != cli:
+        return False
+    try:
+        recorded = (opencode_dir / FINGERPRINT_REL).read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        return False
+    return recorded == fingerprint(manifest_raw, lockfile_raw, cli, installed)
+
+
+def write_fingerprint(
+    opencode_dir: Path,
+    manifest_raw: bytes,
+    lockfile_raw: bytes,
+    cli: str,
+    installed: str,
+) -> None:
+    destination = opencode_dir / FINGERPRINT_REL
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(
+            fingerprint(manifest_raw, lockfile_raw, cli, installed) + "\n",
+            encoding="ascii",
+        )
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def restore_if_changed(path: Path, expected: bytes) -> bool:
+    try:
+        current = path.read_bytes()
+    except OSError:
+        current = None
+    if current == expected:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(expected)
+    return True
+
+
+def hydrate(
+    opencode_dir: Path,
+    manifest_path: Path,
+    lockfile_path: Path,
+    manifest_raw: bytes,
+    lockfile_raw: bytes,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        result = run(
+            ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+            cwd=opencode_dir,
+        )
+    except FileNotFoundError as error:
+        raise GuardError("npm is required to hydrate tracked OpenCode dependencies") from error
+
+    restored = []
+    if restore_if_changed(manifest_path, manifest_raw):
+        restored.append(manifest_path.name)
+    if restore_if_changed(lockfile_path, lockfile_raw):
+        restored.append(lockfile_path.name)
+    if restored:
+        names = ", ".join(restored)
+        raise GuardError(f"npm ci changed tracked metadata ({names}); original bytes were restored")
+    return result
+
+
+def lock_path(root: Path) -> Path:
+    lock_dir = Path(tempfile.gettempdir()) / "opencode-project-deps-guard"
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    token = hashlib.sha256(os.fsencode(root)).hexdigest()
+    return lock_dir / f"{token}.lock"
+
+
+def mismatch_message(
+    root: Path,
+    cli: str,
+    manifest: str,
+    lock_root: str,
+    resolved: str,
+) -> str:
+    return "\n".join(
+        [
+            "OpenCode project dependency versions do not match; startup was blocked.",
+            f"  worktree: {root}",
+            f"  OpenCode CLI: {cli}",
+            f"  package.json: {manifest}",
+            f"  package-lock.json root: {lock_root}",
+            f"  package-lock.json resolved: {resolved}",
+            "Update the owning repository intentionally, then review and commit the metadata:",
+            '  plugin_version="$(opencode --version)"',
+            "  npm --prefix .opencode install --package-lock-only --save-exact \\",
+            "    --ignore-scripts --no-audit --no-fund \\",
+            '    "@opencode-ai/plugin@${plugin_version}"',
+            "  ./.opencode/bin/opencode-runtime-validate.sh",
+            "  git diff --check -- .opencode/package.json .opencode/package-lock.json",
+            "  git diff -- .opencode/package.json .opencode/package-lock.json",
+        ]
+    )
+
+
+def guard(opencode_bin: str, cwd: Path) -> None:
+    root = git_root(cwd)
+    if root is None:
+        return
+
+    manifest_tracked = is_tracked(root, MANIFEST_REL)
+    lockfile_tracked = is_tracked(root, LOCKFILE_REL)
+    if not manifest_tracked and not lockfile_tracked:
+        return
+    if manifest_tracked != lockfile_tracked:
+        raise GuardError(
+            "tracked OpenCode metadata is incomplete; package.json and package-lock.json "
+            "must either both be tracked or both be untracked"
+        )
+
+    manifest_path = root / MANIFEST_REL
+    lockfile_path = root / LOCKFILE_REL
+    manifest, manifest_raw = load_json(manifest_path, "package.json")
+    lockfile, lockfile_raw = load_json(lockfile_path, "package-lock.json")
+    manifest_value, lock_root_value, resolved_value = metadata_versions(manifest, lockfile)
+    cli_value = cli_version(opencode_bin, cwd)
+    if len({manifest_value, lock_root_value, resolved_value, cli_value}) != 1:
+        raise GuardError(
+            mismatch_message(
+                root,
+                cli_value,
+                manifest_value,
+                lock_root_value,
+                resolved_value,
+            )
+        )
+
+    opencode_dir = root / ".opencode"
+    if fingerprint_matches(opencode_dir, manifest_raw, lockfile_raw, cli_value):
+        return
+
+    with lock_path(root).open("a+b") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        manifest, manifest_raw = load_json(manifest_path, "package.json")
+        lockfile, lockfile_raw = load_json(lockfile_path, "package-lock.json")
+        manifest_value, lock_root_value, resolved_value = metadata_versions(
+            manifest, lockfile
+        )
+        if len({manifest_value, lock_root_value, resolved_value, cli_value}) != 1:
+            raise GuardError(
+                mismatch_message(
+                    root,
+                    cli_value,
+                    manifest_value,
+                    lock_root_value,
+                    resolved_value,
+                )
+            )
+        if fingerprint_matches(opencode_dir, manifest_raw, lockfile_raw, cli_value):
+            return
+        result = hydrate(
+            opencode_dir,
+            manifest_path,
+            lockfile_path,
+            manifest_raw,
+            lockfile_raw,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+            raise GuardError(f"npm ci could not hydrate .opencode dependencies: {detail}")
+        installed = installed_version(opencode_dir)
+        if installed != cli_value:
+            raise GuardError(
+                f"npm ci installed {PLUGIN_NAME} {installed or 'with no readable version'}; "
+                f"expected {cli_value}"
+            )
+        write_fingerprint(opencode_dir, manifest_raw, lockfile_raw, cli_value, installed)
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="validate and hydrate tracked OpenCode project dependencies"
+    )
+    parser.add_argument("--opencode-bin", required=True)
+    parser.add_argument("--cwd", type=Path, default=Path.cwd())
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        guard(args.opencode_bin, args.cwd)
+    except GuardError as error:
+        print(f"opencode-project-deps-guard: ERROR: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

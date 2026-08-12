@@ -60,6 +60,15 @@ port is reported later by Plannotator when review begins. Host wrappers remain
 quiet unless `OPENCODE_PLANNOTATOR_VERBOSE=1` or
 `CLAUDE_PLANNOTATOR_VERBOSE=1` is set.
 
+In devcontainers, both OpenCode wrappers also guard tracked project dependency
+metadata before launch. When a repository tracks `.opencode/package.json` and
+`.opencode/package-lock.json`, their exact `@opencode-ai/plugin` version must
+match the selected OpenCode CLI. The guard hydrates missing ignored
+`node_modules` with `npm ci`, verifies the tracked files are unchanged, and
+blocks mismatches with an intentional-update command. It never rewrites tracked
+metadata. Plain `opencode` bypasses this container wrapper guard; use a matching
+CLI or update the owning repository's metadata before starting that way.
+
 OpenCode Plannotator uses the CLI runtime in both host and devcontainer config.
 That keeps WSL/devcontainer ready messages inside OpenCode's logging path instead
 of letting the embedded runtime write directly to the terminal TUI. Keep
@@ -159,6 +168,10 @@ opencode-custom = "opencode-plannotator-custom"
 
 The managed host AoE config emits these overrides on Linux and macOS targets.
 Native Windows does not receive the Bash wrapper override.
+
+In the homelab devcontainer, these existing AoE overrides also put normal and
+custom OpenCode sessions behind the project dependency guard. No separate AoE
+launcher is required.
 
 The host wrappers depend on Bash. Port probing and `flock`/`lockf` are no longer
 required because Plannotator owns range allocation. Native Windows should not

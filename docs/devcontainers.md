@@ -413,6 +413,34 @@ are verbose by default so terminal sessions show the configured profile and
 range before the agent starts. Plannotator reports the selected port later when
 review begins; the wrappers no longer pause before launching the agent.
 
+The container-only `opencode-plannotator*` wrappers also run
+`opencode-project-deps-guard` before OpenCode. For a Git worktree with tracked
+`.opencode/package.json` and `.opencode/package-lock.json`, the guard requires
+the exact `@opencode-ai/plugin` version in both files to match the selected
+OpenCode CLI. It then runs a serialized, script-disabled `npm ci` when the
+ignored `.opencode/node_modules` state is missing or stale. Successful state is
+fingerprinted under `node_modules`, so subsequent launches do not rerun npm.
+The guard verifies that npm left both tracked files byte-for-byte unchanged and
+blocks startup rather than allowing OpenCode to rewrite them.
+
+The devcontainer keeps `opencode-ai@latest` in `npm_packages.txt`; rebuilding a
+container can therefore expose a project pin that needs an intentional update.
+From the owning repository, update and review its tracked metadata separately:
+
+```sh
+plugin_version="$(opencode --version)"
+npm --prefix .opencode install --package-lock-only --save-exact \
+  --ignore-scripts --no-audit --no-fund \
+  "@opencode-ai/plugin@${plugin_version}"
+./.opencode/bin/opencode-runtime-validate.sh
+git diff --check -- .opencode/package.json .opencode/package-lock.json
+git diff -- .opencode/package.json .opencode/package-lock.json
+```
+
+Commit that owning-repository change after review. The guard never updates or
+commits tracked project metadata. Installing a matching older OpenCode CLI is a
+temporary rollback option, not the default update policy.
+
 Keep fixed Docker-published host ports disabled unless there is a specific
 reason to re-test them.
 
