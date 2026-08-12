@@ -92,6 +92,13 @@ session metadata, and keeps the branch. Clean completed sessions do not appear
 in `ai-wt list`. If the worktree has uncommitted changes, it is left on disk
 and the metadata remains available for later cleanup.
 
+On native Windows, the running agent can retain handles to its current
+directory. Worktree merge tooling therefore defers cleanup for a matching
+`ai-wt` session instead of trying to remove it from inside that session. After
+the agent exits, the existing foreground `ai-wt` wrapper owns normal cleanup.
+This avoids partially removing Git worktree state while Windows still blocks
+directory deletion.
+
 Retained sessions can be resumed in the same worktree and branch context:
 
 ```sh
