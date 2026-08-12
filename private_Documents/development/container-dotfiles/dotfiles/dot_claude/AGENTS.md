@@ -52,6 +52,11 @@
   special parameters. Do not use them as loop/local variables in inline commands;
   use names like `file_path`, `relpath`, or `rc` instead. Assigning to `path`
   mutates `PATH`; assigning to `status` fails because it is read-only.
+- That shell also sets `noclobber`, so `> file` onto an existing path fails with
+  `file exists`. The command never runs, the old contents stay, and the shell
+  returns non-zero, which reads as the command itself failing. Use `rm -f file`
+  first, or `>| file`. `noclobber` also makes `>> file` fail when `file` does
+  not exist, so pair `rm -f` with `>` rather than `>>`, or use zsh's `>>| file`.
 - Ask before running anything that:
   - changes the filesystem outside the repo
   - alters system settings, permissions, or security state
