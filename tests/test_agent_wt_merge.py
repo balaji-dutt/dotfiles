@@ -4,8 +4,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
 
@@ -18,10 +21,22 @@ EXEC_ENV_KEYS = (
 )
 
 
+def load_helper_module():
+    name = "agent_wt_merge_test_module"
+    loader = SourceFileLoader(name, str(SOURCE_HELPER))
+    spec = spec_from_loader(name, loader)
+    if spec is None:
+        raise RuntimeError("could not create helper module spec")
+    module = module_from_spec(spec)
+    sys.modules[name] = module
+    loader.exec_module(module)
+    return module
+
+
 class GitFixture:
     def __init__(self, *, feature_commit: bool = True) -> None:
         self._temporary = tempfile.TemporaryDirectory(prefix="agent wt merge ")
-        self.root = Path(self._temporary.name)
+        self.root = Path(self._temporary.name).resolve()
         self.main = self.root / "main worktree"
         self.feature = self.root / "feature worktree"
         self.remote = self.root / "origin remote.git"
@@ -164,6 +179,21 @@ if os.environ.get("FAKE_BD_FAIL"):
         )
         return state_path
 
+    def write_ai_wt_session(self, session_id: str = "test-session") -> Path:
+        metadata_path = self.main / ".ai-wt" / "sessions" / f"{session_id}.json"
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "worktree_path": str(self.feature),
+                    "branch_created": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return metadata_path
+
     def upstream_clone(self) -> Path:
         upstream = self.root / "upstream clone"
         self.git(self.root, "clone", str(self.remote), str(upstream))
@@ -195,6 +225,70 @@ class AgentWtMergeTests(unittest.TestCase):
         self.assertEqual(report["main_worktree"], str(fixture.main))
         self.assertEqual(report["helper"]["path"], str(fixture.main_helper))
         self.assertEqual(report["helper"]["state"], "canonical")
+        self.assertEqual(
+            report["feature_worktree"],
+            {"locked": False, "lock_reason": None},
+        )
+        self.assertEqual(report["cleanup"]["action"], "suggest")
+        self.assertEqual(report["cleanup"]["manager"], "git")
+
+    def test_aoe_lock_defers_cleanup_and_preserves_reason(self) -> None:
+        fixture = self.fixture()
+        reason = "aoe-managed worktree (prevents cross-boundary prune)"
+        fixture.git(fixture.main, "worktree", "lock", "--reason", reason, str(fixture.feature))
+
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--json")
+        self.assert_ok(result)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["feature_worktree"],
+            {"locked": True, "lock_reason": reason},
+        )
+        self.assertEqual(report["cleanup"]["action"], "defer")
+        self.assertEqual(report["cleanup"]["manager"], "aoe")
+        self.assertEqual(report["cleanup"]["commands"], [])
+
+    def test_non_aoe_lock_remains_visible_without_deferral(self) -> None:
+        fixture = self.fixture()
+        reason = "maintenance lock"
+        fixture.git(fixture.main, "worktree", "lock", "--reason", reason, str(fixture.feature))
+
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--json")
+        self.assert_ok(result)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["feature_worktree"]["lock_reason"], reason)
+        self.assertEqual(report["cleanup"]["action"], "suggest")
+        self.assertEqual(report["cleanup"]["manager"], "git")
+
+    def test_ai_wt_cleanup_differs_by_platform(self) -> None:
+        helper = load_helper_module()
+        worktree = helper.WorktreeEntry(path=Path("/tmp/feature"))
+        session = {"session_id": "test-session"}
+        arguments = {
+            "main_worktree": Path("/tmp/main"),
+            "original_worktree": worktree.path,
+            "feature_branch": "feature",
+            "feature_worktree": worktree,
+            "ai_wt_session": session,
+        }
+
+        windows = helper.cleanup_policy(**arguments, is_windows=True)
+        self.assertEqual(windows["action"], "defer")
+        self.assertEqual(windows["manager"], "ai-wt")
+        self.assertEqual(windows["commands"], [])
+
+        posix = helper.cleanup_policy(**arguments, is_windows=False)
+        self.assertEqual(posix["action"], "suggest")
+        self.assertEqual(posix["manager"], "ai-wt")
+        self.assertEqual(posix["commands"], ["ai-wt cleanup test-session --delete"])
+
+        unmanaged_windows = helper.cleanup_policy(
+            **{**arguments, "ai_wt_session": None},
+            is_windows=True,
+        )
+        self.assertEqual(unmanaged_windows["action"], "defer")
+        self.assertEqual(unmanaged_windows["manager"], "user")
+        self.assertEqual(unmanaged_windows["commands"], [])
 
     def test_feature_helper_delegates_to_main(self) -> None:
         fixture = self.fixture()

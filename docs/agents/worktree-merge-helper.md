@@ -66,7 +66,9 @@ Beads issue without an explicit issue ID.
   `override`), including post-update re-execution;
 - optional matching `ai-wt` session metadata;
 - OpenCode and Claude Beads state validation;
-- cleanup commands to offer after the merge.
+- feature-worktree lock state and its optional Git lock reason;
+- an explicit cleanup policy with `action`, `manager`, `workdir`, `commands`,
+  and a human-readable `note`.
 
 `ai-wt` metadata is optional. The helper uses Git worktree facts as the source of
 truth and only uses `.ai-wt/sessions/*.json` to improve cleanup suggestions.
@@ -94,16 +96,29 @@ back the merge in response to that partial result.
 
 ## Cleanup
 
-Cleanup is intentionally not automated. After a successful merge, the helper
-prints suggested commands and the workdir to run them from.
+Cleanup is intentionally not automated. The `cleanup.action` field determines
+whether an agent may offer commands:
 
-For an `ai-wt` worktree, the suggestion is usually:
+| Condition | `action` | `manager` | Result |
+| --- | --- | --- | --- |
+| Lock reason contains `aoe-managed` | `defer` | `aoe` | AoE owns teardown; commands are empty |
+| Native Windows with matching `ai-wt` metadata | `defer` | `ai-wt` | The wrapper cleans up after the active agent exits |
+| Native Windows without `ai-wt` metadata | `defer` | `user` | Clean up outside the session after the active agent exits |
+| Other platform with matching `ai-wt` metadata | `suggest` | `ai-wt` | Offer the wrapper cleanup command |
+| Other worktree | `suggest` | `git` | Offer non-forced Git cleanup commands |
+
+The AoE marker comparison is case-insensitive. The helper preserves the full
+reason in `feature_worktree.lock_reason` for display and diagnostics. Other Git
+locks remain visible but do not change policy; agents must not add `--force` to
+work around them.
+
+For a suggested `ai-wt` cleanup, the command is usually:
 
 ```sh
 ai-wt cleanup <session-id> --delete
 ```
 
-For other worktrees, the suggestion is usually:
+For a generic worktree, the suggestion is usually:
 
 ```sh
 git worktree remove <worktree-path>

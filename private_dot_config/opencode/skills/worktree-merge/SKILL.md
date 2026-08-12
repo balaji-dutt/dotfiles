@@ -97,8 +97,10 @@ Use the returned JSON as the source of truth:
 - `feature.fast_forward_possible` chooses `ff` vs `no-ff`.
 - `beads.opencode.matches == true` identifies the only issue ID safe to pass
   to `--close-beads`.
-- `cleanup.workdir` and `cleanup.commands` are suggestions only; do not run
-  them until after the merge and explicit user approval.
+- `cleanup.action` is either `suggest` or `defer`. For `suggest`, treat
+  `cleanup.workdir` and `cleanup.commands` as permission-gated suggestions.
+  For `defer`, report `cleanup.manager` and `cleanup.note`; do not offer or run
+  cleanup commands.
 
 If `fetch.ok` is false, surface the warning. Do not fail solely because the
 network fetch failed unless the merge requires `--update-main`.
@@ -144,7 +146,7 @@ Then run:
 
 The helper sets OpenCode authorship on the merge commit.
 
-### 5. Report and offer cleanup
+### 5. Report cleanup policy
 
 After a successful helper run, report:
 
@@ -154,11 +156,11 @@ After a successful helper run, report:
 - whether a Beads issue was closed and its exact close reason, or why closure
   was incomplete;
 - that nothing was pushed;
-- cleanup suggestions from the helper.
+- whether cleanup was suggested or deferred, including its manager and note.
 
-Ask before cleanup. If approved, run the suggested cleanup commands from the
-reported `cleanup.workdir`. Keep cleanup permission-gated; do not broaden
-permissions to make cleanup silent.
+When `cleanup.action` is `suggest`, ask before cleanup. If approved, run the
+reported commands from `cleanup.workdir`. Keep cleanup permission-gated. When
+the action is `defer`, do not ask to run cleanup; the named manager owns it.
 
 ## Manual fallback: helper absent
 
@@ -172,7 +174,8 @@ in the same command.
 
 1. Confirm the current branch is not `main`/`master` and not detached.
 2. Resolve `main`/`master` and its checked-out worktree with
-   `git worktree list --porcelain`.
+   `git worktree list --porcelain`. Also inspect the current feature record's
+   `locked` line because porcelain output preserves the lock reason.
 3. Verify the main worktree is clean.
 4. Fetch best-effort from the main worktree with
    `cd "$MAIN_WT" && git fetch`; ask before updating local main from origin.
@@ -181,7 +184,15 @@ in the same command.
    `cd "$MAIN_WT" && git merge --no-ff` with OpenCode author/committer env vars.
 7. Do not close Beads manually. Report that the issue remains open and leave
    `.beads/in-progress-opencode.json` in the feature worktree untouched.
-8. Offer cleanup, but never run it without confirmation.
+8. Classify cleanup before offering it:
+   - If the feature lock reason contains `aoe-managed` case-insensitively,
+     defer cleanup to AoE and do not offer worktree or branch removal.
+   - On native Windows, do not remove the active worktree from this running
+     agent session. Defer an `ai-wt` worktree to its wrapper after exit. For an
+     unmanaged worktree, report that cleanup must happen outside the exited
+     session.
+   - Otherwise, offer the normal non-forced cleanup commands, but never run
+     them without confirmation.
 
 If any step would require non-trivial parsing, stop and ask the user to copy or
 install the helper instead of recreating it inline.
@@ -197,6 +208,6 @@ install the helper instead of recreating it inline.
 - Main SHA after: <short>
 - Commits merged: <n>
 - Beads issue closed: <id and exact reason | no, reason>
-- Cleanup offered: <commands, not run>
+- Cleanup: <offered: commands, not run | deferred: manager and reason>
 - Pushed: no
 ```

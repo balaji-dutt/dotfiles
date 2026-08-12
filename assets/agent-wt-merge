@@ -50,6 +50,8 @@ class WorktreeEntry:
     head: str | None = None
     bare: bool = False
     detached: bool = False
+    locked: bool = False
+    lock_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class HelperProvenance:
 @dataclass
 class MergeContext:
     original_worktree: Path
+    feature_worktree: WorktreeEntry
     main_worktree: Path
     main_branch: str
     feature_branch: str
@@ -159,6 +162,8 @@ def parse_worktrees(repo_root: Path) -> list[WorktreeEntry]:
                 head=current.get("head"),
                 bare=bool(current.get("bare", False)),
                 detached=bool(current.get("detached", False)),
+                locked=bool(current.get("locked", False)),
+                lock_reason=current.get("lock_reason"),
             )
         )
         current.clear()
@@ -178,13 +183,30 @@ def parse_worktrees(repo_root: Path) -> list[WorktreeEntry]:
             current["bare"] = True
         elif line == "detached":
             current["detached"] = True
+        elif line == "locked":
+            current["locked"] = True
+        elif line.startswith("locked "):
+            current["locked"] = True
+            current["lock_reason"] = line.removeprefix("locked ")
     flush()
     return entries
 
 
-def resolve_main_worktree(repo_root: Path, main_branch: str) -> Path:
+def resolve_worktree_entry(entries: list[WorktreeEntry], worktree: Path) -> WorktreeEntry:
+    target = worktree.resolve()
+    for entry in entries:
+        if entry.path == target:
+            return entry
+    die(f"current worktree is absent from git worktree list: {target}")
+
+
+def resolve_main_worktree(
+    repo_root: Path,
+    main_branch: str,
+    entries: list[WorktreeEntry] | None = None,
+) -> Path:
     wanted = f"refs/heads/{main_branch}"
-    matches = [entry for entry in parse_worktrees(repo_root) if entry.branch == wanted]
+    matches = [entry for entry in (entries or parse_worktrees(repo_root)) if entry.branch == wanted]
     if len(matches) > 1:
         locations = ", ".join(str(entry.path) for entry in matches)
         die(f"multiple worktrees are checked out on {main_branch}: {locations}")
@@ -502,21 +524,56 @@ def shell_command(parts: list[str]) -> str:
     return shlex.join(parts)
 
 
-def cleanup_suggestion(
+def cleanup_policy(
     *,
     main_worktree: Path,
     original_worktree: Path,
     feature_branch: str,
+    feature_worktree: WorktreeEntry,
     ai_wt_session: dict[str, Any] | None,
+    is_windows: bool | None = None,
 ) -> dict[str, Any]:
+    if is_windows is None:
+        is_windows = os.name == "nt"
+    if feature_worktree.lock_reason and "aoe-managed" in feature_worktree.lock_reason.casefold():
+        return {
+            "action": "defer",
+            "manager": "aoe",
+            "workdir": str(main_worktree),
+            "commands": [],
+            "note": (
+                "Cleanup belongs to Agent of Empires. Do not remove this worktree or branch; "
+                "AoE will tear down its managed worktree."
+            ),
+        }
+    if is_windows:
+        manager = "ai-wt" if ai_wt_session else "user"
+        note = (
+            "Cleanup belongs to ai-wt after the active agent exits. Do not remove the "
+            "worktree from inside this native Windows session."
+            if ai_wt_session
+            else "Cleanup must be performed outside this native Windows session after the "
+            "active agent exits and releases the worktree directory."
+        )
+        return {
+            "action": "defer",
+            "manager": manager,
+            "workdir": str(main_worktree),
+            "commands": [],
+            "note": note,
+        }
     if ai_wt_session:
         command = ["ai-wt", "cleanup", str(ai_wt_session["session_id"]), "--delete"]
         return {
+            "action": "suggest",
+            "manager": "ai-wt",
             "workdir": str(main_worktree),
             "commands": [shell_command(command)],
             "note": "Ask the user before running cleanup. Do not add --force unless explicitly requested.",
         }
     return {
+        "action": "suggest",
+        "manager": "git",
         "workdir": str(main_worktree),
         "commands": [
             shell_command(["git", "worktree", "remove", str(original_worktree)]),
@@ -528,11 +585,13 @@ def cleanup_suggestion(
 
 def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
     original_worktree = resolve_repo_root()
+    worktrees = parse_worktrees(original_worktree)
+    feature_worktree = resolve_worktree_entry(worktrees, original_worktree)
     main_branch = resolve_main_branch(original_worktree)
     feature_branch = current_branch(original_worktree)
     if feature_branch in MAIN_BRANCH_CANDIDATES:
         die(f"already on {feature_branch}; there is nothing to merge")
-    main_worktree = resolve_main_worktree(original_worktree, main_branch)
+    main_worktree = resolve_main_worktree(original_worktree, main_branch, worktrees)
 
     fetch_attempted = False
     fetch_ok: bool | None = None
@@ -548,10 +607,11 @@ def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
     dirty = dirty_paths(main_worktree)
     origin_ref, behind_count = origin_status(main_worktree, main_branch)
     ai_wt_session = find_ai_wt_session(main_worktree, original_worktree)
-    cleanup = cleanup_suggestion(
+    cleanup = cleanup_policy(
         main_worktree=main_worktree,
         original_worktree=original_worktree,
         feature_branch=feature_branch,
+        feature_worktree=feature_worktree,
         ai_wt_session=ai_wt_session,
     )
     beads = inspect_all_beads(
@@ -562,6 +622,7 @@ def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
     )
     return MergeContext(
         original_worktree=original_worktree,
+        feature_worktree=feature_worktree,
         main_worktree=main_worktree,
         main_branch=main_branch,
         feature_branch=feature_branch,
@@ -595,6 +656,10 @@ def helper_provenance_dict(helper: HelperProvenance) -> dict[str, Any]:
 def context_dict(ctx: MergeContext) -> dict[str, Any]:
     return {
         "original_worktree": str(ctx.original_worktree),
+        "feature_worktree": {
+            "locked": ctx.feature_worktree.locked,
+            "lock_reason": ctx.feature_worktree.lock_reason,
+        },
         "main_worktree": str(ctx.main_worktree),
         "main_branch": ctx.main_branch,
         "feature_branch": ctx.feature_branch,
@@ -633,6 +698,11 @@ def print_context_text(ctx: MergeContext) -> None:
     print(f"- Feature branch: {ctx.feature_branch} ({ctx.feature_sha[:12]})")
     print(f"- Main branch: {ctx.main_branch} ({ctx.main_sha[:12]})")
     print(f"- Original worktree: {ctx.original_worktree}")
+    if ctx.feature_worktree.locked:
+        reason = ctx.feature_worktree.lock_reason or "reason not provided"
+        print(f"  - Locked: yes ({reason})")
+    else:
+        print("  - Locked: no")
     print(f"- Main worktree: {ctx.main_worktree}")
     print(f"- Commits ahead of {ctx.main_branch}: {ctx.commits_ahead}")
     print(f"- Fast-forward possible: {'yes' if ctx.fast_forward_possible else 'no'}")
@@ -659,10 +729,7 @@ def print_context_text(ctx: MergeContext) -> None:
         for problem in info.get("problems", []):
             if problem != "state file is absent":
                 print(f"  - {problem}")
-    print("- Cleanup suggestion (ask before running; run from workdir below):")
-    print(f"  workdir: {ctx.cleanup['workdir']}")
-    for command in ctx.cleanup["commands"]:
-        print(f"  command: {command}")
+    print_cleanup(ctx.cleanup, after_merge=False)
 
 
 def update_main_from_origin(ctx: MergeContext) -> None:
@@ -830,6 +897,17 @@ def beads_partial_failure(beads: dict[str, Any]) -> bool:
     )
 
 
+def print_cleanup(cleanup: dict[str, Any], *, after_merge: bool) -> None:
+    if cleanup["action"] == "defer":
+        print(f"- Cleanup deferred to {cleanup['manager']}: {cleanup['note']}")
+        return
+    qualifier = "not run; " if after_merge else ""
+    print(f"- Cleanup suggestion ({qualifier}ask before running; run from workdir below):")
+    print(f"  workdir: {cleanup['workdir']}")
+    for command in cleanup["commands"]:
+        print(f"  command: {command}")
+
+
 def print_merge_report(report: dict[str, Any]) -> None:
     print(f"Merged {report['feature_branch']} into {report['main_branch']}")
     helper = report["helper"]
@@ -860,10 +938,7 @@ def print_merge_report(report: dict[str, Any]) -> None:
             print(f"  - bd stderr: {beads['stderr']}")
     else:
         print("- Beads issue closed: no (not requested)")
-    print("- Cleanup suggestion (not run; ask before running; run from workdir below):")
-    print(f"  workdir: {report['cleanup']['workdir']}")
-    for command in report["cleanup"]["commands"]:
-        print(f"  command: {command}")
+    print_cleanup(report["cleanup"], after_merge=True)
     print("- Pushed: no")
     if beads_partial_failure(beads):
         if beads.get("closed"):
