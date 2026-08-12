@@ -19,4 +19,131 @@ function global:czp {
   & $cmd.Source --config "$env:USERPROFILE\.config\chezmoi-private\chezmoi.toml" --source "F:\Balaji\Development\private-dotfiles" @Args
 }
 
+# Remove short Claude Code transcripts created around the /login flow.
+function global:cc-clean {
+  [CmdletBinding()]
+  param([switch]$Force)
+
+  $configRoot = if ($env:CLAUDE_CONFIG_DIR) {
+    $env:CLAUDE_CONFIG_DIR
+  } else {
+    Join-Path $HOME ".claude"
+  }
+  $projectsRoot = Join-Path $configRoot "projects"
+  if (-not (Test-Path -LiteralPath $projectsRoot -PathType Container)) {
+    Write-Host "cc-clean: no Claude project transcripts found."
+    return
+  }
+
+  $loginMarker = "<command-name>/login</command-name>"
+  $testCandidate = {
+    param([string]$LiteralPath)
+
+    $reader = $null
+    try {
+      $reader = [System.IO.File]::OpenText($LiteralPath)
+      $recordCount = 0
+      $hasLogin = $false
+      while (($line = $reader.ReadLine()) -ne $null) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+          continue
+        }
+
+        $recordCount++
+        if ($recordCount -ge 20) {
+          return [pscustomobject]@{ Eligible = $false; Invalid = $false }
+        }
+
+        try {
+          $record = $line | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+          Write-Warning "cc-clean: skipping malformed transcript: $LiteralPath"
+          return [pscustomobject]@{ Eligible = $false; Invalid = $true }
+        }
+
+        if ($record.type -eq "user" -and
+            $record.message.content -is [string] -and
+            $record.message.content.Contains($loginMarker)) {
+          $hasLogin = $true
+        }
+      }
+
+      return [pscustomobject]@{ Eligible = $hasLogin; Invalid = $false }
+    } catch {
+      Write-Warning "cc-clean: skipping unreadable transcript: $LiteralPath"
+      return [pscustomobject]@{ Eligible = $false; Invalid = $true }
+    } finally {
+      if ($null -ne $reader) {
+        $reader.Dispose()
+      }
+    }
+  }
+
+  $candidates = [System.Collections.Generic.List[string]]::new()
+  $skipped = 0
+  try {
+    $projectDirs = @(Get-ChildItem -LiteralPath $projectsRoot -Directory -ErrorAction Stop)
+  } catch {
+    Write-Warning "cc-clean: unable to read Claude projects directory: $projectsRoot"
+    return
+  }
+
+  foreach ($projectDir in $projectDirs) {
+    try {
+      $transcripts = @(Get-ChildItem -LiteralPath $projectDir.FullName -File -Filter "*.jsonl" -ErrorAction Stop)
+    } catch {
+      Write-Warning "cc-clean: unable to read project directory: $($projectDir.FullName)"
+      $skipped++
+      continue
+    }
+
+    foreach ($transcript in $transcripts) {
+      $result = & $testCandidate $transcript.FullName
+      if ($result.Eligible) {
+        $candidates.Add($transcript.FullName)
+      } elseif ($result.Invalid) {
+        $skipped++
+      }
+    }
+  }
+
+  if ($candidates.Count -eq 0) {
+    Write-Host "cc-clean: no matching transcripts found; skipped $skipped."
+    return
+  }
+
+  Write-Host "cc-clean: $($candidates.Count) transcript(s) eligible for removal:"
+  foreach ($candidate in $candidates) {
+    Write-Host "  $candidate"
+  }
+
+  if (-not $Force) {
+    $reply = Read-Host "Remove these transcripts? [y/N]"
+    if ($reply.ToLowerInvariant() -notin @("y", "yes")) {
+      Write-Host "cc-clean: no transcripts removed."
+      return
+    }
+  }
+
+  $removed = 0
+  foreach ($candidate in $candidates) {
+    $result = & $testCandidate $candidate
+    if (-not $result.Eligible) {
+      Write-Warning "cc-clean: transcript changed since preview; skipping: $candidate"
+      $skipped++
+      continue
+    }
+
+    try {
+      Remove-Item -LiteralPath $candidate -ErrorAction Stop
+      $removed++
+    } catch {
+      Write-Warning "cc-clean: unable to remove transcript: $candidate"
+      $skipped++
+    }
+  }
+
+  Write-Host "cc-clean: removed $removed, skipped $skipped."
+}
+
 {{- end -}}
