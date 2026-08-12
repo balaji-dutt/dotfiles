@@ -20,6 +20,17 @@ Run:
 
 Bootstrap installs prerequisites (for example `chezmoi`, `ansible` bootstrap dependencies, and helper tools), then initializes local state for this repository.
 
+The generated WSL2 configuration uses `~/.cache/chezmoi` for temporary
+chezmoi files. Keeping the temporary directory on the home filesystem avoids
+cross-device hardlink failures when the source repository and `/tmp` are on
+different filesystems. Bootstrap creates this cache directory before running
+`chezmoi init`.
+
+After pulling changes to `.chezmoi.toml.tmpl` on an existing installation, run
+`chezmoi init` to regenerate the configuration. Rerun bootstrap if
+`~/.cache/chezmoi` has been removed, or recreate that directory before using
+chezmoi.
+
 ## Step 2: Apply and Provision
 
 Run:

@@ -87,6 +87,9 @@ else
 fi
 
 # Initialize chezmoi with local dotfiles repo
+log_info "Ensuring chezmoi cache directory exists..."
+mkdir -p "$HOME/.cache/chezmoi"
+
 if [ ! -f "$HOME/.config/chezmoi/chezmoi.toml" ]; then
     if [ -d "$DOTFILES_LOCAL_PATH" ]; then
         log_info "Initializing chezmoi with local repo: ${DOTFILES_LOCAL_PATH}..."

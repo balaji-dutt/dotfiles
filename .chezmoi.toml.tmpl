@@ -89,9 +89,13 @@
 {{- end -}}
 
 {{- $sourceDir := promptStringOnce . "sourceDirInput" "Path to dotfiles repo (sourceDir)" $defaultSourceDir -}}
+{{- $wsl2TempDir := joinPath .chezmoi.homeDir ".cache" "chezmoi" -}}
 
 # Chezmoi config (other templates/scripts can use this via {{ "{{ .chezmoi.sourceDir }}" }})
 sourceDir = {{ $sourceDir | toToml }}
+{{- if $isWSL2 }}
+tempDir = {{ $wsl2TempDir | toToml }}
+{{- end }}
 
 {{ if lookPath "code" -}}
 [diff]
