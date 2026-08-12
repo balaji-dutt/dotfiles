@@ -3,4 +3,4 @@ opencode-ai@latest
 @beads/bd@1.1.0
 @ansible/ansible-mcp-server@26.6.0
 promptfoo@0.121.19
-@opencode-ai/sdk@1.18.11
+@opencode-ai/sdk@1.18.14
