@@ -68,6 +68,10 @@ Authoritative per-machine list is still `chezmoi managed`.
 
 Note: wrappers can auto-commit package-manifest updates. Review before relying on automation in shared repositories.
 
+## Decisions
+
+- Continue investing in Agent of Empires (multiplexer fit-gap): `docs/decisions/0001-continue-agent-of-empires.md`
+
 ## Variables and Secrets
 
 - Full variable catalog: `docs/variables.md`
