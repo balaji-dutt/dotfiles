@@ -89,6 +89,11 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   runtime rather than via `include`, so settings edits do not re-trigger a
   refresh, and aborts before any `claude plugin` call when the two disagree. An
   upstream plugin rename therefore needs both files updated together.
+- The refresh installs manifest plugins that have no install record on the host
+  and updates the rest, so it no longer depends on a Claude Code launch to
+  auto-install from `enabledPlugins`. `claude plugin update` rejects an unknown
+  id, so a rename or a fresh host used to fail the whole apply until Claude Code
+  had started once.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
 - The Unix-host chezmoi onchange script refreshes Claude plugins and clears the

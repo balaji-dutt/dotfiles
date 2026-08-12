@@ -61,6 +61,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
   `dot_claude/settings-base.json`, but only the former is hashed into its
   onchange trigger; see `docs/devcontainers.md`.
+- A failed Claude plugin refresh reports an `ERROR:` and continues to the
+  remaining plugins and the OpenCode cache step; a failed marketplace update is
+  likewise non-fatal. The hook exits non-zero at the end when either failed.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.

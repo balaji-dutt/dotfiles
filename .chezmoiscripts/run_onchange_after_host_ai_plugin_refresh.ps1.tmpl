@@ -12,6 +12,10 @@ $ConfigPath = Join-Path '{{ .chezmoi.sourceDir }}' 'configs\host-ai-plugin-refre
 # included, on every unrelated settings edit.
 $SettingsBasePath = Join-Path '{{ .chezmoi.sourceDir }}' 'dot_claude\settings-base.json'
 $DryRun = -not [string]::IsNullOrWhiteSpace($env:HOST_AI_PLUGIN_REFRESH_DRY_RUN)
+# Claude plugin problems are reported per plugin and re-raised as a non-zero
+# exit at the end, so one bad plugin does not skip the remaining plugins or the
+# OpenCode cache refresh.
+$script:ClaudeFailures = @()
 
 function ConvertFrom-JsoncText {
   param([Parameter(Mandatory=$true)] [string] $Text)
@@ -54,6 +58,28 @@ function Invoke-External {
   return [pscustomobject]@{
     ExitCode = $exitCode
     Output = (($output | Out-String).TrimEnd())
+  }
+}
+
+function Invoke-ExternalJson {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Command,
+    [Parameter(Mandatory=$true)] [string[]] $Arguments
+  )
+
+  # Keeps stderr out of stdout so machine-readable output stays parseable;
+  # Invoke-External merges the two and would corrupt JSON with any CLI warning.
+  $output = & $Command @Arguments 2>$null
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
+
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    # -join, not Out-String: native command output is already a string[] of
+    # lines, so joining reproduces stdout verbatim without routing a
+    # machine-readable payload through the formatting engine. Matches the POSIX
+    # port, which reads result.stdout raw.
+    Output = (($output -join "`n").TrimEnd())
   }
 }
 
@@ -251,6 +277,79 @@ function Get-OpenCodePlugins {
   return $parsed
 }
 
+function Get-InstalledClaudePluginIds {
+  # `claude plugin update` only accepts ids that already have an install
+  # record, so the refresh has to know which manifest entries are missing
+  # before it picks a subcommand. Returns $null when the installed set cannot
+  # be determined, which callers treat as "try both".
+  $listed = Invoke-ExternalJson -Command "claude" -Arguments @("plugin", "list", "--json")
+  if ($listed.ExitCode -ne 0) { return $null }
+
+  try {
+    # -NoEnumerate: piping unrolls a single-element JSON array into a bare
+    # object, which would then fail the list check and hide a known install set.
+    $parsed = ConvertFrom-Json -InputObject $listed.Output -NoEnumerate
+  } catch {
+    return $null
+  }
+
+  if ($null -eq $parsed -or -not (Test-ObjectList $parsed)) { return $null }
+
+  $ids = [System.Collections.Generic.HashSet[string]]::new()
+  foreach ($entry in $parsed) {
+    $id = Get-JsonProperty $entry "id"
+    if ($id -is [string] -and -not [string]::IsNullOrWhiteSpace($id)) {
+      [void] $ids.Add($id)
+    }
+  }
+  # `,` keeps the set intact: a bare `return` unrolls it, so an empty set would
+  # arrive as $null (misread as "unknown") and a one-entry set as a bare string,
+  # whose .Contains() is a substring match rather than an exact id match.
+  return ,$ids
+}
+
+function Get-ClaudePluginActions {
+  param(
+    [Parameter(Mandatory=$true)] $Plugin,
+    $InstalledIds
+  )
+
+  # Unknown install state: update first so an installed plugin is not
+  # reinstalled, then fall back to install for the missing case.
+  if ($null -eq $InstalledIds) { return @("update", "install") }
+  if ($InstalledIds.Contains($Plugin.Id)) { return @("update") }
+  return @("install")
+}
+
+function Sync-ClaudePlugin {
+  param(
+    [Parameter(Mandatory=$true)] $Plugin,
+    [Parameter(Mandatory=$true)] [string[]] $Actions
+  )
+
+  $verb = "Refreshing"
+  if ($Actions.Count -eq 1) {
+    $verb = if ($Actions[0] -eq "update") { "Updating" } else { "Installing" }
+  }
+  Write-Host "INFO: $verb Claude Code plugin '$($Plugin.Id)'."
+
+  $attempts = @()
+  foreach ($action in $Actions) {
+    $arguments = @("plugin", $action, "--scope", $Plugin.Scope, $Plugin.Id)
+    $result = Invoke-External -Command "claude" -Arguments $arguments
+    if ($result.ExitCode -eq 0) { return $true }
+    $attempts += [pscustomobject]@{ Action = $action; Result = $result }
+  }
+
+  # Only surfaced once every action failed, so the expected "not installed"
+  # noise from a probing update stays hidden when the install then succeeds.
+  foreach ($attempt in $attempts) {
+    Write-Host "ERROR: Failed to $($attempt.Action) Claude Code plugin '$($Plugin.Id)'."
+    if ($attempt.Result.Output) { Write-Host $attempt.Result.Output }
+  }
+  return $false
+}
+
 function Update-ClaudePlugins {
   param([Parameter(Mandatory=$true)] [object[]] $Plugins)
 
@@ -271,23 +370,30 @@ function Update-ClaudePlugins {
     if ($marketplace.ExitCode -ne 0) {
       Write-Host "ERROR: Failed to update Claude Code plugin marketplaces."
       if ($marketplace.Output) { Write-Host $marketplace.Output }
-      exit $marketplace.ExitCode
+      # Not fatal: cached marketplace metadata can still satisfy the per-plugin
+      # install/update below.
+      $script:ClaudeFailures += "marketplace"
     }
   }
 
+  $installedIds = Get-InstalledClaudePluginIds
+  if ($null -eq $installedIds) {
+    Write-Host "INFO: Could not read installed Claude plugins; falling back to update-then-install."
+  }
+
   foreach ($plugin in $Plugins) {
-    $arguments = @("plugin", "update", "--scope", $plugin.Scope, $plugin.Id)
+    # @() is load-bearing: a one-element return unrolls to a bare string, and
+    # $Actions[0] on a string would then yield a char.
+    $actions = @(Get-ClaudePluginActions -Plugin $plugin -InstalledIds $installedIds)
     if ($DryRun) {
-      Write-Host "INFO: Would run: claude $($arguments -join ' ')"
+      foreach ($action in $actions) {
+        Write-Host "INFO: Would run: claude plugin $action --scope $($plugin.Scope) $($plugin.Id)"
+      }
       continue
     }
 
-    Write-Host "INFO: Updating Claude Code plugin '$($plugin.Id)'."
-    $update = Invoke-External -Command "claude" -Arguments $arguments
-    if ($update.ExitCode -ne 0) {
-      Write-Host "ERROR: Failed to update Claude Code plugin '$($plugin.Id)'."
-      if ($update.Output) { Write-Host $update.Output }
-      exit $update.ExitCode
+    if (-not (Sync-ClaudePlugin -Plugin $plugin -Actions $actions)) {
+      $script:ClaudeFailures += $plugin.Id
     }
   }
 
@@ -591,4 +697,10 @@ $claudePlugins = @(Get-ClaudePlugins -Manifest $manifest)
 Test-ClaudeEnablement -Manifest $manifest -Plugins $claudePlugins
 Update-ClaudePlugins -Plugins $claudePlugins
 Update-OpenCodeCache -Plugins @(Get-OpenCodePlugins -Manifest $manifest)
+
+if ($script:ClaudeFailures.Count -gt 0) {
+  $failed = ($script:ClaudeFailures | Sort-Object) -join ", "
+  Write-Host "ERROR: One or more Claude Code plugin refreshes failed: $failed"
+  exit 1
+}
 {{- end -}}
