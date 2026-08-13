@@ -32,6 +32,34 @@ sync_to_dotfiles() {
 # Save the original brew command
 if [ -z "$ORIGINAL_BREW" ]; then export ORIGINAL_BREW=$(which brew); fi
 
+_normalize_openusage_brewfile() {
+    local brewfile_path=$1
+    local canonical_entry='brew "janekbaraniewski/tap/openusage", link: true, trusted: true'
+    local temp_file
+
+    temp_file=$(mktemp "${brewfile_path}.XXXXXX") || return $?
+    if ! awk -v canonical_entry="$canonical_entry" '
+        BEGIN { matches = 0 }
+        /^brew "janekbaraniewski\/tap\/openusage"(, .*)?$/ {
+            print canonical_entry
+            matches++
+            next
+        }
+        { print }
+        END { if (matches > 1) exit 2 }
+    ' "$brewfile_path" >| "$temp_file"; then
+        rm -f "$temp_file"
+        print -u2 "brew: failed to preserve the OpenUsage link setting"
+        return 1
+    fi
+
+    if cmp -s "$temp_file" "$brewfile_path"; then
+        rm -f "$temp_file"
+    else
+        mv -f "$temp_file" "$brewfile_path"
+    fi
+}
+
 # Function to update brewfiles and create git commit
 update_brewfiles() {
     local action=$1
@@ -57,7 +85,8 @@ update_brewfiles() {
     mkdir -p "$(dirname "$clean_install_path")"
 
     echo "Dumping Brewfile to '${clean_install_path}'..."
-    "$ORIGINAL_BREW" bundle dump --brews --casks --taps --mas --file="$clean_install_path" --force
+    "$ORIGINAL_BREW" bundle dump --brews --casks --taps --mas --file="$clean_install_path" --force || return $?
+    _normalize_openusage_brewfile "$clean_install_path" || return $?
 
     # 4. Copy to Dotfiles Repo
     # We copy it over so the repo has the latest version to check against
@@ -355,8 +384,35 @@ bunx() {
 }
 
 {{- if eq .chezmoi.os "darwin" }}
+_repair_openusage_formula_link() {
+    local formula="janekbaraniewski/tap/openusage"
+    local brew_prefix formula_prefix linked_bin formula_bin
+
+    if ! "$ORIGINAL_BREW" list --formula --versions "$formula" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    brew_prefix=$("$ORIGINAL_BREW" --prefix) || return $?
+    formula_prefix=$("$ORIGINAL_BREW" --prefix "$formula") || return $?
+    linked_bin="${brew_prefix}/bin/openusage"
+    formula_bin="${formula_prefix}/bin/openusage"
+
+    if [[ ! -x "$formula_bin" ]]; then
+        print -u2 "brew-update-all: OpenUsage formula is installed but its CLI is missing"
+        return 1
+    fi
+
+    if [[ -e "$linked_bin" && "$linked_bin" -ef "$formula_bin" ]]; then
+        return 0
+    fi
+
+    print "brew-update-all: repairing the OpenUsage formula link"
+    "$ORIGINAL_BREW" link "$formula"
+}
+
 brew-update-all() {
     brew update && brew upgrade || return $?
+    _repair_openusage_formula_link || return $?
 
     local cu_log cu_rc
     cu_log=$(mktemp "${TMPDIR:-/tmp}/brew-cu.XXXXXX") || return $?

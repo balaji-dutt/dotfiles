@@ -52,7 +52,7 @@ brew "yt-dlp"
 # The AI coding agent built for the terminal.
 brew "anomalyco/tap/opencode"
 # Monitor your AI coding tool quotas from a single TUI dashboard
-brew "janekbaraniewski/tap/openusage", trusted: true
+brew "janekbaraniewski/tap/openusage", link: true, trusted: true
 # Memory for AI-assisted development. Search your AI coding sessions.
 brew "pilan-ai/tap/mnemo"
 # Modern version of fasd productivity booster, offering quick access to files and directories

@@ -48,8 +48,15 @@ This page lists the main managed targets expected on macOS.
 ## OpenUsage Telemetry
 
 The Brewfile installs two unrelated products named OpenUsage: the
-`janekbaraniewski/tap/openusage` formula provides the linked `openusage` CLI,
-while the `openusage` cask installs `OpenUsage.app`. They do not conflict.
+`janekbaraniewski/tap/openusage` formula provides the `openusage` CLI, while
+the `openusage` cask installs `OpenUsage.app`. They are functionally unrelated,
+but their shared Homebrew token can cause formula installs and upgrades to
+skip linking the CLI. `brew-update-all` repairs that link. Outside the wrapper,
+recover it with:
+
+```sh
+brew link janekbaraniewski/tap/openusage
+```
 
 Each macOS `chezmoi apply` asks the installed formula to render its bundled
 Claude Code hook and OpenCode plugin in a temporary config root, then refreshes
@@ -57,6 +64,21 @@ the targets listed above only when their contents change. Claude registration
 is added only to the rendered host settings; OpenCode discovers its plugin from
 the global `plugins/` directory. Restart both harnesses after an integration
 refresh.
+
+OpenUsage 0.24.2 can report the OpenCode integration as `PARTIAL` even while
+telemetry is working. Its detector checks only strict JSON in `opencode.json`
+and does not recognize this repo's supported `opencode.jsonc` plus global
+`plugins/` auto-discovery. Do not add a second `opencode.json` only to satisfy
+the badge. Instead, verify the daemon's OpenCode snapshot after OpenCode
+activity; `status` should be `OK`, `telemetry_last_event_at` should be recent,
+and `telemetry_event_count` should increase:
+
+```sh
+openusage export --output - --source daemon \
+  | jq '.snapshots[] | select(.provider_id == "opencode") |
+      {status, telemetry_last_event_at: .attributes.telemetry_last_event_at,
+       telemetry_event_count: .diagnostics.telemetry_event_count}'
+```
 
 ## NFS Client Default
 

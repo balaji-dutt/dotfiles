@@ -25,6 +25,13 @@ Shell wrappers in dotfiles can update package manifests and create git commits a
 On WSL2, wrappers prefer native Linux executables and reject `/mnt/<drive>/...`
 Windows-mounted shims for tool-managed commands.
 
+On macOS, `brew-update-all` repairs the
+`janekbaraniewski/tap/openusage` formula link after formula upgrades. Homebrew
+can suppress that link because the unrelated `openusage` cask has the same
+token. Brewfile regeneration also preserves the formula's explicit
+`link: true` setting; it does not restore the entry after the formula is
+uninstalled.
+
 ## Safety Notes
 
 - Review auto-generated commits before pushing.
