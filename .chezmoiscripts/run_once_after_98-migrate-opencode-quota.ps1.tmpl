@@ -1,0 +1,19 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$Dest = "{{ .chezmoi.destDir }}"
+$NewPath = Join-Path $Dest "AppData\Roaming\opencode\opencode-quota\quota-toast.json"
+$OldPath = Join-Path $Dest ".config\opencode\opencode-quota\quota-toast.json"
+
+if (-not (Test-Path -LiteralPath $NewPath -PathType Leaf)) {
+  throw "OpenCode quota migration: managed APPDATA config is missing: $NewPath"
+}
+
+if (Test-Path -LiteralPath $OldPath -PathType Leaf) {
+  Remove-Item -LiteralPath $OldPath -Force -ErrorAction Stop
+  Write-Host "OpenCode quota migration: removed obsolete config: $OldPath"
+}
+{{- end -}}

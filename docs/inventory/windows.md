@@ -32,7 +32,8 @@ The Windows setup has three distinct ownership classes:
 | Markdownlint | `~/.markdownlint-cli2.jsonc` | `dot_markdownlint-cli2.jsonc` |
 | Starship | `~/.config/starship.toml` | `private_dot_config/starship.toml` |
 | Claude | `~/.claude/**` | `dot_claude/**` |
-| OpenCode | `~/.config/opencode/**` | `private_dot_config/opencode/**` |
+| OpenCode | `~/.config/opencode/**` except `opencode-quota/**` | `private_dot_config/opencode/**` |
+| OpenCode quota | `~/AppData/Roaming/opencode/opencode-quota/quota-toast.json` | `AppData/Roaming/opencode/opencode-quota/quota-toast.json.tmpl` |
 | Native AI launchers | `~/.local/{ai-wt.py,ai-wt.cmd,oc-commit.cmd,cc-commit.cmd}` | `dot_local/**` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Sublime Merge | `~/AppData/Roaming/Sublime Merge/Packages/**` | `AppData/Roaming/Sublime Merge/Packages/**` |
@@ -41,6 +42,9 @@ The Windows setup has three distinct ownership classes:
 
 Starship is explicitly allowlisted on Windows because the managed config backs
 the Starship initialization in `~/.config/powershell/prompt.ps1`.
+The OpenCode quota sidecar is managed under `%APPDATA%` because the plugin uses
+the native Windows config convention instead of OpenCode's `~/.config` root.
+Its template includes the canonical JSON from `private_dot_config/opencode`.
 
 `Documents/PowerShell/**` is deliberately absent from this table. It is a sync
 output, not a direct managed target. Browser policy registry keys are apply-hook
@@ -103,7 +107,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these eleven
+Windows ignores `.chezmoiscripts/**` by default and then admits these thirteen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -116,6 +120,8 @@ rendered hook targets:
 | `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
 | `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
+| `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
+| `windows-beads-client.ps1` | `run_after_windows-beads-client.ps1.tmpl` | after | Export the WSL2-hosted Beads server connection for native Windows clients |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |
