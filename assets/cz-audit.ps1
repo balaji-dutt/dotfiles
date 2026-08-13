@@ -453,32 +453,50 @@ function Invoke-AnsibleLint([string]$fileRel) {
   Invoke-AnsibleContainerLint $fileRel
 }
 
-function Get-PythonCmd {
-  if (HaveCmd 'python3') { return 'python3' }
-  if (HaveCmd 'python') { return 'python' }
-  return $null
-}
-
-function Test-PythonAtLeast311([string]$PyCmd) {
+# Get-Command alone is not enough on native Windows: the Microsoft Store
+# app-execution alias for python3 is a real executable in PATH, but running it
+# prints "Python was not found; run without arguments to install from the
+# Microsoft Store" and exits 49. Execute each candidate before accepting it.
+function Test-PythonRuns([string]$Exe, [string[]]$PreArgs, [int]$MinMinor) {
   try {
-    $out = & $PyCmd -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>$null
-    $v = ($out | Out-String).Trim()
-    $parts = $v.Split('.')
-    if ($parts.Count -lt 2) { return $false }
-    $maj = [int]$parts[0]
-    $min = [int]$parts[1]
-    return ($maj -gt 3) -or ($maj -eq 3 -and $min -ge 11)
+    & $Exe @PreArgs -c "import sys; sys.exit(0 if sys.version_info >= (3, $MinMinor) else 1)" *> $null
+    return ($LASTEXITCODE -eq 0)
   } catch {
+    # Reachable: $ErrorActionPreference = 'Stop' (top of file) turns a failed
+    # launch into a throw. A non-zero exit does not throw by default
+    # ($PSNativeCommandUseErrorActionPreference is False through PS 7.6), so
+    # the $LASTEXITCODE check above is what rejects the WindowsApps alias.
     return $false
   }
 }
 
-function Get-PythonCmdForToml {
-  foreach ($cand in @('python3.12', 'python3.11', 'python3', 'python')) {
-    if (-not (HaveCmd $cand)) { continue }
-    if (Test-PythonAtLeast311 $cand) { return $cand }
+# Candidates are whitespace-separated invocations so the Windows launcher can
+# carry its version argument ("py -3"). Returns the split invocation, or $null.
+function Resolve-PythonCmd([string[]]$Candidates, [int]$MinMinor) {
+  foreach ($cand in $Candidates) {
+    $parts = @($cand -split '\s+')
+    if (-not (HaveCmd $parts[0])) { continue }
+    $pre = @($parts | Select-Object -Skip 1)
+    if (Test-PythonRuns $parts[0] $pre $MinMinor) { return ,$parts }
   }
   return $null
+}
+
+function Invoke-Python([string[]]$PyCmd, [string[]]$Arguments) {
+  $exe = $PyCmd[0]
+  $pre = @($PyCmd | Select-Object -Skip 1)
+  & $exe @pre @Arguments
+}
+
+# The YAML snippet below needs nothing newer than 3; the floor is there to
+# reject a Python 2 "python", which parses the probe and exits 1.
+function Get-PythonCmd {
+  return Resolve-PythonCmd @('python3', 'python', 'py -3') 7
+}
+
+# tomllib landed in 3.11.
+function Get-PythonCmdForToml {
+  return Resolve-PythonCmd @('python3.12', 'python3.11', 'python3', 'python', 'py -3') 11
 }
 
 function Invoke-YamlParse([string]$fileRel) {
@@ -490,8 +508,7 @@ function Invoke-YamlParse([string]$fileRel) {
     return
   }
 
-  Invoke-AuditCapture {
-    & $py -c @'
+  $pySrc = @'
 import sys
 try:
   import yaml
@@ -501,7 +518,10 @@ except Exception:
 with open(sys.argv[1], "r", encoding="utf-8") as f:
   yaml.safe_load(f)
 print("YAML OK")
-'@ $fileRel
+'@
+
+  Invoke-AuditCapture {
+    Invoke-Python $py @('-c', $pySrc, $fileRel)
   }
   Invoke-AuditResult -Check 'YAML' -Subject $fileRel -Advisory 1
 }
@@ -520,8 +540,7 @@ function Invoke-TomlParse([string]$fileRel) {
     return
   }
 
-  Invoke-AuditCapture {
-    & $py -c @'
+  $pySrc = @'
 import sys
 try:
   import tomllib
@@ -531,7 +550,10 @@ except Exception:
 with open(sys.argv[1], "rb") as f:
   tomllib.load(f)
 print("TOML OK")
-'@ $fileRel
+'@
+
+  Invoke-AuditCapture {
+    Invoke-Python $py @('-c', $pySrc, $fileRel)
   }
   Invoke-AuditResult -Check 'TOML' -Subject $fileRel -Advisory 1
 }

@@ -44,6 +44,15 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   repo-relative `files` list. Without Python or the helper script, the marker
   hook falls back to an unconditional mark in the legacy unsuffixed
   `.claude/.needs_dotfiles_review`.
+- All three hooks pick their interpreter through
+  `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
+  `py -3` and executes each candidate before accepting it. A lookup alone is
+  not enough on native Windows, where the Microsoft Store app-execution alias
+  for `python3` is in `PATH` but exits 49 with "Python was not found".
+  `CLAUDE_REVIEW_GATE_PYTHON` prepends a candidate for debugging; it is probed
+  like any other. The hooks do not `exec`, so a helper that starts and then
+  fails reaches the same fallback as a missing interpreter — on Stop that
+  means blocking rather than erroring open.
 - `enforce-review-on-stop.sh` (Stop) blocks stopping while the session's
   gate exists, with a reviewer prompt scoped to the gated files. If the
   gated edits no longer exist in git (reverted) and nothing touching them
@@ -143,6 +152,8 @@ the same session, so verify changes to it from a fresh session.
   `.opencode/opencode.jsonc`
 - Claude gate helper (mark/enforce/clear logic):
   `.claude/hooks/lib/review_gate.py`
+- Claude interpreter resolver (sourced by all three hooks):
+  `.claude/hooks/lib/resolve-python.sh`
 - Claude marker hook:
   `.claude/hooks/mark-needs-review.sh`
 - Claude stop hook:

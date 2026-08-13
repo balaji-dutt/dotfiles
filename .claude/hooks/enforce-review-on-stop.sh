@@ -23,15 +23,24 @@ fi
 cd "$PROJECT_DIR"
 
 HELPER=".claude/hooks/lib/review_gate.py"
+RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
-PY="python3"
-command -v "$PY" >/dev/null 2>&1 || PY="python"
-
-if [[ -f "$HELPER" ]] && command -v "$PY" >/dev/null 2>&1; then
-  exec "$PY" "$HELPER" enforce
+if [[ -f "$HELPER" && -f "$RESOLVER" ]]; then
+  # shellcheck source=lib/resolve-python.sh disable=SC1091
+  . "$RESOLVER"
+  if resolve_python; then
+    # Not exec: a helper that starts and then fails must still reach the
+    # fallback below rather than erroring open on Stop. cmd_enforce writes
+    # its block JSON to stdout and is otherwise silent, so buffering it is
+    # safe.
+    if out="$("${PY_CMD[@]}" "$HELPER" enforce)"; then
+      printf '%s' "$out"
+      exit 0
+    fi
+  fi
 fi
 
-# Fallback without Python: block while any Claude gate file exists.
+# Fallback without a working Python: block while any Claude gate file exists.
 for gate in .claude/.needs_dotfiles_review*; do
   if [[ -e "$gate" ]]; then
     cat <<'JSON'

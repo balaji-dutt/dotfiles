@@ -19,15 +19,17 @@ fi
 cd "$PROJECT_DIR"
 
 HELPER=".claude/hooks/lib/review_gate.py"
+RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
-PY="python3"
-command -v "$PY" >/dev/null 2>&1 || PY="python"
-
-if [[ -f "$HELPER" ]] && command -v "$PY" >/dev/null 2>&1; then
-  exec "$PY" "$HELPER" mark
+if [[ -f "$HELPER" && -f "$RESOLVER" ]]; then
+  # shellcheck source=lib/resolve-python.sh disable=SC1091
+  . "$RESOLVER"
+  if resolve_python && "${PY_CMD[@]}" "$HELPER" mark; then
+    exit 0
+  fi
 fi
 
-# Fallback without Python: conservative unconditional mark (legacy format);
-# never misses a review at the cost of false positives.
+# Fallback without a working Python: conservative unconditional mark (legacy
+# format); never misses a review at the cost of false positives.
 mkdir -p .claude
 date -u +%s > .claude/.needs_dotfiles_review

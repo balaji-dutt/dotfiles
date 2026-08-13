@@ -25,12 +25,16 @@ fi
 cd "$PROJECT_DIR"
 
 HELPER=".claude/hooks/lib/review_gate.py"
+RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
-PY="python3"
-command -v "$PY" >/dev/null 2>&1 || PY="python"
-
-if [[ -f "$HELPER" ]] && command -v "$PY" >/dev/null 2>&1; then
-  exec "$PY" "$HELPER" clear
+if [[ -f "$HELPER" && -f "$RESOLVER" ]]; then
+  # shellcheck source=lib/resolve-python.sh disable=SC1091
+  . "$RESOLVER"
+  if resolve_python; then
+    # Failing to clear leaves the gate raised, which is the conservative
+    # direction, so the exit status is deliberately ignored.
+    "${PY_CMD[@]}" "$HELPER" clear || true
+  fi
 fi
 
 exit 0

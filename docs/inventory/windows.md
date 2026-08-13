@@ -62,6 +62,13 @@ command names through `PATHEXT`.
 Microsoft Store app-execution aliases and never installs or upgrades Python.
 Python itself remains an external host prerequisite.
 
+Two other places resolve Python and must skip the same Store aliases, because
+`python3` is present in `PATH` as an app-execution alias that exits 49 with
+"Python was not found" instead of running: the Claude review-gate hooks
+(`.claude/hooks/lib/resolve-python.sh`) and `assets/cz-audit.ps1`
+(`Resolve-PythonCmd`). Both execute each candidate before accepting it rather
+than trusting a lookup, and both fall back to `py -3`.
+
 The native launcher supports the installed OpenCode and Claude `.exe` commands.
 Configured `.cmd` or `.bat` agent commands are rejected before a worktree is
 created because safe batch-command quoting would require shell execution. The
