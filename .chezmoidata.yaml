@@ -32,4 +32,4 @@ plannotator_ports:
     build: "9993-9998"
     claude: "10014-10019"
     custom: "10004-10009"
-plannotator_version: "0.26.1" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
+plannotator_version: "0.26.4" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
