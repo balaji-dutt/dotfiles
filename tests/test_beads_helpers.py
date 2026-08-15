@@ -599,8 +599,78 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             {
                 "PATH": f"{self.bin_dir}{os.pathsep}{self.env['PATH']}",
                 "BD_TEST_LOG": str(self.log),
+                "BEADS_DOLT_SERVER_PORT": "3307",
             }
         )
+
+    def install_failing_tools(self) -> None:
+        write_executable(
+            self.bin_dir / "bd",
+            """
+            #!/bin/sh
+            printf 'bd:%s\n' "$*" >> "$BD_TEST_LOG"
+            exit 0
+            """,
+        )
+        write_executable(
+            self.bin_dir / "dolt",
+            """
+            #!/bin/sh
+            printf 'dolt:%s\n' "$*" >> "$BD_TEST_LOG"
+            exit 19
+            """,
+        )
+
+    def read_calls(self) -> list[str]:
+        if not self.log.exists():
+            return []
+        return self.log.read_text(encoding="utf-8").splitlines()
+
+    def test_posix_server_verbs_fail_loudly_before_side_effects(self) -> None:
+        shutil.copy2(ROOT / "assets/beads-sync.sh", self.repo / "assets/beads-sync.sh")
+        self.install_failing_tools()
+
+        for action in ("status", "clean", "pull", "push"):
+            with self.subTest(action=action):
+                self.log.unlink(missing_ok=True)
+                result = subprocess.run(
+                    [str(self.repo / "assets/beads-sync.sh"), action],
+                    cwd=self.repo,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(
+                    "Dolt server is unavailable at 127.0.0.1:3307",
+                    result.stderr,
+                )
+                calls = self.read_calls()
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(calls[0].startswith("dolt:"))
+                self.assertIn("--host 127.0.0.1 --port 3307", calls[0])
+                self.assertIn("select 1;", calls[0])
+
+    def test_posix_init_dry_run_does_not_probe_server(self) -> None:
+        shutil.copy2(ROOT / "assets/beads-sync.sh", self.repo / "assets/beads-sync.sh")
+        self.install_failing_tools()
+        env = self.env.copy()
+        env["BD_SYNC_REMOTE"] = "ssh://example.invalid/private"
+
+        result = subprocess.run(
+            [str(self.repo / "assets/beads-sync.sh"), "init", "--dry-run"],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read_calls(), [])
 
     def test_posix_push_refuses_missing_remote_before_bd_calls(self) -> None:
         shutil.copy2(ROOT / "assets/beads-sync.sh", self.repo / "assets/beads-sync.sh")
@@ -707,6 +777,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
     def test_powershell_push_refuses_missing_remote_before_bd_calls(self) -> None:
         shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
+        (self.repo / ".beads/dolt/test").mkdir(parents=True)
         write_executable(
             self.bin_dir / "bd",
             """
@@ -746,6 +817,68 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
         calls = self.log.read_text(encoding="utf-8").splitlines()
         self.assertTrue(any(line.startswith("dolt:") for line in calls))
         self.assertFalse(any(line.startswith("bd:") for line in calls))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+    def test_powershell_server_verbs_fail_loudly_before_side_effects(self) -> None:
+        shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
+        (self.repo / ".beads/dolt/test").mkdir(parents=True)
+        self.install_failing_tools()
+
+        for action in ("status", "clean", "pull", "push"):
+            with self.subTest(action=action):
+                self.log.unlink(missing_ok=True)
+                result = subprocess.run(
+                    [
+                        "pwsh",
+                        "-NoProfile",
+                        "-File",
+                        str(self.repo / "assets/beads-sync.ps1"),
+                        action,
+                    ],
+                    cwd=self.repo,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(
+                    "Dolt server is unavailable at 127.0.0.1:3307",
+                    result.stderr,
+                )
+                calls = self.read_calls()
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(calls[0].startswith("dolt:"))
+                self.assertIn("--host 127.0.0.1 --port 3307", calls[0])
+                self.assertIn("select 1;", calls[0])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+    def test_powershell_init_dry_run_does_not_probe_server(self) -> None:
+        shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
+        self.install_failing_tools()
+        env = self.env.copy()
+        env["BD_SYNC_REMOTE"] = "ssh://example.invalid/private"
+
+        result = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-File",
+                str(self.repo / "assets/beads-sync.ps1"),
+                "init",
+                "-DryRun",
+            ],
+            cwd=self.repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read_calls(), [])
 
 
 @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")

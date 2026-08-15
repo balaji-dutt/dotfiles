@@ -175,6 +175,19 @@ Both accept `-DryRun` / `--dry-run`. On `pull` and `push`, `-Backup` /
 by default; `-IfDue` / `--if-due` applies the automatic throttle. `init`
 rejects backup flags because there is no database to export at that point.
 
+`status`, `clean`, `pull`, and `push` first verify that the configured Dolt
+database is reachable. If it is not, the helper exits before status output,
+snapshots, or server restarts and reports the effective endpoint, for example:
+
+```text
+ERROR: Dolt server is unavailable at 127.0.0.1:3307; run 'bd dolt start' first
+```
+
+`pull` and `push` still restart an already reachable server so it inherits the
+current SSH agent environment; they do not use that restart to recover a
+stopped server. `init` establishes its own server, and `snapshot` remains
+available without this preflight.
+
 | What you're doing | Command |
 | --- | --- |
 | `bd create` / `update` / `close` / `list` / `ready` / `show` / `dep` … | Interactive `bd`; agents use `command bd` / `bd.exe` |

@@ -257,6 +257,12 @@ dolt_sql() {
     --use-db "$DB" sql "$@"
 }
 
+require_dolt_server() {
+  if ! dolt_sql -q "select 1;" >/dev/null 2>&1; then
+    die "Dolt server is unavailable at ${DB_HOST}:${PORT}; run 'bd dolt start' first"
+  fi
+}
+
 # One query does the classification: every dirty table, flagged with whether it
 # matches a dolt_ignore pattern. LIKE matching happens in SQL so we never have to
 # reimplement pattern globbing (dolt_ignore uses patterns such as "wisp_%").
@@ -817,6 +823,10 @@ PY
   echo "'bd migrate --update-repo-id' without reading docs/beads.md - repo_id is a"
   echo "tracked value shared by every peer."
 }
+
+case "$COMMAND" in
+  status|clean|pull|push) require_dolt_server ;;
+esac
 
 case "$COMMAND" in
   status) cmd_status ;;

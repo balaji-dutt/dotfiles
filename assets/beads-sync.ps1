@@ -264,6 +264,13 @@ function Invoke-DoltSql {
   return (& $DoltExe @doltArgs 2>&1)
 }
 
+function Assert-DoltServerReachable {
+  Invoke-DoltSql -Query 'select 1;' -Quiet | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Die "Dolt server is unavailable at ${DbHost}:${DbPort}; run 'bd dolt start' first"
+  }
+}
+
 # One query does the classification: every dirty table, flagged with whether it
 # matches a dolt_ignore pattern. LIKE matching happens in SQL so we never have to
 # reimplement pattern globbing (dolt_ignore uses patterns such as "wisp_%").
@@ -870,6 +877,10 @@ function Invoke-Init {
   [Console]::Out.WriteLine("'bd migrate --update-repo-id' without reading docs/beads.md - repo_id is a")
   [Console]::Out.WriteLine('tracked value shared by every peer.')
   return 0
+}
+
+if ($Command -in @('status', 'clean', 'pull', 'push')) {
+  Assert-DoltServerReachable
 }
 
 switch ($Command) {
