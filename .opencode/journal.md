@@ -25,6 +25,10 @@ Keep entries short and factual. Prefer links to files/paths over prose.
   with per-argument process launching; same-name batch stubs fail closed because
   `cmd.exe` cannot safely preserve multiline commit arguments. This supersedes
   the 2026-08-10 batch-wrapper decision.
+- decision: Pin host and container `@slkiser/opencode-quota` registrations to
+  `4.8.1`; v4.7+ prefers OpenCode Anthropic OAuth before Claude CLI fallbacks.
+- context: Native Windows showed both 5-hour and weekly Anthropic quota after a
+  full OpenCode restart; no cache purge or compatibility-shim change was needed.
 
 ## 2026-08-10
 

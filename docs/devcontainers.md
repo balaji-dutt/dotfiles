@@ -618,6 +618,14 @@ OpenCode also loads `opencode-quota-anthropic-compat.js` on the host and in the
 devcontainer dotfiles. The shim patches only `GET` requests to Anthropic's Claude
 OAuth usage endpoint used by `@slkiser/opencode-quota`.
 
+With `@slkiser/opencode-quota` v4.7 or later, Anthropic Max/subscription quota
+uses the Anthropic OAuth credential connected through OpenCode as its preferred
+source. An `ANTHROPIC_API_KEY` alone cannot query the OAuth usage endpoint.
+Claude CLI, keychain, and credentials-file discovery remain fallback sources; a
+separate Claude login is not required when OpenCode OAuth is present. After a
+plugin registration, config, or shim change, fully quit all OpenCode processes
+and restart OpenCode so it loads the new code.
+
 Keep this shim enabled until `@slkiser/opencode-quota` can serve
 last-known-good Anthropic usage data during transient failures. Upstream v4 has
 bounded OAuth 429 cooldown handling and does not mutate Claude credentials, but
@@ -628,11 +636,11 @@ OpenCode to run an upstream-only test before removing it.
 
 The quota config sets `minIntervalMs` to `600000` so normal provider refreshes
 are cached for ten minutes. The shim also caches successful Anthropic usage JSON
-under `~/.local/state/opencode/`, associates it with a local one-way Claude
-OAuth token fingerprint when available, serves fresh cache for ten minutes, and
+under `~/.local/state/opencode/`, associates it with a one-way fingerprint of the
+bearer token on the intercepted request, serves fresh cache for ten minutes, and
 serves last-known-good data for up to five hours on endpoint 408, 429, 5xx,
-timeout, or network failures. After one of those transient failures, it backs off
-live usage endpoint probes for thirty minutes by default and serves the
+timeout, or network failures. After one of those transient failures, it backs
+off live usage endpoint probes for thirty minutes by default and serves the
 last-known-good cache during that window.
 
 On OpenCode launch, the shim checks local Claude credentials without making an
