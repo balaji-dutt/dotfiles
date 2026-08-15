@@ -17,11 +17,15 @@ _wsl2_resolve_native_path_command() {
     local candidate entry
     local -a search_path windows_candidates
 
-    for entry in "$HOME/.local/share/mise/shims" "$HOME/.local/bin" "$HOME/.bun/bin" "$HOME/bin"; do
-        _wsl2_prepend_path_entry "$entry"
-    done
-
-    search_path=("${(@)path}")
+    # Search preferred Linux locations without changing the caller's PATH.
+    # The order matches the result of the former repeated prepend operations.
+    search_path=(
+        "$HOME/bin"
+        "$HOME/.bun/bin"
+        "$HOME/.local/bin"
+        "${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims"
+        "${(@)path}"
+    )
     windows_candidates=()
 
     for entry in "${search_path[@]}"; do
@@ -122,10 +126,9 @@ if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
     autoload -Uz add-zsh-hook
 
     _wsl2_linux_path_precedence() {
-        # Mise shims (covers node, npm, python, jq, bun, uv, opencode, etc.)
-        local mise_shims="${HOME}/.local/share/mise/shims"
         # Linux npm global bin (covers npm-installed globals like claude)
         local npm_global_bin=""
+        local mise_shims=""
         if _resolve_preferred_command_path npm >/dev/null 2>&1; then
             local _npm_prefix
             _npm_prefix="$(_run_preferred_command npm prefix -g 2>/dev/null || true)"
@@ -133,6 +136,13 @@ if [[ -o interactive ]] && [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
             if [[ -n "$_npm_prefix" ]] && ! _wsl2_is_windows_mounted_path "$_npm_prefix"; then
                 npm_global_bin="${_npm_prefix}/bin"
             fi
+        fi
+
+        # Full mise activation maintains direct tool paths and removes shims.
+        # If activation was unavailable, retain a shim fallback so missing Linux
+        # tooling fails instead of silently selecting a Windows executable.
+        if [[ -z "${MISE_SHELL:-}" ]]; then
+            mise_shims="${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims"
         fi
 
         local entry

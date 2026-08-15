@@ -60,6 +60,28 @@ die() { echo "ERROR: $*" >&2; exit 2; }
 info() { echo "INFO: $*" >&2; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+resolve_managed_executable() {
+  local tool="$1" candidate
+
+  candidate="$(type -P "$tool" || true)"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  # WSL2 owns real files in local-bin; macOS local-bin links to mise shims.
+  for candidate in \
+    "$HOME/.local/bin/$tool" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims/$tool"; do
+    if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # Strip the private remote URL out of anything we echo. The repo is public.
 redact() { sed -E 's#(git\+ssh://|ssh://|https://)[^[:space:]"]*#\1<REDACTED>#g'; }
 
@@ -215,12 +237,14 @@ ROOT="$(repo_root)"
 cd "$ROOT"
 SCRIPT_PATH="$ROOT/assets/beads-sync.sh"
 
-BD_EXE="$(type -P bd || true)"
-[[ -n "$BD_EXE" ]] || die "bd executable not found on PATH"
+BD_EXE="$(resolve_managed_executable bd || true)"
+[[ -n "$BD_EXE" ]] || die "bd executable not found on PATH or in managed locations"
 [[ -f .beads/metadata.json ]] || die ".beads/metadata.json not found; is this a Beads repo?"
 
+DOLT_EXE=""
 if [[ "$COMMAND" != "snapshot" ]]; then
-  have dolt || die "dolt not found on PATH"
+  DOLT_EXE="$(resolve_managed_executable dolt || true)"
+  [[ -n "$DOLT_EXE" ]] || die "dolt executable not found on PATH or in managed locations"
 fi
 
 # Connection details come from metadata.json so this also works for other Beads
@@ -253,7 +277,8 @@ if [[ "$COMMAND" != "init" && "$COMMAND" != "snapshot" ]]; then
 fi
 
 dolt_sql() {
-  dolt --host "$DB_HOST" --port "$PORT" --user "$DB_USER" --password '' --no-tls \
+  [[ -n "$DOLT_EXE" ]] || die "dolt not resolved for command: $COMMAND"
+  "$DOLT_EXE" --host "$DB_HOST" --port "$PORT" --user "$DB_USER" --password '' --no-tls \
     --use-db "$DB" sql "$@"
 }
 

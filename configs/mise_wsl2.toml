@@ -1,3 +1,10 @@
+[settings]
+# Ansible installs the configured WSL2 tools. Disabling command-not-found
+# auto-install lets full activation drop shims; explicit shim callers also fail
+# instead of falling through when a configured tool is missing.
+not_found_auto_install = false
+not_found_system_fallback = false
+
 [tools]
 opencode = "latest"
 claude = "latest"
