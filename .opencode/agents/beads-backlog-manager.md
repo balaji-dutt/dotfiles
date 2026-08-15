@@ -61,8 +61,11 @@ result. Do not infer the newest plan from `~/.plannotator`.
 - The approved plan must include `No implementation: true`.
 - Do not edit source files.
 - Do not claim issues.
-- Do not assign issues to OpenCode unless the approved handoff explicitly says
-  to change assignee.
+- Pass `--actor "OpenCode"` on every Beads write. Without it the audit trail
+  falls through to `git user.name` (the human).
+- Omit `--assignee` unless the approved handoff explicitly names one. Backlog
+  work is unassigned until someone starts it — assignment happens at claim time
+  in `beads-issue-author` or the `beads-work` skill, not here.
 - Do not write `.beads/in-progress-opencode.json`.
 - Do not commit, merge, push, or delete issues.
 - Do not create more Beads than the approved handoff explicitly lists.
@@ -83,13 +86,15 @@ shell rc files or `beads-helpers.*` in a non-interactive shell.
     `command bd create epic "Foo"` sets the title to the literal `epic` and
     defaults `--type` to `task`.
     Also `--priority`, `--parent`, `--description`, `--acceptance`, `--design`,
-    `--labels`, `--deps`.
+    `--labels`, `--deps`, `--actor`.
   - update: `--description`, `--acceptance`, `--design`, `--append-notes`,
-    `--priority`, `--parent`, `--status`, `--title`, label flags
-  - close: `command bd close <id> --reason <text>`
-  - links: `command bd link <id1> <id2> --type <type>` or
-    `command bd dep ...` only after confirming the relationship type is
-    supported
+    `--priority`, `--parent`, `--status`, `--title`, `--actor`, label flags
+  - close: `command bd close <id> --reason <text> --actor "OpenCode"`
+  - links: `command bd link <id1> <id2> --type <type> --actor "OpenCode"` or
+    `command bd dep ... --actor "OpenCode"` only after confirming the
+    relationship type is supported
+  - `--actor` is supported by `create`, `update`, `close`, `link`, `dep`, and
+    `priority`. Pass it on every write, not just creates.
 - Use `--type`, not `--issue-type`.
 - Use `--assignee`, not `--owner`.
 - Do not pass JSON objects to `create --stdin`; stdin is description body text,
@@ -100,7 +105,8 @@ shell rc files or `beads-helpers.*` in a non-interactive shell.
   the caller explicitly approved a one-off body-file workflow.
 - If a Bead body is too large for direct flags and no approved body file exists,
   return a `Needs body transport decision` section to the caller. Include the
-  proposed title, parent, type, priority, assignee, body preview, and options.
+  proposed title, parent, type, priority, assignee (or none), body preview, and
+  options.
 - Prefer plain `command bd show <id>` for existence checks. If JSON output is
   needed, account for `command bd show --json` returning an array.
 - Run probe commands separately. Avoid permission-prompt-heavy pipelines,
@@ -122,8 +128,8 @@ shell rc files or `beads-helpers.*` in a non-interactive shell.
    - Replace description, acceptance, title, status, priority, or assignee only
      when the approved handoff explicitly requests that field change.
    - Prefer
-     `command bd update <id> --append-notes <dated planning section>` for
-     additive planning/design context.
+     `command bd update <id> --append-notes <dated planning section> --actor "OpenCode"`
+     for additive planning/design context.
    - Use `--design` or `--description` only when the handoff explicitly approves
      replacing or supplying the complete merged value.
 4. For `create`:
@@ -131,29 +137,34 @@ shell rc files or `beads-helpers.*` in a non-interactive shell.
    - Infer type conservatively from the handoff: `bug` for fixes/root cause,
      `feature` for new behavior, `epic` for grouped work, otherwise `task`.
    - Invoke `command bd create` with direct flags for title, type, priority,
-     description, acceptance, design, labels, parent, and dependencies.
+     description, acceptance, design, labels, parent, dependencies, and
+     `--actor "OpenCode"`. Omit `--assignee` unless the approved handoff
+     explicitly names one.
 5. For `create-linked`:
    - Verify the parent/related issue exists with `command bd show <id>`.
-   - Prefer `command bd create "<title>" --type <type> --parent <id>` for child work
-     when appropriate.
+   - Prefer
+     `command bd create "<title>" --type <type> --parent <id> --actor "OpenCode"`
+     for child work when appropriate. As with `create`, omit `--assignee`.
    - Use supported `command bd link`/`command bd dep` forms for other
-     relationships. If the requested relationship cannot be represented
-     safely, record it in the new Bead content instead of inventing flags.
+     relationships, each with `--actor "OpenCode"`. If the requested
+     relationship cannot be represented safely, record it in the new Bead
+     content instead of inventing flags.
 6. For `link` or `prioritize`:
    - Verify all referenced Beads with `command bd show` first.
    - Use supported `command bd link`, `command bd dep`, `command bd priority`, or
      `command bd update --priority`
-     commands only.
+     commands only, each with `--actor "OpenCode"`.
 7. For `update-status` or `close`:
    - Require an explicit issue ID and approved reason.
-   - For close, use `command bd close <id> --reason <text>`.
+   - For close, use
+     `command bd close <id> --reason <text> --actor "OpenCode"`.
    - Do not use `--commit`; include commit SHAs in the reason only if the
      approved handoff provided them.
 8. Refresh with `command bd show <id>` for changed issues. Confirm each stored
    title and type match the request — if a title came through as a bare type
    word (`epic`/`feature`) or the type defaulted to `task`, fix it with
-   `command bd update <id> --title "<title>" --type <type>` before returning a concise
-   result.
+   `command bd update <id> --title "<title>" --type <type> --actor "OpenCode"`
+   before returning a concise result.
 
 ## Output format
 

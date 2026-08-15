@@ -103,5 +103,13 @@ For existing-Bead enrichment:
 - do not claim the Bead;
 - do not write `.beads/in-progress-opencode.json`.
 
+For newly created backlog Beads:
+
+- pass `--actor "OpenCode"` so the audit trail does not fall through to
+  `git user.name`;
+- set no assignee. Backlog items stay unassigned until work starts; assignment
+  belongs to the claim step in `beads-issue-author` or the `beads-work` skill.
+  Pass `--assignee` only when the approved handoff explicitly names one.
+
 For close/status changes, require an explicit `Action`, issue ID, and approved
 reason. Deletion is never part of this workflow.

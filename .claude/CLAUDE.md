@@ -74,9 +74,14 @@ the user once whether this is an implementation plan (route here, to
    only after the work lands on `main`/`master` (worktree-merge or
    direct), via the `beads-work` skill's close steps.
 
-### Identity constants
+### Identity constants (implementation handoff)
 
-- Actor/assignee: `Claude` (matches `cc-commit`).
+These govern the implementation path only. Backlog-only work uses the
+actor but sets no assignee — see **Preservation defaults** below.
+
+- Actor: `Claude` (matches `cc-commit`). Set on every Beads write.
+- Assignee: `Claude`. Set here because this path claims the issue to
+  start work. Backlog-only creates leave it empty.
 - State file: `.beads/in-progress-claude.json`. Isolated from
   `-opencode.json`; the harnesses must not share state.
 - Issue prefix: `dots-` for this repo (see `AGENTS.md` "Beads
@@ -184,6 +189,15 @@ For existing-Bead enrichment:
 - do not claim the Bead;
 - do not write `.beads/in-progress-claude.json` — backlog-only work
   records no implementation state.
+
+For newly created backlog Beads:
+
+- pass `--actor "Claude"` so the audit trail does not fall through to
+  `git user.name`;
+- set no assignee. Backlog items stay unassigned until work starts;
+  assignment belongs to the claim step in `beads-issue-author` or the
+  `beads-work` skill. Pass `--assignee` only when the approved handoff
+  explicitly names one.
 
 For close / status changes, require an explicit `Action`, issue ID, and
 approved reason. Deletion is never part of this flow.

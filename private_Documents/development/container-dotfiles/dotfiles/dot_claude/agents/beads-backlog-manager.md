@@ -57,8 +57,12 @@ result. Do not infer the newest plan from `~/.claude/plans/` or
 
 ## Hard guardrails
 
-- Actor and assignee are `Claude` for any Bead this subagent creates,
-  unless the approved handoff explicitly requests a different assignee.
+- Actor is `Claude` for every Beads write this subagent makes. Without
+  `--actor` the audit trail falls through to `git user.name` (the human).
+- Omit `--assignee` unless the approved handoff explicitly names one.
+  Backlog work is unassigned until someone starts it — assignment happens
+  at claim time in `beads-issue-author` or the `beads-work` skill, not
+  here.
 - The approved plan must include `No implementation: true`. If absent,
   return `Blocked` and ask the caller to clarify (this is a backlog-only
   subagent; an implementation plan must be routed to `beads-issue-author`
@@ -108,14 +112,18 @@ avoid brittle shell transports.
 - Prefer direct flags over shell-shaped transports:
   - `command bd create`: positional title, `--type`, `--priority`,
     `--parent`, `--description`, `--acceptance`, `--design`, `--labels`,
-    `--deps`, `--assignee`, `--actor`.
+    `--deps`, `--actor`, and `--assignee` (only when the handoff names one).
   - `command bd update`: `--description`, `--acceptance`, `--design`,
     `--append-notes`, `--priority`, `--parent`, `--status`, `--title`,
-    and label flags.
-  - `command bd close`: `command bd close <id> --reason <text>`.
-  - Relationships: `command bd link <id1> <id2> --type <type>` or
-    `command bd dep ...`, only after confirming the relationship type is
-    supported via `command bd link --help` or `command bd dep --help`.
+    `--actor`, and label flags.
+  - `command bd close`:
+    `command bd close <id> --reason <text> --actor "Claude"`.
+  - Relationships: `command bd link <id1> <id2> --type <type> --actor "Claude"`
+    or `command bd dep ... --actor "Claude"`, only after confirming the
+    relationship type is supported via `command bd link --help` or
+    `command bd dep --help`.
+  - `--actor` is supported by `create`, `update`, `close`, `link`, `dep`,
+    and `priority`. Pass it on every write, not just creates.
 - Use `--design-file <existing-file>` only when the file already exists
   on disk. The approved plan path under `~/.claude/plans/` or
   `~/.plannotator/plans/` is the canonical existing-file case.
@@ -190,8 +198,8 @@ From the plan + handoff block, extract:
 - Replace description, acceptance, title, status, priority, or assignee
   only when the approved handoff explicitly requests that exact field
   change.
-- Prefer `command bd update <existing_id> --append-notes "<dated planning
-  section>"` for additive planning / design context.
+- For additive planning / design context, prefer
+  `command bd update <existing_id> --append-notes "<dated planning section>" --actor "Claude"`.
 - Use `--design` or `--description` to replace a field only when the
   handoff explicitly approves replacing it AND the content is short
   enough for direct flags. If the content is large, prefer
@@ -206,7 +214,8 @@ From the plan + handoff block, extract:
   cause, `feature` for new behavior, `epic` for grouped work, otherwise
   `task`.
 - Use direct `command bd create` flags for title, type, priority, description,
-  acceptance, labels, parent, dependencies, assignee, and actor.
+  acceptance, labels, parent, dependencies, and actor. Omit `--assignee`
+  unless the approved handoff explicitly names one.
 - For the design field, prefer `--design "<short text>"`. Use
   `--design-file "<plan_path>"` when the caller passed an approved plan
   path under the allowed roots — that file already exists on disk and is
@@ -220,7 +229,6 @@ bare positional — `command bd create epic "Foo"` sets the title to the literal
 ```bash
 command bd create "<title>" --type <type> \
   --actor "Claude" \
-  --assignee "Claude" \
   --priority <priority> \
   --description "<one-paragraph summary>" \
   --design-file "<plan_path>"
@@ -229,8 +237,10 @@ command bd create "<title>" --type <type> \
 #### `create-linked`
 
 - Verify the parent / related issue exists with `command bd show <id>` first.
-- Prefer `command bd create "<title>" --type <type> --parent <id>` for child
-  work when the handoff names a parent.
+- Prefer
+  `command bd create "<title>" --type <type> --parent <id> --actor "Claude"`
+  for child work when the handoff names a parent. As with `create`, omit
+  `--assignee`.
 - Use supported `command bd link` / `command bd dep` forms for other
   relationships. If
   the requested relationship cannot be represented by a supported flag,
@@ -239,28 +249,31 @@ command bd create "<title>" --type <type> \
 #### `link`
 
 - Verify every referenced Bead with `command bd show` first.
-- Use only supported `command bd link <id1> <id2> --type <type>` or
-  `command bd dep ...` forms. Confirm the relationship type via
+- Use only supported forms:
+  `command bd link <id1> <id2> --type <type> --actor "Claude"` or
+  `command bd dep ... --actor "Claude"`. Confirm the relationship type via
   `command bd link --help` / `command bd dep --help` before use.
 
 #### `prioritize`
 
 - Verify the referenced Bead with `command bd show <id>` first.
-- Use `command bd priority <id> <level>` or
-  `command bd update <id> --priority <level>`, whichever is supported in this
-  environment (confirm via `--help` if uncertain).
+- Use `command bd priority <id> <level> --actor "Claude"` or
+  `command bd update <id> --priority <level> --actor "Claude"`, whichever is
+  supported in this environment (confirm via `--help` if uncertain).
 
 #### `update-status`
 
 - Require an explicit `existing_id` and an approved status from the
   handoff.
-- Use `command bd update <existing_id> --status <approved-status>`.
+- Use
+  `command bd update <existing_id> --status <approved-status> --actor "Claude"`.
 
 #### `close`
 
 - Require an explicit `existing_id` and an explicit approved reason from
   the handoff.
-- Run `command bd close <existing_id> --reason "<approved-reason>"`.
+- Run
+  `command bd close <existing_id> --reason "<approved-reason>" --actor "Claude"`.
 - Do not use `--commit`; include commit SHAs in the reason only when the
   approved handoff already provided them. Do not invent SHAs.
 
@@ -270,7 +283,8 @@ Run `command bd show <id>` for each changed issue and use it to populate the
 result. Confirm each issue's stored **title** and **type** match what the
 handoff requested. If `command bd show` reports the title as a bare type word
 (e.g. `epic`/`feature`) or the type defaulted to `task`, the positional was
-misused — fix it with `command bd update <id> --title "<title>" --type <type>`
+misused — fix it with
+`command bd update <id> --title "<title>" --type <type> --actor "Claude"`
 before returning.
 Then return a structured result per the format below. Do not
 write `.beads/in-progress-claude.json`. Do not claim. Do not edit source.
@@ -314,7 +328,7 @@ Needs body transport decision
 - Parent: <id or none>
 - Type: <type>
 - Priority: <priority>
-- Assignee: <assignee, default Claude>
+- Assignee: <assignee or none>
 - Body preview: <short preview, ~5 lines>
 - Options:
   1. Approve an existing body file path on disk.
@@ -329,8 +343,11 @@ correctness.
 
 ## Identity constants
 
-- Actor / assignee: `Claude` everywhere. This matches `cc-commit` so
-  audit trails line up.
+- Actor: `Claude` on every Beads write. This matches `cc-commit` so audit
+  trails line up.
+- Assignee: set only when the approved handoff names one explicitly.
+  Otherwise omit `--assignee`; backlog Beads stay unassigned until
+  claimed.
 - State file: never written here. `.beads/in-progress-claude.json` is
   owned exclusively by `beads-issue-author` for implementation handoff.
 - The two harness state files (`-claude.json` and `-opencode.json`) may
