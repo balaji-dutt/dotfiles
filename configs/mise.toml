@@ -6,7 +6,11 @@ node = "lts"
 "npm:@opencode-ai/sdk" = "latest"
 "npm:promptfoo" = "latest"
 # Reviewed 2026-08-01: @yarnpkg/libzip 3.2.2 tag/gitHead match; no provenance.
-"npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"] }
+# Reviewed 2026-08-15: @smithy/core 3.33.0 and node-http-handler 4.11.0 were
+# manually published by aws-sdk-bot during smithy-lang/smithy-typescript#2228's
+# Changesets v3 release failure; registry signatures/integrity present, but no
+# provenance/gitHead.
+"npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2", "@smithy/core@3.33.0", "@smithy/node-http-handler@4.11.0"] }
 "pipx:lastversion" = "latest"
 "github:DeusData/codebase-memory-mcp" = "latest"
 python = "3.14"
