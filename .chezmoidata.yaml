@@ -7,7 +7,7 @@ beads_version: "1.1.2" # renovate: datasource=github-releases depName=gastownhal
 ccr_port: 3456
 codebase_memory_mcp_version: "0.9.0" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
 dolt_version: "2.2.4" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
-lazygit_version: "0.63.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
+lazygit_version: "0.64.0" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).
 # wsl_repo_rel is relative to the WSL2 $HOME, which is resolved at runtime so
 # no Linux username is baked into this public repo. A Windows host without this
