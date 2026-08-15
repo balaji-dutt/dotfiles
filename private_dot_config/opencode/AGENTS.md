@@ -25,7 +25,9 @@ These rules apply to all OpenCode sessions regardless of repository.
   - `oc-commit -m "subject"`
   - `oc-commit -m "subject" -m "body"`
   - `oc-commit -F <message-file>`
-- `oc-commit` is available as a Bash wrapper on POSIX and a managed `.cmd`
-  wrapper on native Windows. Pass the same arguments in either environment.
+- `oc-commit` is available as a Bash wrapper on POSIX and a managed `.ps1`
+  wrapper on native Windows. Invoke the Windows wrapper from PowerShell; the
+  same-name `.cmd` stub refuses because batch cannot preserve multiline
+  arguments. Pass the same arguments from either supported shell.
 - When work is complete and verified, propose a commit message for approval before running `oc-commit`.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.

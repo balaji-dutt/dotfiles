@@ -91,7 +91,9 @@ Documents/PowerShell
 .config/powershell
 .local/ai-wt.py
 .local/ai-wt.cmd
+.local/oc-commit.ps1
 .local/oc-commit.cmd
+.local/cc-commit.ps1
 .local/cc-commit.cmd
 {{ end }}
 
@@ -135,7 +137,9 @@ Documents/PowerShell
 !/.local/
 !/.local/ai-wt.py
 !/.local/ai-wt.cmd
+!/.local/oc-commit.ps1
 !/.local/oc-commit.cmd
+!/.local/cc-commit.ps1
 !/.local/cc-commit.cmd
 !/.config/
 /.config/*

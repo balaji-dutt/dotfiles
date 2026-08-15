@@ -19,6 +19,13 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-08-15
+
+- decision: Native Windows `oc-commit` and `cc-commit` use PowerShell wrappers
+  with per-argument process launching; same-name batch stubs fail closed because
+  `cmd.exe` cannot safely preserve multiline commit arguments. This supersedes
+  the 2026-08-10 batch-wrapper decision.
+
 ## 2026-08-10
 
 - decision: Native Windows AI tooling is managed under `~/.local`: `ai-wt.cmd`

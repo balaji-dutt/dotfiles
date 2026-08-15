@@ -22,6 +22,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = REPO_ROOT / "bin" / "executable_ai-wt.tmpl"
 WINDOWS_LAUNCHER = REPO_ROOT / "dot_local" / "executable_ai-wt.cmd"
 WINDOWS_COMMIT_WRAPPERS = {
+    "OpenCode": REPO_ROOT / "dot_local" / "executable_oc-commit.ps1",
+    "Claude": REPO_ROOT / "dot_local" / "executable_cc-commit.ps1",
+}
+WINDOWS_COMMIT_STUBS = {
     "OpenCode": REPO_ROOT / "dot_local" / "executable_oc-commit.cmd",
     "Claude": REPO_ROOT / "dot_local" / "executable_cc-commit.cmd",
 }
@@ -471,8 +475,11 @@ class WindowsLauncherTests(unittest.TestCase):
             root = Path(temp_dir)
             shutil.copy2(WINDOWS_LAUNCHER, root / "ai-wt.cmd")
             shutil.copy2(SOURCE_WRAPPER, root / "ai-wt.py")
+            (root / "where.cmd").write_text("@exit /b 1\n", encoding="utf-8")
             env = os.environ.copy()
-            env["PATH"] = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32")
+            env["PATH"] = str(root)
+            env.pop("_AI_WT_PYTHON", None)
+            env.pop("_AI_WT_PYTHON_ARGS", None)
             result = subprocess.run(
                 [self.comspec, "/d", "/c", str(root / "ai-wt.cmd"), "--help"],
                 env=env,
@@ -481,7 +488,7 @@ class WindowsLauncherTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.returncode, 2, f"stdout={result.stdout!r}\nstderr={result.stderr!r}")
         self.assertIn("Python 3.10 or newer was not found", result.stderr)
 
     def test_ai_wt_cmd_runs_windows_lifecycle_and_preserves_exit(self) -> None:
@@ -580,17 +587,18 @@ class WindowsLauncherTests(unittest.TestCase):
             )
 
 
-@unittest.skipUnless(os.name == "nt", "requires cmd.exe")
+@unittest.skipUnless(os.name == "nt", "requires native Windows")
 class WindowsCommitWrapperTests(unittest.TestCase):
-    def test_wrappers_set_identity_preserve_args_and_scope_environment(self) -> None:
-        comspec = os.environ.get("ComSpec", r"C:\Windows\System32\cmd.exe")
+    def test_powershell_wrappers_preserve_multiline_args_and_scope_environment(self) -> None:
         git = shutil.which("git")
-        if not git:
-            self.skipTest("git is required")
+        pwsh = shutil.which("pwsh")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
         expected = {
             "OpenCode": "OpenCode <noreply@opencode.ai>|OpenCode <noreply@opencode.ai>",
             "Claude": "Claude <noreply@anthropic.com>|Claude <noreply@anthropic.com>",
         }
+        body = '- first bullet\n- second "quoted" & <angle> | pipe\n- third 100% ^ caret ! bang $dollar'
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -609,7 +617,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                 subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
                 message = f"Commit as {identity}!"
                 result = subprocess.run(
-                    [comspec, "/d", "/v:on", "/c", str(wrapper), "-m", message],
+                    [pwsh, "-NoProfile", "-File", str(wrapper), "-m", message, "-m", body],
                     cwd=repo,
                     env=env,
                     check=False,
@@ -626,25 +634,96 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                     stdout=subprocess.PIPE,
                 ).stdout.strip()
                 self.assertEqual(actual, expected[identity])
-                subject = subprocess.run(
-                    [git, "log", "-1", "--format=%s"],
+                commit_message = subprocess.run(
+                    [git, "log", "-1", "--format=%B"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.replace("\r\n", "\n").rstrip("\n")
+                self.assertEqual(commit_message, f"{message}\n\n{body}")
+
+                failed = subprocess.run(
+                    [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "No changes"],
+                    cwd=repo,
+                    env=env,
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertNotEqual(failed.returncode, 0)
+
+            self.assertEqual(env["GIT_AUTHOR_NAME"], "Parent Author")
+            self.assertEqual(env["GIT_COMMITTER_NAME"], "Parent Committer")
+
+    def test_bare_commands_resolve_to_powershell_wrappers(self) -> None:
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("pwsh is required")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wrapper_dir = Path(temp_dir)
+            for identity, wrapper in WINDOWS_COMMIT_WRAPPERS.items():
+                command_name = "oc-commit" if identity == "OpenCode" else "cc-commit"
+                shutil.copy2(wrapper, wrapper_dir / f"{command_name}.ps1")
+                shutil.copy2(WINDOWS_COMMIT_STUBS[identity], wrapper_dir / f"{command_name}.cmd")
+
+            env = os.environ.copy()
+            env["PATH"] = f"{wrapper_dir}{os.pathsep}{env['PATH']}"
+            result = subprocess.run(
+                [
+                    pwsh,
+                    "-NoProfile",
+                    "-Command",
+                    "$paths = foreach ($name in 'oc-commit', 'cc-commit') { "
+                    "(Get-Command $name -ErrorAction Stop).Source }; "
+                    "$paths | ConvertTo-Json -Compress",
+                ],
+                env=env,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            resolved = [Path(item) for item in json.loads(result.stdout)]
+            self.assertEqual(
+                [item.name for item in resolved],
+                ["oc-commit.ps1", "cc-commit.ps1"],
+            )
+            self.assertTrue(all(item.parent == wrapper_dir for item in resolved))
+
+    def test_cmd_stubs_refuse_without_committing(self) -> None:
+        comspec = os.environ.get("ComSpec", r"C:\Windows\System32\cmd.exe")
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("git is required")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for index, wrapper in enumerate(WINDOWS_COMMIT_STUBS.values(), start=1):
+                tracked = repo / f"refused-{index}.txt"
+                tracked.write_text("must remain staged\n", encoding="utf-8")
+                subprocess.run([git, "add", tracked.name], cwd=repo, check=True)
+                result = subprocess.run(
+                    [comspec, "/d", "/c", str(wrapper), "-m", "Must not commit"],
+                    cwd=repo,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 64)
+                self.assertIn("cannot safely forward", result.stderr.lower())
+                self.assertIn("powershell", result.stderr.lower())
+                self.assertIn(".ps1", result.stderr.lower())
+                count = subprocess.run(
+                    [git, "rev-list", "--count", "--all"],
                     cwd=repo,
                     check=True,
                     text=True,
                     stdout=subprocess.PIPE,
                 ).stdout.strip()
-                self.assertEqual(subject, message)
-
-            self.assertEqual(env["GIT_AUTHOR_NAME"], "Parent Author")
-            failed = subprocess.run(
-                [comspec, "/d", "/c", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]), "-m", "No changes"],
-                cwd=repo,
-                env=env,
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            self.assertNotEqual(failed.returncode, 0)
+                self.assertEqual(count, "0")
 
 
 if __name__ == "__main__":

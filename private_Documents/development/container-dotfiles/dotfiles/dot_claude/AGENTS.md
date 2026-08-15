@@ -92,13 +92,19 @@ important findings against the current source.
   change command behavior and are not an agent dependency.
 - When a repository documents a guarded sync helper, call that helper
   explicitly instead of using native `bd dolt pull` or `bd dolt push`.
+- When a repository documents Beads client mode on native Windows, `bd.exe`
+  there is a client of a Dolt server hosted elsewhere. Do not run
+  `bd dolt start|stop` and do not run the PowerShell sync helper; delegate sync
+  to the host as that repo describes. A server-unreachable error means start the
+  host, not stand up a local database.
 
 ## Commit workflow
 
 - **Never use `git commit` directly.** Always use `cc-commit` instead. This wrapper ensures commits are attributed to Claude rather than the human user's git identity.
-- `cc-commit` is available as a Bash wrapper on POSIX and a managed `.cmd`
-  wrapper on native Windows. Pass normal `git commit` arguments to it from
-  either environment.
+- `cc-commit` is available as a Bash wrapper on POSIX and a managed `.ps1`
+  wrapper on native Windows. Invoke the Windows wrapper from PowerShell; the
+  same-name `.cmd` stub refuses because batch cannot preserve multiline
+  arguments. Pass normal `git commit` arguments from either supported shell.
 - When work is complete and verified, propose a commit message for approval before running `cc-commit`.
 - When drafting or cleaning up that commit message, use the `unslop-commit` skill to keep it in direct engineer voice (Conventional Commits, no AI/marketing slop). The skill only writes the message; it never stages or runs `git`.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
