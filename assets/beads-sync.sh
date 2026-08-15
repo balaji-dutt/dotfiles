@@ -83,7 +83,22 @@ resolve_managed_executable() {
 }
 
 # Strip the private remote URL out of anything we echo. The repo is public.
-redact() { sed -E 's#(git\+ssh://|ssh://|https://)[^[:space:]"]*#\1<REDACTED>#g'; }
+# The second expression covers the scp-style form (user@host:path), which
+# require_ssh_agent treats as a valid remote shape. It hides host and path
+# alike, matching what the first expression already does for ssh:// URLs -
+# the host is no less private for being written the other way round. The
+# trailing + is what preserves the documented `git@host: Permission denied`
+# diagnostic: a space after the colon means no match.
+#
+# Order matters. The first expression swallows the whole token after the
+# scheme, so nothing with an `@` reaches the second. Reversed,
+# `ssh://user@host:22/path` would match the scp pattern first and leave the
+# host exposed. No \b - BSD sed on macOS does not support it.
+redact() {
+  sed -E \
+    -e 's#(git\+ssh://|ssh://|https://)[^[:space:]"]*#\1<REDACTED>#g' \
+    -e 's#[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^[:space:]"]+#<REDACTED>#g'
+}
 
 repo_root() {
   local script_dir
@@ -301,6 +316,47 @@ dirty_csv() {
 
 remote_name() {
   dolt_sql -r csv -q "select name from dolt_remotes limit 1;" 2>/dev/null | tail -n +2
+}
+
+# Scheme detection only - the caller must never echo this unredacted.
+remote_url() {
+  dolt_sql -r csv -q "select url from dolt_remotes limit 1;" 2>/dev/null | tail -n +2
+}
+
+# Dolt cannot prompt for credentials. When the agent socket has gone stale (a
+# routine event on WSL2, where the Pageant relay socket dies with its old
+# session), the failure surfaces deep inside dolt_pull as "Could not read from
+# remote repository", which reads like a missing repo or a permissions problem
+# rather than a dead $SSH_AUTH_SOCK. Check it up front so the message names the
+# actual fix.
+require_ssh_agent() {
+  local url rc=0
+  # A preflight must not be able to abort the run it is protecting: a failed
+  # query here yields an empty url, the test below fails, and we return 0.
+  url="$(remote_url || true)"
+  [[ "$url" == ssh://* || "$url" == git+ssh://* || "$url" =~ ^[^/]+@[^/]+: ]] || return 0
+  have ssh-add || return 0
+
+  ssh-add -l >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) echo "WARNING: ssh-agent is reachable but holds no identities; an SSH remote will fail unless a key file is configured." >&2 ;;
+    # rc>=2 is "cannot reach an agent", which covers two different setups.
+    # SSH_AUTH_SOCK unset can be deliberate - no agent, and a passphraseless
+    # IdentityFile carries the remote - so refusing there would break a valid
+    # config. Set but unreachable is the stale-socket failure this preflight
+    # exists for, and that one is fatal. 'sset' is WSL2-only (dot_bashrc.tmpl,
+    # 60-wsl-native-commands.zsh.tmpl), so it is named as a platform case
+    # rather than as the fix. Re-adding a key cannot help while the agent
+    # itself is unreachable; the advice has to be to restore the agent.
+    *)
+      if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+        echo "WARNING: no ssh-agent configured (SSH_AUTH_SOCK unset); the sync will only work if an unencrypted IdentityFile covers this remote." >&2
+      else
+        die "ssh-agent is unreachable (SSH_AUTH_SOCK=${SSH_AUTH_SOCK}). Dolt cannot prompt for credentials, so the sync would fail inside dolt_pull with a misleading 'Could not read from remote repository'. Restore the agent and retry - on WSL2 run 'sset' to respawn the Pageant relay; elsewhere start a fresh ssh-agent and re-add your key."
+      fi
+      ;;
+  esac
 }
 
 # The private sync remote URL. Never echo it unredacted - the repo is public.
@@ -640,7 +696,53 @@ cmd_clean() {
   info "reset: $(echo "$tables" | tr '\n' ' ')"
 }
 
+# Best effort: most Beads tables key on `id`, so name the rows that collided.
+# Composite-key tables (dependencies, labels) have no such column; staying quiet
+# there is fine, the per-table count above already flagged them.
+conflict_ids() {
+  local table="$1" ids id
+  ids="$(dolt_sql -r csv -q "select coalesce(base_id, our_id, their_id) as id from dolt_conflicts_${table} limit 20;" 2>/dev/null | tail -n +2 || true)"
+  [[ -n "${ids//[[:space:]]/}" ]] || return 0
+  while read -r id; do
+    [[ -z "$id" ]] && continue
+    echo "ERROR:     row: $id" >&2
+  done <<< "$ids"
+}
+
+# Without @@dolt_allow_commit_conflicts, a conflicting merge rolls the whole
+# transaction back and dolt reports only that the flag is unset - you are told
+# how to keep conflicts, never what conflicted. With the flag, the conflicts
+# land in the working set where they can be read. We report them, then abort the
+# merge: leaving the database half-merged would let the next bd command run
+# against a conflicted working set.
+report_pull_conflicts() {
+  local csv schema_csv table count
+  # Note the column names differ between the two system tables: dolt_conflicts
+  # keys on `table`, dolt_schema_conflicts on `table_name`. Both assignments
+  # tolerate failure - a diagnostic path must not itself abort under `set -e`.
+  csv="$(dolt_sql -r csv -q "select \`table\`, num_conflicts from dolt_conflicts;" 2>/dev/null | tail -n +2 || true)"
+  schema_csv="$(dolt_sql -r csv -q "select table_name from dolt_schema_conflicts;" 2>/dev/null | tail -n +2 || true)"
+  [[ -n "${csv//[[:space:]]/}" || -n "${schema_csv//[[:space:]]/}" ]] || return 0
+
+  echo "ERROR: the merge produced conflicts; nothing was committed." >&2
+  while IFS=, read -r table count; do
+    [[ -z "$table" ]] && continue
+    echo "ERROR:   ${table}: ${count} conflicting row(s)" >&2
+    conflict_ids "$table"
+  done <<< "$csv"
+  while read -r table; do
+    [[ -z "$table" ]] && continue
+    echo "ERROR:   ${table}: schema conflict" >&2
+  done <<< "$schema_csv"
+
+  echo "ERROR: aborting the merge so the working set is left clean." >&2
+  dolt_sql -q "call dolt_merge('--abort');" >/dev/null 2>&1 ||
+    echo "ERROR: 'dolt_merge --abort' failed; this working set is STILL conflicted. Do not run bd against it until you resolve it." >&2
+  die "resolve the rows above by hand, then re-run. Recipe: docs/beads.md 'Merge conflicts on pull'."
+}
+
 cmd_pull() {
+  require_ssh_agent
   sync_boundary_snapshot forced
   restart_server
 
@@ -658,7 +760,11 @@ cmd_pull() {
   # THE WHOLE POINT: the reset and the merge run in ONE dolt session. Do not
   # split these, and do not call `bd dolt pull` instead - bd dirties the working
   # set inside its own pull and then fails to merge on its own dirt.
-  sql="$(checkout_sql "$tables")call dolt_pull('${remote}','${branch}');"
+  #
+  # dolt_allow_commit_conflicts keeps a conflicting merge's conflicts in the
+  # working set instead of discarding them with the transaction; see
+  # report_pull_conflicts for why that matters and what happens next.
+  sql="$(checkout_sql "$tables")set @@dolt_allow_commit_conflicts = 1; call dolt_pull('${remote}','${branch}');"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     info "[dry-run] would run: $sql"
@@ -666,13 +772,17 @@ cmd_pull() {
   fi
 
   info "pulling from '${remote}' (reset + merge in one session)"
-  dolt_sql -q "$sql" 2>&1 | tr -d '\r' | redact
+  local rc=0
+  dolt_sql -q "$sql" 2>&1 | tr -d '\r' | redact || rc=$?
+  report_pull_conflicts
+  return "$rc"
 }
 
 cmd_push() {
   local remote
   remote="$(remote_name)"
   [[ -n "$remote" ]] || die "no Dolt remote configured; refusing push; see docs/beads.md"
+  require_ssh_agent
 
   if [[ "$DO_BACKUP" -eq 1 ]]; then
     sync_boundary_snapshot forced

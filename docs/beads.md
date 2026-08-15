@@ -823,6 +823,19 @@ Do not escalate to dropping the database for this failure. It is a process
 environment problem; the drop path costs the Dolt history and the repo's remote
 config, and leaves the JSONL export as the only way back.
 
+`beads-sync.sh pull` and `push` check this before doing anything: if the remote
+is an SSH URL and `ssh-add -l` cannot reach an agent while `SSH_AUTH_SOCK` is
+set — a stale socket — they refuse up front and name the fix rather than letting
+it surface as `Could not read from remote repository` from inside `dolt_pull`.
+With `SSH_AUTH_SOCK` unset they only warn, since a passphraseless `IdentityFile`
+is a valid setup. On WSL2 the fix is usually `sset`, the
+Pageant relay helper defined in `dot_bashrc.tmpl` and
+`dot_local/share/zsh/60-wsl-native-commands.zsh.tmpl`; it does not exist on
+macOS, where the equivalent is starting a fresh `ssh-agent` and re-adding the
+key. Note that `ssh-add` alone cannot fix an unreachable agent — it is the
+answer to the separate "reachable but holds no identities" warning, not to a
+dead socket.
+
 ### `bd dolt pull` always fails: `cannot merge with uncommitted changes`
 
 `bd dolt pull` cannot succeed in this repo. Use `beads-sync pull` instead — see
@@ -864,6 +877,67 @@ pull attempts can corrupt the Dolt journal, needing
 check integrity, stop the server and run `dolt fsck` from `.beads/dolt/dots/` —
 without the `--revive` flag it is read-only and prints `No problems found` on a
 healthy database.
+
+### Merge conflicts on pull
+
+```
+error on line 1 for query call dolt_pull('origin','main'): Error 1105 (HY000):
+Merge conflict detected, @autocommit transaction rolled back.
+```
+
+This one is not a bug in the sync path — two peers really did edit the same row.
+The message is unhelpful because with `@@autocommit` on, dolt discards the whole
+merge before you can look at it, so it can only tell you which flag to set.
+
+`beads-sync.sh pull` now sets `@@dolt_allow_commit_conflicts = 1` for the merge, so
+the conflicts land in the working set instead. It then prints the conflicted
+tables and row IDs and runs `dolt_merge('--abort')`, leaving the working set
+clean — a half-merged database would break the next `bd` command.
+
+To resolve, inspect the collision first. The merge only exists inside a session,
+so the pull and the inspection have to be one invocation:
+
+```bash
+PORT=${BEADS_DOLT_SERVER_PORT:-$(cat .beads/dolt-server.port)}
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  --use-db dots sql -q "
+    set autocommit=0;
+    call dolt_pull('origin','main');
+    select base_id, our_id, their_id, our_status, their_status,
+           our_updated_at, their_updated_at
+      from dolt_conflicts_issues;
+    rollback;
+  "
+```
+
+`rollback` discards the probe, so this is safe to repeat. Compare every column
+that differs before choosing a side — the two peers usually changed *different*
+fields, and `--ours` silently drops the other peer's work.
+
+Then apply the resolution, again in one session. Take one side wholesale, graft
+the other side's columns back on, and commit the merge:
+
+```bash
+dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
+  --use-db dots sql -q "
+    set autocommit=0;
+    call dolt_pull('origin','main');
+    call dolt_conflicts_resolve('--ours','issues');
+    update issues set notes = '...', priority = 2 where id = 'dots-0lg';
+    call dolt_commit('-A','-m','Merge origin/main; resolve dots-0lg');
+    commit;
+  "
+```
+
+Take a snapshot first (`./assets/beads-sync.sh snapshot`), and verify afterwards
+that `dolt_status` and `dolt_conflicts` are empty and
+`dolt_log('main..remotes/origin/main')` counts zero. Worked example: `dots-0lg`
+on 2026-08-15, where this peer had closed the issue while the other had raised
+its priority and appended a design section — the resolution kept the close and
+grafted the other peer's design notes back in.
+
+Note the column names differ between the two system tables: `dolt_conflicts`
+keys on `` `table` ``, `dolt_schema_conflicts` on `table_name`.
 
 ### Sync wedge: pull says "ahead", push is rejected non-fast-forward
 
