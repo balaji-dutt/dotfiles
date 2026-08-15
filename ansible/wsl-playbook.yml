@@ -123,6 +123,12 @@
     # ansible-playbook command line. Renovate keeps it current.
     plannotator_version: "{{ plannotator_version | default('') }}"
 
+    # Same mechanism, but these two exist to keep macOS and WSL2 on one value.
+    # A machine on an older bd minor targets a lower Dolt schema and cannot read
+    # a migrated remote; see docs/beads.md "Schema migrations".
+    beads_version: "{{ beads_version | default('') }}"
+    dolt_version: "{{ dolt_version | default('') }}"
+
   pre_tasks:
     - name: Load packages configuration
       ansible.builtin.include_vars:
@@ -181,6 +187,22 @@
         dest: "{{ ansible_env.HOME }}/.config/mise/conf.d/90-wsl2.toml"
         state: link
         force: true
+
+    # bd is pinned in .chezmoidata.yaml and passed in as beads_version so macOS
+    # and WSL2 cannot drift; see docs/beads.md "Schema migrations". Written here
+    # rather than by chezmoi because this playbook runs from a run_onchange_before
+    # script, so a chezmoi-rendered fragment would land after the mise install
+    # below and only take effect on the next apply. dolt is not installed via
+    # mise here; it comes from the release tarball task further down.
+    - name: Write mise Beads pin fragment
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.config/mise/conf.d/95-beads.toml"
+        mode: "0644"
+        content: |
+          # Managed by ansible/wsl-playbook.yml. Pin lives in .chezmoidata.yaml.
+          [tools]
+          "github:gastownhall/beads" = "{{ beads_version }}"
+      when: (beads_version | default('')) | length > 0
 
     - name: Install mise tools from global config
       ansible.builtin.command: mise install -y
@@ -449,17 +471,24 @@
       changed_when: false
       failed_when: false
 
+    # `dolt version` prints a trailing "newest version is X" warning line when a
+    # release is available, so match the leading CLI line rather than the first
+    # version-shaped string anywhere in stdout (.opencode/journal.md 2026-05-16).
     - name: Parse installed dolt version
       ansible.builtin.set_fact:
         dolt_installed_version: >-
           {{
             (dolt_version_cmd.stdout | default(''))
+            | regex_search('(?m)^dolt version\s+[0-9]+\.[0-9]+\.[0-9]+')
+            | default('', true)
             | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
-            | default('')
+            | default('', true)
           }}
 
     - name: Install or upgrade dolt
-      when: (dolt_installed_version | default('')) != versions.dolt
+      when:
+        - (dolt_version | default('')) | length > 0
+        - (dolt_installed_version | default('')) != dolt_version
       block:
         - name: Create temporary directory for dolt archive extraction
           ansible.builtin.tempfile:
@@ -469,7 +498,7 @@
 
         - name: Download and extract dolt release archive
           ansible.builtin.unarchive:
-            src: "https://github.com/dolthub/dolt/releases/download/v{{ versions.dolt }}/dolt-linux-{{ deb_arch }}.tar.gz"
+            src: "https://github.com/dolthub/dolt/releases/download/v{{ dolt_version }}/dolt-linux-{{ deb_arch }}.tar.gz"
             dest: "{{ dolt_extract_dir.path }}"
             remote_src: true
 
@@ -479,6 +508,30 @@
             dest: "{{ local_bin }}/dolt"
             mode: "0755"
             remote_src: true
+
+        - name: Verify installed dolt version
+          ansible.builtin.command: "{{ local_bin }}/dolt version"
+          register: dolt_verify_cmd
+          changed_when: false
+
+        - name: Parse verified dolt version
+          ansible.builtin.set_fact:
+            dolt_verified_version: >-
+              {{
+                (dolt_verify_cmd.stdout | default(''))
+                | regex_search('(?m)^dolt version\s+[0-9]+\.[0-9]+\.[0-9]+')
+                | default('', true)
+                | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
+                | default('', true)
+              }}
+
+        - name: Assert dolt version matches chezmoi data pin
+          ansible.builtin.assert:
+            that:
+              - dolt_verified_version == dolt_version
+            fail_msg: >-
+              dolt version mismatch after install
+              (wanted {{ dolt_version }}, got {{ dolt_verified_version | default('unknown') }})
 
       always:
         - name: Remove temporary dolt extraction directory

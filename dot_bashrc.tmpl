@@ -282,6 +282,20 @@ alias ops=' eval $(op signin)'
 {{- if or (eq .chezmoi.os "darwin")
           $isWSL }}
 
+# bash gets no `mise activate`, so mise-managed tools are invisible here. That
+# matters for bd and dolt: assets/beads-sync.sh is a bash script and the Beads
+# git hooks run under bash, and on macOS neither tool has a Homebrew copy to
+# fall back on. Prepending matches the precedence zsh already applies on WSL2.
+_mise_shims="${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims"
+if [ -d "$_mise_shims" ]; then
+  case ":$PATH:" in
+    *":$_mise_shims:"*) ;;
+    *) PATH="$_mise_shims:$PATH" ;;
+  esac
+  export PATH
+fi
+unset _mise_shims
+
 # OpenCode env (trusted file)
 case $- in
   *a*)

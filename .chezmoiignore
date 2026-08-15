@@ -31,6 +31,9 @@ bin/vnc_monitor.sh
 bin/nfs_dot_clean.sh
 .agent-of-empires
 .agent-of-empires/**
+{{/* WSL2 gets its bd pin from ansible, which must write it before
+     `mise install -y` runs in the provision before-script. */}}
+.config/mise/conf.d/95-beads-dolt.toml
 {{ end }}
 
 {{/* OpenCode notifier bridge is used on macOS and WSL2 only. */}}

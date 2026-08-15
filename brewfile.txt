@@ -13,10 +13,6 @@ brew "antidote"
 brew "tmux"
 # Terminal session manager for AI coding agents
 brew "aoe"
-# Git for Data
-brew "dolt"
-# Memory upgrade for your coding agent
-brew "beads"
 # Manage your dotfiles across multiple diverse machines, securely
 brew "chezmoi"
 # Good-lookin' diffs with diff-highlight and more

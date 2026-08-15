@@ -1,5 +1,12 @@
+# bd and dolt are pinned here rather than per-platform so macOS and WSL2 cannot
+# hold different versions. A machine on an older bd minor targets a lower Dolt
+# schema and cannot read a migrated remote; see docs/beads.md "Schema
+# migrations". macOS reads these via private_dot_config/mise/conf.d, WSL2 via
+# ansible extra vars from run_onchange_before_00-wsl-provision.sh.tmpl.
+beads_version: "1.1.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
 ccr_port: 3456
 codebase_memory_mcp_version: "0.9.0" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
+dolt_version: "2.2.4" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
 lazygit_version: "0.63.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).
 # wsl_repo_rel is relative to the WSL2 $HOME, which is resolved at runtime so

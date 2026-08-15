@@ -14,6 +14,11 @@
 {{- $mise := joinPath .chezmoi.sourceDir "configs/mise.toml" }}
 # config/mise.toml hash: {{ if stat $mise }}{{ include $mise | sha256sum }}{{ else }}empty{{ end }}
 
+# Rendered into ~/.config/mise/conf.d/95-beads-dolt.toml. Hash the two values
+# rather than all of .chezmoidata.yaml, which changes often enough that every
+# unrelated pin bump would re-run the whole hydration.
+# beads/dolt pins: {{ .beads_version }}/{{ .dolt_version }}
+
 {{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 

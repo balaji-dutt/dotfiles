@@ -1,0 +1,6 @@
+# Managed by chezmoi. Pins live in .chezmoidata.yaml so macOS and WSL2 share
+# one value per tool. macOS only: WSL2 gets its own 95-beads.toml written by
+# ansible/wsl-playbook.yml, and installs dolt from a release tarball instead.
+[tools]
+"github:gastownhall/beads" = "{{ .beads_version }}"
+"github:dolthub/dolt" = "{{ .dolt_version }}"

@@ -39,8 +39,7 @@
       "customType": "regex",
       "managerFilePatterns": [
         "/^configs\\/packages\\.yaml$/",
-        "/^\\.chezmoidata\\.yaml$/",
-        "/^configs\\/mise_wsl2\\.toml$/"
+        "/^\\.chezmoidata\\.yaml$/"
       ],
       "matchStrings": [
         "(?:^|\\r?\\n)[ \\t]*\\w+:[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*",
