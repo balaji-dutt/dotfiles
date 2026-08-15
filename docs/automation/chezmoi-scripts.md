@@ -33,6 +33,8 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_macos-nfs-config.sh.tmpl` | after | macOS system NFSv4 client default reconciliation |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
+| `run_after_windows-beads-client.ps1.tmpl` | after | Windows Beads client environment wiring |
+| `run_after_windows-beads-pin.ps1.tmpl` | after | Windows Beads Winget pin reconciliation |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |

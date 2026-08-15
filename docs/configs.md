@@ -36,11 +36,11 @@
 - `versions`: externally fetched WSL tool version pins (for example mnemo,
   lazydocker)
 
-Tools that must stay identical across macOS and WSL2 are pinned in
-`.chezmoidata.yaml` instead, so there is no second file to drift against. That
-covers `beads_version` and `dolt_version`, which the provisioning hook passes to
-ansible as extra vars; see `docs/beads.md` for why a skew there breaks the
-shared Dolt schema.
+Tools that must stay aligned across hosts are pinned in `.chezmoidata.yaml`
+instead, so there is no second version file to drift against. `beads_version`
+feeds macOS mise, WSL2 ansible, and the native-Windows Winget pin;
+`dolt_version` feeds only macOS and WSL2 because Windows runs in client mode.
+See `docs/beads.md` for why a Beads minor skew breaks the shared Dolt schema.
 
 On WSL2, `ansible/wsl-playbook.yml` consumes `configs/packages.yaml`,
 `configs/mise.toml`, `configs/mise_wsl2.toml`, `configs/uv_tools.txt`, and the

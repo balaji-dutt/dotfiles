@@ -1,0 +1,101 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# Keep the native Windows Winget package behind the same exact-version guard as
+# macOS and WSL2. This hook owns only the pin: package installation, upgrades,
+# and downgrades remain manual.
+#
+# This is run_after_, not run_onchange_after_, on purpose. The Winget pin is
+# local mutable state, so every apply reasserts it even when the rendered
+# content has not changed.
+
+$BeadsVersion = "{{ .beads_version }}"
+$PackageId = "GasTownHall.Beads"
+$DryRun = -not [string]::IsNullOrWhiteSpace($env:BEADS_WINGET_PIN_DRY_RUN)
+
+if ([string]::IsNullOrWhiteSpace($BeadsVersion)) {
+  throw "beads_version is empty in .chezmoidata.yaml"
+}
+
+$winget = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $winget) {
+  Write-Host "INFO: winget.exe not found; leaving the Beads package pin unchanged"
+  exit 0
+}
+
+$pinArguments = @(
+  "pin", "add",
+  "--id", $PackageId,
+  "--exact",
+  "--version", $BeadsVersion,
+  "--source", "winget",
+  "--force",
+  "--accept-source-agreements",
+  "--disable-interactivity"
+)
+
+if ($DryRun) {
+  Write-Host "INFO: Would run: winget.exe $($pinArguments -join ' ')"
+} else {
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    & $winget.Source @pinArguments
+    $pinExitCode = $LASTEXITCODE
+  } catch {
+    throw "Could not set the Winget pin for ${PackageId}: $($_.Exception.Message)"
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($null -eq $pinExitCode -or $pinExitCode -ne 0) {
+    throw "winget.exe could not pin ${PackageId} at ${BeadsVersion} (exit code $pinExitCode)"
+  }
+
+  Write-Host "INFO: pinned ${PackageId} at ${BeadsVersion} through Winget"
+}
+
+$bd = Get-Command bd.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $bd) {
+  Write-Warning "bd.exe not found; install ${PackageId} ${BeadsVersion} manually"
+  exit 0
+}
+
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  $versionOutput = @(& $bd.Source version 2>$null)
+  $versionExitCode = $LASTEXITCODE
+} catch {
+  Write-Warning "Could not query bd.exe version: $($_.Exception.Message)"
+  exit 0
+} finally {
+  $ErrorActionPreference = $previousErrorActionPreference
+}
+
+if ($null -eq $versionExitCode -or $versionExitCode -ne 0) {
+  Write-Warning "bd.exe version exited with code $versionExitCode"
+  exit 0
+}
+
+$versionText = $versionOutput -join "`n"
+$versionMatch = [regex]::Match(
+  $versionText,
+  '(?m)^bd version\s+(?<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b'
+)
+if (-not $versionMatch.Success) {
+  Write-Warning "Could not parse the installed version from bd.exe version output"
+  exit 0
+}
+
+$InstalledVersion = $versionMatch.Groups["version"].Value
+if ($InstalledVersion -ne $BeadsVersion) {
+  Write-Warning "Installed bd.exe is ${InstalledVersion}; install ${PackageId} ${BeadsVersion} manually to match .chezmoidata.yaml"
+  exit 0
+}
+
+Write-Host "INFO: installed bd.exe ${InstalledVersion} matches the shared pin"
+{{- end -}}

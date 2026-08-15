@@ -114,7 +114,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these thirteen
+Windows ignores `.chezmoiscripts/**` by default and then admits these fourteen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -129,6 +129,7 @@ rendered hook targets:
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
 | `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
 | `windows-beads-client.ps1` | `run_after_windows-beads-client.ps1.tmpl` | after | Export the WSL2-hosted Beads server connection for native Windows clients |
+| `windows-beads-pin.ps1` | `run_after_windows-beads-pin.ps1.tmpl` | after | Reapply the shared exact-version Winget pin and report installed Beads drift |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |

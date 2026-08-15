@@ -43,14 +43,15 @@ mise downloads `bd` directly from its upstream GitHub release archive. This
 avoids relying on npm lifecycle scripts, and the archive still does not include
 the Dolt server.
 
-Both POSIX platforms read one pin per tool from `.chezmoidata.yaml`
-(`beads_version`, `dolt_version`), so macOS and WSL2 cannot drift apart.
+All three host platforms read `beads_version` from `.chezmoidata.yaml`. macOS
+and WSL2 also read `dolt_version` there; native Windows has no Dolt binary in
+client mode.
 
 | Platform | `bd` | `dolt` |
 | --- | --- | --- |
 | macOS | GitHub release via mise (`private_dot_config/mise/conf.d/95-beads-dolt.toml`) | GitHub release via mise, same fragment |
 | WSL2 | GitHub release via mise; ansible writes `~/.config/mise/conf.d/95-beads.toml` from `beads_version` | GitHub release tarball via ansible, from `dolt_version` |
-| Windows | Winget `GasTownHall.Beads` package (manual install) | none — client mode; see below |
+| Windows | Winget `GasTownHall.Beads` package (manual install); exact Gating pin managed by `.chezmoiscripts/run_after_windows-beads-pin.ps1.tmpl` from `beads_version` | none — client mode; see below |
 
 Neither tool is Homebrew-managed on macOS. Both used to be, and both drifted:
 on 2026-08-15 an unattended `brew upgrade` moved macOS to dolt 2.3.0 and bd
@@ -66,7 +67,21 @@ apply.
 
 On Windows, `configs/winget-packages.json` is an exported inventory rather than
 an automatically imported chezmoi manifest. It records the supported `bd`
-package, but a clean host still needs a manual Winget installation.
+package, but a clean host still needs a manual Winget installation. The managed
+`run_after_windows-beads-pin.ps1.tmpl` hook reapplies an exact Gating pin from
+`beads_version` and warns when the installed `bd.exe` reports a different
+version. It does not install, upgrade, or downgrade the package, so every
+`beads_version` bump also requires installing that version on Windows. A
+Gating pin is a package-manager guardrail, not a security boundary: Winget
+`--force`, package self-updates, and other installers can bypass it.
+
+Chezmoi owns the `GasTownHall.Beads` pin and normalizes any prior pin type on
+apply. If this management is intentionally retired, remove the hook and then
+remove the local pin from a profile-free PowerShell session:
+
+```powershell
+winget.exe pin remove --id GasTownHall.Beads --exact --source winget
+```
 
 `dolt` is deliberately **not** installed on Windows. That box is a client of the
 WSL2 server (**Windows client mode** below), and removing the binary is what

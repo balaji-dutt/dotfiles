@@ -90,13 +90,21 @@ beads-sync push
 Without direnv, including in agent and non-interactive shells, keep using the
 explicit entrypoint (for example, `./assets/beads-sync.sh status`).
 
-### Windows (PowerShell 7)
+### Windows peer mode (PowerShell 7)
+
+These commands apply only to a Windows checkout that owns a local Dolt
+database:
 
 ```powershell
 pwsh -NoProfile -File ./assets/beads-sync.ps1 status
 pwsh -NoProfile -File ./assets/beads-sync.ps1 pull
 pwsh -NoProfile -File ./assets/beads-sync.ps1 push
 ```
+
+This repository's native Windows checkout runs in client mode and deliberately
+has no local Dolt database. The PowerShell helper therefore refuses these
+commands and prints the corresponding WSL2-host command; run
+`./assets/beads-sync.sh` from the WSL2 checkout instead.
 
 Commands are `status`, `clean`, `pull`, `push`, `init`; both accept a dry-run
 and a backup flag (`init` rejects backup — there is no database to export at
