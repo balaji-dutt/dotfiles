@@ -43,8 +43,8 @@
         "/^configs\\/mise_wsl2\\.toml$/"
       ],
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\w+:[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)",
-        "(?:^|\\r?\\n)[ \\t]*\\\"github:[^\\\"\\s]+\\\"[ \\t]*=[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)[ \\t]*\\w+:[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*",
+        "(?:^|\\r?\\n)[ \\t]*\\\"github:[^\\\"\\s]+\\\"[ \\t]*=[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*"
       ]
     },
     {
@@ -53,7 +53,7 @@
         "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/dot_devcontainer\\/devcontainer\\.json\\.tmpl$/"
       ],
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\\"[A-Z_]+\\\":[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\",[ \\t]*\\/\\/[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)[ \\t]*\\\"[A-Z_]+\\\":[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\",[ \\t]*\\/\\/[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*"
       ]
     },
     {
@@ -62,7 +62,7 @@
         "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/dot_devcontainer\\/postCreate\\.sh$/"
       ],
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*python3[ \\t]+-m[ \\t]+pip[ \\t]+install[ \\t]+--user[ \\t]+\\\"[^\\\"=]+==(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)[ \\t]*python3[ \\t]+-m[ \\t]+pip[ \\t]+install[ \\t]+--user[ \\t]+\\\"[^\\\"=]+==(?<currentValue>[^\\\"]+)\\\"[ \\t]+#[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?[ \\t]*"
       ]
     },
     {
@@ -73,7 +73,7 @@
       "datasourceTemplate": "pypi",
       "versioningTemplate": "pep440",
       "matchStrings": [
-        "(?:^|\\r?\\n)(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[0-9][^\\s#]*)(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[0-9][^\\s#]*)"
       ]
     },
     {
@@ -83,7 +83,7 @@
       ],
       "datasourceTemplate": "npm",
       "matchStrings": [
-        "(?:^|\\r?\\n)(?<depName>(?:@[^\\/\\s]+\\/)?[^@\\s]+)@(?<currentValue>[0-9][^\\s#]*)(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)(?<depName>(?:@[^\\/\\s]+\\/)?[^@\\s]+)@(?<currentValue>[0-9][^\\s#]*)"
       ]
     },
     {
@@ -109,14 +109,14 @@
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "Astro-Han/claude-pace",
       "matchStrings": [
-        "(?:^|\\r?\\n)CLAUDE_PACE_VERSION=\\\"(?<currentValue>v[^\\\"]+)\\\"[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)CLAUDE_PACE_VERSION=\\\"(?<currentValue>v[^\\\"]+)\\\"[ \\t]*"
       ]
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^configs\\/host-ai-plugin-refresh\\.jsonc$/"],
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*\\\"version\\\":[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]*,?[ \\t]*\\/\\/[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?(?:[ \\t]+versioning=(?<versioning>\\S+))?[ \\t]*(?:\\r?\\n|$)"
+        "(?:^|\\r?\\n)[ \\t]*\\\"version\\\":[ \\t]*\\\"(?<currentValue>[^\\\"]+)\\\"[ \\t]*,?[ \\t]*\\/\\/[ \\t]*renovate:[ \\t]+datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?(?:[ \\t]+versioning=(?<versioning>\\S+))?[ \\t]*"
       ]
     }
   ],
