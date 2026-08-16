@@ -27,6 +27,7 @@ not arbitrary third-party images. For broader managed-file inventories, see the
 | Beads (`bd`) | **Supported** — `GasTownHall.Beads` in the export-only Winget inventory remains a manual install; `.chezmoidata.yaml` owns the version, `.chezmoiscripts/run_after_windows-beads-pin.ps1.tmpl` enforces its exact Gating pin, and `.chezmoiscripts/run_after_windows-beads-client.ps1.tmpl` points `bd.exe` at the WSL2 server. | **Supported** — `.chezmoidata.yaml` owns the version and the WSL Ansible playbook writes and hydrates the Beads mise fragment. | **Supported** — `.chezmoidata.yaml` and `private_dot_config/mise/conf.d/95-beads-dolt.toml.tmpl` own the pinned mise install, not Homebrew. | **Supported** — `@beads/bd` in the devcontainer npm manifest is installed by `postCreate.sh`. |
 | Dolt | **Unsupported** — the native binary is deliberately absent because Windows is only a client of the WSL2-hosted server. | **Supported** — `.chezmoidata.yaml` owns the version and the WSL Ansible playbook installs the pinned release that hosts the shared server. | **Supported** — `.chezmoidata.yaml` and `private_dot_config/mise/conf.d/95-beads-dolt.toml.tmpl` own the pinned mise install, not Homebrew. | **Supported** — `postCreate.sh` installs the separately pinned release. |
 | codebase-memory-mcp | **Supported** — the checksum-verifying `install_codebase-memory-mcp.ps1` chezmoi hook installs the pinned native binary and the Claude MCP hook registers it. | **Supported** — `configs/mise.toml` owns the GitHub release and the WSL Ansible playbook runs mise. | **Supported** — `configs/mise.toml` owns the GitHub release through the non-WSL package hook. | **Supported** — `CBM_VERSION` and `postCreate.sh` own the checksum-verified portable release; lifecycle wiring registers the Claude MCP server. |
+| DeepWiki MCP | **Supported** — the managed OpenCode configuration and Windows Claude MCP hook register the remote HTTPS service; there is no local server executable to provision. | **Supported** — the managed OpenCode configuration and POSIX Claude MCP hook register the remote HTTPS service; there is no local server executable to provision. | **Supported** — the managed OpenCode configuration and POSIX Claude MCP hook register the remote HTTPS service; there is no local server executable to provision. | **Supported** — the container lifecycle consumes `configs/claude-mcp.json` from the host dotfiles and registers the remote HTTPS service for Claude; there is no local server executable to provision. |
 | Plannotator CLI | **Supported** — the checksum-verifying `install_plannotator.ps1` chezmoi hook installs only the pinned native binary. | **Supported** — the WSL Ansible playbook installs the pinned, checksum-verified Linux release. | **Supported** — the `install_plannotator.sh` chezmoi hook installs the pinned, checksum-verified Darwin release. | **Supported** — `PLANNOTATOR_VERSION` and `postCreate.sh` own the checksum-verified Linux release. |
 | jq | **Supported** — `jqlang.jq` in the export-only Winget inventory; install it manually on a clean host. Missing jq degrades the Claude statusline and Beads guard as documented in the Windows inventory. | **Supported** — `jq` in `configs/packages.yaml`, installed through apt by the WSL Ansible playbook. | **Supported** — `jq` in `configs/mise.toml`, installed by the non-WSL package hook. | **Supported** — the container-dotfiles installer adds the apt package when it is missing. |
 
@@ -63,6 +64,78 @@ See [AI Worktree Wrapper](../automation/ai-worktrees.md),
 [Plannotator](../plannotator.md), and
 [Devcontainers and Container Dotfiles](../devcontainers.md) for operational
 details.
+
+## Drift-prevention check
+
+Run the static check before approving a plan that changes AI tooling and before
+claiming its implementation:
+
+```powershell
+py -3 assets/check-ai-tooling.py
+```
+
+```sh
+python3 assets/check-ai-tooling.py
+```
+
+The check reads `configs/ai-tooling-support.json` and scans active MCP runtime
+declarations in the managed OpenCode configurations, `configs/claude-mcp.json`,
+and Claude agent frontmatter. Every local MCP command and remote MCP server name
+must map to a row above, and each mapped row must have an explicit decision and
+owner or reason for all four environments.
+
+When adding or changing an AI runtime dependency:
+
+1. Add or update its support-matrix row and name the provisioning owner or the
+   reason it is unsupported in every platform cell.
+2. Add its command or MCP server alias to `configs/ai-tooling-support.json`.
+3. Add any new runtime-declaration location to the policy's source patterns.
+4. Run the static check and `tests/test_ai_tooling_drift.py`.
+
+The static boundary deliberately excludes prose examples, permission patterns,
+package/runtime manifests, and generated-agent source definitions. Review those
+manually, including host/container mirrors, and update the policy when they add
+a runtime declaration or a new declaration location. Generated outputs remain
+owned by their generator workflow and must not be hand-edited for this check.
+
+This is the local/manual stage of the policy. Platform CI is deferred until the
+check has proved stable.
+
+### Native Windows preflight
+
+Run this before plan approval or implementation claim. Check only the commands
+needed by the task, but include the full baseline for AI-tooling or Beads work:
+
+```powershell
+$required = @(
+  "claude", "opencode", "bd.exe", "jq", "codebase-memory-mcp",
+  "plannotator", "py", "git", "chezmoi"
+)
+$required += "oc-commit" # Use cc-commit for a Claude Code session.
+$missing = $required | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
+if ($missing) { throw "Missing required commands: $($missing -join ', ')" }
+
+claude --version
+opencode --version
+bd.exe --version
+jq --version
+codebase-memory-mcp --version
+plannotator --version
+py -3 --version
+git --version
+chezmoi --version
+py -3 assets/check-ai-tooling.py
+```
+
+For Beads work, also run `bd.exe show <issue-id>` to verify the WSL2-hosted Dolt
+server is reachable. Native Windows deliberately has no Dolt executable or local
+database; their absence is not a preflight failure. For MCP-dependent work, run
+`claude mcp list`, `opencode mcp list`, and
+`codebase-memory-mcp cli list_projects` to verify the clients and local server.
+
+If a task-required command or service fails, stop before approval or claim.
+Follow the provisioning owner named in the matrix, or move the work to an
+environment whose row is supported; do not defer discovery until implementation.
 
 ## Provisioning sources
 

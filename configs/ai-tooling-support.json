@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "matrix": "docs/inventory/ai-tooling.md",
+  "sources": [
+    {
+      "format": "opencode-jsonc",
+      "patterns": [
+        ".opencode/opencode.jsonc",
+        "private_dot_config/opencode/**/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/**/opencode.jsonc"
+      ]
+    },
+    {
+      "format": "claude-mcp-json",
+      "patterns": [
+        "configs/claude-mcp.json"
+      ]
+    },
+    {
+      "format": "claude-agent-frontmatter",
+      "patterns": [
+        "dot_claude/agents/*.md",
+        "private_Documents/development/container-dotfiles/dotfiles/dot_claude/agents/*.md"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "claude-code",
+      "matrix_row": "Claude Code",
+      "command_aliases": ["claude"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "opencode",
+      "matrix_row": "OpenCode",
+      "command_aliases": ["opencode"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "beads",
+      "matrix_row": "Beads and Dolt",
+      "command_aliases": ["bd"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "codebase-memory-mcp",
+      "matrix_row": "codebase-memory-mcp",
+      "command_aliases": ["codebase-memory-mcp"],
+      "mcp_server_aliases": ["cbm"]
+    },
+    {
+      "id": "plannotator",
+      "matrix_row": "Plannotator CLI",
+      "command_aliases": ["plannotator"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "jq",
+      "matrix_row": "jq",
+      "command_aliases": ["jq"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "deepwiki",
+      "matrix_row": "DeepWiki MCP",
+      "command_aliases": [],
+      "mcp_server_aliases": ["deepwiki"]
+    }
+  ]
+}

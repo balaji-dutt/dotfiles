@@ -27,6 +27,22 @@ python3 assets/sync-browser-policies.py --write
 
 No mode flag is equivalent to `--write`.
 
+### AI tooling drift check
+
+Checks active MCP runtime declarations against the support matrix without
+changing files or contacting external services:
+
+```sh
+python3 assets/check-ai-tooling.py
+```
+
+```powershell
+py -3 assets/check-ai-tooling.py
+```
+
+See `docs/inventory/ai-tooling.md` for the scan boundary, update checklist, and
+native-Windows preflight.
+
 ### Claude MCP registration
 
 Registers the user-scope Claude MCP servers declared in `configs/claude-mcp.json`.
