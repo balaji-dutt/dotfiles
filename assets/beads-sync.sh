@@ -69,7 +69,7 @@ resolve_managed_executable() {
     return 0
   fi
 
-  # WSL2 owns real files in local-bin; macOS local-bin links to mise shims.
+  # WSL2 may own real files in local-bin; macOS falls back to mise shims.
   for candidate in \
     "$HOME/.local/bin/$tool" \
     "${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims/$tool"; do

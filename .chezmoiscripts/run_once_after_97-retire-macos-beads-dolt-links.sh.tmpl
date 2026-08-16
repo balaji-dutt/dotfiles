@@ -1,0 +1,40 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly MISE_SHIMS="${HOME}/.local/share/mise/shims"
+
+retire_mise_link() {
+  local tool="$1"
+  local link_path="${HOME}/.local/bin/${tool}"
+  local expected_target="${MISE_SHIMS}/${tool}"
+  local actual_target
+
+  if [[ ! -L "$link_path" ]]; then
+    if [[ -e "$link_path" ]]; then
+      /usr/bin/printf 'INFO: preserving non-symlink path: %s\n' "$link_path"
+    fi
+    return 0
+  fi
+
+  actual_target="$(/usr/bin/readlink "$link_path")"
+  if [[ "$actual_target" != "$expected_target" ]]; then
+    /usr/bin/printf 'INFO: preserving symlink with different target: %s\n' \
+      "$link_path"
+    return 0
+  fi
+
+  command rm -f -- "$link_path"
+  if [[ -e "$link_path" || -L "$link_path" ]]; then
+    /usr/bin/printf 'ERROR: failed to remove retired symlink: %s\n' \
+      "$link_path" >&2
+    return 1
+  fi
+
+  /usr/bin/printf 'Removed retired mise shim symlink: %s\n' "$link_path"
+}
+
+retire_mise_link bd
+retire_mise_link dolt
+{{- end }}

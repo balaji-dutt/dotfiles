@@ -65,8 +65,12 @@ than installing it as a shell side effect.
 
 WSL2 Bash sessions use mise shims because they do not run full activation, and
 the ansible-installed Dolt binary remains the real `~/.local/bin/dolt` file.
-On macOS, managed `~/.local/bin/bd` and `dolt` symlinks point to mise shims so
-GUI and noninteractive consumers do not depend on shell activation. Native
+On macOS, Beads Kanban receives the absolute mise shim path through the managed
+workspace setting, so Finder and Dock launches do not depend on shell
+activation or launch `PATH`. `assets/beads-sync.sh` likewise resolves the tools
+from `PATH` or their managed locations. The former `~/.local/bin/bd` and `dolt`
+links were retired because interactive mise activation could expose a direct
+install alongside the links and trigger a duplicate-binary warning. Native
 Windows resolves the Winget-managed `bd.exe`; delegated sync explicitly adds
 the WSL2 shim and local-bin directories before invoking the POSIX helper.
 

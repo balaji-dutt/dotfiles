@@ -24,6 +24,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_once_before_copy_ansible_key.sh.tmpl` | once | ansible key placement |
 | `run_once_before_copy_sublime_merge_packages.sh.tmpl` | once | Sublime Merge package sync |
 | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once | Windows Sublime Merge sync |
+| `run_once_after_97-retire-macos-beads-dolt-links.sh.tmpl` | once | retire legacy macOS mise shim links |
 | `run_once_after_99-cleanup-wrong-apply.sh.tmpl` | once | cleanup after wrong apply |
 | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once | Windows cleanup variant |
 | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once | migrate the Windows quota sidecar to APPDATA |

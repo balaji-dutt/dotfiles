@@ -35,11 +35,9 @@
         "todo-tree.tree.showBadges": true,
         "todo-tree.tree.showCountsInTree": true,
 {{- if eq .chezmoi.os "darwin" }}
-        // Beads Kanban spawns bare `bd` with shell:false and no PATH
-        // augmentation, so it inherits VS Code's launch PATH, which from
-        // Finder/Dock has neither ~/.local/bin nor mise. Symlink is
-        // darwin-gated in .chezmoiignore; keep both gates in step (dots-0lg).
-        "beadsKanban.bdPath": "{{ .chezmoi.homeDir }}/.local/bin/bd",
+        // Finder/Dock VS Code does not inherit mise activation. Give Beads
+        // Kanban the stable managed shim path instead of relying on launch PATH.
+        "beadsKanban.bdPath": "{{ .chezmoi.homeDir }}/.local/share/mise/shims/bd",
 {{- end }}
         "files.associations": {
             "*.tmpl": "helm",

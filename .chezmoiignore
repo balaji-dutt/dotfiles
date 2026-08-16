@@ -34,16 +34,6 @@ bin/nfs_dot_clean.sh
 {{/* WSL2 gets its bd pin from ansible, which must write it before
      `mise install -y` runs in the provision before-script. */}}
 .config/mise/conf.d/95-beads-dolt.toml
-{{/* Resolve bd/dolt without an interactive shell, for GUI editors and git
-     hooks. They point at mise shims rather than an install path, so they track
-     the pin through a rollback; installs/<tool>/latest follows the highest
-     installed version, not the pinned one. macOS only: ansible owns a real file
-     at ~/.local/bin/dolt on WSL2, so a symlink there would fight it on every
-     apply. WSL2's own PATH ordering problem is tracked in dots-0lg. Keep this
-     gate in step with the darwin gate on beadsKanban.bdPath in
-     private_Documents/development/vscode-workspace/. */}}
-.local/bin/bd
-.local/bin/dolt
 {{ end }}
 
 {{/* OpenCode notifier bridge is used on macOS and WSL2 only. */}}
