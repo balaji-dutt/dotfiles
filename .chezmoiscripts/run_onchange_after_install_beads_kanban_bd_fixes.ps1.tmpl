@@ -3,17 +3,17 @@
 {{- else -}}
 # Install the forked Beads-Kanban VSIX release used for local bd work.
 # Change trigger (chezmoi re-runs on hash change):
-# tag: bd-fixes-v2.1.4-bd.3-0a9f3ec
-# sha256: dc3a185751888a2b28aaa5be5bef17200e97d6d5c0a2fc4848ea3cf6dfe8966d
+# tag: bd-fixes-v2.1.4-bd.5-fed50b3
+# sha256: f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526
 
 $ErrorActionPreference = "Stop"
 
 $Repo                = "balaji-dutt/Beads-Kanban"
-$Tag                 = "bd-fixes-v2.1.4-bd.3-0a9f3ec"
-$Asset               = "beads-kanban-bd-fixes-2.1.4-bd.3-integration-bd-fixes-0a9f3ec.vsix"
-$ExpectedSha         = "dc3a185751888a2b28aaa5be5bef17200e97d6d5c0a2fc4848ea3cf6dfe8966d"
+$Tag                 = "bd-fixes-v2.1.4-bd.5-fed50b3"
+$Asset               = "beads-kanban-bd-fixes-2.1.4-bd.5-integration-bd-fixes-fed50b3.vsix"
+$ExpectedSha         = "f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526"
 $ForkExtensionId     = "balaji-dutt.beads-kanban-bd-fixes"
-$ForkVersion         = "2.1.4-bd.3"
+$ForkVersion         = "2.1.4-bd.5"
 $UpstreamExtensionId = "davidcforbes.beads-kanban"
 
 if (-not (Get-Command code -ErrorAction SilentlyContinue)) {

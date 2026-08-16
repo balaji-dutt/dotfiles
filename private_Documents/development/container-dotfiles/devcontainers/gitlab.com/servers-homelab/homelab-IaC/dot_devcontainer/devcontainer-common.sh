@@ -912,11 +912,11 @@ install_beads_kanban_bd_fixes_vscode_extension() {
   local current_sha tmp_file list_output install_output
 
   repo="balaji-dutt/Beads-Kanban"
-  tag="bd-fixes-v2.1.4-bd.3-0a9f3ec"
-  asset="beads-kanban-bd-fixes-2.1.4-bd.3-integration-bd-fixes-0a9f3ec.vsix"
-  expected_sha="dc3a185751888a2b28aaa5be5bef17200e97d6d5c0a2fc4848ea3cf6dfe8966d"
+  tag="bd-fixes-v2.1.4-bd.5-fed50b3"
+  asset="beads-kanban-bd-fixes-2.1.4-bd.5-integration-bd-fixes-fed50b3.vsix"
+  expected_sha="f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526"
   fork_extension_id="balaji-dutt.beads-kanban-bd-fixes"
-  fork_version="2.1.4-bd.3"
+  fork_version="2.1.4-bd.5"
   upstream_extension_id="davidcforbes.beads-kanban"
 
   if ! code_cmd="$(find_vscode_cli)"; then
