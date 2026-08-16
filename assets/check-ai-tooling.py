@@ -18,6 +18,7 @@ REQUIRED_DEPENDENCIES = frozenset(
         "claude-code",
         "codebase-memory-mcp",
         "deepwiki",
+        "dolt",
         "jq",
         "opencode",
         "plannotator",

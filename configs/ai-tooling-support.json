@@ -39,8 +39,14 @@
     },
     {
       "id": "beads",
-      "matrix_row": "Beads and Dolt",
+      "matrix_row": "Beads (bd)",
       "command_aliases": ["bd"],
+      "mcp_server_aliases": []
+    },
+    {
+      "id": "dolt",
+      "matrix_row": "Dolt",
+      "command_aliases": [],
       "mcp_server_aliases": []
     },
     {

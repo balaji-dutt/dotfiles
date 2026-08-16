@@ -13,7 +13,8 @@ CHECKER = REPO_ROOT / "assets/check-ai-tooling.py"
 DEPENDENCIES = (
     ("claude-code", "Claude Code", ["claude"], []),
     ("opencode", "OpenCode", ["opencode"], []),
-    ("beads", "Beads and Dolt", ["bd"], []),
+    ("beads", "Beads (bd)", ["bd"], []),
+    ("dolt", "Dolt", [], []),
     ("codebase-memory-mcp", "codebase-memory-mcp", ["codebase-memory-mcp"], ["cbm"]),
     ("plannotator", "Plannotator CLI", ["plannotator"], []),
     ("jq", "jq", ["jq"], []),
@@ -75,10 +76,11 @@ class DriftFixture:
             "| Tool | Native Windows | WSL2 | macOS | Devcontainer |",
             "| :--- | :--- | :--- | :--- | :--- |",
         ]
-        rows.extend(
-            f"| {row} | {decision} | {decision} | {decision} | {decision} |"
-            for _, row, _, _ in DEPENDENCIES
-        )
+        for _, row, _, _ in DEPENDENCIES:
+            rendered_row = "Beads (`bd`)" if row == "Beads (bd)" else row
+            rows.append(
+                f"| {rendered_row} | {decision} | {decision} | {decision} | {decision} |"
+            )
         self.matrix_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
     def write_opencode(self, mcp: str | None = None) -> None:
