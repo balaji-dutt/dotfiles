@@ -41,7 +41,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
 | `run_onchange_after_host_ai_plugin_refresh.sh.tmpl` | onchange | Claude/OpenCode host plugin refresh |
-| `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange | Windows host plugin refresh source (not admitted) |
+| `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange | Windows Claude/OpenCode host plugin refresh |
 | `run_onchange_after_install_plannotator.sh.tmpl` | onchange | Host Plannotator CLI installation |
 | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange | Windows Plannotator CLI installation |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | non-WSL package installs |
@@ -60,14 +60,24 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - Follow `docs/agents/ADDING_SCRIPTS.md` when adding new scripts.
 - User-scope Claude MCP server registration is configured by
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
-- Native Windows admits the Claude MCP and Plannotator install hooks, but keeps
-  `host_ai_plugin_refresh.ps1` excluded; see `docs/inventory/windows.md`.
+- Native Windows admits the Claude MCP, Plannotator install, and host plugin
+  refresh hooks; see `docs/inventory/windows.md`.
 - The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
   `dot_claude/settings-base.json`, but only the former is hashed into its
   onchange trigger; see `docs/devcontainers.md`.
 - A failed Claude plugin refresh reports an `ERROR:` and continues to the
   remaining plugins and the OpenCode cache step; a failed marketplace update is
   likewise non-fatal. The hook exits non-zero at the end when either failed.
+- On Windows, Claude refresh commands run before OpenCode process gating. An
+  active or uninspectable OpenCode process defers only cache mutation and exits
+  nonzero so the onchange hook retries after OpenCode closes. The cache root is
+  restricted to the normalized default or explicit XDG location, and recursive
+  removal accepts only validated paths under its direct `packages` child.
+- A Windows deferral stops the current apply, so later hooks wait for the
+  successful standalone-PowerShell retry; it is not a successful partial apply.
+- Use a directly rendered script with `HOST_AI_PLUGIN_REFRESH_DRY_RUN=1` for a
+  state-preserving Windows preview. Do not use `chezmoi apply` only as a preview;
+  see `docs/inventory/windows.md` for the command and standalone retry flow.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.

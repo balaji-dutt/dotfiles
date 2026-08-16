@@ -101,8 +101,15 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   plugin can declare a staged npm cache install for a pinned compatibility
   workaround; while OpenCode is running, the script may add a new versioned
   cache key but never replace an existing one. Detached or zombie OpenCode
-  server processes are logged and ignored. Native Windows keeps the analogous
-  host plugin-refresh hook excluded from applies.
+  server processes are logged and ignored.
+- Native Windows admits the analogous hook with platform-specific cache safety.
+  Claude marketplace and plugin commands always run first. An apply launched
+  from OpenCode then defers all npm/cache mutation and exits nonzero, preserving
+  the onchange retry and stopping later hooks in that apply. Close OpenCode and
+  rerun `chezmoi apply` from standalone PowerShell. Windows accepts only its
+  normalized default or explicit XDG cache root, removes the validated
+  `packages` child, and rechecks process state before removal and staged
+  publication.
 - Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
 
 `@ansible/ansible-mcp-server` is installed from this npm package list. During

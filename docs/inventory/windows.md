@@ -124,7 +124,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these fourteen
+Windows ignores `.chezmoiscripts/**` by default and then admits these fifteen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -134,6 +134,7 @@ rendered hook targets:
 | `browser-policies.ps1` | `run_onchange_after_browser-policies.ps1.tmpl` | onchange, after | Import enabled Chrome and Firefox registry policies |
 | `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange, after | Reconcile declarative user-scope Claude MCP registrations |
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
+| `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange, after | Refresh Claude plugins and rebuild the closed-session OpenCode package cache |
 | `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
 | `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
@@ -204,11 +205,49 @@ The Windows-capable AI automation hooks have these explicit apply decisions:
 | :--- | :--- | :--- |
 | `claude_mcp_servers.ps1` | Admitted | The hook accepts only user scope, stores no tokens, filters platforms and transports, skips missing executable candidates, and leaves existing registrations unchanged unless `replace` is enabled. Set `CLAUDE_MCP_DRY_RUN=1` to preview actions. |
 | `install_plannotator.ps1` | Admitted | The binary-only hook selects the native x64 or arm64 release, verifies its pinned-version sidecar checksum and candidate version, then publishes through staged replacement with rollback. It does not run the upstream installer or mutate agent/plugin state. |
-| `host_ai_plugin_refresh.ps1` | Excluded | The hook requires closed OpenCode sessions for some cache repairs and can recursively remove the OpenCode package cache. It remains ignored until cache-root containment, deletion scope, and apply-from-OpenCode behavior receive a separate native-Windows redesign and test. |
+| `host_ai_plugin_refresh.ps1` | Admitted after native-Windows redesign | Claude marketplace and plugin refreshes run first. OpenCode cache work accepts only the normalized default cache root or explicit `XDG_CACHE_HOME\opencode`, requires `opencode debug paths` to agree when available, rejects reparse boundaries, and removes only the validated direct `packages` child. Active or uninspectable OpenCode processes defer that phase with a nonzero exit so chezmoi retries. |
 
 Use `PLANNOTATOR_INSTALL_DRY_RUN=1` to report the selected release asset and
 destination without downloading or publishing the Plannotator binary. See
 `docs/plannotator.md` for native installation and retry details.
+
+The plugin-refresh hook never kills OpenCode. It checks process state before
+cache work, again before removing `packages`, and again before publishing a
+staged compatibility install. If OpenCode is running or process inspection is
+unavailable, Claude refresh commands still finish, but the hook exits nonzero
+before unsafe OpenCode mutation. Close every OpenCode process, open standalone
+PowerShell, and run `chezmoi apply` again; the failed onchange state remains
+pending. Claude commands may run again and are intentionally idempotent. There
+is no shared OpenCode cache lock, so these checks narrow but cannot eliminate
+the final check/use race.
+
+The nonzero deferral stops that `chezmoi apply`. Hooks ordered after
+`host_ai_plugin_refresh.ps1` do not run until the standalone retry succeeds, so
+an apply launched from OpenCode is not a partial success to ignore. Before
+relying on the hook, `opencode debug paths` must report either
+`cache $HOME\.cache\opencode` or the configured
+`cache $XDG_CACHE_HOME\opencode`; the native Windows admission was verified
+against the default result. Any other root, including `%LOCALAPPDATA%`, is
+rejected rather than guessed, and an existing reparse boundary in the trusted
+path also blocks the apply.
+
+Preview the rendered hook without consuming chezmoi's onchange state:
+
+```powershell
+$source = chezmoi source-path
+$preview = Join-Path $env:TEMP 'host-ai-plugin-refresh-preview.ps1'
+chezmoi execute-template -f (Join-Path $source '.chezmoiscripts\run_onchange_after_host_ai_plugin_refresh.ps1.tmpl') |
+  Set-Content -LiteralPath $preview
+$env:HOST_AI_PLUGIN_REFRESH_DRY_RUN = '1'
+pwsh -NoProfile -File $preview
+Remove-Item Env:HOST_AI_PLUGIN_REFRESH_DRY_RUN
+Remove-Item -LiteralPath $preview
+```
+
+The dry run previews Claude commands and validates the same OpenCode cache
+boundary. If OpenCode is active, a nonzero result and cache deferral are
+expected. Do not use `chezmoi apply` merely to preview this onchange hook,
+because a successful apply records its current source state.
 
 ## Claude Code `jq` Runtime Dependency
 
@@ -240,8 +279,8 @@ The Windows section of `.chezmoiignore` uses a minimal whitelist:
   hook handles it.
 - Linux/macOS configuration trees such as `.config/mise`, `.config/lazygit`,
   and `.config/sublime-merge` remain ignored.
-- `host_ai_plugin_refresh.ps1` remains excluded for the cache-safety and active
-  OpenCode-session constraints documented above.
+- `host_ai_plugin_refresh.ps1` is admitted, but its OpenCode phase requires a
+  closed, inspectable OpenCode session as documented above.
 
 ## Verify On This Machine
 

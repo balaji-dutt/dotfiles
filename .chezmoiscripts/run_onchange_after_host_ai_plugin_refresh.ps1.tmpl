@@ -400,28 +400,234 @@ function Update-ClaudePlugins {
   Write-Host "INFO: Restart Claude Code to use refreshed plugins."
 }
 
-function Get-OpenCodeCacheRoot {
-  $fallback = Join-Path $HOME ".cache\opencode"
-  if (Get-Command opencode -ErrorAction SilentlyContinue) {
-    $paths = Invoke-External -Command "opencode" -Arguments @("debug", "paths")
-    if ($paths.ExitCode -eq 0) {
-      foreach ($line in ($paths.Output -split "`r?`n")) {
-        if ($line -match "^cache\s+(.+)$") {
-          return $Matches[1].Trim()
-        }
-      }
-    } else {
-      Write-Host "INFO: Could not read OpenCode debug paths; using default cache path."
-      if ($paths.Output) { Write-Host $paths.Output }
-    }
-  } else {
-    Write-Host "INFO: opencode command not found; using default OpenCode cache path."
-  }
-  return $fallback
+function Test-PathHasTraversal {
+  param([Parameter(Mandatory=$true)] [string] $Path)
+
+  return ($Path -split '[\\/]') -contains '..'
 }
 
-function Get-OpenCodeProcessDetails {
+function Get-NormalizedAbsolutePath {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Path,
+    [Parameter(Mandatory=$true)] [string] $Description
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    throw "$Description is empty."
+  }
+  if (Test-PathHasTraversal -Path $Path) {
+    throw "$Description contains a parent traversal segment: $Path"
+  }
+  if (-not [System.IO.Path]::IsPathFullyQualified($Path)) {
+    throw "$Description must be absolute: $Path"
+  }
+
+  try {
+    $full = [System.IO.Path]::GetFullPath($Path)
+  } catch {
+    throw "$Description is invalid: $Path ($($_.Exception.Message))"
+  }
+
+  $root = [System.IO.Path]::GetPathRoot($full)
+  if ([string]::IsNullOrWhiteSpace($root)) {
+    throw "$Description has no filesystem root: $Path"
+  }
+  if ($full.Length -gt $root.Length) {
+    $full = $full.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  }
+  return $full
+}
+
+function Test-PathEquals {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Left,
+    [Parameter(Mandatory=$true)] [string] $Right
+  )
+
+  return [string]::Equals($Left, $Right, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-PathInside {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Path,
+    [Parameter(Mandatory=$true)] [string] $Boundary
+  )
+
+  $prefix = $Boundary + [System.IO.Path]::DirectorySeparatorChar
+  return $Path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-NoReparsePointInPath {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Path,
+    [string] $Boundary
+  )
+
+  $full = Get-NormalizedAbsolutePath -Path $Path -Description "OpenCode cache path"
+  $stop = $null
+  if (-not [string]::IsNullOrWhiteSpace($Boundary)) {
+    $stop = Get-NormalizedAbsolutePath -Path $Boundary -Description "OpenCode cache boundary"
+    if (-not (Test-PathEquals -Left $full -Right $stop) -and -not (Test-PathInside -Path $full -Boundary $stop)) {
+      throw "OpenCode cache path is outside its validated boundary: $full"
+    }
+  }
+
+  $current = $full
+  while (-not [string]::IsNullOrWhiteSpace($current)) {
+    if (Test-Path -LiteralPath $current) {
+      $item = Get-Item -Force -LiteralPath $current -ErrorAction Stop
+      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "OpenCode cache path crosses a reparse point: $current"
+      }
+    }
+    if ($null -ne $stop -and (Test-PathEquals -Left $current -Right $stop)) { break }
+    $parent = Split-Path -Parent $current
+    if ([string]::IsNullOrWhiteSpace($parent) -or (Test-PathEquals -Left $parent -Right $current)) { break }
+    $current = $parent
+  }
+}
+
+function New-ValidatedOpenCodePath {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Path,
+    [Parameter(Mandatory=$true)] [string] $Boundary,
+    [Parameter(Mandatory=$true)] [string] $Purpose,
+    [switch] $AllowBoundary
+  )
+
+  $full = Get-NormalizedAbsolutePath -Path $Path -Description $Purpose
+  $boundaryFull = Get-NormalizedAbsolutePath -Path $Boundary -Description "OpenCode cache boundary"
+  $atBoundary = Test-PathEquals -Left $full -Right $boundaryFull
+  if ((-not $AllowBoundary -and $atBoundary) -or (-not $atBoundary -and -not (Test-PathInside -Path $full -Boundary $boundaryFull))) {
+    throw "$Purpose is outside its validated OpenCode cache boundary: $full"
+  }
+  Assert-NoReparsePointInPath -Path $full -Boundary $boundaryFull
+
+  $validated = [pscustomobject]@{
+    FullName = $full
+    Boundary = $boundaryFull
+    Purpose = $Purpose
+    AllowBoundary = [bool]$AllowBoundary
+  }
+  $validated.PSObject.TypeNames.Insert(0, "Dotfiles.ValidatedOpenCodePath")
+  return $validated
+}
+
+function Assert-ValidatedOpenCodePath {
+  param([Parameter(Mandatory=$true)] $ValidatedPath)
+
+  if ($ValidatedPath.PSObject.TypeNames -notcontains "Dotfiles.ValidatedOpenCodePath") {
+    throw "Recursive OpenCode cache removal requires a validated path object."
+  }
+  $checked = New-ValidatedOpenCodePath -Path $ValidatedPath.FullName -Boundary $ValidatedPath.Boundary -Purpose $ValidatedPath.Purpose -AllowBoundary:$ValidatedPath.AllowBoundary
+  return $checked.FullName
+}
+
+function Remove-ValidatedOpenCodePath {
+  param([Parameter(Mandatory=$true)] $ValidatedPath)
+
+  $full = Assert-ValidatedOpenCodePath -ValidatedPath $ValidatedPath
+  if ($DryRun -or -not (Test-Path -LiteralPath $full)) { return }
+  Remove-Item -LiteralPath $full -Recurse -Force
+}
+
+function Get-TrustedOpenCodeCacheRoots {
+  $homePath = Get-NormalizedAbsolutePath -Path $HOME -Description "HOME"
+  $roots = @(
+    Get-NormalizedAbsolutePath -Path (Join-Path $homePath ".cache\opencode") -Description "default OpenCode cache root"
+  )
+  if (-not [string]::IsNullOrWhiteSpace($env:XDG_CACHE_HOME)) {
+    $xdgRoot = Get-NormalizedAbsolutePath -Path $env:XDG_CACHE_HOME -Description "XDG_CACHE_HOME"
+    $roots += Get-NormalizedAbsolutePath -Path (Join-Path $xdgRoot "opencode") -Description "XDG OpenCode cache root"
+  }
+  return @($roots | Select-Object -Unique)
+}
+
+function New-OpenCodeCachePaths {
+  param([Parameter(Mandatory=$true)] [string] $CacheRoot)
+
+  $root = Get-NormalizedAbsolutePath -Path $CacheRoot -Description "OpenCode cache root"
+  $homePath = Get-NormalizedAbsolutePath -Path $HOME -Description "HOME"
+  $filesystemRoot = [System.IO.Path]::GetPathRoot($root)
+  if (Test-PathEquals -Left $root -Right $filesystemRoot) {
+    throw "OpenCode cache root cannot be a filesystem root: $root"
+  }
+  if (Test-PathEquals -Left $root -Right $homePath) {
+    throw "OpenCode cache root cannot be HOME: $root"
+  }
+  if ((Split-Path -Leaf $root) -ine "opencode") {
+    throw "OpenCode cache root must end in an 'opencode' directory: $root"
+  }
+
+  $trusted = @(Get-TrustedOpenCodeCacheRoots)
+  if (-not @($trusted | Where-Object { Test-PathEquals -Left $_ -Right $root }).Count) {
+    throw "OpenCode reported an untrusted cache root: $root"
+  }
+  Assert-NoReparsePointInPath -Path $root
+
+  $packagesDir = Get-NormalizedAbsolutePath -Path (Join-Path $root "packages") -Description "OpenCode packages cache"
+  if (-not (Test-PathEquals -Left (Split-Path -Parent $packagesDir) -Right $root) -or (Split-Path -Leaf $packagesDir) -ine "packages") {
+    throw "OpenCode packages cache must be the direct 'packages' child of the trusted cache root: $packagesDir"
+  }
+  $packagesPath = New-ValidatedOpenCodePath -Path $packagesDir -Boundary $packagesDir -Purpose "OpenCode packages cache" -AllowBoundary
+
+  $cachePaths = [pscustomobject]@{
+    CacheRoot = $root
+    PackagesDir = $packagesDir
+    PackagesPath = $packagesPath
+  }
+  $cachePaths.PSObject.TypeNames.Insert(0, "Dotfiles.ValidatedOpenCodeCachePaths")
+  return $cachePaths
+}
+
+function Assert-ValidatedOpenCodeCachePaths {
+  param([Parameter(Mandatory=$true)] $CachePaths)
+
+  if ($CachePaths.PSObject.TypeNames -notcontains "Dotfiles.ValidatedOpenCodeCachePaths") {
+    throw "OpenCode cache operations require a validated cache-path object."
+  }
+  $checked = New-OpenCodeCachePaths -CacheRoot $CachePaths.CacheRoot
+  if (-not (Test-PathEquals -Left $checked.PackagesDir -Right $CachePaths.PackagesDir)) {
+    throw "Validated OpenCode packages path was modified after validation."
+  }
+  return $checked
+}
+
+function Get-OpenCodeDebugCachePath {
+  if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
+    return [pscustomobject]@{ Status = "Unavailable"; Path = $null; Error = $null }
+  }
+
+  $paths = Invoke-External -Command "opencode" -Arguments @("debug", "paths")
+  if ($paths.ExitCode -ne 0) {
+    return [pscustomobject]@{ Status = "Unknown"; Path = $null; Error = $paths.Output }
+  }
+  foreach ($line in ($paths.Output -split "`r?`n")) {
+    if ($line -match "^cache\s+(.+)$") {
+      return [pscustomobject]@{ Status = "Known"; Path = $Matches[1].Trim(); Error = $null }
+    }
+  }
+  return [pscustomobject]@{ Status = "Unknown"; Path = $null; Error = "OpenCode debug paths did not report a cache path." }
+}
+
+function Get-OpenCodeCachePaths {
+  $debug = Get-OpenCodeDebugCachePath
+  if ($debug.Status -eq "Known") {
+    return New-OpenCodeCachePaths -CacheRoot $debug.Path
+  }
+  if ($debug.Status -eq "Unknown") {
+    throw "Could not verify the OpenCode cache root: $($debug.Error)"
+  }
+
+  $trusted = @(Get-TrustedOpenCodeCacheRoots)
+  $fallback = $trusted[-1]
+  Write-Host "INFO: opencode command not found; using trusted OpenCode cache path: $fallback"
+  return New-OpenCodeCachePaths -CacheRoot $fallback
+}
+
+function Get-OpenCodeProcessState {
   $details = @()
+  $cimError = $null
 
   if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
     try {
@@ -434,24 +640,30 @@ function Get-OpenCodeProcessDetails {
           CommandLine = $process.CommandLine
         }
       }
-      return $details
+      return [pscustomobject]@{ Status = $(if ($details.Count) { "Running" } else { "Stopped" }); Processes = $details; Error = $null }
     } catch {
-      Write-Host "INFO: Could not read OpenCode process command lines: $($_.Exception.Message)"
+      $cimError = $_.Exception.Message
+      Write-Host "INFO: Could not inspect OpenCode with CIM: $cimError"
     }
   }
 
-  foreach ($process in @(Get-Process -Name "opencode" -ErrorAction SilentlyContinue)) {
-    $path = $null
-    try { $path = $process.Path } catch { $path = $null }
-    $details += [pscustomobject]@{
-      Id = $process.Id
-      SessionId = $process.SessionId
-      ParentProcessId = $null
-      Path = $path
-      CommandLine = $null
+  try {
+    foreach ($process in @(Get-Process -ErrorAction Stop | Where-Object { $_.ProcessName -ieq "opencode" })) {
+      $path = $null
+      try { $path = $process.Path } catch { $path = $null }
+      $details += [pscustomobject]@{
+        Id = $process.Id
+        SessionId = $process.SessionId
+        ParentProcessId = $null
+        Path = $path
+        CommandLine = $null
+      }
     }
+    return [pscustomobject]@{ Status = $(if ($details.Count) { "Running" } else { "Stopped" }); Processes = $details; Error = $null }
+  } catch {
+    $errors = @($cimError, $_.Exception.Message) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    return [pscustomobject]@{ Status = "Unknown"; Processes = @(); Error = ($errors -join "; ") }
   }
-  return $details
 }
 
 function Write-OpenCodeProcessDetails {
@@ -474,10 +686,25 @@ function Write-OpenCodeProcessDetails {
   }
 }
 
+function Write-OpenCodeDeferral {
+  param(
+    [Parameter(Mandatory=$true)] $State,
+    [Parameter(Mandatory=$true)] [string] $Phase
+  )
+
+  if ($State.Status -eq "Running") {
+    Write-OpenCodeProcessDetails -Processes @($State.Processes)
+    Write-Host "ERROR: OpenCode is running; deferred $Phase before any unsafe cache mutation."
+  } else {
+    Write-Host "ERROR: OpenCode process state is unknown; deferred ${Phase}: $($State.Error)"
+  }
+  Write-Host "ERROR: Exit OpenCode and run chezmoi apply again from standalone PowerShell so this onchange hook can retry."
+}
+
 function Get-CachedOpenCodeVersions {
   param(
     [Parameter(Mandatory=$true)] [string] $PackagesDir,
-    [Parameter(Mandatory=$true)] [string[]] $Packages
+    [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [string[]] $Packages
   )
 
   $detections = @()
@@ -513,16 +740,23 @@ function Get-CachedOpenCodeVersions {
 
 function Get-OpenCodeCachePackageDir {
   param(
-    [Parameter(Mandatory=$true)] [string] $PackagesDir,
+    [Parameter(Mandatory=$true)] $CachePaths,
     [Parameter(Mandatory=$true)] [string] $Package,
     [Parameter(Mandatory=$true)] [string] $Version
   )
 
+  $CachePaths = Assert-ValidatedOpenCodeCachePaths -CachePaths $CachePaths
+  if ($Package -notmatch '^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$') {
+    throw "OpenCode package name cannot be mapped safely into the cache: $Package"
+  }
+  if ($Version -notmatch '^[a-z0-9][a-z0-9._+-]*$') {
+    throw "OpenCode package version cannot be mapped safely into the cache: $Version"
+  }
   $segments = @($Package -split "/")
   $segments[$segments.Count - 1] = "$($segments[$segments.Count - 1])@$Version"
-  $result = $PackagesDir
+  $result = $CachePaths.PackagesDir
   foreach ($segment in $segments) { $result = Join-Path $result $segment }
-  return $result
+  return New-ValidatedOpenCodePath -Path $result -Boundary $CachePaths.PackagesDir -Purpose "OpenCode compatibility cache target"
 }
 
 
@@ -563,31 +797,39 @@ function Test-OpenCodeCacheInstallSatisfied {
 
 function Install-OpenCodeCachePlugin {
   param(
-    [Parameter(Mandatory=$true)] [string] $PackagesDir,
+    [Parameter(Mandatory=$true)] $CachePaths,
     [Parameter(Mandatory=$true)] $Plugin,
-    [Parameter(Mandatory=$true)] [bool] $Running,
     [Parameter(Mandatory=$true)] [bool] $CacheWillBeRemoved
   )
 
-  $targetDir = Get-OpenCodeCachePackageDir -PackagesDir $PackagesDir -Package $Plugin.Package -Version $Plugin.Version
+  try {
+    $CachePaths = Assert-ValidatedOpenCodeCachePaths -CachePaths $CachePaths
+    $targetPath = Get-OpenCodeCachePackageDir -CachePaths $CachePaths -Package $Plugin.Package -Version $Plugin.Version
+  } catch {
+    Write-Host "ERROR: Refusing unsafe OpenCode compatibility cache target: $($_.Exception.Message)"
+    return $false
+  }
+  $targetDir = $targetPath.FullName
   if (-not ($DryRun -and $CacheWillBeRemoved) -and (Test-OpenCodeCacheInstallSatisfied -InstallDir $targetDir -Plugin $Plugin)) {
     Write-Host "INFO: OpenCode cache install already satisfied for $($Plugin.Package)@$($Plugin.Version): $targetDir"
-    return
+    return $true
   }
 
-  if ($Running -and (Test-Path -LiteralPath $targetDir)) {
-    Write-Host "ERROR: OpenCode is running and the existing compatibility cache is incomplete: $targetDir"
-    Write-Host "ERROR: Exit OpenCode and apply the dotfiles again to replace it safely."
-    exit 1
-  }
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     Write-Host "ERROR: npm is required for the configured OpenCode cache install $($Plugin.Package)@$($Plugin.Version)."
-    exit 1
+    return $false
   }
 
   $targetParent = Split-Path -Parent $targetDir
   $targetLeaf = Split-Path -Leaf $targetDir
   $stagingDir = Join-Path $targetParent ".$targetLeaf.installing-$PID"
+  try {
+    $targetParentPath = New-ValidatedOpenCodePath -Path $targetParent -Boundary $CachePaths.PackagesDir -Purpose "OpenCode compatibility cache parent" -AllowBoundary
+    $stagingPath = New-ValidatedOpenCodePath -Path $stagingDir -Boundary $CachePaths.PackagesDir -Purpose "OpenCode compatibility cache staging directory"
+  } catch {
+    Write-Host "ERROR: Refusing unsafe OpenCode compatibility cache staging path: $($_.Exception.Message)"
+    return $false
+  }
   $specs = @("$($Plugin.Package)@$($Plugin.Version)")
   foreach ($dependency in @($Plugin.CacheInstall.Dependencies)) {
     $specs += "$($dependency.Package)@$($dependency.Version)"
@@ -600,58 +842,67 @@ function Install-OpenCodeCachePlugin {
   if ($DryRun) {
     Write-Host "INFO: Would stage OpenCode compatibility cache: npm $($arguments -join ' ')"
     Write-Host "INFO: Would publish OpenCode compatibility cache: $targetDir"
-    return
+    return $true
   }
 
-  New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+  [void](Assert-ValidatedOpenCodePath -ValidatedPath $targetParentPath)
+  New-Item -ItemType Directory -Path $targetParentPath.FullName -Force | Out-Null
   if (Test-Path -LiteralPath $stagingDir) {
-    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+    Remove-ValidatedOpenCodePath -ValidatedPath $stagingPath
   }
   Write-Host "INFO: Staging OpenCode compatibility cache for $($Plugin.Package)@$($Plugin.Version)."
   $install = Invoke-External -Command "npm" -Arguments $arguments
   if ($install.ExitCode -ne 0) {
-    if (Test-Path -LiteralPath $stagingDir) { Remove-Item -LiteralPath $stagingDir -Recurse -Force }
+    if (Test-Path -LiteralPath $stagingDir) { Remove-ValidatedOpenCodePath -ValidatedPath $stagingPath }
     Write-Host "ERROR: Failed to install OpenCode compatibility cache for $($Plugin.Package)@$($Plugin.Version)."
     if ($install.Output) { Write-Host $install.Output }
-    exit $install.ExitCode
+    return $false
   }
   if (-not (Test-OpenCodeCacheInstallSatisfied -InstallDir $stagingDir -Plugin $Plugin)) {
-    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+    Remove-ValidatedOpenCodePath -ValidatedPath $stagingPath
     Write-Host "ERROR: Staged OpenCode compatibility cache failed version validation for $($Plugin.Package)@$($Plugin.Version)."
-    exit 1
+    return $false
   }
 
-  if ($Running -and (Test-Path -LiteralPath $targetDir)) {
-    if (Test-OpenCodeCacheInstallSatisfied -InstallDir $targetDir -Plugin $Plugin) {
-      Remove-Item -LiteralPath $stagingDir -Recurse -Force
-      Write-Host "INFO: OpenCode populated the compatibility cache during installation; keeping: $targetDir"
-      return
-    }
-    Remove-Item -LiteralPath $stagingDir -Recurse -Force
-    Write-Host "ERROR: OpenCode populated an incomplete compatibility cache during installation: $targetDir"
-    Write-Host "ERROR: Exit OpenCode and apply the dotfiles again to replace it safely."
-    exit 1
+  $publishState = Get-OpenCodeProcessState
+  if ($publishState.Status -ne "Stopped") {
+    Remove-ValidatedOpenCodePath -ValidatedPath $stagingPath
+    Write-OpenCodeDeferral -State $publishState -Phase "OpenCode compatibility cache publication"
+    return $false
   }
-  if (Test-Path -LiteralPath $targetDir) { Remove-Item -LiteralPath $targetDir -Recurse -Force }
+
+  [void](Assert-ValidatedOpenCodePath -ValidatedPath $stagingPath)
+  [void](Assert-ValidatedOpenCodePath -ValidatedPath $targetPath)
+  if (Test-Path -LiteralPath $targetDir) { Remove-ValidatedOpenCodePath -ValidatedPath $targetPath }
   Move-Item -LiteralPath $stagingDir -Destination $targetDir
   Write-Host "INFO: Published OpenCode compatibility cache: $targetDir"
+  return $true
 }
 
 
 function Update-OpenCodeCache {
-  param([Parameter(Mandatory=$true)] [object[]] $Plugins)
+  param([Parameter(Mandatory=$true)] [AllowEmptyCollection()] [object[]] $Plugins)
 
-  $cacheRoot = Get-OpenCodeCacheRoot
-  $packagesDir = Join-Path $cacheRoot "packages"
+  $initialState = Get-OpenCodeProcessState
+  Write-Host "INFO: OpenCode process state: $($initialState.Status.ToLowerInvariant())"
+  if ($initialState.Status -ne "Stopped") {
+    Write-OpenCodeDeferral -State $initialState -Phase "OpenCode package-cache refresh"
+    return $false
+  }
+
+  try {
+    $cachePaths = Get-OpenCodeCachePaths
+  } catch {
+    Write-Host "ERROR: Refusing OpenCode cache refresh: $($_.Exception.Message)"
+    return $false
+  }
+  $cacheRoot = $cachePaths.CacheRoot
+  $packagesDir = $cachePaths.PackagesDir
   $packages = @($Plugins | ForEach-Object { $_.Package })
-  $processes = @(Get-OpenCodeProcessDetails)
-  $running = $processes.Count -gt 0
-  $cacheWillBeRemoved = -not $running -and (Test-Path -LiteralPath $packagesDir)
+  $cacheWillBeRemoved = Test-Path -LiteralPath $packagesDir
 
   Write-Host "INFO: OpenCode cache root: $cacheRoot"
   Write-Host "INFO: OpenCode packages cache exists: $(if (Test-Path -LiteralPath $packagesDir -PathType Container) { 'yes' } else { 'no' })"
-  Write-Host "INFO: OpenCode blocking session: $(if ($running) { 'yes' } else { 'no' })"
-  Write-OpenCodeProcessDetails -Processes $processes
 
   $versions = Get-CachedOpenCodeVersions -PackagesDir $packagesDir -Packages $packages
   if ($versions.Detections.Count -gt 0) {
@@ -666,41 +917,61 @@ function Update-OpenCodeCache {
     Write-Host "INFO: No cached OpenCode package metadata found for '$package'."
   }
 
-  if ($running) {
-    Write-Host "INFO: OpenCode blocking session detected; not removing package cache."
-  } elseif (-not (Test-Path -LiteralPath $packagesDir)) {
+  if (-not (Test-Path -LiteralPath $packagesDir)) {
     Write-Host "INFO: OpenCode packages cache is absent; nothing to remove."
-  } elseif ($DryRun) {
-    Write-Host "INFO: Would remove OpenCode packages cache: $packagesDir"
   } else {
-    Write-Host "INFO: Removing OpenCode packages cache: $packagesDir"
-    Remove-Item -LiteralPath $packagesDir -Recurse -Force
+    $removalState = Get-OpenCodeProcessState
+    if ($removalState.Status -ne "Stopped") {
+      Write-OpenCodeDeferral -State $removalState -Phase "OpenCode package-cache removal"
+      return $false
+    }
+    if ($DryRun) {
+      [void](Assert-ValidatedOpenCodePath -ValidatedPath $cachePaths.PackagesPath)
+      Write-Host "INFO: Would remove OpenCode packages cache: $packagesDir"
+    } else {
+      Write-Host "INFO: Removing OpenCode packages cache: $packagesDir"
+      Remove-ValidatedOpenCodePath -ValidatedPath $cachePaths.PackagesPath
+    }
   }
 
   foreach ($plugin in $Plugins) {
     if ($null -ne $plugin.CacheInstall) {
-      Install-OpenCodeCachePlugin -PackagesDir $packagesDir -Plugin $plugin -Running $running -CacheWillBeRemoved $cacheWillBeRemoved
+      if (-not (Install-OpenCodeCachePlugin -CachePaths $cachePaths -Plugin $plugin -CacheWillBeRemoved $cacheWillBeRemoved)) {
+        return $false
+      }
     }
   }
 
   Write-Host "INFO: Launch or restart OpenCode to repopulate the plugin cache."
+  return $true
 }
 
-try {
-  $manifest = ConvertFrom-JsoncText -Text (Get-Content -Raw -LiteralPath $ConfigPath)
-} catch {
-  Write-Host "ERROR: Invalid host AI plugin refresh JSONC: $($_.Exception.Message)"
-  exit 1
+function Invoke-HostAiPluginRefresh {
+  $script:ClaudeFailures = @()
+  try {
+    $manifest = ConvertFrom-JsoncText -Text (Get-Content -Raw -LiteralPath $ConfigPath)
+  } catch {
+    Write-Host "ERROR: Invalid host AI plugin refresh JSONC: $($_.Exception.Message)"
+    return 1
+  }
+
+  $claudePlugins = @(Get-ClaudePlugins -Manifest $manifest)
+  Test-ClaudeEnablement -Manifest $manifest -Plugins $claudePlugins
+  Update-ClaudePlugins -Plugins $claudePlugins
+  $openCodeSucceeded = Update-OpenCodeCache -Plugins @(Get-OpenCodePlugins -Manifest $manifest)
+
+  if ($script:ClaudeFailures.Count -gt 0) {
+    $failed = ($script:ClaudeFailures | Sort-Object) -join ", "
+    Write-Host "ERROR: One or more Claude Code plugin refreshes failed: $failed"
+  }
+  if (-not $openCodeSucceeded) {
+    Write-Host "ERROR: OpenCode cache refresh did not complete; chezmoi will retry this onchange hook on the next apply."
+  }
+  if ($script:ClaudeFailures.Count -gt 0 -or -not $openCodeSucceeded) { return 1 }
+  return 0
 }
 
-$claudePlugins = @(Get-ClaudePlugins -Manifest $manifest)
-Test-ClaudeEnablement -Manifest $manifest -Plugins $claudePlugins
-Update-ClaudePlugins -Plugins $claudePlugins
-Update-OpenCodeCache -Plugins @(Get-OpenCodePlugins -Manifest $manifest)
-
-if ($script:ClaudeFailures.Count -gt 0) {
-  $failed = ($script:ClaudeFailures | Sort-Object) -join ", "
-  Write-Host "ERROR: One or more Claude Code plugin refreshes failed: $failed"
-  exit 1
+if ($MyInvocation.InvocationName -ne '.') {
+  exit (Invoke-HostAiPluginRefresh)
 }
 {{- end -}}
