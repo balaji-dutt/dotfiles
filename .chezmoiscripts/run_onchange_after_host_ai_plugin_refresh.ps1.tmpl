@@ -314,11 +314,17 @@ function Get-ClaudePluginActions {
     $InstalledIds
   )
 
-  # Unknown install state: update first so an installed plugin is not
-  # reinstalled, then fall back to install for the missing case.
+  # Unknown or stale install state: update first so an installed plugin is not
+  # reinstalled, then fall back to install when Claude rejects the record.
   if ($null -eq $InstalledIds) { return @("update", "install") }
-  if ($InstalledIds.Contains($Plugin.Id)) { return @("update") }
+  if ($InstalledIds.Contains($Plugin.Id)) { return @("update", "install") }
   return @("install")
+}
+
+function Test-ClaudePluginUpdateMissing {
+  param([Parameter(Mandatory=$true)] $Result)
+
+  return -not [string]::IsNullOrWhiteSpace($Result.Output) -and $Result.Output -match '(?i)Plugin\s+"[^"]+"\s+not found'
 }
 
 function Sync-ClaudePlugin {
@@ -339,6 +345,9 @@ function Sync-ClaudePlugin {
     $result = Invoke-External -Command "claude" -Arguments $arguments
     if ($result.ExitCode -eq 0) { return $true }
     $attempts += [pscustomobject]@{ Action = $action; Result = $result }
+    if ($action -eq "update" -and $Actions -contains "install" -and -not (Test-ClaudePluginUpdateMissing -Result $result)) {
+      break
+    }
   }
 
   # Only surfaced once every action failed, so the expected "not installed"
@@ -625,6 +634,54 @@ function Get-OpenCodeCachePaths {
   return New-OpenCodeCachePaths -CacheRoot $fallback
 }
 
+function Test-OpenCodeServeCommandLine {
+  param([AllowNull()] [string] $CommandLine)
+
+  if ([string]::IsNullOrWhiteSpace($CommandLine)) { return $false }
+  # Process identity is already restricted to opencode.exe. Only the explicit
+  # first `serve` argument is non-blocking; missing or ambiguous command lines
+  # remain conservative.
+  return $CommandLine -match '^\s*(?:"[^"]+"|\S+)\s+serve(?:\s|$)'
+}
+
+function New-OpenCodeProcessDetail {
+  param(
+    [Parameter(Mandatory=$true)] [int] $Id,
+    $SessionId,
+    $ParentProcessId,
+    [AllowNull()] [string] $Path,
+    [AllowNull()] [string] $CommandLine
+  )
+
+  $isServe = Test-OpenCodeServeCommandLine -CommandLine $CommandLine
+  return [pscustomobject]@{
+    Id = $Id
+    SessionId = $SessionId
+    ParentProcessId = $ParentProcessId
+    Path = $Path
+    CommandLine = $CommandLine
+    Blocking = -not $isServe
+    Reason = $(if ($isServe) { "serve" } else { "blocking" })
+  }
+}
+
+function New-OpenCodeProcessState {
+  param(
+    [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [object[]] $Processes,
+    [AllowNull()] [string] $ErrorMessage
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($ErrorMessage)) {
+    return [pscustomobject]@{ Status = "Unknown"; Processes = @($Processes); Error = $ErrorMessage }
+  }
+  $blocking = @($Processes | Where-Object { $_.Blocking })
+  return [pscustomobject]@{
+    Status = $(if ($blocking.Count) { "Running" } else { "Stopped" })
+    Processes = @($Processes)
+    Error = $null
+  }
+}
+
 function Get-OpenCodeProcessState {
   $details = @()
   $cimError = $null
@@ -632,15 +689,9 @@ function Get-OpenCodeProcessState {
   if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
     try {
       foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name = 'opencode.exe'" -ErrorAction Stop)) {
-        $details += [pscustomobject]@{
-          Id = $process.ProcessId
-          SessionId = $process.SessionId
-          ParentProcessId = $process.ParentProcessId
-          Path = $process.ExecutablePath
-          CommandLine = $process.CommandLine
-        }
+        $details += New-OpenCodeProcessDetail -Id $process.ProcessId -SessionId $process.SessionId -ParentProcessId $process.ParentProcessId -Path $process.ExecutablePath -CommandLine $process.CommandLine
       }
-      return [pscustomobject]@{ Status = $(if ($details.Count) { "Running" } else { "Stopped" }); Processes = $details; Error = $null }
+      return New-OpenCodeProcessState -Processes $details
     } catch {
       $cimError = $_.Exception.Message
       Write-Host "INFO: Could not inspect OpenCode with CIM: $cimError"
@@ -651,18 +702,12 @@ function Get-OpenCodeProcessState {
     foreach ($process in @(Get-Process -ErrorAction Stop | Where-Object { $_.ProcessName -ieq "opencode" })) {
       $path = $null
       try { $path = $process.Path } catch { $path = $null }
-      $details += [pscustomobject]@{
-        Id = $process.Id
-        SessionId = $process.SessionId
-        ParentProcessId = $null
-        Path = $path
-        CommandLine = $null
-      }
+      $details += New-OpenCodeProcessDetail -Id $process.Id -SessionId $process.SessionId -ParentProcessId $null -Path $path -CommandLine $null
     }
-    return [pscustomobject]@{ Status = $(if ($details.Count) { "Running" } else { "Stopped" }); Processes = $details; Error = $null }
+    return New-OpenCodeProcessState -Processes $details
   } catch {
     $errors = @($cimError, $_.Exception.Message) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    return [pscustomobject]@{ Status = "Unknown"; Processes = @(); Error = ($errors -join "; ") }
+    return New-OpenCodeProcessState -Processes @() -ErrorMessage ($errors -join "; ")
   }
 }
 
@@ -675,6 +720,10 @@ function Write-OpenCodeProcessDetails {
   }
 
   foreach ($process in $Processes) {
+    $blocking = $true
+    $reason = "blocking"
+    if ($null -ne $process.PSObject.Properties["Blocking"]) { $blocking = [bool] $process.Blocking }
+    if ($null -ne $process.PSObject.Properties["Reason"] -and -not [string]::IsNullOrWhiteSpace($process.Reason)) { $reason = $process.Reason }
     $parts = @(
       "pid=$($process.Id)",
       "session=$($process.SessionId)"
@@ -682,7 +731,11 @@ function Write-OpenCodeProcessDetails {
     if ($null -ne $process.ParentProcessId) { $parts += "parent=$($process.ParentProcessId)" }
     if (-not [string]::IsNullOrWhiteSpace($process.Path)) { $parts += "path=$($process.Path)" }
     if (-not [string]::IsNullOrWhiteSpace($process.CommandLine)) { $parts += "command=$($process.CommandLine)" }
-    Write-Host "INFO: Blocking OpenCode process: $($parts -join ' ')"
+    if ($blocking) {
+      Write-Host "INFO: Blocking OpenCode process: $($parts -join ' ')"
+    } else {
+      Write-Host "INFO: Ignoring $reason OpenCode process: $($parts -join ' ')"
+    }
   }
 }
 
@@ -693,7 +746,6 @@ function Write-OpenCodeDeferral {
   )
 
   if ($State.Status -eq "Running") {
-    Write-OpenCodeProcessDetails -Processes @($State.Processes)
     Write-Host "ERROR: OpenCode is running; deferred $Phase before any unsafe cache mutation."
   } else {
     Write-Host "ERROR: OpenCode process state is unknown; deferred ${Phase}: $($State.Error)"
@@ -865,6 +917,7 @@ function Install-OpenCodeCachePlugin {
   }
 
   $publishState = Get-OpenCodeProcessState
+  if (@($publishState.Processes).Count -gt 0) { Write-OpenCodeProcessDetails -Processes @($publishState.Processes) }
   if ($publishState.Status -ne "Stopped") {
     Remove-ValidatedOpenCodePath -ValidatedPath $stagingPath
     Write-OpenCodeDeferral -State $publishState -Phase "OpenCode compatibility cache publication"
@@ -885,6 +938,7 @@ function Update-OpenCodeCache {
 
   $initialState = Get-OpenCodeProcessState
   Write-Host "INFO: OpenCode process state: $($initialState.Status.ToLowerInvariant())"
+  if (@($initialState.Processes).Count -gt 0) { Write-OpenCodeProcessDetails -Processes @($initialState.Processes) }
   if ($initialState.Status -ne "Stopped") {
     Write-OpenCodeDeferral -State $initialState -Phase "OpenCode package-cache refresh"
     return $false
@@ -921,6 +975,7 @@ function Update-OpenCodeCache {
     Write-Host "INFO: OpenCode packages cache is absent; nothing to remove."
   } else {
     $removalState = Get-OpenCodeProcessState
+    if (@($removalState.Processes).Count -gt 0) { Write-OpenCodeProcessDetails -Processes @($removalState.Processes) }
     if ($removalState.Status -ne "Stopped") {
       Write-OpenCodeDeferral -State $removalState -Phase "OpenCode package-cache removal"
       return $false

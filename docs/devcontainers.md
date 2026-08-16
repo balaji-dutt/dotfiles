@@ -93,7 +93,8 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   and updates the rest, so it no longer depends on a Claude Code launch to
   auto-install from `enabledPlugins`. `claude plugin update` rejects an unknown
   id, so a rename or a fresh host used to fail the whole apply until Claude Code
-  had started once.
+  had started once. If Claude lists a stale install record but then rejects its
+  update, the refresh falls back to installation.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
 - The Unix-host chezmoi onchange script refreshes Claude plugins and clears the
@@ -104,12 +105,14 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   server processes are logged and ignored.
 - Native Windows admits the analogous hook with platform-specific cache safety.
   Claude marketplace and plugin commands always run first. An apply launched
-  from OpenCode then defers all npm/cache mutation and exits nonzero, preserving
-  the onchange retry and stopping later hooks in that apply. Close OpenCode and
-  rerun `chezmoi apply` from standalone PowerShell. Windows accepts only its
-  normalized default or explicit XDG cache root, removes the validated
-  `packages` child, and rechecks process state before removal and staged
-  publication.
+  from an interactive OpenCode client then defers all npm/cache mutation and
+  exits nonzero, preserving the onchange retry and stopping later hooks in that
+  apply. A CIM-identified explicit `opencode serve` process is logged and
+  ignored, matching the detached-server behavior on POSIX; ambiguous process
+  details remain blocking. Close blocking OpenCode clients and rerun
+  `chezmoi apply` from standalone PowerShell. Windows accepts only its normalized
+  default or explicit XDG cache root, removes the validated `packages` child,
+  and rechecks process state before removal and staged publication.
 - Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
 
 `@ansible/ansible-mcp-server` is installed from this npm package list. During

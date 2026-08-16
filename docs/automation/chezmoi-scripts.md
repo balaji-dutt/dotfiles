@@ -67,10 +67,14 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   onchange trigger; see `docs/devcontainers.md`.
 - A failed Claude plugin refresh reports an `ERROR:` and continues to the
   remaining plugins and the OpenCode cache step; a failed marketplace update is
-  likewise non-fatal. The hook exits non-zero at the end when either failed.
+  likewise non-fatal. A listed plugin whose update hits a stale install record
+  falls back to installation. The hook exits non-zero at the end for a
+  marketplace failure or when both plugin actions fail.
 - On Windows, Claude refresh commands run before OpenCode process gating. An
-  active or uninspectable OpenCode process defers only cache mutation and exits
-  nonzero so the onchange hook retries after OpenCode closes. The cache root is
+  interactive, ambiguous, or uninspectable OpenCode process defers only cache
+  mutation and exits nonzero so the onchange hook retries after OpenCode closes.
+  An explicit `opencode serve` process identified through CIM is logged and
+  ignored, matching the detached-server behavior on POSIX. The cache root is
   restricted to the normalized default or explicit XDG location, and recursive
   removal accepts only validated paths under its direct `packages` child.
 - A Windows deferral stops the current apply, so later hooks wait for the

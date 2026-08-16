@@ -19,6 +19,7 @@ fi
 python3 - "$config_path" "$settings_path" <<'PY'
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -335,12 +336,18 @@ def installed_claude_plugin_ids():
 
 def claude_plugin_actions(plugin, installed_ids):
     if installed_ids is None:
-        # Unknown install state: update first so an installed plugin is not
-        # reinstalled, then fall back to install for the missing case.
+        # Unknown or stale install state: update first so an installed plugin
+        # is not reinstalled, then fall back when Claude rejects the record.
         return ["update", "install"]
     if plugin["id"] in installed_ids:
-        return ["update"]
+        return ["update", "install"]
     return ["install"]
+
+
+def claude_plugin_update_missing(result):
+    return bool(
+        re.search(r'Plugin\s+"[^"]+"\s+not found', result.stdout, re.IGNORECASE)
+    )
 
 
 def sync_claude_plugin(plugin, actions):
@@ -363,6 +370,12 @@ def sync_claude_plugin(plugin, actions):
         if result.returncode == 0:
             return True
         attempts.append((action, result))
+        if (
+            action == "update"
+            and "install" in actions
+            and not claude_plugin_update_missing(result)
+        ):
+            break
 
     # Only surfaced once every action failed, so the expected "not installed"
     # noise from a probing update stays hidden when the install then succeeds.
