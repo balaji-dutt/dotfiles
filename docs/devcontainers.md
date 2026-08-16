@@ -600,12 +600,12 @@ bridge should advertise only active OpenCode tools, so a future `WebSearch`
 reappearance should be fixed in bridge/tool mapping rather than with local
 fetch-body scrubbing.
 
-The managed OpenCode shell profile and `opencode-plannotator*` wrappers also
-default `ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts.
-This prevents the bridge from reusing a stale Claude Code system prompt captured
-by the validator cache. Managed interactive `opencode` launches and the
-Plannotator wrappers are covered; direct non-shell launches must set the same
-environment variable explicitly if they bypass the managed shell/profile setup.
+The managed OpenCode shell profile, `opencode-plannotator*` wrappers, and
+OpenCode children launched through `ai-wt` also default
+`ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts. This
+prevents the bridge from reusing a stale Claude Code system prompt captured by
+the validator cache. Other direct non-shell launches must set the same
+environment variable explicitly if they bypass the managed launch paths.
 
 Remaining runtime override:
 

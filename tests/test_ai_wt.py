@@ -45,7 +45,11 @@ def load_ai_wt():
 ai_wt = load_ai_wt()
 
 
-def make_config(*, opencode_command: str = "opencode-plannotator"):
+def make_config(
+    *,
+    opencode_command: str | None = "opencode-plannotator",
+    opencode_profile: str | None = None,
+):
     root = Path("/tmp/ai-wt-test")
     return ai_wt.Config(
         repo_root=root,
@@ -58,12 +62,29 @@ def make_config(*, opencode_command: str = "opencode-plannotator"):
         cleanup_dirty="keep",
         update_exclude=False,
         opencode_command=opencode_command,
+        opencode_profile=opencode_profile,
         claude_command="claude-plannotator",
         submodule_init=False,
     )
 
 
 class AutoArgumentTests(unittest.TestCase):
+    def test_opencode_parser_accepts_profile_and_rejects_it_for_claude(self) -> None:
+        parsed, branch, tool_args = ai_wt.parse_run_args(
+            "opencode",
+            ["--opencode-profile", "custom", "feat/example"],
+        )
+
+        self.assertEqual(parsed.opencode_profile, "custom")
+        self.assertEqual(branch, "feat/example")
+        self.assertEqual(tool_args, [])
+
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ai_wt.parse_run_args(
+                "claude",
+                ["--opencode-profile", "custom", "feat/example"],
+            )
+
     def test_opencode_parser_accepts_auto_and_preserves_passthrough(self) -> None:
         parsed, branch, tool_args = ai_wt.parse_run_args(
             "opencode",
@@ -254,6 +275,238 @@ class AutoCommandTests(unittest.TestCase):
             )
 
 
+class OpenCodeProfileConfigTests(unittest.TestCase):
+    def load_profile(
+        self,
+        *,
+        cli: str | None = None,
+        env: str | None = None,
+        git: str | None = None,
+    ) -> str | None:
+        root = Path("/tmp/ai-wt-profile-config")
+        environ = {"AI_WT_OPENCODE_PROFILE": env} if env is not None else {}
+
+        def git_value(_repo_root, key):
+            return git if key == "ai-wt.opencodeProfile" else None
+
+        with (
+            mock.patch.object(ai_wt, "resolve_git_common_dir", return_value=root / ".git"),
+            mock.patch.object(ai_wt, "git_config", side_effect=git_value),
+            mock.patch.dict(ai_wt.os.environ, environ, clear=True),
+        ):
+            config = ai_wt.load_config(root, argparse.Namespace(opencode_profile=cli))
+        return config.opencode_profile
+
+    def test_profile_configuration_precedence(self) -> None:
+        self.assertEqual(self.load_profile(cli="custom", env="build", git="build"), "custom")
+        self.assertEqual(self.load_profile(env="custom", git="build"), "custom")
+        self.assertEqual(self.load_profile(git="custom"), "custom")
+        self.assertIsNone(self.load_profile())
+
+    def test_invalid_profile_configuration_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ai_wt.AiWtError, "build.*custom"):
+            self.load_profile(env="plain")
+
+    def test_new_sessions_default_to_build(self) -> None:
+        self.assertEqual(ai_wt.selected_opencode_profile(make_config()), "build")
+        self.assertEqual(
+            ai_wt.selected_opencode_profile(make_config(opencode_profile="custom")),
+            "custom",
+        )
+
+
+class OpenCodeProfileCommandTests(unittest.TestCase):
+    def test_profile_prefers_matching_posix_wrapper(self) -> None:
+        wrappers = {
+            "opencode-plannotator": "/usr/bin/opencode-plannotator",
+            "opencode-plannotator-custom": "/usr/bin/opencode-plannotator-custom",
+            "opencode": "/usr/bin/opencode",
+        }
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", False),
+            mock.patch.object(ai_wt, "command_path", side_effect=wrappers.get),
+        ):
+            build, _ = ai_wt.build_tool_command(
+                make_config(opencode_command=None),
+                "opencode",
+                Path("/tmp/worktree"),
+                [],
+                opencode_profile="build",
+            )
+            custom, _ = ai_wt.build_tool_command(
+                make_config(opencode_command=None),
+                "opencode",
+                Path("/tmp/worktree"),
+                [],
+                opencode_profile="custom",
+            )
+
+        self.assertEqual(build, ["/usr/bin/opencode-plannotator"])
+        self.assertEqual(custom, ["/usr/bin/opencode-plannotator-custom"])
+
+    def test_windows_uses_direct_opencode_for_each_profile(self) -> None:
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", True),
+            mock.patch.object(ai_wt, "command_path", return_value=r"C:\Tools\opencode.exe") as command_path,
+        ):
+            for profile in ai_wt.OPENCODE_PROFILES:
+                with self.subTest(profile=profile):
+                    command, _ = ai_wt.build_tool_command(
+                        make_config(opencode_command=None),
+                        "opencode",
+                        Path(r"C:\repo\worktree"),
+                        [],
+                        opencode_profile=profile,
+                    )
+                    self.assertEqual(command, [r"C:\Tools\opencode.exe"])
+
+        self.assertEqual(
+            command_path.call_args_list,
+            [mock.call("opencode"), mock.call("opencode")],
+        )
+
+    def test_configured_command_keeps_profile_environment_separate(self) -> None:
+        command, _ = ai_wt.build_tool_command(
+            make_config(opencode_command="opencode --agent build"),
+            "opencode",
+            Path("/tmp/worktree"),
+            ["--model", "provider/model"],
+            opencode_profile="custom",
+        )
+        self.assertEqual(
+            command,
+            ["opencode", "--agent", "build", "--model", "provider/model"],
+        )
+
+
+class OpenCodeProfileEnvironmentTests(unittest.TestCase):
+    def test_host_and_devcontainer_defaults_and_overrides(self) -> None:
+        defaults = {
+            "DEFAULT_HOST_BUILD_PORTS": "host-build",
+            "DEFAULT_HOST_CUSTOM_PORTS": "host-custom",
+            "DEFAULT_DEVCONTAINER_BUILD_PORTS": "container-build",
+            "DEFAULT_DEVCONTAINER_CUSTOM_PORTS": "container-custom",
+        }
+        with (
+            mock.patch.multiple(ai_wt, **defaults),
+            mock.patch.dict(ai_wt.os.environ, {}, clear=True),
+        ):
+            self.assertEqual(ai_wt.opencode_port_range("build"), "host-build")
+            self.assertEqual(ai_wt.opencode_port_range("custom"), "host-custom")
+            ai_wt.os.environ["DEVCONTAINER"] = "1"
+            self.assertEqual(ai_wt.opencode_port_range("build"), "container-build")
+            self.assertEqual(ai_wt.opencode_port_range("custom"), "container-custom")
+            ai_wt.os.environ["PLANNOTATOR_PORTS_CUSTOM"] = "override-custom"
+            self.assertEqual(ai_wt.opencode_port_range("custom"), "override-custom")
+
+    def test_opencode_child_gets_profile_and_sanitization(self) -> None:
+        inherited = {
+            "ANTHROPIC_SYSTEM_PROMPT_PATH": "   ",
+            "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT": "0",
+            "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "0",
+            "PLANNOTATOR_PORTS_CUSTOM": "9004-9009",
+        }
+        with (
+            mock.patch.object(ai_wt, "git_process_environment", return_value=inherited.copy()),
+            mock.patch.dict(ai_wt.os.environ, inherited, clear=True),
+        ):
+            env = ai_wt.child_process_environment("opencode", "custom")
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env["PLANNOTATOR_PORT"], "9004-9009")
+        self.assertEqual(env["OPENCODE_PLANNOTATOR_POOL"], "custom")
+        self.assertEqual(env["ANTHROPIC_SYSTEM_PROMPT_PATH"], os.devnull)
+        self.assertEqual(env["OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"], "1")
+        self.assertEqual(env["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"], "1")
+
+    def test_nonempty_anthropic_override_is_preserved(self) -> None:
+        inherited = {
+            "ANTHROPIC_SYSTEM_PROMPT_PATH": "/custom/prompt.json",
+            "PLANNOTATOR_PORTS_BUILD": "8993-8998",
+        }
+        with (
+            mock.patch.object(ai_wt, "git_process_environment", return_value=None),
+            mock.patch.dict(ai_wt.os.environ, inherited, clear=True),
+        ):
+            env = ai_wt.child_process_environment("opencode", "build")
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env["ANTHROPIC_SYSTEM_PROMPT_PATH"], "/custom/prompt.json")
+
+    def test_claude_child_does_not_receive_opencode_environment(self) -> None:
+        inherited = {"GIT_CONFIG_COUNT": "1"}
+        with mock.patch.object(ai_wt, "git_process_environment", return_value=inherited):
+            env = ai_wt.child_process_environment("claude", "custom")
+        self.assertIs(env, inherited)
+        self.assertNotIn("OPENCODE_PLANNOTATOR_POOL", env)
+        self.assertNotIn("ANTHROPIC_SYSTEM_PROMPT_PATH", env)
+
+
+class OpenCodeProfileResumeTests(unittest.TestCase):
+    def test_stored_profile_is_preserved(self) -> None:
+        metadata = {
+            "opencode_profile": "custom",
+            "tool_command": ["opencode-plannotator-custom"],
+        }
+        self.assertEqual(ai_wt.stored_opencode_profile(metadata), "custom")
+
+        command, cwd = ai_wt.build_resume_tool_command(
+            make_config(opencode_command=None, opencode_profile="build"),
+            "opencode",
+            Path("/tmp/worktree"),
+            [],
+            metadata,
+            auto=False,
+            opencode_profile=ai_wt.stored_opencode_profile(metadata),
+        )
+        self.assertEqual(command, ["opencode-plannotator-custom"])
+        self.assertEqual(cwd, Path("/tmp/worktree"))
+
+    def test_legacy_custom_wrapper_is_inferred(self) -> None:
+        self.assertEqual(
+            ai_wt.stored_opencode_profile(
+                {"tool_command": ["/usr/local/bin/opencode-plannotator-custom"]}
+            ),
+            "custom",
+        )
+        self.assertEqual(
+            ai_wt.stored_opencode_profile({"tool_command": ["opencode"]}),
+            "build",
+        )
+
+    def test_legacy_invalid_command_defaults_to_build_profile(self) -> None:
+        self.assertEqual(ai_wt.stored_opencode_profile({}), "build")
+        self.assertEqual(
+            ai_wt.stored_opencode_profile({"tool_command": "opencode"}),
+            "build",
+        )
+
+    def test_rebuilt_resume_uses_stored_profile(self) -> None:
+        config = make_config(opencode_command=None, opencode_profile="build")
+        with mock.patch.object(
+            ai_wt,
+            "command_path",
+            side_effect=lambda name: f"/usr/bin/{name}",
+        ):
+            command, _ = ai_wt.build_resume_tool_command(
+                config,
+                "opencode",
+                Path("/tmp/worktree"),
+                ["--model", "provider/model"],
+                {"tool_command": ["opencode-plannotator-custom"]},
+                auto=False,
+                opencode_profile="custom",
+            )
+        self.assertEqual(
+            command,
+            [
+                "/usr/bin/opencode-plannotator-custom",
+                "--model",
+                "provider/model",
+            ],
+        )
+
+
 class GitProcessEnvironmentTests(unittest.TestCase):
     def test_windows_adds_longpaths_without_existing_process_config(self) -> None:
         with (
@@ -324,14 +577,24 @@ class GitProcessEnvironmentTests(unittest.TestCase):
         child = mock.Mock()
         child.wait.return_value = 7
         with (
-            mock.patch.object(ai_wt, "git_process_environment", return_value=env),
+            mock.patch.object(
+                ai_wt,
+                "child_process_environment",
+                return_value=env,
+            ) as child_environment,
             mock.patch.object(ai_wt, "validate_child_command"),
             mock.patch.object(ai_wt.subprocess, "Popen", return_value=child) as popen,
         ):
-            result = ai_wt.launch_child(["agent"], Path("/tmp/worktree"))
+            result = ai_wt.launch_child(
+                ["agent"],
+                Path("/tmp/worktree"),
+                tool="opencode",
+                opencode_profile="build",
+            )
 
         self.assertEqual(result, 7)
         self.assertIs(popen.call_args.kwargs["env"], env)
+        child_environment.assert_called_once_with("opencode", "build")
 
 
 class PlatformCommandTests(unittest.TestCase):
@@ -522,6 +785,11 @@ class WindowsLauncherTests(unittest.TestCase):
                 "        'git_status_returncode': git_status.returncode,\n"
                 "        'git_status_stdout': git_status.stdout,\n"
                 "        'git_status_stderr': git_status.stderr,\n"
+                "        'plannotator_port': os.environ.get('PLANNOTATOR_PORT'),\n"
+                "        'plannotator_pool': os.environ.get('OPENCODE_PLANNOTATOR_POOL'),\n"
+                "        'system_prompt_path': os.environ.get('ANTHROPIC_SYSTEM_PROMPT_PATH'),\n"
+                "        'disable_claude_prompt': os.environ.get('OPENCODE_DISABLE_CLAUDE_CODE_PROMPT'),\n"
+                "        'disable_claude_skills': os.environ.get('OPENCODE_DISABLE_CLAUDE_CODE_SKILLS'),\n"
                 "    }), encoding='utf-8')\n"
                 "raise SystemExit(7)\n",
                 encoding="utf-8",
@@ -548,6 +816,10 @@ class WindowsLauncherTests(unittest.TestCase):
             env["AI_WT_TEST_OUTPUT"] = str(output)
             env["AI_WT_TEST_LONG_PATH"] = long_relative_path.as_posix()
             env["AI_WT_OPENCODE_COMMAND"] = subprocess.list2cmdline([sys.executable, str(fake_agent)])
+            env["PLANNOTATOR_PORTS_BUILD"] = "8993-8998"
+            env.pop("ANTHROPIC_SYSTEM_PROMPT_PATH", None)
+            env["OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"] = "0"
+            env["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"] = "0"
             result = subprocess.run(
                 [
                     self.comspec,
@@ -579,6 +851,11 @@ class WindowsLauncherTests(unittest.TestCase):
             self.assertEqual(launched["git_config_returncode"], 0)
             self.assertEqual(launched["git_status_returncode"], 0, launched["git_status_stderr"])
             self.assertEqual(launched["git_status_stdout"], "")
+            self.assertEqual(launched["plannotator_port"], "8993-8998")
+            self.assertEqual(launched["plannotator_pool"], "build")
+            self.assertEqual(launched["system_prompt_path"].lower(), "nul")
+            self.assertEqual(launched["disable_claude_prompt"], "1")
+            self.assertEqual(launched["disable_claude_skills"], "1")
             sessions = repo / ".ai-wt" / "sessions"
             self.assertEqual(list(sessions.glob("*.json")), [])
             self.assertEqual(

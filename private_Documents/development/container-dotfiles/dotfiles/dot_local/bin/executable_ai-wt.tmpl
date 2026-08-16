@@ -42,6 +42,11 @@ BRANCH_TYPES = ("feat", "fix", "chore", "docs", "refactor", "test", "build", "ci
 DEFAULT_PATH_TEMPLATE = "worktrees/{safe_branch}-{session_id}"
 DEFAULT_STATE_DIR = ".ai-wt"
 PROMPT_BACKENDS = {"auto", "gum", "plain"}
+OPENCODE_PROFILES = ("build", "custom")
+DEFAULT_HOST_BUILD_PORTS = "{{ .plannotator_ports.host.build }}"
+DEFAULT_HOST_CUSTOM_PORTS = "{{ .plannotator_ports.host.custom }}"
+DEFAULT_DEVCONTAINER_BUILD_PORTS = "{{ .plannotator_ports.devcontainer.build }}"
+DEFAULT_DEVCONTAINER_CUSTOM_PORTS = "{{ .plannotator_ports.devcontainer.custom }}"
 
 
 class AiWtError(Exception):
@@ -60,6 +65,7 @@ class Config:
     cleanup_dirty: str
     update_exclude: bool
     opencode_command: str | None
+    opencode_profile: str | None
     claude_command: str | None
     submodule_init: bool
 
@@ -163,6 +169,19 @@ def parse_bool(value: str | bool | None, default: bool) -> bool:
     die(f"invalid boolean value: {value}")
 
 
+def normalize_opencode_profile(
+    value: str | None,
+    *,
+    default: str | None = None,
+) -> str | None:
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized not in OPENCODE_PROFILES:
+        die("OpenCode profile must be 'build' or 'custom'")
+    return normalized
+
+
 def resolve_path(repo_root: Path, value: str | None, default: str) -> Path:
     raw = value or default
     path = Path(raw).expanduser()
@@ -228,6 +247,10 @@ def load_config(repo_root: Path, args: argparse.Namespace) -> Config:
     if parent_raw:
         worktree_parent = resolve_path(repo_root, parent_raw, "worktrees")
 
+    opencode_profile = normalize_opencode_profile(
+        from_sources("opencode_profile", "AI_WT_OPENCODE_PROFILE", "ai-wt.opencodeProfile")
+    )
+
     return Config(
         repo_root=repo_root,
         git_common_dir=git_common_dir,
@@ -239,6 +262,7 @@ def load_config(repo_root: Path, args: argparse.Namespace) -> Config:
         cleanup_dirty=cleanup_dirty,
         update_exclude=update_exclude,
         opencode_command=from_sources("opencode_command", "AI_WT_OPENCODE_COMMAND", "ai-wt.opencodeCommand"),
+        opencode_profile=opencode_profile,
         claude_command=from_sources("claude_command", "AI_WT_CLAUDE_COMMAND", "ai-wt.claudeCommand"),
         submodule_init=submodule_init,
     )
@@ -706,8 +730,70 @@ def validate_child_command(command: list[str]) -> None:
         )
 
 
-def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args: list[str]) -> tuple[list[str], Path]:
+def selected_opencode_profile(config: Config) -> str:
+    return normalize_opencode_profile(config.opencode_profile, default="build") or "build"
+
+
+def is_devcontainer() -> bool:
+    return (
+        os.environ.get("DEVCONTAINER") == "1"
+        or bool(os.environ.get("REMOTE_CONTAINERS"))
+        or bool(os.environ.get("CODESPACES"))
+    )
+
+
+def opencode_port_range(profile: str) -> str:
+    profile = normalize_opencode_profile(profile, default="build") or "build"
+    env_name = f"PLANNOTATOR_PORTS_{profile.upper()}"
+    override = os.environ.get(env_name)
+    if override:
+        return override
+    if is_devcontainer():
+        default = (
+            DEFAULT_DEVCONTAINER_BUILD_PORTS
+            if profile == "build"
+            else DEFAULT_DEVCONTAINER_CUSTOM_PORTS
+        )
+    else:
+        default = DEFAULT_HOST_BUILD_PORTS if profile == "build" else DEFAULT_HOST_CUSTOM_PORTS
+    if not default:
+        die(f"empty port range for OpenCode profile: {profile}")
+    return default
+
+
+def child_process_environment(
+    tool: str,
+    opencode_profile: str | None = None,
+) -> dict[str, str] | None:
+    env = git_process_environment()
+    if tool != "opencode":
+        return env
+
+    if env is None:
+        env = os.environ.copy()
+    profile = normalize_opencode_profile(opencode_profile, default="build") or "build"
+    env["PLANNOTATOR_PORT"] = opencode_port_range(profile)
+    env["OPENCODE_PLANNOTATOR_POOL"] = profile
+    if not env.get("ANTHROPIC_SYSTEM_PROMPT_PATH", "").strip():
+        env["ANTHROPIC_SYSTEM_PROMPT_PATH"] = os.devnull
+    env["OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"] = "1"
+    env["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"] = "1"
+    return env
+
+
+def build_tool_command(
+    config: Config,
+    tool: str,
+    worktree_path: Path,
+    tool_args: list[str],
+    *,
+    opencode_profile: str | None = None,
+) -> tuple[list[str], Path]:
     if tool == "opencode":
+        profile = normalize_opencode_profile(
+            opencode_profile,
+            default=selected_opencode_profile(config),
+        ) or "build"
         if config.opencode_command:
             base = parse_command(config.opencode_command)
             if any("{worktree}" in part for part in base):
@@ -715,9 +801,17 @@ def build_tool_command(config: Config, tool: str, worktree_path: Path, tool_args
             else:
                 command = base
         else:
-            opencode = command_path("opencode-plannotator") or command_path("opencode")
+            wrapper_name = (
+                "opencode-plannotator-custom"
+                if profile == "custom"
+                else "opencode-plannotator"
+            )
+            wrapper = None if IS_WINDOWS else command_path(wrapper_name)
+            opencode = wrapper or command_path("opencode")
             if not opencode:
-                die("opencode-plannotator or opencode not found in PATH")
+                if IS_WINDOWS:
+                    die("opencode not found in PATH")
+                die(f"{wrapper_name} or opencode not found in PATH")
             command = [opencode]
         command = [*command, *tool_args]
         validate_child_command(command)
@@ -832,10 +926,20 @@ def cleanup_session(
     return ok
 
 
-def launch_child(command: list[str], cwd: Path) -> int:
+def launch_child(
+    command: list[str],
+    cwd: Path,
+    *,
+    tool: str,
+    opencode_profile: str | None = None,
+) -> int:
     validate_child_command(command)
     eprint(f"launching: {format_command(command)}")
-    child = subprocess.Popen(command, cwd=str(cwd), env=git_process_environment())
+    child = subprocess.Popen(
+        command,
+        cwd=str(cwd),
+        env=child_process_environment(tool, opencode_profile),
+    )
     try:
         return child.wait()
     except KeyboardInterrupt:
@@ -854,6 +958,14 @@ def add_opencode_auto_option(parser: argparse.ArgumentParser) -> None:
         "--auto",
         action="store_true",
         help="auto-approve OpenCode permissions that are not explicitly denied",
+    )
+
+
+def add_opencode_profile_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--opencode-profile",
+        choices=OPENCODE_PROFILES,
+        help="select the OpenCode Plannotator pool (default: build)",
     )
 
 
@@ -929,6 +1041,7 @@ def parse_run_args(
     add_run_options(parser)
     if tool == "opencode":
         add_opencode_auto_option(parser)
+        add_opencode_profile_option(parser)
     parser.add_argument(
         "branch",
         nargs="?",
@@ -946,6 +1059,7 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
     branch_prompted = branch is None
     if branch is None:
         branch = prompt_for_branch(repo_root)
+    opencode_profile = selected_opencode_profile(config) if tool == "opencode" else None
     auto = resolve_auto_choice(
         tool,
         explicit=bool(getattr(parsed, "auto", False)),
@@ -958,7 +1072,13 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
         session_id = generate_session_id(config.state_dir)
         worktree_path = render_worktree_path(config, branch, session_id)
         ensure_ignores(config, worktree_path)
-        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+        command, cwd = build_tool_command(
+            config,
+            tool,
+            worktree_path,
+            tool_args,
+            opencode_profile=opencode_profile,
+        )
         command = append_opencode_auto(command, tool, auto)
         branch_created = create_worktree(config, branch, worktree_path)
         metadata: dict[str, Any] = {
@@ -977,11 +1097,18 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
             "child_exit_status": None,
             "cleanup_status": "created",
         }
+        if opencode_profile is not None:
+            metadata["opencode_profile"] = opencode_profile
         write_metadata(config, metadata)
 
     exit_status = 125
     try:
-        exit_status = launch_child(command, cwd)
+        exit_status = launch_child(
+            command,
+            cwd,
+            tool=tool,
+            opencode_profile=opencode_profile,
+        )
         metadata["child_exit_status"] = exit_status
         write_metadata(config, metadata)
     finally:
@@ -1007,6 +1134,7 @@ def cmd_run_dispatch(raw_args: list[str]) -> int:
         parser.add_argument("branch", nargs="?", help="branch name to create or reuse")
         add_run_options(parser)
         add_opencode_auto_option(parser)
+        add_opencode_profile_option(parser)
         parser.epilog = "Use '--' after the branch to pass arguments to the selected tool."
         parser.print_help()
         return 0
@@ -1082,6 +1210,19 @@ def stored_tool_command(metadata: dict[str, Any]) -> list[str]:
     return command
 
 
+def stored_opencode_profile(metadata: dict[str, Any]) -> str:
+    raw_profile = metadata.get("opencode_profile")
+    if isinstance(raw_profile, str) and raw_profile.strip():
+        return normalize_opencode_profile(raw_profile, default="build") or "build"
+    command = metadata.get("tool_command")
+    if not isinstance(command, list) or not command or not isinstance(command[0], str):
+        return "build"
+    executable = display_script_name(command[0]).lower()
+    if executable == "opencode-plannotator-custom":
+        return "custom"
+    return "build"
+
+
 def next_resume_count(metadata: dict[str, Any]) -> int:
     try:
         return int(metadata.get("resume_count", 0) or 0) + 1
@@ -1097,11 +1238,18 @@ def build_resume_tool_command(
     metadata: dict[str, Any],
     *,
     auto: bool,
+    opencode_profile: str | None = None,
 ) -> tuple[list[str], Path]:
     if auto and tool != "opencode":
         die("--auto is only supported for OpenCode sessions")
     if tool_args:
-        command, cwd = build_tool_command(config, tool, worktree_path, tool_args)
+        command, cwd = build_tool_command(
+            config,
+            tool,
+            worktree_path,
+            tool_args,
+            opencode_profile=opencode_profile,
+        )
     else:
         command = stored_tool_command(metadata)
         cwd = worktree_path
@@ -1155,6 +1303,7 @@ def cmd_resume(raw_args: list[str]) -> int:
     tool = str(metadata.get("tool", ""))
     if tool not in {"opencode", "claude"}:
         die(f"session uses unsupported tool: {tool or '<missing>'}")
+    opencode_profile = stored_opencode_profile(metadata) if tool == "opencode" else None
     command, cwd = build_resume_tool_command(
         config,
         tool,
@@ -1162,6 +1311,7 @@ def cmd_resume(raw_args: list[str]) -> int:
         tool_args,
         metadata,
         auto=parsed.auto,
+        opencode_profile=opencode_profile,
     )
 
     metadata["last_resumed_at"] = now_iso()
@@ -1171,7 +1321,12 @@ def cmd_resume(raw_args: list[str]) -> int:
 
     exit_status = 125
     try:
-        exit_status = launch_child(command, cwd)
+        exit_status = launch_child(
+            command,
+            cwd,
+            tool=tool,
+            opencode_profile=opencode_profile,
+        )
         metadata["child_exit_status"] = exit_status
         write_metadata(config, metadata)
     finally:

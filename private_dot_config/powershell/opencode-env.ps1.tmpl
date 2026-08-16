@@ -35,6 +35,16 @@ if (Test-Path -LiteralPath $env:OPENCODE_ENV_FILE) {
   }
 }
 
+if ([string]::IsNullOrWhiteSpace($env:ANTHROPIC_SYSTEM_PROMPT_PATH)) {
+  $env:ANTHROPIC_SYSTEM_PROMPT_PATH = "NUL"
+}
+if ([string]::IsNullOrWhiteSpace($env:OPENCODE_DISABLE_CLAUDE_CODE_PROMPT)) {
+  $env:OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = "1"
+}
+if ([string]::IsNullOrWhiteSpace($env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS)) {
+  $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:PLANNOTATOR_PORT)) {
   $env:PLANNOTATOR_PORT = "{{ .plannotator_port }}"
 }

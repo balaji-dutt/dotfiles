@@ -28,6 +28,7 @@ unrelated legacy Windows applications.
 
 ```sh
 ai-wt opencode feat/example-change
+ai-wt opencode --opencode-profile custom feat/custom-agent-change
 ai-wt opencode --auto feat/auto-approved-change
 ai-wt claude fix/example-bug
 ai-wt run opencode docs/update-notes -- --agent build
@@ -72,6 +73,7 @@ ai-wt name --type feat --description "add widget"
 - Submodule initialization: disabled
 - Branch deletion on cleanup: disabled
 - Dirty worktree cleanup: keep the worktree and warn
+- OpenCode Plannotator profile: `build`
 
 The session ID is wrapper-owned and has this form:
 
@@ -112,7 +114,8 @@ By default, `resume` reuses the command recorded in the session metadata. Tool
 arguments passed after `--` replace those recorded tool arguments for that
 launch. After the resumed tool exits, normal automatic cleanup runs again: clean
 worktrees are removed, while dirty worktrees stay retained for another resume or
-manual cleanup.
+manual cleanup. OpenCode sessions also retain their recorded build or custom
+Plannotator profile across resumes.
 
 On an OpenCode session, `resume --auto` appends the flag for that launch without
 discarding the recorded command or rewriting it in metadata. A later resume
@@ -164,11 +167,22 @@ wrapper itself.
 ## Tool Launching
 
 OpenCode launches with its current working directory set to the worktree path.
-The wrapper prefers `opencode-plannotator` when it is available and falls back
-to `opencode`. Custom OpenCode commands may still use an explicit `{worktree}`
-placeholder when they need the absolute worktree path as an argument.
+The `build` profile prefers `opencode-plannotator`, and `custom` prefers
+`opencode-plannotator-custom`; either profile falls back to `opencode` when its
+POSIX wrapper is unavailable. Native Windows therefore launches `opencode.exe`
+directly while still applying the selected pool. Custom OpenCode commands may
+still use an explicit `{worktree}` placeholder when they need the absolute
+worktree path as an argument.
 OpenCode's `--auto` flag auto-approves permissions that are not explicitly
 denied; it does not replace configured denials.
+
+For every OpenCode child, `ai-wt` exports the selected range as
+`PLANNOTATOR_PORT`, records the pool in `OPENCODE_PLANNOTATOR_POOL`, and disables
+Claude Code prompt and skill imports. It defaults `ANTHROPIC_SYSTEM_PROMPT_PATH`
+to the platform null device (`/dev/null` on POSIX or `NUL` on Windows) so
+`opencode-claude-bridge` cannot reuse a stale Claude Code system prompt. A
+non-empty custom prompt path is preserved. Claude children do not receive these
+OpenCode-specific overrides.
 
 Claude launches with its current working directory set to the worktree path. The
 wrapper prefers `claude-plannotator` when it is available and falls back to
@@ -211,6 +225,7 @@ ai-wt.deleteBranchOnCleanup
 ai-wt.cleanupDirty
 ai-wt.updateExclude
 ai-wt.opencodeCommand
+ai-wt.opencodeProfile
 ai-wt.claudeCommand
 ai-wt.submoduleInit
 ```
@@ -226,6 +241,7 @@ AI_WT_DELETE_BRANCH_ON_CLEANUP
 AI_WT_CLEANUP_DIRTY
 AI_WT_UPDATE_EXCLUDE
 AI_WT_OPENCODE_COMMAND
+AI_WT_OPENCODE_PROFILE
 AI_WT_CLAUDE_COMMAND
 AI_WT_SUBMODULE_INIT
 AI_WT_PROMPT_BACKEND
@@ -235,6 +251,13 @@ AI_WT_PROMPT_BACKEND
 uses Gum for branch creation prompts when `gum` is available and otherwise uses
 the plain fallback. Set it to `plain` to disable Gum prompts, or `gum` to fail
 fast when Gum is missing.
+
+`AI_WT_OPENCODE_PROFILE` and `ai-wt.opencodeProfile` accept `build` or
+`custom`. The CLI form is `--opencode-profile`; new OpenCode sessions default
+to `build`. `PLANNOTATOR_PORTS_BUILD` and `PLANNOTATOR_PORTS_CUSTOM` override
+the corresponding managed host or devcontainer ranges. An explicit OpenCode
+command changes the executable and arguments, not the selected profile or child
+environment.
 
 If `AI_WT_OPENCODE_COMMAND` contains `{worktree}`, that placeholder is replaced
 with the worktree path. Otherwise the command runs from the worktree without an

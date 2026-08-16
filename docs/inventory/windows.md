@@ -80,6 +80,14 @@ Windows registry policy. The PowerShell commit wrappers pass each argument to
 Git without joining or reparsing it, set agent-specific author and committer
 variables only for the child `git commit` process, and return Git's exit status.
 
+For OpenCode, `ai-wt` defaults to the Plannotator build pool and accepts
+`--opencode-profile custom` for the custom pool. It launches `opencode.exe`
+directly; native `opencode-plannotator*` wrapper commands are not installed.
+The selected range, pool name, and Claude Code import controls are scoped to the
+OpenCode child. The managed PowerShell profile applies the same prompt-cache
+protection to direct OpenCode launches by defaulting
+`ANTHROPIC_SYSTEM_PROMPT_PATH` to `NUL`; non-empty overrides are preserved.
+
 Verify command resolution from a fresh PowerShell process after `chezmoi apply`:
 
 ```powershell

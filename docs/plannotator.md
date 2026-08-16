@@ -32,7 +32,8 @@ sessions cannot host review UIs concurrently on that fallback.
 
 ## Wrapper commands
 
-Use the wrappers when concurrent Plannotator sessions are expected:
+On macOS, Linux, WSL2, and devcontainers, use the wrappers when concurrent
+Plannotator sessions are expected:
 
 ```sh
 opencode-plannotator         # build-handoff range
@@ -117,6 +118,26 @@ verify from a fresh PowerShell process:
 Get-Command plannotator
 plannotator --version
 ```
+
+Native Windows intentionally does not install PowerShell or Python equivalents
+of the POSIX agent wrappers. Use the supported `ai-wt` launcher to select an
+OpenCode pool:
+
+```powershell
+ai-wt opencode feat/example-change
+ai-wt opencode --opencode-profile custom feat/custom-agent-change
+```
+
+The first command defaults to the build range; the second selects the custom
+range. `ai-wt` launches the native `opencode.exe` directly and supplies the
+selected `PLANNOTATOR_PORT` and `OPENCODE_PLANNOTATOR_POOL` to that child.
+
+The managed PowerShell OpenCode environment also defaults
+`ANTHROPIC_SYSTEM_PROMPT_PATH` to the native `NUL` device and disables Claude
+Code prompt and skill imports. This prevents `opencode-claude-bridge` from
+reusing a stale Claude Code system prompt in direct OpenCode sessions. A
+non-empty custom prompt path or disable-variable value still wins. Start a fresh
+PowerShell and restart OpenCode after applying the change.
 
 ## Claude Code
 
