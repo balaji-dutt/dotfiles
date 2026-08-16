@@ -268,6 +268,263 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("Ignoring serve OpenCode process", result.stdout)
         self.assertIn("Blocking OpenCode process", result.stdout)
 
+    def test_claude_plugin_identity_and_marketplace_deduplication(self) -> None:
+        body = """
+          $first = ConvertTo-ClaudePluginIdentity -Id 'one@example-marketplace'
+          $second = ConvertTo-ClaudePluginIdentity -Id 'two@example-marketplace'
+          $third = ConvertTo-ClaudePluginIdentity -Id 'three@other-marketplace'
+          $plugins = @(
+            [pscustomobject]@{ Marketplace = $first.Marketplace },
+            [pscustomobject]@{ Marketplace = $second.Marketplace },
+            [pscustomobject]@{ Marketplace = $third.Marketplace }
+          )
+          $bad = @()
+          foreach ($candidate in @('missing', '@marketplace', 'plugin@')) {
+            try { ConvertTo-ClaudePluginIdentity -Id $candidate | Out-Null }
+            catch { $bad += $candidate }
+          }
+          [pscustomobject]@{
+            Name = $first.Name
+            Marketplace = $first.Marketplace
+            Names = @(Get-ClaudeMarketplaceNames -Plugins $plugins)
+            Rejected = @($bad)
+          } | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["Name"], "one")
+        self.assertEqual(data["Marketplace"], "example-marketplace")
+        self.assertEqual(
+            data["Names"], ["example-marketplace", "other-marketplace"]
+        )
+        self.assertEqual(
+            data["Rejected"], ["missing", "@marketplace", "plugin@"]
+        )
+
+    def test_claude_preservation_environment_is_scoped_and_restored(self) -> None:
+        body = """
+          $script:Observed = @()
+          function Invoke-External {
+            param([string] $Command, [string[]] $Arguments)
+            $script:Observed += $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+            [pscustomobject]@{ ExitCode = 0; Output = '' }
+          }
+          Remove-Item Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE -ErrorAction SilentlyContinue
+          Invoke-ClaudeExternal -Arguments @('plugin', 'marketplace', 'update', 'one') | Out-Null
+          $absentRestored = -not (Test-Path Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE)
+          $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = 'caller-value'
+          Invoke-ClaudeExternal -Arguments @('plugin', 'update', 'one@one') | Out-Null
+          [pscustomobject]@{
+            Observed = @($script:Observed)
+            AbsentRestored = $absentRestored
+            ExistingRestored = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+          } | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["Observed"], ["1", "1"])
+        self.assertTrue(data["AbsentRestored"])
+        self.assertEqual(data["ExistingRestored"], "caller-value")
+
+    def test_marketplace_catalog_requires_expected_plugin_and_unique_record(self) -> None:
+        marketplace = self.root / "marketplace"
+        catalog = marketplace / ".claude-plugin" / "marketplace.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text(
+            json.dumps({"plugins": [{"name": "expected-plugin"}]}),
+            encoding="utf-8",
+        )
+        body = f"""
+          $plugins = @([pscustomobject]@{{ Name = 'expected-plugin' }})
+          $record = [pscustomobject]@{{ name = 'example'; installLocation = {ps_quote(marketplace)} }}
+          $valid = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins $plugins -Records @($record)
+          $missing = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins @([pscustomobject]@{{ Name = 'missing-plugin' }}) -Records @($record)
+          $duplicate = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins $plugins -Records @($record, $record)
+          [pscustomobject]@{{
+            Valid = $valid.Available
+            Missing = $missing.Available
+            MissingError = $missing.Error
+            Duplicate = $duplicate.Available
+            DuplicateError = $duplicate.Error
+          }} | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertTrue(data["Valid"], result.stdout)
+        self.assertFalse(data["Missing"])
+        self.assertIn("missing-plugin", data["MissingError"])
+        self.assertFalse(data["Duplicate"])
+        self.assertIn("found 2", data["DuplicateError"])
+
+    def test_named_marketplace_refresh_skips_only_unavailable_catalog(self) -> None:
+        healthy = self.root / "healthy-marketplace"
+        healthy_catalog = healthy / ".claude-plugin" / "marketplace.json"
+        healthy_catalog.parent.mkdir(parents=True)
+        healthy_catalog.write_text(
+            json.dumps({"plugins": [{"name": "healthy-plugin"}]}),
+            encoding="utf-8",
+        )
+        empty = self.root / "empty-marketplace"
+        empty.mkdir()
+        body = f"""
+          $plugins = @(
+            [pscustomobject]@{{ Id = 'healthy-plugin@healthy'; Name = 'healthy-plugin'; Marketplace = 'healthy'; Scope = 'user' }},
+            [pscustomobject]@{{ Id = 'broken-plugin@broken'; Name = 'broken-plugin'; Marketplace = 'broken'; Scope = 'user' }}
+          )
+          $script:ClaudeFailures = @()
+          $script:Commands = @()
+          $script:Synced = @()
+          function Invoke-External {{
+            param([string] $Command, [string[]] $Arguments)
+            $script:Commands += ,@($Arguments)
+            [pscustomobject]@{{ ExitCode = 0; Output = '' }}
+          }}
+          function Get-ClaudeMarketplaceInventory {{
+            [pscustomobject]@{{
+              Ok = $true
+              Error = $null
+              Records = @(
+                [pscustomobject]@{{ name = 'healthy'; installLocation = {ps_quote(healthy)} }},
+                [pscustomobject]@{{ name = 'broken'; installLocation = {ps_quote(empty)} }}
+              )
+            }}
+          }}
+          function Get-InstalledClaudePluginIds {{
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            return ,$ids
+          }}
+          function Sync-ClaudePlugin {{
+            param($Plugin, [string[]] $Actions)
+            $script:Synced += $Plugin.Id
+            return $true
+          }}
+          Update-ClaudePlugins -Plugins $plugins
+          [pscustomobject]@{{
+            Commands = @($script:Commands | ForEach-Object {{ $_ -join ' ' }})
+            Synced = @($script:Synced)
+            Failures = @($script:ClaudeFailures)
+          }} | ConvertTo-Json -Depth 5 -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(
+            data["Commands"],
+            [
+                "plugin marketplace update healthy",
+                "plugin marketplace update broken",
+            ],
+        )
+        self.assertEqual(data["Synced"], ["healthy-plugin@healthy"], result.stdout)
+        self.assertEqual(data["Failures"], ["marketplace:broken"])
+        self.assertIn("catalog is missing", result.stdout)
+        self.assertIn("Skipping Claude Code plugin 'broken-plugin@broken'", result.stdout)
+
+    def test_failed_named_update_uses_valid_preserved_catalog(self) -> None:
+        marketplace = self.root / "preserved-marketplace"
+        catalog = marketplace / ".claude-plugin" / "marketplace.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text(
+            json.dumps({"plugins": [{"name": "preserved-plugin"}]}),
+            encoding="utf-8",
+        )
+        body = f"""
+          $plugin = [pscustomobject]@{{ Id = 'preserved-plugin@preserved'; Name = 'preserved-plugin'; Marketplace = 'preserved'; Scope = 'user' }}
+          $script:ClaudeFailures = @()
+          $script:Synced = $false
+          function Invoke-External {{
+            param([string] $Command, [string[]] $Arguments)
+            [pscustomobject]@{{ ExitCode = 1; Output = 'network unavailable' }}
+          }}
+          function Get-ClaudeMarketplaceInventory {{
+            [pscustomobject]@{{ Ok = $true; Error = $null; Records = @([pscustomobject]@{{ name = 'preserved'; installLocation = {ps_quote(marketplace)} }}) }}
+          }}
+          function Get-InstalledClaudePluginIds {{
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            return ,$ids
+          }}
+          function Sync-ClaudePlugin {{ param($Plugin, [string[]] $Actions); $script:Synced = $true; return $true }}
+          Update-ClaudePlugins -Plugins @($plugin)
+          [pscustomobject]@{{ Synced = $script:Synced; Failures = @($script:ClaudeFailures) }} | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertTrue(data["Synced"], result.stdout)
+        self.assertEqual(data["Failures"], ["marketplace:preserved"])
+        self.assertIn("Validated Claude Code plugin marketplace", result.stdout)
+
+    def test_marketplace_availability_keys_are_case_sensitive(self) -> None:
+        healthy = self.root / "lowercase-marketplace"
+        catalog = healthy / ".claude-plugin" / "marketplace.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text(
+            json.dumps({"plugins": [{"name": "lower-plugin"}]}),
+            encoding="utf-8",
+        )
+        missing = self.root / "uppercase-marketplace"
+        missing.mkdir()
+        body = f"""
+          $plugins = @(
+            [pscustomobject]@{{ Id = 'upper-plugin@Case'; Name = 'upper-plugin'; Marketplace = 'Case'; Scope = 'user' }},
+            [pscustomobject]@{{ Id = 'lower-plugin@case'; Name = 'lower-plugin'; Marketplace = 'case'; Scope = 'user' }}
+          )
+          $script:ClaudeFailures = @()
+          $script:Synced = @()
+          function Invoke-External {{ [pscustomobject]@{{ ExitCode = 0; Output = '' }} }}
+          function Get-ClaudeMarketplaceInventory {{
+            [pscustomobject]@{{
+              Ok = $true
+              Error = $null
+              Records = @(
+                [pscustomobject]@{{ name = 'Case'; installLocation = {ps_quote(missing)} }},
+                [pscustomobject]@{{ name = 'case'; installLocation = {ps_quote(healthy)} }}
+              )
+            }}
+          }}
+          function Get-InstalledClaudePluginIds {{
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            return ,$ids
+          }}
+          function Sync-ClaudePlugin {{ param($Plugin, [string[]] $Actions); $script:Synced += $Plugin.Id; return $true }}
+          Update-ClaudePlugins -Plugins $plugins
+          [pscustomobject]@{{ Synced = @($script:Synced); Failures = @($script:ClaudeFailures) }} | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(data["Synced"], ["lower-plugin@case"], result.stdout)
+        self.assertEqual(data["Failures"], ["marketplace:Case"])
+
+    def test_claude_dry_run_previews_named_marketplaces_without_commands(self) -> None:
+        body = """
+          $plugins = @(
+            [pscustomobject]@{ Id = 'one@shared'; Name = 'one'; Marketplace = 'shared'; Scope = 'user' },
+            [pscustomobject]@{ Id = 'two@shared'; Name = 'two'; Marketplace = 'shared'; Scope = 'user' }
+          )
+          $script:Called = $false
+          function Invoke-External { $script:Called = $true; throw 'must not run' }
+          function Get-InstalledClaudePluginIds {
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            return ,$ids
+          }
+          Update-ClaudePlugins -Plugins $plugins
+          [pscustomobject]@{ Called = $script:Called } | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(
+            body,
+            env_updates={"HOST_AI_PLUGIN_REFRESH_DRY_RUN": "1"},
+        )
+        data = self.read_json(result)
+        self.assertFalse(data["Called"])
+        self.assertEqual(
+            result.stdout.count("claude plugin marketplace update shared"), 1
+        )
+        self.assertNotIn("is unavailable", result.stdout)
+        self.assertIn(
+            "Would run: claude plugin install --scope user one@shared",
+            result.stdout,
+        )
+        self.assertIn(
+            "Would run: claude plugin install --scope user two@shared",
+            result.stdout,
+        )
+
     def test_stale_claude_install_record_falls_back_to_install(self) -> None:
         body = """
           $plugin = [pscustomobject]@{ Id = 'plannotator@plannotator'; Scope = 'user' }

@@ -211,7 +211,16 @@ Use `PLANNOTATOR_INSTALL_DRY_RUN=1` to report the selected release asset and
 destination without downloading or publishing the Plannotator binary. See
 `docs/plannotator.md` for native installation and retry details.
 
-The plugin-refresh hook never kills OpenCode. It checks process state before
+The plugin-refresh hook updates each marketplace named by the configured
+`<plugin>@<marketplace>` ids instead of trusting the aggregate marketplace
+command. Claude mutation commands inherit
+`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`, and each CLI-reported
+`installLocation/.claude-plugin/marketplace.json` must exist and publish its
+configured plugins before their update/install commands run. A failed update
+may use a valid preserved catalog but still leaves the onchange retry pending;
+an empty, malformed, or ambiguous marketplace skips only its own plugins.
+
+The hook never kills OpenCode. It checks process state before
 cache work, again before removing `packages`, and again before publishing a
 staged compatibility install. A process whose CIM command line has `serve` as
 its explicit first argument is logged and ignored, matching the detached-server
@@ -249,10 +258,72 @@ Remove-Item Env:HOST_AI_PLUGIN_REFRESH_DRY_RUN
 Remove-Item -LiteralPath $preview
 ```
 
-The dry run previews Claude commands and validates the same OpenCode cache
-boundary. If a blocking OpenCode client is active, a nonzero result and cache
-deferral are expected. Do not use `chezmoi apply` merely to preview this
-onchange hook, because a successful apply records its current source state.
+The dry run previews named Claude marketplace/plugin commands and validates the
+same OpenCode cache boundary without changing marketplace state. If a blocking
+OpenCode client is active, a nonzero result and cache deferral are expected. Do
+not use `chezmoi apply` merely to preview this onchange hook, because a
+successful apply records its current source state.
+
+### Recover empty Claude marketplace caches
+
+If `claude plugin list --json` reports `cache-miss` and a custom marketplace's
+CLI-reported `installLocation` is empty, stop retrying `chezmoi apply`. This was
+observed on Claude Code 2.1.229 even though the aggregate marketplace update
+returned success; it does not prove which Claude bug erased the catalogs.
+
+1. Close Claude Code and attempt to upgrade the export-only Winget installation,
+   then record the available version. Claude Code 2.1.232 contains a marketplace
+   registry race fix, but the validated recovery can proceed on 2.1.229 when
+   Winget has not published a newer release:
+
+   ```powershell
+   winget upgrade --id Anthropic.ClaudeCode --exact --source winget
+   claude --version
+   ```
+
+2. Run `claude plugin marketplace list --json` and recheck each custom
+   `installLocation` directory. If a directory is still empty, rename it to a
+   timestamped sibling backup so Claude sees an absent destination. Do not
+   delete a nonempty directory, and do not use
+   `claude plugin marketplace remove`; removing the last scope can uninstall its
+   plugins.
+
+3. If Windows reports that an empty directory is in use, open Resource Monitor,
+   select **CPU** → **Associated Handles**, and search for the exact marketplace
+   path. After confirming that no legitimate Git operation is active, terminate
+   only stale `git.exe` or `plink.exe` processes holding that path. Do not kill
+   every Git process, because unrelated repositories may have active work.
+
+4. From the same standalone PowerShell session, preserve marketplace state and
+   refresh each required catalog explicitly:
+
+   ```powershell
+   $oldKeep = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+   try {
+     $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = '1'
+     foreach ($name in @('claude-pace-marketplace', 'plannotator', 'cc-marketplace')) {
+       claude plugin marketplace update $name
+       if ($LASTEXITCODE -ne 0) { throw "Marketplace update failed: $name" }
+     }
+   } finally {
+     if ($null -eq $oldKeep) {
+       Remove-Item Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE -ErrorAction SilentlyContinue
+     } else {
+       $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = $oldKeep
+     }
+   }
+   ```
+
+5. Require each install location to contain a parseable
+   `.claude-plugin/marketplace.json` publishing `claude-pace`, `plannotator`, or
+   `cc-safety-net` as appropriate. Then rerun `claude plugin list --json`; the
+   enabled ids must no longer report `cache-miss` or failed marketplaces.
+
+6. Apply the dotfiles once from standalone PowerShell. The hook performs the
+   plugin update/install recovery, validates OpenCode, and must exit zero before
+   later hooks continue. Keep the empty backups until this succeeds; remove them
+   only as a separate, reviewed cleanup. The first successful recovery can be
+   slow because the named marketplaces and their plugins refresh sequentially.
 
 ## Claude Code `jq` Runtime Dependency
 

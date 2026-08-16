@@ -65,11 +65,17 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
   `dot_claude/settings-base.json`, but only the former is hashed into its
   onchange trigger; see `docs/devcontainers.md`.
-- A failed Claude plugin refresh reports an `ERROR:` and continues to the
-  remaining plugins and the OpenCode cache step; a failed marketplace update is
-  likewise non-fatal. A listed plugin whose update hits a stale install record
-  falls back to installation. The hook exits non-zero at the end for a
-  marketplace failure or when both plugin actions fail.
+- The host plugin hook derives required marketplace names from canonical
+  `<plugin>@<marketplace>` ids, updates each required marketplace by name, and
+  sets `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` only for Claude
+  mutation commands. It then requires the CLI-reported marketplace catalog to
+  exist and publish the configured plugin before update/install.
+- A failed named marketplace update is non-fatal when its preserved catalog is
+  still valid, but the hook exits nonzero at the end so chezmoi retries. An
+  unavailable or malformed catalog skips only its own plugins; healthy
+  marketplaces and the OpenCode cache step continue. A listed plugin whose
+  update hits a stale install record falls back to installation, while other
+  update failures do not trigger reinstall.
 - On Windows, Claude refresh commands run before OpenCode process gating. An
   interactive, ambiguous, or uninspectable OpenCode process defers only cache
   mutation and exits nonzero so the onchange hook retries after OpenCode closes.

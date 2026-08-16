@@ -83,6 +83,37 @@ function Invoke-ExternalJson {
   }
 }
 
+function Invoke-ClaudeExternal {
+  param([Parameter(Mandatory=$true)] [string[]] $Arguments)
+
+  $variableName = "CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE"
+  $hadPrevious = Test-Path -LiteralPath "Env:$variableName"
+  $previous = if ($hadPrevious) { [Environment]::GetEnvironmentVariable($variableName, "Process") } else { $null }
+  try {
+    [Environment]::SetEnvironmentVariable($variableName, "1", "Process")
+    return Invoke-External -Command "claude" -Arguments $Arguments
+  } finally {
+    if ($hadPrevious) {
+      [Environment]::SetEnvironmentVariable($variableName, $previous, "Process")
+    } else {
+      Remove-Item -LiteralPath "Env:$variableName" -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function ConvertTo-ClaudePluginIdentity {
+  param([Parameter(Mandatory=$true)] [string] $Id)
+
+  $separator = $Id.LastIndexOf("@", [System.StringComparison]::Ordinal)
+  if ($separator -le 0 -or $separator -eq ($Id.Length - 1)) {
+    throw "Claude plugin id must use the canonical '<plugin>@<marketplace>' form: $Id"
+  }
+  return [pscustomobject]@{
+    Name = $Id.Substring(0, $separator)
+    Marketplace = $Id.Substring($separator + 1)
+  }
+}
+
 function Get-ClaudePlugins {
   param([Parameter(Mandatory=$true)] $Manifest)
 
@@ -116,7 +147,18 @@ function Get-ClaudePlugins {
       exit 1
     }
     if ($enabled) {
-      $parsed += [pscustomobject]@{ Id = $pluginId; Scope = $scope }
+      try {
+        $identity = ConvertTo-ClaudePluginIdentity -Id $pluginId
+      } catch {
+        Write-Host "ERROR: $($_.Exception.Message)"
+        exit 1
+      }
+      $parsed += [pscustomobject]@{
+        Id = $pluginId
+        Name = $identity.Name
+        Marketplace = $identity.Marketplace
+        Scope = $scope
+      }
     }
   }
   return $parsed
@@ -327,6 +369,84 @@ function Test-ClaudePluginUpdateMissing {
   return -not [string]::IsNullOrWhiteSpace($Result.Output) -and $Result.Output -match '(?i)Plugin\s+"[^"]+"\s+not found'
 }
 
+function Add-ClaudeFailure {
+  param([Parameter(Mandatory=$true)] [string] $Failure)
+
+  if ($script:ClaudeFailures -cnotcontains $Failure) {
+    $script:ClaudeFailures += $Failure
+  }
+}
+
+function Get-ClaudeMarketplaceNames {
+  param([Parameter(Mandatory=$true)] [AllowEmptyCollection()] [object[]] $Plugins)
+
+  $names = @()
+  foreach ($plugin in $Plugins) {
+    if ($names -cnotcontains $plugin.Marketplace) {
+      $names += $plugin.Marketplace
+    }
+  }
+  return $names
+}
+
+function Get-ClaudeMarketplaceInventory {
+  $listed = Invoke-ExternalJson -Command "claude" -Arguments @("plugin", "marketplace", "list", "--json")
+  if ($listed.ExitCode -ne 0) {
+    return [pscustomobject]@{ Ok = $false; Records = @(); Error = "claude plugin marketplace list --json exited $($listed.ExitCode)" }
+  }
+
+  try {
+    $parsed = ConvertFrom-Json -InputObject $listed.Output -NoEnumerate
+  } catch {
+    return [pscustomobject]@{ Ok = $false; Records = @(); Error = "invalid marketplace list JSON: $($_.Exception.Message)" }
+  }
+  if ($null -eq $parsed -or -not (Test-ObjectList $parsed)) {
+    return [pscustomobject]@{ Ok = $false; Records = @(); Error = "marketplace list JSON must be an array" }
+  }
+  return [pscustomobject]@{ Ok = $true; Records = @($parsed); Error = $null }
+}
+
+function Test-ClaudeMarketplaceCatalog {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Marketplace,
+    [Parameter(Mandatory=$true)] [object[]] $Plugins,
+    [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [object[]] $Records
+  )
+
+  $registrations = @($Records | Where-Object { (Get-JsonProperty $_ "name") -ceq $Marketplace })
+  if ($registrations.Count -ne 1) {
+    return [pscustomobject]@{ Available = $false; Error = "expected one marketplace registration, found $($registrations.Count)"; CatalogPath = $null }
+  }
+  $installLocation = Get-JsonProperty $registrations[0] "installLocation"
+  if ($installLocation -isnot [string] -or [string]::IsNullOrWhiteSpace($installLocation) -or -not [System.IO.Path]::IsPathFullyQualified($installLocation)) {
+    return [pscustomobject]@{ Available = $false; Error = "installLocation must be a non-empty absolute path"; CatalogPath = $null }
+  }
+
+  $catalogPath = Join-Path -Path $installLocation -ChildPath ".claude-plugin" -AdditionalChildPath "marketplace.json"
+  if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+    return [pscustomobject]@{ Available = $false; Error = "catalog is missing: $catalogPath"; CatalogPath = $catalogPath }
+  }
+  try {
+    $catalogText = Get-Content -Raw -LiteralPath $catalogPath -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($catalogText)) { throw "catalog is empty" }
+    $catalog = ConvertFrom-Json -InputObject $catalogText
+  } catch {
+    return [pscustomobject]@{ Available = $false; Error = "catalog JSON is invalid: $($_.Exception.Message)"; CatalogPath = $catalogPath }
+  }
+  $pluginsProperty = $catalog.PSObject.Properties["plugins"]
+  $entries = $null
+  if ($null -ne $pluginsProperty) { $entries = $pluginsProperty.Value }
+  if ($null -eq $entries -or -not (Test-ObjectList $entries)) {
+    return [pscustomobject]@{ Available = $false; Error = "catalog plugins must be an array"; CatalogPath = $catalogPath }
+  }
+  $catalogNames = @($entries | ForEach-Object { Get-JsonProperty $_ "name" })
+  $missing = @($Plugins | Where-Object { $catalogNames -cnotcontains $_.Name } | ForEach-Object { $_.Name })
+  if ($missing.Count -gt 0) {
+    return [pscustomobject]@{ Available = $false; Error = "catalog does not publish: $($missing -join ', ')"; CatalogPath = $catalogPath }
+  }
+  return [pscustomobject]@{ Available = $true; Error = $null; CatalogPath = $catalogPath }
+}
+
 function Sync-ClaudePlugin {
   param(
     [Parameter(Mandatory=$true)] $Plugin,
@@ -342,7 +462,7 @@ function Sync-ClaudePlugin {
   $attempts = @()
   foreach ($action in $Actions) {
     $arguments = @("plugin", $action, "--scope", $Plugin.Scope, $Plugin.Id)
-    $result = Invoke-External -Command "claude" -Arguments $arguments
+    $result = Invoke-ClaudeExternal -Arguments $arguments
     if ($result.ExitCode -eq 0) { return $true }
     $attempts += [pscustomobject]@{ Action = $action; Result = $result }
     if ($action -eq "update" -and $Actions -contains "install" -and -not (Test-ClaudePluginUpdateMissing -Result $result)) {
@@ -371,17 +491,45 @@ function Update-ClaudePlugins {
     return
   }
 
+  $marketplaceNames = @(Get-ClaudeMarketplaceNames -Plugins $Plugins)
   if ($DryRun) {
-    Write-Host "INFO: Would run: claude plugin marketplace update"
+    foreach ($marketplaceName in $marketplaceNames) {
+      Write-Host "INFO: Would run: claude plugin marketplace update $marketplaceName"
+    }
   } else {
-    Write-Host "INFO: Updating Claude Code plugin marketplaces."
-    $marketplace = Invoke-External -Command "claude" -Arguments @("plugin", "marketplace", "update")
-    if ($marketplace.ExitCode -ne 0) {
-      Write-Host "ERROR: Failed to update Claude Code plugin marketplaces."
-      if ($marketplace.Output) { Write-Host $marketplace.Output }
-      # Not fatal: cached marketplace metadata can still satisfy the per-plugin
-      # install/update below.
-      $script:ClaudeFailures += "marketplace"
+    foreach ($marketplaceName in $marketplaceNames) {
+      Write-Host "INFO: Updating Claude Code plugin marketplace '$marketplaceName'."
+      $result = Invoke-ClaudeExternal -Arguments @("plugin", "marketplace", "update", $marketplaceName)
+      if ($result.ExitCode -ne 0) {
+        Write-Host "ERROR: Failed to update Claude Code plugin marketplace '$marketplaceName'."
+        if ($result.Output) { Write-Host $result.Output }
+        # A preserved catalog may still satisfy plugin operations, but retry the
+        # onchange hook because this refresh did not reach the remote source.
+        Add-ClaudeFailure -Failure "marketplace:$marketplaceName"
+      }
+    }
+  }
+
+  $marketplaceAvailable = [System.Collections.Hashtable]::new([System.StringComparer]::Ordinal)
+  if (-not $DryRun) {
+    $inventory = Get-ClaudeMarketplaceInventory
+    if (-not $inventory.Ok) {
+      Write-Host "ERROR: Could not validate Claude Code marketplace catalogs: $($inventory.Error)"
+    }
+    foreach ($marketplaceName in $marketplaceNames) {
+      $marketplacePlugins = @($Plugins | Where-Object { $_.Marketplace -ceq $marketplaceName })
+      $catalog = if ($inventory.Ok) {
+        Test-ClaudeMarketplaceCatalog -Marketplace $marketplaceName -Plugins $marketplacePlugins -Records @($inventory.Records)
+      } else {
+        [pscustomobject]@{ Available = $false; Error = $inventory.Error; CatalogPath = $null }
+      }
+      $marketplaceAvailable[$marketplaceName] = $catalog.Available
+      if ($catalog.Available) {
+        Write-Host "INFO: Validated Claude Code plugin marketplace '$marketplaceName': $($catalog.CatalogPath)"
+      } else {
+        Write-Host "ERROR: Claude Code plugin marketplace '$marketplaceName' is unavailable: $($catalog.Error)"
+        Add-ClaudeFailure -Failure "marketplace:$marketplaceName"
+      }
     }
   }
 
@@ -401,8 +549,13 @@ function Update-ClaudePlugins {
       continue
     }
 
+    if (-not $marketplaceAvailable[$plugin.Marketplace]) {
+      Write-Host "ERROR: Skipping Claude Code plugin '$($plugin.Id)' because marketplace '$($plugin.Marketplace)' is unavailable."
+      continue
+    }
+
     if (-not (Sync-ClaudePlugin -Plugin $plugin -Actions $actions)) {
-      $script:ClaudeFailures += $plugin.Id
+      Add-ClaudeFailure -Failure $plugin.Id
     }
   }
 

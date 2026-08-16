@@ -82,13 +82,14 @@ def strip_jsonc(text):
     return "".join(result)
 
 
-def run_checked(command):
+def run_checked(command, env=None):
     return subprocess.run(
         command,
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=env,
     )
 
 
@@ -103,6 +104,12 @@ def run_capture(command):
         stderr=subprocess.DEVNULL,
         text=True,
     )
+
+
+def run_claude_checked(arguments):
+    environment = os.environ.copy()
+    environment["CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE"] = "1"
+    return run_checked(["claude", *arguments], env=environment)
 
 
 def command_exists(command):
@@ -121,6 +128,16 @@ def require_list(value, name):
         print(f"ERROR: {name} must be a list.")
         sys.exit(1)
     return value
+
+
+def claude_plugin_identity(plugin_id):
+    plugin_name, separator, marketplace = plugin_id.rpartition("@")
+    if not separator or not plugin_name or not marketplace:
+        raise ValueError(
+            "Claude plugin id must use the canonical "
+            f"'<plugin>@<marketplace>' form: {plugin_id}"
+        )
+    return plugin_name, marketplace
 
 
 def load_manifest():
@@ -156,7 +173,19 @@ def claude_plugins(manifest):
             print(f"ERROR: claude.plugins[{index}].enabled must be a boolean.")
             sys.exit(1)
         if enabled:
-            parsed.append({"id": plugin_id, "scope": scope})
+            try:
+                plugin_name, marketplace = claude_plugin_identity(plugin_id)
+            except ValueError as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(1)
+            parsed.append(
+                {
+                    "id": plugin_id,
+                    "name": plugin_name,
+                    "marketplace": marketplace,
+                    "scope": scope,
+                }
+            )
     return parsed
 
 
@@ -350,6 +379,100 @@ def claude_plugin_update_missing(result):
     )
 
 
+def add_claude_failure(failure):
+    if failure not in claude_failures:
+        claude_failures.append(failure)
+
+
+def claude_marketplace_names(plugins):
+    names = []
+    for plugin in plugins:
+        if plugin["marketplace"] not in names:
+            names.append(plugin["marketplace"])
+    return names
+
+
+def claude_marketplace_inventory():
+    result = run_capture(["claude", "plugin", "marketplace", "list", "--json"])
+    if result.returncode != 0:
+        return None, (
+            "claude plugin marketplace list --json exited "
+            f"{result.returncode}"
+        )
+    try:
+        records = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return None, f"invalid marketplace list JSON: {exc}"
+    if not isinstance(records, list):
+        return None, "marketplace list JSON must be an array"
+    return records, None
+
+
+def validate_claude_marketplace_catalog(marketplace, plugins, records):
+    matches = [
+        record
+        for record in records
+        if isinstance(record, dict) and record.get("name") == marketplace
+    ]
+    if len(matches) != 1:
+        return {
+            "available": False,
+            "error": f"expected one marketplace registration, found {len(matches)}",
+            "catalog_path": None,
+        }
+
+    install_location = matches[0].get("installLocation")
+    if not isinstance(install_location, str) or not install_location.strip():
+        return {
+            "available": False,
+            "error": "installLocation must be a non-empty absolute path",
+            "catalog_path": None,
+        }
+    install_path = Path(install_location)
+    if not install_path.is_absolute():
+        return {
+            "available": False,
+            "error": "installLocation must be a non-empty absolute path",
+            "catalog_path": None,
+        }
+
+    catalog_path = install_path / ".claude-plugin" / "marketplace.json"
+    if not catalog_path.is_file():
+        return {
+            "available": False,
+            "error": f"catalog is missing: {catalog_path}",
+            "catalog_path": catalog_path,
+        }
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "available": False,
+            "error": f"catalog JSON is invalid: {exc}",
+            "catalog_path": catalog_path,
+        }
+    entries = catalog.get("plugins") if isinstance(catalog, dict) else None
+    if not isinstance(entries, list):
+        return {
+            "available": False,
+            "error": "catalog plugins must be an array",
+            "catalog_path": catalog_path,
+        }
+    catalog_names = {
+        entry.get("name")
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+    }
+    missing = [plugin["name"] for plugin in plugins if plugin["name"] not in catalog_names]
+    if missing:
+        return {
+            "available": False,
+            "error": "catalog does not publish: " + ", ".join(missing),
+            "catalog_path": catalog_path,
+        }
+    return {"available": True, "error": None, "catalog_path": catalog_path}
+
+
 def sync_claude_plugin(plugin, actions):
     verb = "Refreshing"
     if len(actions) == 1:
@@ -358,15 +481,14 @@ def sync_claude_plugin(plugin, actions):
 
     attempts = []
     for action in actions:
-        command = [
-            "claude",
+        arguments = [
             "plugin",
             action,
             "--scope",
             plugin["scope"],
             plugin["id"],
         ]
-        result = run_checked(command)
+        result = run_claude_checked(arguments)
         if result.returncode == 0:
             return True
         attempts.append((action, result))
@@ -394,18 +516,67 @@ def refresh_claude(plugins):
         print("INFO: claude command not found; skipping Claude Code plugin refresh.")
         return
 
+    marketplace_names = claude_marketplace_names(plugins)
     if dry_run:
-        print("INFO: Would run: claude plugin marketplace update")
+        for marketplace in marketplace_names:
+            print(
+                "INFO: Would run: claude plugin marketplace update "
+                f"{marketplace}"
+            )
     else:
-        print("INFO: Updating Claude Code plugin marketplaces.")
-        result = run_checked(["claude", "plugin", "marketplace", "update"])
-        if result.returncode != 0:
-            print("ERROR: Failed to update Claude Code plugin marketplaces.")
-            if result.stdout.strip():
-                print(result.stdout.rstrip())
-            # Not fatal: cached marketplace metadata can still satisfy the
-            # per-plugin install/update below.
-            claude_failures.append("marketplace")
+        for marketplace in marketplace_names:
+            print(f"INFO: Updating Claude Code plugin marketplace {marketplace!r}.")
+            result = run_claude_checked(
+                ["plugin", "marketplace", "update", marketplace]
+            )
+            if result.returncode != 0:
+                print(
+                    "ERROR: Failed to update Claude Code plugin marketplace "
+                    f"{marketplace!r}."
+                )
+                if result.stdout.strip():
+                    print(result.stdout.rstrip())
+                # A preserved catalog may still satisfy plugin operations, but
+                # retry because this refresh did not reach the remote source.
+                add_claude_failure(f"marketplace:{marketplace}")
+
+    marketplace_available = {}
+    if not dry_run:
+        records, inventory_error = claude_marketplace_inventory()
+        if inventory_error:
+            print(
+                "ERROR: Could not validate Claude Code marketplace catalogs: "
+                f"{inventory_error}"
+            )
+        for marketplace in marketplace_names:
+            marketplace_plugins = [
+                plugin
+                for plugin in plugins
+                if plugin["marketplace"] == marketplace
+            ]
+            catalog = (
+                validate_claude_marketplace_catalog(
+                    marketplace, marketplace_plugins, records
+                )
+                if not inventory_error
+                else {
+                    "available": False,
+                    "error": inventory_error,
+                    "catalog_path": None,
+                }
+            )
+            marketplace_available[marketplace] = catalog["available"]
+            if catalog["available"]:
+                print(
+                    "INFO: Validated Claude Code plugin marketplace "
+                    f"{marketplace!r}: {catalog['catalog_path']}"
+                )
+            else:
+                print(
+                    "ERROR: Claude Code plugin marketplace "
+                    f"{marketplace!r} is unavailable: {catalog['error']}"
+                )
+                add_claude_failure(f"marketplace:{marketplace}")
 
     installed_ids = installed_claude_plugin_ids()
     if installed_ids is None:
@@ -424,8 +595,15 @@ def refresh_claude(plugins):
                 )
             continue
 
+        if not marketplace_available[plugin["marketplace"]]:
+            print(
+                f"ERROR: Skipping Claude Code plugin {plugin['id']!r} because "
+                f"marketplace {plugin['marketplace']!r} is unavailable."
+            )
+            continue
+
         if not sync_claude_plugin(plugin, actions):
-            claude_failures.append(plugin["id"])
+            add_claude_failure(plugin["id"])
 
     print("INFO: Restart Claude Code to use refreshed plugins.")
 
@@ -807,18 +985,24 @@ def refresh_opencode(plugins):
     print("INFO: Launch or restart OpenCode to repopulate the plugin cache.")
 
 
-manifest = require_object(load_manifest(), "manifest")
-claude_enabled = claude_plugins(manifest)
-validate_claude_enablement(manifest, claude_enabled)
-refresh_claude(claude_enabled)
-refresh_opencode(opencode_plugins(manifest))
+def main():
+    manifest = require_object(load_manifest(), "manifest")
+    claude_enabled = claude_plugins(manifest)
+    validate_claude_enablement(manifest, claude_enabled)
+    refresh_claude(claude_enabled)
+    refresh_opencode(opencode_plugins(manifest))
 
-if claude_failures:
-    print(
-        "ERROR: One or more Claude Code plugin refreshes failed: "
-        + ", ".join(sorted(claude_failures))
-    )
-    sys.exit(1)
+    if claude_failures:
+        print(
+            "ERROR: One or more Claude Code plugin refreshes failed: "
+            + ", ".join(sorted(claude_failures))
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 PY
 
 {{ end -}}

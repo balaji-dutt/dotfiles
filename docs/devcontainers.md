@@ -95,6 +95,13 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   id, so a rename or a fresh host used to fail the whole apply until Claude Code
   had started once. If Claude lists a stale install record but then rejects its
   update, the refresh falls back to installation.
+- Each canonical plugin id also selects its marketplace. The hook updates each
+  required marketplace by name under Claude's preserve-on-failure environment,
+  then verifies that the CLI-reported catalog exists and publishes the expected
+  plugin. A valid preserved catalog can serve plugin operations after a failed
+  remote update, but the final nonzero result retains the onchange retry. An
+  invalid catalog skips only that marketplace while other marketplaces and the
+  OpenCode phase continue.
 - Keep each manifest `version` and its `// renovate:` comment on one line so
   Renovate can match it.
 - The Unix-host chezmoi onchange script refreshes Claude plugins and clears the
