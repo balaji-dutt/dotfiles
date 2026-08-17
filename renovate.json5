@@ -136,8 +136,7 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["@tarquinen/opencode-dcp"],
-      // Keep server pins off 3.1.14. TUI configs opt in only with the managed
-      // peer workaround, and future DCP updates must remove or revise it.
+      // Keep the incompatible 3.1.14 release blocked and review DCP updates.
       "allowedVersions": "!/^3\\.1\\.14$/",
       "automerge": false
     },
@@ -197,6 +196,29 @@
       "matchFileNames": ["configs/host-ai-plugin-refresh.jsonc"],
       "matchUpdateTypes": ["major"],
       "groupName": "host ai plugin refresh (major)"
+    },
+    {
+      // Keep DCP runtime and TUI registrations aligned with the host refresh
+      // sentinel so dependency updates also trigger cache refreshes.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@tarquinen/opencode-dcp"],
+      "matchFileNames": [
+        "configs/host-ai-plugin-refresh.jsonc",
+        "private_dot_config/opencode/opencode.jsonc",
+        "private_dot_config/opencode/tui.json",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json"
+      ],
+      "groupName": "opencode dcp"
+    },
+    {
+      // Match the runtime patch policy so strict release-age filtering cannot
+      // omit the host sentinel from the DCP update group.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["@tarquinen/opencode-dcp"],
+      "matchFileNames": ["configs/host-ai-plugin-refresh.jsonc"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "minimumReleaseAge": null
     },
     {
       // Keep the Windows-safe quota cache key aligned with both runtime

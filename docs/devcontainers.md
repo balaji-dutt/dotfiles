@@ -82,6 +82,9 @@ from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
   OpenCode/TUI registrations and refresh sentinel on the same exact version.
   Renovate groups all five references so native Windows does not reuse stale
   package content behind an unchanged `@latest` cache key.
+- `@tarquinen/opencode-dcp` is also grouped across the same five references:
+  both runtime configs, both TUI configs, and the refresh sentinel. This keeps
+  dependency fixes and required cache refreshes together.
 - Update the manifest when host Claude/OpenCode plugin entries change; runtime
   config edits alone do not trigger plugin refreshes.
 - Claude plugin ids must match between the manifest and the `enabledPlugins`
