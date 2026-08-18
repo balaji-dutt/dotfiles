@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import csv
 import datetime as dt
 import errno
 import hashlib
@@ -41,7 +42,7 @@ VERSION = 1
 BRANCH_TYPES = ("feat", "fix", "chore", "docs", "refactor", "test", "build", "ci")
 DEFAULT_PATH_TEMPLATE = "worktrees/{safe_branch}-{session_id}"
 DEFAULT_STATE_DIR = ".ai-wt"
-PROMPT_BACKENDS = {"auto", "gum", "plain"}
+UI_BACKENDS = {"auto", "gum", "plain"}
 OPENCODE_PROFILES = ("build", "custom")
 DEFAULT_HOST_BUILD_PORTS = "{{ .plannotator_ports.host.build }}"
 DEFAULT_HOST_CUSTOM_PORTS = "{{ .plannotator_ports.host.custom }}"
@@ -346,10 +347,15 @@ def prompt_for_branch_type_numbered() -> str:
     return raw_type
 
 
-def prompt_backend() -> str:
-    backend = os.environ.get("AI_WT_PROMPT_BACKEND", "auto").strip().lower() or "auto"
-    if backend not in PROMPT_BACKENDS:
-        die("AI_WT_PROMPT_BACKEND must be one of: auto, gum, plain")
+def ui_backend() -> str:
+    variable = "AI_WT_UI_BACKEND"
+    raw_backend = os.environ.get(variable)
+    if raw_backend in (None, ""):
+        variable = "AI_WT_PROMPT_BACKEND"
+        raw_backend = os.environ.get(variable, "auto")
+    backend = raw_backend.strip().lower() or "auto"
+    if backend not in UI_BACKENDS:
+        die(f"{variable} must be one of: auto, gum, plain")
     return backend
 
 
@@ -358,8 +364,28 @@ def gum_path(backend: str) -> str | None:
         return None
     path = shutil.which("gum")
     if path is None and backend == "gum":
-        die("gum not found in PATH; install gum or set AI_WT_PROMPT_BACKEND=plain")
+        die("gum not found in PATH; install gum or set AI_WT_UI_BACKEND=plain")
     return path
+
+
+def interactive_gum_path(backend: str, *, require_stdout: bool = False) -> str | None:
+    if backend == "plain":
+        return None
+    if (
+        not sys.stdin.isatty()
+        or not sys.stderr.isatty()
+        or (require_stdout and not sys.stdout.isatty())
+    ):
+        if backend == "gum":
+            streams = "stdin, stdout, and stderr" if require_stdout else "stdin and stderr"
+            die(f"Gum UI requires interactive {streams}; set AI_WT_UI_BACKEND=plain")
+        return None
+    return gum_path(backend)
+
+
+def prompt_gum_backend() -> str:
+    backend = ui_backend()
+    return backend if interactive_gum_path(backend) is not None else "plain"
 
 
 def run_gum_prompt(args: list[str], *, backend: str) -> str | None:
@@ -423,8 +449,8 @@ def prompt_for_auto_gum(*, backend: str) -> bool | None:
 
 
 def prompt_for_auto() -> bool:
-    backend = prompt_backend()
-    selected = prompt_for_auto_gum(backend=backend)
+    gum_backend = prompt_gum_backend()
+    selected = prompt_for_auto_gum(backend=gum_backend)
     if selected is not None:
         return selected
     return prompt_for_auto_plain()
@@ -433,11 +459,11 @@ def prompt_for_auto() -> bool:
 def prompt_for_branch(repo_root: Path) -> str:
     if not sys.stdin.isatty():
         die("branch is required when stdin is not interactive")
-    backend = prompt_backend()
-    raw_type = prompt_for_branch_type_gum(backend=backend)
+    gum_backend = prompt_gum_backend()
+    raw_type = prompt_for_branch_type_gum(backend=gum_backend)
     if raw_type is None:
         raw_type = prompt_for_branch_type_numbered()
-    description = prompt_for_description_gum(backend=backend)
+    description = prompt_for_description_gum(backend=gum_backend)
     if description is None:
         description = input("Description: ")
     description = description.strip()
@@ -719,6 +745,208 @@ def print_sessions(sessions: list[dict[str, Any]]) -> None:
         print(f"{session_id:26} {tool:8} {branch:30} {status:13} {path}")
 
 
+def display_cell(value: object) -> str:
+    return " ".join(str(value).splitlines())
+
+
+def session_worktree_state(metadata: dict[str, Any]) -> str:
+    raw_path = str(metadata.get("worktree_path", "")).strip()
+    if not raw_path:
+        return "missing"
+    path = Path(raw_path)
+    if not path.exists():
+        return "missing"
+    if not path.is_dir():
+        return "invalid"
+    return "dirty" if worktree_dirty(path) else "clean"
+
+
+def session_resumable(metadata: dict[str, Any]) -> bool:
+    if str(metadata.get("tool", "")) not in {"opencode", "claude"}:
+        return False
+    command = metadata.get("tool_command")
+    if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
+        return False
+    raw_path = str(metadata.get("worktree_path", "")).strip()
+    return bool(raw_path) and Path(raw_path).is_dir()
+
+
+def run_gum_selection(gum: str, args: list[str], *, operation: str) -> str | None:
+    result = subprocess.run(
+        [gum, *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        return result.stdout.strip() or None
+    if result.returncode in {1, 130}:
+        return None
+    die(f"Gum {operation} failed with exit {result.returncode}")
+
+
+def select_session_gum(
+    sessions: list[dict[str, Any]],
+    gum: str,
+    *,
+    header: str,
+) -> dict[str, Any] | None:
+    if not sessions:
+        return None
+    columns = ("SESSION ID", "TOOL", "BRANCH", "STATE", "STATUS", "WORKTREE")
+    terminal = shutil.get_terminal_size(fallback=(120, 24))
+    path_width = max(24, min(60, terminal.columns - 97))
+    widths = (26, 8, 30, 8, 13, path_width)
+    rows = [
+        (
+            display_cell(item.get("session_id", "")),
+            display_cell(item.get("tool", "")),
+            display_cell(item.get("branch", "")),
+            session_worktree_state(item),
+            display_cell(item.get("cleanup_status", "")),
+            display_cell(item.get("worktree_path", "")),
+        )
+        for item in sessions
+    ]
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            prefix="ai-wt-sessions-",
+            suffix=".csv",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            csv.writer(handle).writerows(rows)
+        selected_id = run_gum_selection(
+            gum,
+            [
+                "table",
+                "--file",
+                str(temp_path),
+                "--columns",
+                ",".join(columns),
+                "--widths",
+                ",".join(str(width) for width in widths),
+                "--height",
+                str(min(max(len(rows) + 1, 4), max(4, terminal.lines - 4))),
+                "--return-column",
+                "1",
+                "--border",
+                "rounded",
+                "--show-help",
+            ],
+            operation="session selection",
+        )
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+    if selected_id is None:
+        return None
+    for item in sessions:
+        if str(item.get("session_id", "")) == selected_id:
+            return item
+    die(f"Gum returned an unknown session for {header}: {selected_id}")
+
+
+def select_session_plain(
+    sessions: list[dict[str, Any]],
+    *,
+    prompt: str,
+) -> dict[str, Any] | None:
+    if not sessions:
+        return None
+    print(prompt)
+    for index, item in enumerate(sessions, start=1):
+        session_id = display_cell(item.get("session_id", ""))
+        tool = display_cell(item.get("tool", ""))
+        branch = display_cell(item.get("branch", ""))
+        print(f"  {index}. {session_id}  {tool}  {branch}")
+    try:
+        answer = input("Selection (Enter to cancel): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if not answer:
+        return None
+    if not answer.isdigit() or not 1 <= int(answer) <= len(sessions):
+        die("session selection is out of range")
+    return sessions[int(answer) - 1]
+
+
+def choose_session(
+    sessions: list[dict[str, Any]],
+    *,
+    header: str,
+) -> dict[str, Any] | None:
+    if not sys.stdin.isatty():
+        die("a session target is required when stdin is not interactive")
+    backend = ui_backend()
+    gum = interactive_gum_path(backend, require_stdout=True)
+    if gum is not None:
+        return select_session_gum(sessions, gum, header=header)
+    return select_session_plain(sessions, prompt=header)
+
+
+def present_summary(title: str, lines: list[str], *, gum: str | None = None) -> None:
+    if gum is None:
+        print(title)
+        for line in lines:
+            print(f"  {line}")
+        return
+    result = subprocess.run(
+        [
+            gum,
+            "style",
+            "--border",
+            "rounded",
+            "--padding",
+            "0 1",
+            f"{title}\n\n" + "\n".join(lines),
+        ],
+        check=False,
+        text=True,
+    )
+    if result.returncode != 0:
+        die(f"Gum summary failed with exit {result.returncode}")
+
+
+def confirm_plain(message: str) -> bool:
+    try:
+        answer = input(f"{message} [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in {"y", "yes"}
+
+
+def confirm_gum(gum: str, message: str) -> bool:
+    result = subprocess.run(
+        [gum, "confirm", message],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode in {1, 130}:
+        return False
+    die(f"Gum confirmation failed with exit {result.returncode}")
+
+
+def choose_gum_action(gum: str, actions: list[str], *, header: str) -> str | None:
+    return run_gum_selection(
+        gum,
+        ["choose", "--header", header, "--height", str(len(actions)), *actions],
+        operation="action selection",
+    )
+
+
 def split_windows_command_line(value: str) -> list[str]:
     argc = ctypes.c_int()
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
@@ -920,7 +1148,10 @@ def cleanup_session(
     dry_run: bool,
     auto: bool,
 ) -> bool:
-    path = Path(metadata["worktree_path"])
+    raw_worktree_path = str(metadata.get("worktree_path", "")).strip()
+    if not raw_worktree_path:
+        die("session metadata does not contain a worktree path")
+    path = Path(raw_worktree_path)
     branch = str(metadata.get("branch", ""))
     branch_created = bool(metadata.get("branch_created", False))
     ok = True
@@ -943,6 +1174,8 @@ def cleanup_session(
     else:
         metadata["cleanup_status"] = "missing_worktree"
         cleanup_complete = True
+        if dry_run:
+            print(f"would remove stale metadata: {metadata_file_for(config, metadata)}")
 
     if delete and branch:
         if not branch_created and not force:
@@ -1206,8 +1439,39 @@ def cmd_list(raw_args: list[str]) -> int:
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
-    print_sessions(load_sessions(config))
-    return 0
+    sessions = load_sessions(config)
+    if not sessions:
+        print_sessions(sessions)
+        return 0
+    gum = interactive_gum_path(ui_backend(), require_stdout=True)
+    if gum is None:
+        print_sessions(sessions)
+        return 0
+    metadata = select_session_gum(sessions, gum, header="Select an ai-wt session")
+    if metadata is None:
+        return 0
+    actions: list[str] = []
+    if session_resumable(metadata):
+        actions.append("Resume")
+    actions.extend(("Cleanup (safe: clean worktrees only)", "Cancel"))
+    session_id = str(metadata.get("session_id", "session"))
+    action = choose_gum_action(gum, actions, header=f"Action for {session_id}")
+    if action in (None, "Cancel"):
+        return 0
+    if action == "Resume":
+        ensure_state(config)
+        return resume_session(config, metadata, [], auto=False)
+    if action == "Cleanup (safe: clean worktrees only)":
+        ok = manual_cleanup_session(
+            config,
+            metadata,
+            delete=False,
+            force=False,
+            dry_run=False,
+            yes=False,
+        )
+        return 0 if ok else 1
+    die(f"unknown session action: {action}")
 
 
 def find_session(config: Config, target: str) -> dict[str, Any]:
@@ -1294,41 +1558,13 @@ def build_resume_tool_command(
     return append_opencode_auto(command, tool, auto), cwd
 
 
-def cmd_resume_list(raw_args: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog=f"{SCRIPT_NAME} resume list",
-        description="List sessions that can be resumed.",
-    )
-    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
-    parsed = parser.parse_args(raw_args)
-    repo_root = resolve_repo_root()
-    config = load_config(repo_root, parsed)
-    print_sessions(load_sessions(config))
-    return 0
-
-
-def cmd_resume(raw_args: list[str]) -> int:
-    if raw_args and raw_args[0] == "list":
-        return cmd_resume_list(raw_args[1:])
-
-    head, tool_args = split_passthrough(raw_args)
-    parser = argparse.ArgumentParser(
-        prog=f"{SCRIPT_NAME} resume",
-        description="Resume a retained ai-wt session in its existing worktree.",
-    )
-    add_run_options(parser)
-    add_opencode_auto_option(parser)
-    parser.add_argument(
-        "target",
-        help="session ID, exact branch name, or exact worktree path to resume",
-    )
-    parser.epilog = "Use 'resume list' to show resumable sessions."
-    parsed = parser.parse_args(head)
-
-    repo_root = resolve_repo_root()
-    config = load_config(repo_root, parsed)
-    ensure_state(config)
-    metadata = find_session(config, parsed.target)
+def resume_session(
+    config: Config,
+    metadata: dict[str, Any],
+    tool_args: list[str],
+    *,
+    auto: bool,
+) -> int:
     raw_worktree_path = str(metadata.get("worktree_path", "")).strip()
     if not raw_worktree_path:
         die("session metadata does not contain a worktree path")
@@ -1348,7 +1584,7 @@ def cmd_resume(raw_args: list[str]) -> int:
         worktree_path,
         tool_args,
         metadata,
-        auto=parsed.auto,
+        auto=auto,
         opencode_profile=opencode_profile,
     )
 
@@ -1381,21 +1617,166 @@ def cmd_resume(raw_args: list[str]) -> int:
     return exit_status
 
 
+def cmd_resume_list(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} resume list",
+        description="List sessions that can be resumed.",
+    )
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
+    parsed = parser.parse_args(raw_args)
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    sessions = load_sessions(config)
+    if not sessions:
+        print_sessions(sessions)
+        return 0
+    gum = interactive_gum_path(ui_backend(), require_stdout=True)
+    if gum is None:
+        print_sessions(sessions)
+        return 0
+    resumable = [item for item in sessions if session_resumable(item)]
+    if not resumable:
+        print("No resumable ai-wt sessions found.")
+        return 0
+    metadata = select_session_gum(resumable, gum, header="Select a session to resume")
+    if metadata is None:
+        return 0
+    return resume_session(config, metadata, [], auto=False)
+
+
+def cmd_resume(raw_args: list[str]) -> int:
+    if raw_args and raw_args[0] == "list":
+        return cmd_resume_list(raw_args[1:])
+
+    head, tool_args = split_passthrough(raw_args)
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} resume",
+        description="Resume a retained ai-wt session in its existing worktree.",
+    )
+    add_run_options(parser)
+    add_opencode_auto_option(parser)
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="session ID, exact branch name, or exact worktree path to resume",
+    )
+    parser.epilog = "Use 'resume list' to show resumable sessions."
+    parsed = parser.parse_args(head)
+
+    repo_root = resolve_repo_root()
+    config = load_config(repo_root, parsed)
+    ensure_state(config)
+    if parsed.target is None:
+        sessions = [item for item in load_sessions(config) if session_resumable(item)]
+        if not sessions:
+            print("No resumable ai-wt sessions found.")
+            return 0
+        metadata = choose_session(sessions, header="Select a session to resume")
+        if metadata is None:
+            return 0
+    else:
+        metadata = find_session(config, parsed.target)
+    return resume_session(config, metadata, tool_args, auto=parsed.auto)
+
+
+def cleanup_summary_lines(
+    metadata: dict[str, Any],
+    *,
+    delete: bool,
+    force: bool,
+    dry_run: bool,
+) -> tuple[str, list[str]]:
+    state = session_worktree_state(metadata)
+    return state, [
+        f"Session: {display_cell(metadata.get('session_id', '<missing>'))}",
+        f"Tool: {display_cell(metadata.get('tool', '<missing>'))}",
+        f"Branch: {display_cell(metadata.get('branch', '<missing>'))}",
+        f"Worktree: {display_cell(metadata.get('worktree_path', '<missing>'))}",
+        f"State: {state}",
+        f"Force dirty removal: {'yes' if force else 'no'}",
+        f"Delete branch: {'yes' if delete else 'no'}",
+        f"Dry run: {'yes' if dry_run else 'no'}",
+    ]
+
+
+def manual_cleanup_session(
+    config: Config,
+    metadata: dict[str, Any],
+    *,
+    delete: bool,
+    force: bool,
+    dry_run: bool,
+    yes: bool,
+) -> bool:
+    state, lines = cleanup_summary_lines(
+        metadata,
+        delete=delete,
+        force=force,
+        dry_run=dry_run,
+    )
+    needs_confirmation = not dry_run and not yes
+    gum: str | None = None
+    if needs_confirmation:
+        if not sys.stdin.isatty():
+            present_summary("Cleanup plan", lines)
+            die("cleanup requires --yes when stdin is not interactive")
+        gum = interactive_gum_path(ui_backend(), require_stdout=True)
+    present_summary("Cleanup plan", lines, gum=gum)
+    if state == "dirty" and not force:
+        eprint("refusing to remove dirty worktree without --force")
+        return False
+    if needs_confirmation:
+        session_id = str(metadata.get("session_id", "this session"))
+        confirmed = (
+            confirm_gum(gum, f"Clean up {session_id}?")
+            if gum is not None
+            else confirm_plain(f"Clean up {session_id}?")
+        )
+        if not confirmed:
+            eprint("cleanup cancelled")
+            return True
+    return cleanup_session(
+        config,
+        metadata,
+        delete=delete,
+        force=force,
+        dry_run=dry_run,
+        auto=False,
+    )
+
+
 def cmd_cleanup(raw_args: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog=f"{SCRIPT_NAME} cleanup",
         description="Remove a retained ai-wt worktree and optionally delete its branch.",
     )
-    parser.add_argument("target", help="session ID, exact branch name, or exact worktree path")
+    parser.add_argument("target", nargs="?", help="session ID, exact branch name, or exact worktree path")
     parser.add_argument("--delete", action="store_true", help="delete the branch after removing the worktree")
     parser.add_argument("--force", action="store_true", help="remove dirty worktrees and force branch deletion with --delete")
     parser.add_argument("--dry-run", action="store_true", help="print actions without removing anything")
+    parser.add_argument("--yes", action="store_true", help="skip confirmation; required for non-interactive cleanup")
     parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
-    metadata = find_session(config, parsed.target)
-    ok = cleanup_session(config, metadata, delete=parsed.delete, force=parsed.force, dry_run=parsed.dry_run, auto=False)
+    if parsed.target is None:
+        sessions = load_sessions(config)
+        if not sessions:
+            print_sessions(sessions)
+            return 0
+        metadata = choose_session(sessions, header="Select a session to clean up")
+        if metadata is None:
+            return 0
+    else:
+        metadata = find_session(config, parsed.target)
+    ok = manual_cleanup_session(
+        config,
+        metadata,
+        delete=parsed.delete,
+        force=parsed.force,
+        dry_run=parsed.dry_run,
+        yes=parsed.yes,
+    )
     return 0 if ok else 1
 
 
@@ -1406,25 +1787,100 @@ def cmd_prune(raw_args: list[str]) -> int:
     )
     parser.add_argument("--force", action="store_true", help="remove dirty retained worktrees too")
     parser.add_argument("--dry-run", action="store_true", help="print actions without removing anything")
+    parser.add_argument("--yes", action="store_true", help="skip confirmation; required for non-interactive prune")
     parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
     parsed = parser.parse_args(raw_args)
     repo_root = resolve_repo_root()
     config = load_config(repo_root, parsed)
-    ok = True
-    for item in load_sessions(config):
-        path = Path(str(item.get("worktree_path", "")))
-        if path.exists():
-            ok = cleanup_session(config, item, delete=False, force=parsed.force, dry_run=parsed.dry_run, auto=False) and ok
-            continue
-        meta = Path(str(item.get("_metadata_path", "")))
-        if parsed.dry_run:
-            print(f"would remove stale metadata: {meta}")
+    sessions = load_sessions(config)
+    if not sessions:
+        print("No ai-wt sessions found; nothing to prune.")
+        return 0
+
+    plan: list[tuple[dict[str, Any], str]] = []
+    counts = {"stale": 0, "clean": 0, "dirty_remove": 0, "dirty_skip": 0, "invalid": 0}
+    for item in sessions:
+        state = session_worktree_state(item)
+        if state == "missing":
+            kind = "stale"
+        elif state == "invalid":
+            kind = "invalid"
+        elif state == "clean":
+            kind = "clean"
+        elif parsed.force:
+            kind = "dirty_remove"
         else:
+            kind = "dirty_skip"
+        counts[kind] += 1
+        plan.append((item, kind))
+
+    actionable = counts["stale"] + counts["clean"] + counts["dirty_remove"]
+    skipped = counts["dirty_skip"] + counts["invalid"]
+    lines = [
+        f"Stale metadata to remove: {counts['stale']}",
+        f"Clean worktrees to remove: {counts['clean']}",
+        f"Dirty worktrees allowed by --force: {counts['dirty_remove']}",
+        f"Dirty worktrees to skip: {counts['dirty_skip']}",
+        f"Invalid worktree paths to skip: {counts['invalid']}",
+        f"Dry run: {'yes' if parsed.dry_run else 'no'}",
+    ]
+    needs_confirmation = actionable > 0 and not parsed.dry_run and not parsed.yes
+    gum: str | None = None
+    if needs_confirmation:
+        if not sys.stdin.isatty():
+            present_summary("Prune plan", lines)
+            die("prune requires --yes when stdin is not interactive")
+        gum = interactive_gum_path(ui_backend(), require_stdout=True)
+    present_summary("Prune plan", lines, gum=gum)
+    if actionable == 0:
+        if counts["dirty_skip"]:
+            print("No sessions can be pruned without --force.")
+        else:
+            print("No valid sessions can be pruned.")
+        return 0
+    if needs_confirmation:
+        confirmed = (
+            confirm_gum(gum, f"Prune {actionable} ai-wt session(s)?")
+            if gum is not None
+            else confirm_plain(f"Prune {actionable} ai-wt session(s)?")
+        )
+        if not confirmed:
+            eprint("prune cancelled")
+            return 0
+
+    removed = 0
+    failed = 0
+    for item, kind in plan:
+        if kind in ("dirty_skip", "invalid"):
+            continue
+        if kind == "stale":
+            meta = metadata_file_for(config, item)
+            if parsed.dry_run:
+                print(f"would remove stale metadata: {meta}")
+                continue
             if remove_metadata(config, item):
                 print(f"removed stale metadata: {meta}")
+                removed += 1
             else:
-                ok = False
-    return 0 if ok else 1
+                failed += 1
+            continue
+        if cleanup_session(
+            config,
+            item,
+            delete=False,
+            force=parsed.force,
+            dry_run=parsed.dry_run,
+            auto=False,
+        ):
+            if not parsed.dry_run:
+                removed += 1
+        else:
+            failed += 1
+    if parsed.dry_run:
+        print(f"Prune preview: {actionable} planned, {skipped} skipped.")
+    else:
+        print(f"Prune result: {removed} removed, {skipped} skipped, {failed} failed.")
+    return 0 if failed == 0 else 1
 
 
 def usage() -> str:
@@ -1433,20 +1889,20 @@ def usage() -> str:
   {SCRIPT_NAME} claude [branch] [-- tool args...]
   {SCRIPT_NAME} run <opencode|claude> [branch] [-- tool args...]
   {SCRIPT_NAME} resume list
-  {SCRIPT_NAME} resume <session-id|branch|path> [-- tool args...]
+  {SCRIPT_NAME} resume [<session-id|branch|path>] [-- tool args...]
   {SCRIPT_NAME} list
-  {SCRIPT_NAME} cleanup <session-id|branch|path> [--delete] [--force] [--dry-run]
-  {SCRIPT_NAME} prune [--dry-run] [--force]
+  {SCRIPT_NAME} cleanup [<session-id|branch|path>] [--delete] [--force] [--dry-run] [--yes]
+  {SCRIPT_NAME} prune [--dry-run] [--force] [--yes]
   {SCRIPT_NAME} name --type <type> --description <text>
 
 Commands:
   opencode  Create a managed worktree and launch OpenCode.
   claude    Create a managed worktree and launch Claude.
   run       Choose the tool explicitly before creating a worktree.
-  resume    Relaunch a retained session in its existing worktree.
-  list      Show retained session metadata.
-  cleanup   Remove retained worktrees and optionally delete branches.
-  prune     Remove stale metadata and clean retained worktrees.
+  resume    Select or relaunch a retained session in its existing worktree.
+  list      Browse retained sessions interactively or print a plain table.
+  cleanup   Select and safely remove a retained worktree.
+  prune     Preview and remove stale metadata and retained worktrees.
   name      Build a valid branch name from a type and description.
 
 Run '{SCRIPT_NAME} <command> --help' for command-specific options.

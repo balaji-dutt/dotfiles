@@ -563,7 +563,7 @@ def cleanup_policy(
             "note": note,
         }
     if ai_wt_session:
-        command = ["ai-wt", "cleanup", str(ai_wt_session["session_id"]), "--delete"]
+        command = ["ai-wt", "cleanup", str(ai_wt_session["session_id"]), "--delete", "--yes"]
         return {
             "action": "suggest",
             "manager": "ai-wt",
