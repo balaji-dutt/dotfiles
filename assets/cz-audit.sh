@@ -572,7 +572,9 @@ check() {
       fi
       ;;
     configs:*)
-      [[ -f "$relsrc" ]] && check_configs_file_rel "$relsrc"
+      if [[ -f "$relsrc" ]]; then
+        check_configs_file_rel "$relsrc"
+      fi
       ;;
     assets:*)
       if [[ "$relsrc" == *.sh ]]; then
