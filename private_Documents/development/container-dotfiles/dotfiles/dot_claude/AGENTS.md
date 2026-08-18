@@ -45,6 +45,39 @@
 - Do not use emojis in anything unless creating Plan documents.
 - Prose style rules: @~/.claude/no-ai-isms.md
 
+## GitHub issue AI-assistance disclosure
+
+- When you create a GitHub issue at my request, in any repository and through
+  any creation method, make this disclosure the first content in the issue body
+  and include exactly one copy:
+
+  ```md
+  > On AI assistance: <assistant attribution> helped me narrow down the behavior and draft the wording below, including the repro steps. The investigation, the actual issue, and the workflow are mine. — @balaji-dutt
+  ```
+
+- Replace only `<assistant attribution>`, including the angle brackets. Keep the
+  rest of the disclosure unchanged, then leave a blank line before the issue
+  body's remaining content. Do not place a heading or preamble above it.
+- Attribute the request-owning root agent: the first agent that accepted my
+  request to create that issue. Use the verified model from the root agent's
+  acceptance turn. Do not replace it with the model of a downstream
+  orchestrator, editor, reviewer, or tool caller.
+- Use a human-readable attribution. Include the model when verified, for
+  example `Claude (Opus 4.8)`. Add context size only when runtime or system
+  metadata explicitly provides it, for example
+  `Claude (Opus 4.8 / 1M context)`. Never infer metadata from configuration,
+  defaults, or aliases. If the model cannot be verified, use `Claude` without
+  parentheses.
+- Delegated agents may investigate or draft, but should return the issue body
+  to the root agent for final review and submission. Preserve any disclosure
+  supplied by the root agent. If a delegate must submit without verified root
+  model metadata, use the client-only `Claude` fallback rather than the
+  delegate's model.
+- If a draft already contains this disclosure, move or update it instead of
+  adding another copy.
+- This requirement applies only to GitHub issues. Do not apply it automatically
+  to pull requests, comments, discussions, or other GitHub artifacts.
+
 ## Tooling policy
 
 - Only run commands when necessary.
