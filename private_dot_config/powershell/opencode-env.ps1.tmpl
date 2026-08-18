@@ -49,81 +49,122 @@ if ([string]::IsNullOrWhiteSpace($env:PLANNOTATOR_PORT)) {
   $env:PLANNOTATOR_PORT = "{{ .plannotator_port }}"
 }
 
-$profilesValue = if ($env:OPENCODE_PROFILES) { $env:OPENCODE_PROFILES } else { $env:OPENCODE_PROFILE }
-if ([string]::IsNullOrWhiteSpace($profilesValue)) {
-  $profilesValue = "defaults"
-}
-
-$profileTokens = @($profilesValue -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-if ($profileTokens.Count -eq 0) {
-  $profileTokens = @("defaults")
-}
-
-$seenProfiles = @{}
-$normalizedProfiles = @()
-foreach ($token in $profileTokens) {
-  $normalized = if ($token -eq "chatgpt") { "defaults" } else { $token }
-  if (($normalized -eq ".") -or ($normalized -eq "..") -or ($normalized -notmatch '^[A-Za-z0-9._-]+$')) {
-    continue
+function Update-OpenCodeProfileEnvironment {
+  $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
+  $profilesValue = if ($env:OPENCODE_PROFILES) { $env:OPENCODE_PROFILES } else { $env:OPENCODE_PROFILE }
+  if ([string]::IsNullOrWhiteSpace($profilesValue)) {
+    $profilesValue = "defaults"
   }
-  if (-not $seenProfiles.ContainsKey($normalized)) {
-    $seenProfiles[$normalized] = $true
-    $normalizedProfiles += $normalized
+
+  $profileTokens = @($profilesValue -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  if ($profileTokens.Count -eq 0) {
+    $profileTokens = @("defaults")
   }
-}
 
-if ($normalizedProfiles.Count -eq 0) {
-  $normalizedProfiles = @("defaults")
-}
-
-$profilesValue = ($normalizedProfiles -join ' ')
-$profileName = $normalizedProfiles[0]
-
-$profileDir = Join-Path (Join-Path (Join-Path $configHome "opencode") "profiles") $profileName
-$overlayOnlyProfiles = @("anthropic-api", "api-fallback")
-$requiresRuntimeMerge = ($normalizedProfiles.Count -gt 1) -or ($overlayOnlyProfiles -contains $profileName)
-
-$workspaceRoot = ""
-if (Get-Command git -ErrorAction SilentlyContinue) {
-  try {
-    $workspaceRoot = (& git rev-parse --show-toplevel 2>$null | Select-Object -First 1)
-  } catch {
-    $workspaceRoot = ""
-  }
-}
-if ([string]::IsNullOrWhiteSpace($workspaceRoot)) {
-  $workspaceRoot = (Get-Location).Path
-}
-
-$syncHelper = Join-Path (Join-Path $configHome "opencode") "opencode-sync-workspace-overrides.sh"
-$runtimeConfigDir = ""
-
-if ((Test-Path -LiteralPath $syncHelper -PathType Leaf) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
-  try {
-    $syncOutput = & bash $syncHelper $profilesValue $workspaceRoot 2>$null
-    if ($LASTEXITCODE -eq 0) {
-      $candidate = ($syncOutput | Select-Object -Last 1).Trim()
-      if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Container)) {
-        $runtimeConfigDir = $candidate
-      }
+  $seenProfiles = @{}
+  $normalizedProfiles = @()
+  foreach ($token in $profileTokens) {
+    $normalized = if ($token -eq "chatgpt") { "defaults" } else { $token }
+    if (($normalized -eq ".") -or ($normalized -eq "..") -or ($normalized -notmatch '^[A-Za-z0-9._-]+$')) {
+      continue
     }
-  } catch {
-    $runtimeConfigDir = ""
+    if (-not $seenProfiles.ContainsKey($normalized)) {
+      $seenProfiles[$normalized] = $true
+      $normalizedProfiles += $normalized
+    }
+  }
+
+  if ($normalizedProfiles.Count -eq 0) {
+    $normalizedProfiles = @("defaults")
+  }
+
+  $profilesValue = ($normalizedProfiles -join ' ')
+  $profileName = $normalizedProfiles[0]
+  $profileDir = Join-Path (Join-Path (Join-Path $configHome "opencode") "profiles") $profileName
+  $overlayOnlyProfiles = @("anthropic-api", "api-fallback")
+  $requiresRuntimeMerge = ($normalizedProfiles.Count -gt 1) -or ($overlayOnlyProfiles -contains $profileName)
+
+  $workspaceRoot = ""
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    try {
+      $workspaceRoot = (& git rev-parse --show-toplevel 2>$null | Select-Object -First 1)
+    } catch {
+      $workspaceRoot = ""
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($workspaceRoot)) {
+    $workspaceRoot = (Get-Location).Path
+  }
+
+  $workspaceConfig = ""
+  foreach ($candidateName in @("opencode.json", "opencode.jsonc")) {
+    $candidatePath = Join-Path (Join-Path $workspaceRoot ".opencode") $candidateName
+    if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+      $workspaceConfig = $candidatePath
+      break
+    }
+  }
+
+  $opencodeHome = Join-Path $configHome "opencode"
+  $globalConfig = Join-Path $opencodeHome "opencode.jsonc"
+  $syncHelper = Join-Path $opencodeHome "opencode-sync-workspace-overrides.sh"
+  $globalConfigTimestamp = if (Test-Path -LiteralPath $globalConfig -PathType Leaf) {
+    (Get-Item -LiteralPath $globalConfig).LastWriteTimeUtc.Ticks
+  } else { "" }
+  $syncHelperTimestamp = if (Test-Path -LiteralPath $syncHelper -PathType Leaf) {
+    (Get-Item -LiteralPath $syncHelper).LastWriteTimeUtc.Ticks
+  } else { "" }
+  $baseSignature = "$profilesValue|$workspaceRoot|$workspaceConfig|$globalConfigTimestamp|$syncHelper|$syncHelperTimestamp"
+  $currentTarget = if ($env:OPENCODE_CONFIG_DIR) { $env:OPENCODE_CONFIG_DIR } else { "" }
+  $currentSignature = "$baseSignature|$currentTarget"
+  if (($global:_OpenCodeProfileContextSignature -eq $currentSignature) -and
+      (-not [string]::IsNullOrWhiteSpace($currentTarget)) -and
+      (Test-Path -LiteralPath $currentTarget -PathType Container)) {
+    return
+  }
+
+  $runtimeConfigDir = ""
+  if ((Test-Path -LiteralPath $syncHelper -PathType Leaf) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
+    try {
+      $syncOutput = & bash $syncHelper $profilesValue $workspaceRoot 2>$null
+      if ($LASTEXITCODE -eq 0) {
+        $candidate = ($syncOutput | Select-Object -Last 1)
+        if ($null -ne $candidate) {
+          $candidate = $candidate.Trim()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate -PathType Container)) {
+          $runtimeConfigDir = $candidate
+        }
+      }
+    } catch {
+      $runtimeConfigDir = ""
+    }
+  }
+
+  $usableTarget = ""
+  if ((Test-Path -LiteralPath $profileDir -PathType Container) -or (-not [string]::IsNullOrWhiteSpace($runtimeConfigDir))) {
+    $env:OPENCODE_PROFILES = $profilesValue
+    $env:OPENCODE_PROFILE = $profileName
+    if (-not [string]::IsNullOrWhiteSpace($runtimeConfigDir)) {
+      $usableTarget = $runtimeConfigDir
+      $env:OPENCODE_CONFIG_DIR = $runtimeConfigDir
+    } elseif ($requiresRuntimeMerge) {
+      Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
+    } else {
+      $usableTarget = $profileDir
+      $env:OPENCODE_CONFIG_DIR = $profileDir
+    }
+  } else {
+    Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($usableTarget)) {
+    $global:_OpenCodeProfileContextSignature = "$baseSignature|$usableTarget"
+  } else {
+    Remove-Variable -Name _OpenCodeProfileContextSignature -Scope Global -ErrorAction SilentlyContinue
   }
 }
 
-if ((Test-Path -LiteralPath $profileDir -PathType Container) -or (-not [string]::IsNullOrWhiteSpace($runtimeConfigDir))) {
-  $env:OPENCODE_PROFILES = $profilesValue
-  $env:OPENCODE_PROFILE = $profileName
-  if (-not [string]::IsNullOrWhiteSpace($runtimeConfigDir)) {
-    $env:OPENCODE_CONFIG_DIR = $runtimeConfigDir
-  } elseif ($requiresRuntimeMerge) {
-    Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
-  } else {
-    $env:OPENCODE_CONFIG_DIR = $profileDir
-  }
-} else {
-  Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
-}
+Update-OpenCodeProfileEnvironment
 
 {{- end -}}

@@ -132,3 +132,8 @@ if [ -r "$_zsh_helper" ]; then
     source "$_zsh_helper"
 fi
 unset _zsh_helper
+
+# Keep the status-preserving OpenCode refresh hook after other precmd hooks.
+if (( ${+functions[_opencode_install_shell_hooks]} )); then
+    _opencode_install_shell_hooks
+fi

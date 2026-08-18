@@ -294,3 +294,8 @@ bind_fzf_history() {
 }
 # 3. Ensure this runs AFTER antidote loads plugins.
 bind_fzf_history
+
+# Keep the status-preserving OpenCode refresh hook after other precmd hooks.
+if (( ${+functions[_opencode_install_shell_hooks]} )); then
+    _opencode_install_shell_hooks
+fi
