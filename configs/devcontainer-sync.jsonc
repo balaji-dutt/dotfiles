@@ -13,6 +13,7 @@
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode",
         "cleanup_managed": true,
         "include": [
+          "AGENTS.md",
           "agents/**",
           "commands/**",
           "modes/**",
