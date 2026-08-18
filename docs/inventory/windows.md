@@ -87,6 +87,9 @@ The selected range, pool name, and Claude Code import controls are scoped to the
 OpenCode child. The managed PowerShell profile applies the same prompt-cache
 protection to direct OpenCode launches by defaulting
 `ANTHROPIC_SYSTEM_PROMPT_PATH` to `NUL`; non-empty overrides are preserved.
+The PowerShell prompt also revalidates the memoized OpenCode runtime profile,
+so config updates reach later direct and `ai-wt` launches without rewriting an
+unchanged runtime snapshot.
 
 Verify command resolution from a fresh PowerShell process after `chezmoi apply`:
 

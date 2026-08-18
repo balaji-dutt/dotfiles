@@ -133,7 +133,7 @@ _opencode_apply_profile_dir() {
     _sync_mtime="$(stat -c %Y "$sync_helper" 2>/dev/null || stat -f %m "$sync_helper" 2>/dev/null || true)"
   fi
   signature="$joined|$workspace_root|$workspace_config|$_cfg_mtime|$sync_helper|$_sync_mtime"
-  if [ "${_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}" = "$signature" ] && [ -n "${OPENCODE_CONFIG_DIR:-}" ]; then
+  if [ "${_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}" = "$signature" ] && [ -d "${OPENCODE_CONFIG_DIR:-}" ]; then
     _opencode_apply_anthropic_api_export
     return
   fi
@@ -162,6 +162,33 @@ _opencode_apply_profile_dir() {
   export _OPENCODE_PROFILE_CONTEXT_SIGNATURE="$signature"
 
   _opencode_apply_anthropic_api_export
+}
+
+_opencode_refresh_profile() {
+  local previous_status=$?
+  _opencode_apply_profile_dir
+  return "$previous_status"
+}
+
+_opencode_install_shell_hooks() {
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    autoload -Uz add-zsh-hook 2>/dev/null || true
+    add-zsh-hook -d chpwd _opencode_refresh_profile 2>/dev/null || true
+    add-zsh-hook chpwd _opencode_refresh_profile 2>/dev/null || true
+    add-zsh-hook -d precmd _opencode_refresh_profile 2>/dev/null || true
+    add-zsh-hook precmd _opencode_refresh_profile 2>/dev/null || true
+  elif [ -n "${BASH_VERSION:-}" ]; then
+    case ";${PROMPT_COMMAND:-};" in
+      *";_opencode_refresh_profile;"*) ;;
+      *)
+        if [ -n "${PROMPT_COMMAND:-}" ]; then
+          PROMPT_COMMAND="_opencode_refresh_profile;${PROMPT_COMMAND}"
+        else
+          PROMPT_COMMAND="_opencode_refresh_profile"
+        fi
+        ;;
+    esac
+  fi
 }
 
 _opencode_update_profiles_in_env_file() {
@@ -302,5 +329,6 @@ opencode_profile() {
 
 alias opencode-profile='opencode_profile'
 _opencode_apply_claude_bridge_system_prompt_override
+_opencode_install_shell_hooks
 _opencode_apply_profile_dir
 _opencode_run_post_switch_hook

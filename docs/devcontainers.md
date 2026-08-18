@@ -391,6 +391,9 @@ OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
   `opencode-sync-workspace-overrides` to regenerate profile-specific and
   workspace agent overrides (model, prompt, and other agent fields) from
   workspace `.opencode/opencode.json|jsonc` when possible.
+- The zsh prompt hook revalidates the memoized runtime profile, so managed
+  config changes are picked up in an existing shell without rewriting an
+  unchanged runtime snapshot.
 - Lifecycle scripts install that helper at
   `~/.local/bin/opencode-sync-workspace-overrides`. The profile script prefers a
   config-root compatibility copy when present, then falls back to the lifecycle

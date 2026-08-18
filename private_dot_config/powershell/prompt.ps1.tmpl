@@ -7,4 +7,35 @@ if ($starship) {
   Invoke-Expression (& $starship.Source init powershell)
 }
 
+if (-not $global:_OpenCodePromptWrapper) {
+  $global:_OpenCodePromptWrapper = {
+    $previousSuccess = $?
+    $previousExitCode = $global:LASTEXITCODE
+    try {
+      if (Get-Command Update-OpenCodeProfileEnvironment -CommandType Function -ErrorAction SilentlyContinue) {
+        try {
+          Update-OpenCodeProfileEnvironment
+        } catch {
+          Write-Debug "OpenCode profile refresh failed: $($_.Exception.Message)"
+        }
+      }
+      $global:LASTEXITCODE = $previousExitCode
+      if (-not $previousSuccess) {
+        Write-Error "Restoring the previous command status for the prompt." -ErrorAction Ignore
+      }
+      & $global:_OpenCodeOriginalPrompt
+    } finally {
+      $global:LASTEXITCODE = $previousExitCode
+    }
+  }
+}
+
+$currentPrompt = Get-Command prompt -CommandType Function -ErrorAction SilentlyContinue
+if ($currentPrompt -and ($currentPrompt.ScriptBlock.ToString() -ne $global:_OpenCodePromptWrapper.ToString())) {
+  $global:_OpenCodeOriginalPrompt = $currentPrompt.ScriptBlock
+}
+if ($global:_OpenCodeOriginalPrompt) {
+  Set-Item -Path Function:\global:prompt -Value $global:_OpenCodePromptWrapper
+}
+
 {{- end -}}
