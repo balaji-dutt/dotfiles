@@ -115,8 +115,12 @@ work around them.
 For a suggested `ai-wt` cleanup, the command is usually:
 
 ```sh
-ai-wt cleanup <session-id> --delete
+ai-wt cleanup <session-id> --delete --yes
 ```
+
+The helper includes `--yes` because agents run commands without a terminal.
+Only run the suggestion after the user explicitly approves cleanup; `--yes`
+does not imply `--force`.
 
 For a generic worktree, the suggestion is usually:
 

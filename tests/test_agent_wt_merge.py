@@ -280,7 +280,7 @@ class AgentWtMergeTests(unittest.TestCase):
         posix = helper.cleanup_policy(**arguments, is_windows=False)
         self.assertEqual(posix["action"], "suggest")
         self.assertEqual(posix["manager"], "ai-wt")
-        self.assertEqual(posix["commands"], ["ai-wt cleanup test-session --delete"])
+        self.assertEqual(posix["commands"], ["ai-wt cleanup test-session --delete --yes"])
 
         unmanaged_windows = helper.cleanup_policy(
             **{**arguments, "ai_wt_session": None},

@@ -105,10 +105,17 @@ Retained sessions can be resumed in the same worktree and branch context:
 
 ```sh
 ai-wt resume list
+ai-wt resume
 ai-wt resume <session-id>
 ai-wt resume --auto <session-id>
 ai-wt resume <session-id> -- --agent build
 ```
+
+With Gum available in a terminal, `ai-wt resume list` opens a session table and
+resumes the selected row directly. Running `ai-wt resume` without a target uses
+the same table; the plain backend uses a numbered selector instead. In a
+non-interactive context, `resume list` prints the normal table and targetless
+`resume` reports that a target is required.
 
 By default, `resume` reuses the command recorded in the session metadata. Tool
 arguments passed after `--` replace those recorded tool arguments for that
@@ -128,25 +135,52 @@ Manual cleanup accepts a session ID, exact branch name, or exact worktree path:
 
 ```sh
 ai-wt list
+ai-wt cleanup
 ai-wt cleanup <session-id>
 ai-wt cleanup <session-id> --dry-run
 ai-wt cleanup <session-id> --force
 ai-wt cleanup <session-id> --delete
 ai-wt cleanup <session-id> --delete --force
+ai-wt cleanup <session-id> --yes
 ```
 
 - `--force` is required to remove a dirty worktree.
 - `--delete` is required to delete the branch.
 - `--delete --force` is required for forced branch deletion.
 - Pre-existing branches are not deleted unless `--force` is also passed.
+- `--yes` skips only the operator confirmation; it never implies `--force` or
+  `--delete`.
+- `--dry-run` prints the cleanup plan and never asks for confirmation.
+
+Interactive cleanup shows the session, branch, path, current worktree state,
+and requested safety flags before acting. Its confirmation defaults to No.
+Non-interactive cleanup requires both an explicit target and `--yes` before it
+can mutate anything. Running `cleanup` without a target opens the Gum session
+table or, with the plain backend, a numbered selector.
 
 `ai-wt prune` removes stale metadata for missing worktrees and can clean up
 remaining managed worktrees. It still refuses dirty worktrees unless `--force`
-is passed.
+is passed. Before changing anything it summarizes stale metadata, clean
+worktrees, dirty worktrees allowed by `--force`, and dirty worktrees that will
+be skipped. Interactive mutation uses one default-No confirmation for the
+whole plan; non-interactive mutation requires `--yes`. `--dry-run` previews the
+plan without confirmation and the final result reports removed, skipped, and
+failed counts.
 
-`ai-wt list`, `ai-wt resume list`, `ai-wt cleanup`, and `ai-wt prune` remain
-plain CLI/table commands. They do not use Gum, which keeps their output
-script-friendly and preserves explicit handling for destructive cleanup actions.
+The operator-command UI dispositions are:
+
+| Command | Disposition | Interactive behavior |
+| --- | --- | --- |
+| `list` | Gum-backed | Select a session, then Resume, safe Cleanup, or Cancel. Safe Cleanup never adds force or branch deletion. |
+| `resume list` | Gum-backed | Select and resume a valid session directly. |
+| `resume` | Gum-backed | An omitted target opens the session selector. |
+| `cleanup` | Gum-backed | An omitted target opens the selector; all manual cleanup shows a plan and uses the confirmation policy above. |
+| `prune` | Gum-backed | Shows the aggregate prune plan and confirms it once. |
+| `name` | Intentionally plain | Remains a deterministic single-value name transformer with no state or action to select. |
+
+When Gum UI requirements are not met, `list` and `resume list` retain their
+plain readable tables. This keeps redirected output useful without weakening
+the explicit confirmation rules for mutating commands.
 
 ## Ignore Rules
 
@@ -244,13 +278,16 @@ AI_WT_OPENCODE_COMMAND
 AI_WT_OPENCODE_PROFILE
 AI_WT_CLAUDE_COMMAND
 AI_WT_SUBMODULE_INIT
+AI_WT_UI_BACKEND
 AI_WT_PROMPT_BACKEND
 ```
 
-`AI_WT_PROMPT_BACKEND` accepts `auto`, `gum`, or `plain`. The default `auto`
-uses Gum for branch creation prompts when `gum` is available and otherwise uses
-the plain fallback. Set it to `plain` to disable Gum prompts, or `gum` to fail
-fast when Gum is missing.
+`AI_WT_UI_BACKEND` accepts `auto`, `gum`, or `plain`. The default `auto` uses
+Gum for branch prompts and operator commands when Gum and the required terminal
+streams are available, then falls back to the plain UI otherwise. Set it to
+`plain` to disable Gum, or `gum` to fail clearly when Gum or its terminal
+requirements are unavailable. `AI_WT_PROMPT_BACKEND` remains a compatibility
+alias when `AI_WT_UI_BACKEND` is unset; the new variable takes precedence.
 
 `AI_WT_OPENCODE_PROFILE` and `ai-wt.opencodeProfile` accept `build` or
 `custom`. The CLI form is `--opencode-profile`; new OpenCode sessions default

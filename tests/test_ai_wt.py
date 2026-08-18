@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import csv
 import errno
 import importlib.machinery
 import importlib.util
@@ -1001,6 +1002,350 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                     stdout=subprocess.PIPE,
                 ).stdout.strip()
                 self.assertEqual(count, "0")
+
+
+class OperatorBackendTests(unittest.TestCase):
+    def test_ui_backend_prefers_new_variable_and_supports_legacy_alias(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"AI_WT_UI_BACKEND": "plain", "AI_WT_PROMPT_BACKEND": "gum"},
+            clear=True,
+        ):
+            self.assertEqual(ai_wt.ui_backend(), "plain")
+        with mock.patch.dict(os.environ, {"AI_WT_PROMPT_BACKEND": "gum"}, clear=True):
+            self.assertEqual(ai_wt.ui_backend(), "gum")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(ai_wt.ui_backend(), "auto")
+
+    def test_ui_backend_reports_the_invalid_source_variable(self) -> None:
+        with mock.patch.dict(os.environ, {"AI_WT_UI_BACKEND": "fancy"}, clear=True):
+            with self.assertRaisesRegex(ai_wt.AiWtError, "AI_WT_UI_BACKEND"):
+                ai_wt.ui_backend()
+        with mock.patch.dict(os.environ, {"AI_WT_PROMPT_BACKEND": "fancy"}, clear=True):
+            with self.assertRaisesRegex(ai_wt.AiWtError, "AI_WT_PROMPT_BACKEND"):
+                ai_wt.ui_backend()
+
+    def test_auto_gum_falls_back_and_forced_gum_requires_ttys(self) -> None:
+        with mock.patch.object(ai_wt.sys, "stdin", io.StringIO()):
+            self.assertIsNone(ai_wt.interactive_gum_path("auto"))
+            with self.assertRaisesRegex(ai_wt.AiWtError, "interactive stdin"):
+                ai_wt.interactive_gum_path("gum")
+
+    def test_auto_gum_falls_back_and_forced_gum_fails_when_missing(self) -> None:
+        tty = mock.Mock()
+        tty.isatty.return_value = True
+        with (
+            mock.patch.object(ai_wt.sys, "stdin", tty),
+            mock.patch.object(ai_wt.sys, "stderr", tty),
+            mock.patch.object(ai_wt.shutil, "which", return_value=None),
+        ):
+            self.assertIsNone(ai_wt.interactive_gum_path("auto"))
+            with self.assertRaisesRegex(ai_wt.AiWtError, "gum not found"):
+                ai_wt.interactive_gum_path("gum")
+
+    def test_operator_gum_falls_back_when_stdout_is_redirected(self) -> None:
+        tty = mock.Mock()
+        tty.isatty.return_value = True
+        with (
+            mock.patch.object(ai_wt.sys, "stdin", tty),
+            mock.patch.object(ai_wt.sys, "stderr", tty),
+            mock.patch.object(ai_wt.sys, "stdout", io.StringIO()),
+        ):
+            self.assertIsNone(ai_wt.interactive_gum_path("auto", require_stdout=True))
+            with self.assertRaisesRegex(ai_wt.AiWtError, "stdin, stdout, and stderr"):
+                ai_wt.interactive_gum_path("gum", require_stdout=True)
+
+    def test_session_table_uses_sanitized_csv_and_stable_id(self) -> None:
+        metadata = {
+            "session_id": "20260818-120000-abc123",
+            "tool": "opencode",
+            "branch": "feat/with,comma\r\nand-newline",
+            "cleanup_status": "retained_dirty",
+            "worktree_path": "/missing/worktree",
+        }
+        captured_path: Path | None = None
+
+        def fake_run(command, **_kwargs):
+            nonlocal captured_path
+            captured_path = Path(command[command.index("--file") + 1])
+            self.assertTrue(captured_path.exists())
+            with captured_path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.reader(handle))
+            self.assertEqual(rows[0][0], metadata["session_id"])
+            self.assertEqual(rows[0][2], "feat/with,comma and-newline")
+            self.assertEqual(command[command.index("--return-column") + 1], "1")
+            return SimpleNamespace(returncode=0, stdout=f"{metadata['session_id']}\n")
+
+        with mock.patch.object(ai_wt.subprocess, "run", side_effect=fake_run):
+            selected = ai_wt.select_session_gum([metadata], "/usr/bin/gum", header="Select")
+
+        self.assertIs(selected, metadata)
+        self.assertIsNotNone(captured_path)
+        self.assertFalse(captured_path.exists())
+
+    def test_session_table_treats_empty_success_as_cancel(self) -> None:
+        metadata = {
+            "session_id": "session-1",
+            "tool": "opencode",
+            "branch": "feat/example",
+            "worktree_path": "/missing/worktree",
+        }
+        with mock.patch.object(
+            ai_wt.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout="\n"),
+        ):
+            self.assertIsNone(
+                ai_wt.select_session_gum([metadata], "/usr/bin/gum", header="Select")
+            )
+
+
+class OperatorCommandTests(unittest.TestCase):
+    def test_targetless_resume_keeps_loaded_config(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "ensure_state"),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[metadata]),
+            mock.patch.object(ai_wt, "session_resumable", return_value=True),
+            mock.patch.object(ai_wt, "choose_session", return_value=metadata),
+            mock.patch.object(ai_wt, "resume_session", return_value=7) as resume,
+        ):
+            result = ai_wt.cmd_resume(["--state-dir", "custom-state"])
+
+        self.assertEqual(result, 7)
+        resume.assert_called_once_with(config, metadata, [], auto=False)
+
+    def test_resume_list_selects_and_resumes_with_gum(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[metadata]),
+            mock.patch.object(ai_wt, "interactive_gum_path", return_value="gum"),
+            mock.patch.object(ai_wt, "session_resumable", return_value=True),
+            mock.patch.object(ai_wt, "select_session_gum", return_value=metadata),
+            mock.patch.object(ai_wt, "resume_session", return_value=3) as resume,
+        ):
+            result = ai_wt.cmd_resume_list(["--state-dir", "custom-state"])
+
+        self.assertEqual(result, 3)
+        resume.assert_called_once_with(config, metadata, [], auto=False)
+
+    def test_list_safe_cleanup_preserves_loaded_config(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[metadata]),
+            mock.patch.object(ai_wt, "interactive_gum_path", return_value="gum"),
+            mock.patch.object(ai_wt, "select_session_gum", return_value=metadata),
+            mock.patch.object(ai_wt, "session_resumable", return_value=True),
+            mock.patch.object(
+                ai_wt,
+                "choose_gum_action",
+                return_value="Cleanup (safe: clean worktrees only)",
+            ),
+            mock.patch.object(ai_wt, "manual_cleanup_session", return_value=True) as cleanup,
+        ):
+            result = ai_wt.cmd_list(["--state-dir", "custom-state"])
+
+        self.assertEqual(result, 0)
+        cleanup.assert_called_once_with(
+            config,
+            metadata,
+            delete=False,
+            force=False,
+            dry_run=False,
+            yes=False,
+        )
+
+    def test_cleanup_dry_run_never_confirms(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1", "worktree_path": "/missing"}
+        with (
+            mock.patch.object(ai_wt, "cleanup_session", return_value=True) as cleanup,
+            mock.patch.object(ai_wt, "confirm_plain") as confirm,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            result = ai_wt.manual_cleanup_session(
+                config,
+                metadata,
+                delete=True,
+                force=False,
+                dry_run=True,
+                yes=False,
+            )
+
+        self.assertTrue(result)
+        confirm.assert_not_called()
+        cleanup.assert_called_once_with(
+            config,
+            metadata,
+            delete=True,
+            force=False,
+            dry_run=True,
+            auto=False,
+        )
+
+    def test_cleanup_requires_yes_without_a_tty(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1", "worktree_path": "/missing"}
+        with (
+            mock.patch.object(ai_wt.sys, "stdin", io.StringIO()),
+            mock.patch.object(ai_wt, "cleanup_session") as cleanup,
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaisesRegex(ai_wt.AiWtError, "requires --yes"),
+        ):
+            ai_wt.manual_cleanup_session(
+                config,
+                metadata,
+                delete=False,
+                force=False,
+                dry_run=False,
+                yes=False,
+            )
+        cleanup.assert_not_called()
+
+    def test_cleanup_cancel_is_a_no_op(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1", "worktree_path": "/missing"}
+        tty = mock.Mock()
+        tty.isatty.return_value = True
+        with (
+            mock.patch.object(ai_wt.sys, "stdin", tty),
+            mock.patch.object(ai_wt, "ui_backend", return_value="plain"),
+            mock.patch("builtins.input", return_value=""),
+            mock.patch.object(ai_wt, "cleanup_session") as cleanup,
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            result = ai_wt.manual_cleanup_session(
+                config,
+                metadata,
+                delete=False,
+                force=False,
+                dry_run=False,
+                yes=False,
+            )
+
+        self.assertTrue(result)
+        cleanup.assert_not_called()
+
+    def test_safe_cleanup_does_not_turn_yes_into_force(self) -> None:
+        config = make_config()
+        metadata = {"session_id": "session-1", "worktree_path": "/worktree"}
+        with (
+            mock.patch.object(ai_wt, "session_worktree_state", return_value="dirty"),
+            mock.patch.object(ai_wt, "cleanup_session") as cleanup,
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            result = ai_wt.manual_cleanup_session(
+                config,
+                metadata,
+                delete=False,
+                force=False,
+                dry_run=False,
+                yes=True,
+            )
+
+        self.assertFalse(result)
+        cleanup.assert_not_called()
+
+    def test_prune_plans_once_and_skips_dirty_without_force(self) -> None:
+        config = make_config()
+        stale = {"session_id": "stale", "_metadata_path": "/tmp/stale.json"}
+        clean = {"session_id": "clean", "worktree_path": "/tmp/clean"}
+        dirty = {"session_id": "dirty", "worktree_path": "/tmp/dirty"}
+        states = {"stale": "missing", "clean": "clean", "dirty": "dirty"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[stale, clean, dirty]),
+            mock.patch.object(
+                ai_wt,
+                "session_worktree_state",
+                side_effect=lambda item: states[item["session_id"]],
+            ),
+            mock.patch.object(ai_wt, "remove_metadata", return_value=True) as remove,
+            mock.patch.object(ai_wt, "cleanup_session", return_value=True) as cleanup,
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            result = ai_wt.cmd_prune(["--yes"])
+
+        self.assertEqual(result, 0)
+        remove.assert_called_once_with(config, stale)
+        cleanup.assert_called_once_with(
+            config,
+            clean,
+            delete=False,
+            force=False,
+            dry_run=False,
+            auto=False,
+        )
+        self.assertIn("2 removed, 1 skipped, 0 failed", stdout.getvalue())
+
+    def test_prune_requires_yes_before_mutation_without_a_tty(self) -> None:
+        config = make_config()
+        clean = {"session_id": "clean", "worktree_path": "/tmp/clean"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[clean]),
+            mock.patch.object(ai_wt, "session_worktree_state", return_value="clean"),
+            mock.patch.object(ai_wt.sys, "stdin", io.StringIO()),
+            mock.patch.object(ai_wt, "cleanup_session") as cleanup,
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaisesRegex(ai_wt.AiWtError, "requires --yes"),
+        ):
+            ai_wt.cmd_prune([])
+        cleanup.assert_not_called()
+
+    def test_prune_force_is_explicitly_forwarded_for_dirty_worktrees(self) -> None:
+        config = make_config()
+        dirty = {"session_id": "dirty", "worktree_path": "/tmp/dirty"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[dirty]),
+            mock.patch.object(ai_wt, "session_worktree_state", return_value="dirty"),
+            mock.patch.object(ai_wt, "cleanup_session", return_value=True) as cleanup,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            result = ai_wt.cmd_prune(["--force", "--yes"])
+
+        self.assertEqual(result, 0)
+        cleanup.assert_called_once_with(
+            config,
+            dirty,
+            delete=False,
+            force=True,
+            dry_run=False,
+            auto=False,
+        )
+
+    def test_prune_skips_invalid_worktree_paths_even_with_force(self) -> None:
+        config = make_config()
+        invalid = {"session_id": "invalid", "worktree_path": "/tmp/not-a-directory"}
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=config.repo_root),
+            mock.patch.object(ai_wt, "load_config", return_value=config),
+            mock.patch.object(ai_wt, "load_sessions", return_value=[invalid]),
+            mock.patch.object(ai_wt, "session_worktree_state", return_value="invalid"),
+            mock.patch.object(ai_wt, "cleanup_session") as cleanup,
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            result = ai_wt.cmd_prune(["--force", "--yes"])
+
+        self.assertEqual(result, 0)
+        cleanup.assert_not_called()
+        self.assertIn("Invalid worktree paths to skip: 1", stdout.getvalue())
+        self.assertIn("No valid sessions can be pruned", stdout.getvalue())
 
 
 if __name__ == "__main__":
