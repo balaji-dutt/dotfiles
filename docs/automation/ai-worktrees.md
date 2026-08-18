@@ -195,6 +195,13 @@ crashes, reboots, `SIGKILL`, or detached child processes can leave a managed
 worktree behind. Use `ai-wt list`, `ai-wt cleanup`, and `ai-wt prune` for
 recovery.
 
+Before launching, the wrapper titles the terminal tab `<tool> · <branch>`, so a
+session is identifiable while it runs. Terminals otherwise name a tab after the
+deepest foreground job on the tty, which is whichever MCP server the agent
+spawned rather than the agent. The title is suppressed when stderr is not a
+terminal, when `DISABLE_AUTO_TITLE=true`, and on native Windows outside Windows
+Terminal. See `docs/tooling/iterm-titles.md`.
+
 On native Windows, configured command strings use Windows command-line parsing
 and child tools still launch directly without a command shell. Native `.exe`
 tools are supported. `.cmd` and `.bat` agent commands are rejected before

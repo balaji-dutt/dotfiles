@@ -1,0 +1,72 @@
+# Terminal title for AI agent sessions.
+#
+# iTerm2's "Job" title component, and tmux's automatic rename, both name the
+# tab after the deepest foreground job on the tty. MCP servers such as
+# codebase-memory-mcp are foreground children of `claude` / `opencode`, so they
+# win that race and the tab reads `codebase-memory-mcp` instead of the agent.
+#
+# Emit an explicit title on launch instead. oh-my-zsh's omz_termsupport_precmd
+# restores the cwd title when the agent exits, so no reset hook is needed here.
+#
+# This registers after antidote loads oh-my-zsh (see dot_zshrc.tmpl ordering),
+# so this preexec hook runs last and wins.
+#
+# Requires the iTerm2 profile setting "Applications in terminal may change the
+# title"; see docs/tooling/iterm-titles.md.
+
+autoload -Uz add-zsh-hook
+
+# Commands whose tabs get an agent title. ai-wt is deliberately absent: it sets
+# a better title from inside, using the real worktree branch.
+_agent_title_commands=(
+    claude
+    claude-plannotator
+    opencode
+    opencode-plannotator
+    opencode-plannotator-custom
+)
+
+# Branch when it is a feature branch, otherwise the repo directory name.
+_agent_title_context() {
+    emulate -L zsh
+
+    local branch repo
+    repo=$(command git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z $repo ]]; then
+        print -r -- "${PWD:t}"
+        return 0
+    fi
+
+    branch=$(command git symbolic-ref --quiet --short HEAD 2>/dev/null)
+    case $branch in
+        ''|main|master) print -r -- "${repo:t}" ;;
+        *) print -r -- "$branch" ;;
+    esac
+}
+
+_agent_title_preexec() {
+    emulate -L zsh
+
+    [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return 0
+    # Keep escape bytes out of redirected output, e.g. `zsh -ic claude | tee log`.
+    [[ -t 1 ]] || return 0
+
+    local -a cmdargs
+    cmdargs=("${(z)2}")
+    local command_name=${cmdargs[1]:t}
+    (( ${_agent_title_commands[(Ie)$command_name]} )) || return 0
+
+    local tool=$command_name
+    case $tool in
+        claude*) tool=claude ;;
+        opencode*) tool=opencode ;;
+    esac
+
+    # OSC 0 sets both the window and icon/tab name. Deliberately not oh-my-zsh's
+    # `title` helper: inside tmux that emits screen's `\ek...\e\\`, which sets
+    # the tmux window name and never reaches the outer terminal. tmux records
+    # OSC 0 as pane_title, which ~/.config/tmux/tmux.conf forwards onward.
+    printf '\033]0;%s\007' "${tool} · $(_agent_title_context)"
+}
+
+add-zsh-hook preexec _agent_title_preexec

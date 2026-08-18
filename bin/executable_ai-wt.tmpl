@@ -78,6 +78,41 @@ def die(message: str) -> None:
     raise AiWtError(message)
 
 
+def terminal_title(tool: str, context: str) -> str:
+    """Tab title for a session, matching 55-terminal-title.zsh."""
+    context = context.strip()
+    return f"{tool} · {context}" if context else tool
+
+
+def emit_terminal_title(title: str) -> bool:
+    """Set the enclosing terminal's title via OSC 0. True when emitted.
+
+    Terminals name a tab after the deepest foreground job on the tty, which for
+    an agent is whichever MCP server it spawned rather than the agent itself.
+    Naming the tab up front avoids that.
+
+    Suppressed when stderr is not a terminal, when the oh-my-zsh opt-out is set,
+    and on native Windows outside Windows Terminal: legacy conhost only honours
+    OSC once ENABLE_VIRTUAL_TERMINAL_PROCESSING is set on the handle, which
+    Python does not do for stderr, so the escape would print as literal text.
+    """
+    if not title:
+        return False
+    if os.environ.get("DISABLE_AUTO_TITLE") == "true":
+        return False
+    if IS_WINDOWS and "WT_SESSION" not in os.environ:
+        return False
+    try:
+        if not sys.stderr.isatty():
+            return False
+    except (AttributeError, ValueError):  # detached or closed stream
+        return False
+
+    sys.stderr.write(f"\033]0;{title}\007")
+    sys.stderr.flush()
+    return True
+
+
 def git_process_environment() -> dict[str, str] | None:
     if not IS_WINDOWS:
         return None
@@ -932,9 +967,11 @@ def launch_child(
     *,
     tool: str,
     opencode_profile: str | None = None,
+    title_context: str = "",
 ) -> int:
     validate_child_command(command)
     eprint(f"launching: {format_command(command)}")
+    emit_terminal_title(terminal_title(tool, title_context))
     child = subprocess.Popen(
         command,
         cwd=str(cwd),
@@ -1108,6 +1145,7 @@ def cmd_run(tool: str, raw_args: list[str], *, prog: str | None = None) -> int:
             cwd,
             tool=tool,
             opencode_profile=opencode_profile,
+            title_context=str(metadata.get("branch") or ""),
         )
         metadata["child_exit_status"] = exit_status
         write_metadata(config, metadata)
@@ -1326,6 +1364,7 @@ def cmd_resume(raw_args: list[str]) -> int:
             cwd,
             tool=tool,
             opencode_profile=opencode_profile,
+            title_context=str(metadata.get("branch") or ""),
         )
         metadata["child_exit_status"] = exit_status
         write_metadata(config, metadata)

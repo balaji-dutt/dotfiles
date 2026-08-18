@@ -597,6 +597,106 @@ class GitProcessEnvironmentTests(unittest.TestCase):
         child_environment.assert_called_once_with("opencode", "build")
 
 
+class FakeStderr(io.StringIO):
+    def __init__(self, *, tty: bool) -> None:
+        super().__init__()
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+class TerminalTitleTests(unittest.TestCase):
+    def test_title_joins_tool_and_context(self) -> None:
+        self.assertEqual(ai_wt.terminal_title("claude", "fix/titles"), "claude · fix/titles")
+
+    def test_title_omits_blank_context(self) -> None:
+        for context in ("", "   "):
+            with self.subTest(context=context):
+                self.assertEqual(ai_wt.terminal_title("opencode", context), "opencode")
+
+    def _emit(self, title: str, *, tty: bool = True, windows: bool = False, env=None):
+        stream = FakeStderr(tty=tty)
+        with (
+            mock.patch.object(ai_wt, "IS_WINDOWS", windows),
+            mock.patch.object(ai_wt.sys, "stderr", stream),
+            mock.patch.dict(ai_wt.os.environ, env or {}, clear=True),
+        ):
+            emitted = ai_wt.emit_terminal_title(title)
+        return emitted, stream.getvalue()
+
+    def test_emits_osc_zero_on_a_posix_terminal(self) -> None:
+        emitted, written = self._emit("claude · fix/titles")
+
+        self.assertTrue(emitted)
+        self.assertEqual(written, "\033]0;claude · fix/titles\007")
+
+    def test_suppressed_when_stderr_is_not_a_terminal(self) -> None:
+        emitted, written = self._emit("claude · main", tty=False)
+
+        self.assertFalse(emitted)
+        self.assertEqual(written, "")
+
+    def test_suppressed_by_disable_auto_title(self) -> None:
+        emitted, written = self._emit("claude · main", env={"DISABLE_AUTO_TITLE": "true"})
+
+        self.assertFalse(emitted)
+        self.assertEqual(written, "")
+
+    def test_suppressed_on_native_windows_outside_windows_terminal(self) -> None:
+        emitted, written = self._emit("claude · main", windows=True)
+
+        self.assertFalse(emitted)
+        self.assertEqual(written, "")
+
+    def test_emitted_on_native_windows_inside_windows_terminal(self) -> None:
+        emitted, written = self._emit(
+            "claude · main",
+            windows=True,
+            env={"WT_SESSION": "d6d3a1e2-0000-0000-0000-000000000000"},
+        )
+
+        self.assertTrue(emitted)
+        self.assertEqual(written, "\033]0;claude · main\007")
+
+    def test_suppressed_for_an_empty_title(self) -> None:
+        emitted, written = self._emit("")
+
+        self.assertFalse(emitted)
+        self.assertEqual(written, "")
+
+    def test_launch_child_titles_the_tab_from_the_branch(self) -> None:
+        child = mock.Mock()
+        child.wait.return_value = 0
+        with (
+            mock.patch.object(ai_wt, "validate_child_command"),
+            mock.patch.object(ai_wt, "child_process_environment", return_value=None),
+            mock.patch.object(ai_wt.subprocess, "Popen", return_value=child),
+            mock.patch.object(ai_wt, "emit_terminal_title") as emit,
+        ):
+            ai_wt.launch_child(
+                ["agent"],
+                Path("/tmp/worktree"),
+                tool="claude",
+                title_context="fix/titles",
+            )
+
+        emit.assert_called_once_with("claude · fix/titles")
+
+    def test_launch_child_falls_back_to_the_bare_tool_name(self) -> None:
+        child = mock.Mock()
+        child.wait.return_value = 0
+        with (
+            mock.patch.object(ai_wt, "validate_child_command"),
+            mock.patch.object(ai_wt, "child_process_environment", return_value=None),
+            mock.patch.object(ai_wt.subprocess, "Popen", return_value=child),
+            mock.patch.object(ai_wt, "emit_terminal_title") as emit,
+        ):
+            ai_wt.launch_child(["agent"], Path("/tmp/worktree"), tool="opencode")
+
+        emit.assert_called_once_with("opencode")
+
+
 class PlatformCommandTests(unittest.TestCase):
     def test_display_name_hides_windows_python_suffix(self) -> None:
         self.assertEqual(ai_wt.display_script_name(r"C:\Users\Example\.local\ai-wt.py"), "ai-wt")

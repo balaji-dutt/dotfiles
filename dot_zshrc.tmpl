@@ -104,6 +104,13 @@ if [ -r "$_zsh_helper" ]; then
 fi
 unset _zsh_helper
 
+# Must stay after antidote so this preexec hook runs after oh-my-zsh's.
+_zsh_helper="${HOME}/.local/share/zsh/55-terminal-title.zsh"
+if [ -r "$_zsh_helper" ]; then
+    source "$_zsh_helper"
+fi
+unset _zsh_helper
+
 _zsh_helper="${HOME}/.local/share/zsh/60-wsl-native-commands.zsh"
 if [ -r "$_zsh_helper" ]; then
     source "$_zsh_helper"
