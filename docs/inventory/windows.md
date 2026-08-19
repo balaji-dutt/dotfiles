@@ -164,6 +164,16 @@ SHA-256, validates the candidate version, and publishes only
 installer, or the upstream `install` command, so it does not rewrite MCP client
 configuration.
 
+An upgrade defers before download when a `claude.exe` or `opencode.exe` process
+is running, or when that process state cannot be inspected safely. Run the retry
+from a standalone PowerShell after closing both applications. Immediately
+before replacement, the hook checks again, gives the existing binary a bounded
+daemon shutdown window, and force-stops only stale processes whose executable
+path exactly matches `~/.local/codebase-memory-mcp.exe`. If inspection or
+termination cannot finish safely, the hook leaves the existing binary in place
+and fails promptly instead of blocking `chezmoi apply`. It does not delete or
+rebuild CBM cache or database files.
+
 `windows-bootstrap.ps1` owns `~/.local` in the persistent user `PATH`. Restart
 OpenCode, Claude Code, and any terminal that predates the installation before
 testing command-name resolution.
@@ -183,7 +193,7 @@ apply. Register it by hand in that case:
 claude mcp add --transport stdio --scope user cbm -- codebase-memory-mcp
 ```
 
-Unless `CBM_CACHE_DIR` is set at runtime, the standard v0.9.0 binary keeps its
+Unless `CBM_CACHE_DIR` is set at runtime, the pinned standard binary keeps its
 unmanaged databases, configuration, and logs under
 `~/.cache/codebase-memory-mcp`. The install hook creates the active cache
 directory so read-only commands work before the first index, but chezmoi does
