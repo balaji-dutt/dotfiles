@@ -152,7 +152,8 @@ for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
          session.default_tool session.delete_to_trash \
          session.row_tag session.agent_command_override \
          status_hooks.enabled status_hooks.on_error status_hooks.on_waiting \
-         telemetry.enabled tmux.clipboard updates.update_check_mode \
+         telemetry.enabled tmux.clipboard tmux.status_bar \
+         updates.update_check_mode \
          worktree.delete_branch_on_cleanup worktree.enabled \
          worktree.path_template; do
   aoe settings explain "$k" 2>&1 | grep -q "not a known setting" \

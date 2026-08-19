@@ -21,12 +21,11 @@ PID   PPID  PGID  TPGID  TTY      STAT COMM
 11774 11721 11721 11721  ttys004  S+   codebase-memory-mcp   <- wins
 ```
 
-So the tab reads `codebase-memory-mcp`. Under AoE the tmux client is the only
-foreground job on the iTerm tty, so the same rule makes every AoE tab read
-`tmux`.
+So the tab reads `codebase-memory-mcp`.
 
-tmux's own `automatic-rename` picks names the same way and has the same flaw,
-which is why the fix sets titles explicitly rather than relying on either.
+tmux's own `automatic-rename` picks names the same way and inherits the same
+flaw, which is why the fix sets titles explicitly rather than relying on either
+heuristic.
 
 ## Manual iTerm2 setup (not managed by chezmoi)
 
@@ -84,7 +83,6 @@ for p in plistlib.load(sys.stdin.buffer)["New Bookmarks"]:
 | --- | --- |
 | `dot_local/share/zsh/55-terminal-title.zsh.tmpl` | `preexec` hook that titles the tab on agent launch |
 | `bin/executable_ai-wt.tmpl` | `terminal_title()` / `emit_terminal_title()`, called from `launch_child()` |
-| `private_dot_config/tmux/tmux.conf` | forwards `pane_title` out to the enclosing terminal |
 
 ### zsh hook
 
@@ -128,21 +126,40 @@ does not do for stderr, so the escape would print as literal text. Windows
 Terminal sets `WT_SESSION`, which is how the guard detects it; under WSL2
 `ai-wt` runs as ordinary POSIX Python and is unaffected.
 
-### tmux
+### Why there is no tmux config
 
-```tmux
-set -g set-titles on
-set -g set-titles-string '#{pane_title}'
-```
+There is deliberately no `~/.config/tmux/tmux.conf`. Commit `a9fb6251` added one
+containing `set -g set-titles on` and `set -g set-titles-string '#{pane_title}'`,
+to stop AoE tabs reading `tmux`. It was reverted, for two reasons.
 
-tmux records the OSC 0 emitted inside a pane as `pane_title`; `set-titles`
-forwards it to the outer terminal. AoE starts tmux without `-f` and exports
-`XDG_CONFIG_HOME`, so this file is the config its server reads. AoE sets
-`set-clipboard` and `allow-passthrough` per-session at creation time, so this
-file does not affect OSC52 copy.
+AoE starts tmux without `-f` and exports `XDG_CONFIG_HOME`, so any file at that
+path becomes the config its server reads — and AoE's `tmux.status_bar`,
+`tmux.clipboard`, and `tmux.mouse` settings all default to `"auto"`, which means
+"step aside once the user has a tmux config". The file cost us AoE's themed
+status bar; tmux fell back to its own `bg=green,fg=black` default, which is
+unreadable. `private_dot_config/agent-of-empires/modify_config.toml` now pins
+`status_bar` and `clipboard` to `"enabled"` so that cannot happen silently
+again.
 
-A running tmux server does not pick up config changes. Restart it (or kill all
-AoE sessions) for this to take effect.
+`set-titles` is also server-wide, and there is no per-client form. The tmux
+server pushes a title to every terminal hosting a client, including the tab
+running the `aoe` TUI dashboard, and it has no idea which session that dashboard
+is previewing — so the tab ended up named after whichever session last triggered
+a write. AoE itself emits no OSC 0 or OSC 2, has no focus or preview hook
+(`on_create` / `on_launch` / `on_destroy` only), and its plugin workers are
+separate processes that do not own the TUI's stdout, so nothing outside AoE can
+name that tab correctly.
+
+What names it instead: oh-my-zsh's `termsupport` `preexec`, which emits
+`\e]1;aoe\a`. The hook in `55-terminal-title.zsh` returns early for commands
+outside its allowlist, so that title survives, and no `precmd` fires while `aoe`
+is in the foreground. That is a real dependency — drop `ohmyzsh/ohmyzsh path:lib`
+from `dot_zsh_plugins.txt.tmpl`, or set `DISABLE_AUTO_TITLE=true`, and the
+dashboard tab loses its name.
+
+If any of this is revisited: a running tmux server does not pick up config
+changes, and AoE applies its per-session options at session creation. Restart
+the server (or kill all AoE sessions) before judging the result.
 
 ## Verification
 
@@ -160,8 +177,11 @@ ps -eo pid,ppid,pgid,tpgid,tty,comm | grep -E 'claude|codebase-memory'
 # 4. ai-wt helpers.
 python3 tests/test_ai_wt.py
 
-# 5. tmux forwarding, from inside an AoE session.
-tmux show-options -g set-titles   # must report: set-titles on
+# 5. No tmux config, and AoE owns the status bar. Run on a server started
+#    after the config change; a running server does not reload.
+test ! -e ~/.config/tmux/tmux.conf
+tmux show-options -g set-titles    # must report: set-titles off
+tmux show-options -g status-left   # must contain: aoe: #{@aoe_title}
 ```
 
 Quitting the agent returns the tab to the cwd title.

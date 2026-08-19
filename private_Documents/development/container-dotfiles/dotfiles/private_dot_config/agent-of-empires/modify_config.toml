@@ -70,10 +70,14 @@ on_waiting = "$HOME/bin/aoe-notify waiting"
 [telemetry]
 enabled = false
 
-# "auto" opts out when a user tmux config exists. Force OSC52 forwarding; this
-# also permits wrapped programs to pass terminal escape sequences through tmux.
+# Both default to "auto", which opts out the moment a ~/.config/tmux/tmux.conf
+# exists - and aoe reads that path, since it starts tmux without -f. Pinned so a
+# future tmux config cannot silently cost us OSC52 forwarding or the themed
+# status bar; see docs/tooling/iterm-titles.md. clipboard also permits wrapped
+# programs to pass escape sequences through tmux.
 [tmux]
 clipboard = "enabled"
+status_bar = "enabled"
 
 [updates]
 update_check_mode = "off"

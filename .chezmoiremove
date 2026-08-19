@@ -24,3 +24,10 @@ Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/hom
 .emacs.d
 .config/emacs
 .config/doom
+
+# Retired tmux config. AoE styles the status bar itself and nothing consumes
+# set-titles; leaving the file behind would opt AoE's "auto" settings back out.
+# Only the file is listed, not the .config/tmux directory. This entry re-runs on
+# every apply, so a future hand-rolled tmux.conf gets deleted too - drop this
+# line first if you ever want one, and re-check AoE's "auto" settings.
+.config/tmux/tmux.conf

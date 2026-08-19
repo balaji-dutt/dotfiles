@@ -64,8 +64,9 @@ _agent_title_preexec() {
 
     # OSC 0 sets both the window and icon/tab name. Deliberately not oh-my-zsh's
     # `title` helper: inside tmux that emits screen's `\ek...\e\\`, which sets
-    # the tmux window name and never reaches the outer terminal. tmux records
-    # OSC 0 as pane_title, which ~/.config/tmux/tmux.conf forwards onward.
+    # the tmux window name. This OSC 0 reaches no further than the pane either:
+    # tmux records it as pane_title and deliberately forwards nothing out.
+    # See docs/tooling/iterm-titles.md.
     printf '\033]0;%s\007' "${tool} · $(_agent_title_context)"
 }
 
