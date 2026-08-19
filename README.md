@@ -138,8 +138,10 @@ grep -q "Beads fork protection" .git/info/exclude && \
 bd list                                    # should show issues
 ```
 
-`.envrc` exports a stable per-checkout `BEADS_DOLT_SERVER_PORT`, so POSIX clones
-do not share a single hardcoded Dolt port. If an old clone keeps trying to use
+On non-WSL2 POSIX hosts, `bd` manages a per-project runtime port. In WSL2,
+`.envrc` instead exports a stable per-checkout `BEADS_DOLT_SERVER_PORT` for the
+native-Windows client. `bd` records the active port in
+`.beads/dolt-server.port` in both cases. If an old clone keeps trying to use
 `3318`, stop its Dolt server, remove stale `.beads/dolt-server.port` /
 `.beads/dolt-server.pid`, then reload direnv or the shell.
 

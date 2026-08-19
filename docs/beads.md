@@ -13,10 +13,11 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
 
 - **Backend:** Dolt. `bd` auto-starts and manages a project-local `dolt
   sql-server` (`dolt.shared-server: false`, `dolt.mode: server`) on
-  `127.0.0.1`. The repo does not track a single `dolt.port`; `.envrc` exports a
-  stable per-checkout `BEADS_DOLT_SERVER_PORT` so Windows and WSL2 clones do not
-  fight over `3318`. `bd` still records the active runtime port in
-  `.beads/dolt-server.port`.
+  `127.0.0.1`. The repo does not track a single `dolt.port`. On non-WSL2 POSIX
+  hosts, `bd` chooses a per-project runtime port. In WSL2, `.envrc` instead
+  exports a stable per-checkout `BEADS_DOLT_SERVER_PORT` for the native-Windows
+  client. `bd` records the active port in `.beads/dolt-server.port` in both
+  cases.
 - **Data dir:** `<repo>/.beads/dolt/` (the `dots` database lives at
   `.beads/dolt/dots/`). The whole `dolt/` tree and the `dolt-server.*` runtime
   files are git-ignored (`.beads/.gitignore`). `.beads/config.yaml` and
