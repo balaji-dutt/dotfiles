@@ -180,8 +180,15 @@ python3 tests/test_ai_wt.py
 # 5. No tmux config, and AoE owns the status bar. Run on a server started
 #    after the config change; a running server does not reload.
 test ! -e ~/.config/tmux/tmux.conf
-tmux show-options -g set-titles    # must report: set-titles off
-tmux show-options -g status-left   # must contain: aoe: #{@aoe_title}
+tmux show-options -g set-titles   # must report: set-titles off
+
+# AoE sets status-style, status-left and status-right per session, not
+# globally, so -g reports tmux's untouched defaults even when the bar is
+# styled correctly. Run this one from inside an AoE session; show-options
+# without -g resolves to the current session. Empty output is the failure.
+# Match on #{@aoe_title}, not "aoe:" - a #[...] style escape splits that
+# prefix in the raw format string.
+tmux show-options status-right    # must contain: #{@aoe_title}
 ```
 
 Quitting the agent returns the tab to the cwd title.
