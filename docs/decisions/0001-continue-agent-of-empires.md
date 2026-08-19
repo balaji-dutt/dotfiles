@@ -24,7 +24,7 @@ What this repo currently depends on:
 - Config overlay [`private_dot_config/agent-of-empires/modify_config.toml`](../../private_dot_config/agent-of-empires/modify_config.toml):
   agent command overrides (Plannotator wrappers), `[status_hooks]` wired to
   `~/bin/aoe-notify`, worktree path template
-  `./worktrees/{branch}-{session-id}`, tmux clipboard.
+  `./worktrees/{branch}-{session-id}`, tmux clipboard and status bar.
 - The `auto` profile
   ([`private_dot_config/agent-of-empires/profiles/auto/config.toml`](../../private_dot_config/agent-of-empires/profiles/auto/config.toml))
   for auto-approved OpenCode sessions.
