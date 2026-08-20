@@ -27,6 +27,27 @@ python3 assets/sync-browser-policies.py --write
 
 No mode flag is equivalent to `--write`.
 
+### Plannotator slash-command sync
+
+Plannotator's slash commands ship as files upstream installs outside chezmoi:
+`scripts/install.sh` copies the Claude skills into `~/.claude/skills`, and the
+`@plannotator/opencode` package's `postinstall` drops its command stubs into
+`~/.config/opencode/commands`. This repo runs neither, so the six files are
+vendored and applied by chezmoi instead.
+
+```sh
+python3 assets/sync-plannotator-assets.py --check
+python3 assets/sync-plannotator-assets.py --write
+```
+
+No mode flag is equivalent to `--write`. Both modes read
+`configs/plannotator-assets.json` and fetch from the tag matching
+`plannotator_version` in `.chezmoidata.yaml`; `--check` reports drift without
+writing. After `--write`, run `bash ./assets/sync-devcontainer-assets.sh` to
+mirror the Claude skills into container-dotfiles.
+
+See `docs/plannotator.md` for why the upstream installer is bypassed.
+
 ### AI tooling drift check
 
 Checks active MCP runtime declarations against the support matrix without

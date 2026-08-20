@@ -18,7 +18,7 @@
       {
         "id": "plannotator@plannotator",
         "scope": "user",
-        "version": "0.26.8" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
+        "version": "0.27.4" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
       },
       {
         "id": "cc-safety-net@cc-marketplace",

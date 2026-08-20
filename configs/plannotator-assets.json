@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "name": "plannotator",
+  "upstream": {
+    "repo": "backnotprop/plannotator",
+    "version": "v0.27.4",
+    "release_url": "https://github.com/backnotprop/plannotator/releases/tag/v0.27.4",
+    "source_base_url": "https://raw.githubusercontent.com/backnotprop/plannotator/v0.27.4/"
+  },
+  "artifacts": [
+    {
+      "path": "dot_claude/skills/plannotator-annotate/SKILL.md",
+      "source_path": "apps/skills/claude/plannotator-annotate/SKILL.md",
+      "sha256": "be4666ee5d68cb3259cf3843f871d4a0455e3e6aa63c077c913e7e9b6f71b7f0"
+    },
+    {
+      "path": "dot_claude/skills/plannotator-last/SKILL.md",
+      "source_path": "apps/skills/claude/plannotator-last/SKILL.md",
+      "sha256": "bbcd69c3d42470f2eae41942516e4a604524f6af7d35b6e12a0ef29d90687160"
+    },
+    {
+      "path": "dot_claude/skills/plannotator-review/SKILL.md",
+      "source_path": "apps/skills/claude/plannotator-review/SKILL.md",
+      "sha256": "fdb4b4ab4edad7d98e1835fad17f324a2ecdad7239676a3550b1f671187aa6b2"
+    },
+    {
+      "path": "private_dot_config/opencode/commands/plannotator-annotate.md",
+      "source_path": "apps/opencode-plugin/commands/plannotator-annotate.md",
+      "sha256": "571a2d05036cf142f76677a15f3c2860e68928933dee48bc5d480c7ec36ccb5d"
+    },
+    {
+      "path": "private_dot_config/opencode/commands/plannotator-last.md",
+      "source_path": "apps/opencode-plugin/commands/plannotator-last.md",
+      "sha256": "ad916c7e6dbb7edef39f78653e662415602cdc78a394ef08c36bf9a150e3258a"
+    },
+    {
+      "path": "private_dot_config/opencode/commands/plannotator-review.md",
+      "source_path": "apps/opencode-plugin/commands/plannotator-review.md",
+      "sha256": "683ccd2a6018414d983e37a91ab3ff3b6a4469795ba8b6f0911726fb606ff506"
+    }
+  ]
+}

@@ -142,16 +142,16 @@ PowerShell and restart OpenCode after applying the change.
 ## Claude Code
 
 Claude Code enables the Plannotator plugin through `~/.claude/settings.json`.
-This repo also installs an explicit fallback hook:
 
-```text
-PermissionRequest > ExitPlanMode > plannotator
-```
+Keep the plugin enabled. It ships hooks and nothing else — a `PreToolUse` hook on
+`EnterPlanMode` that runs `plannotator improve-context`, and a
+`PermissionRequest` hook on `ExitPlanMode` that runs `plannotator`. Both come
+from the plugin's own `hooks/hooks.json`, so this repo adds no `PermissionRequest`
+entry of its own; a duplicate in `settings.json` would launch `plannotator` twice
+per plan approval, with both instances contending for the same hook stdin.
 
-Keep the plugin enabled. It still provides the `EnterPlanMode` context hook and
-Plannotator slash commands, but `/hooks` may show the EnterPlan hook without the
-ExitPlan hook. The explicit settings hook makes the review UI launch path
-deterministic.
+The plugin does **not** supply the `/plannotator-*` slash commands. Those are
+vendored into this repo — see [Vendored slash commands](#vendored-slash-commands).
 
 On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
 `PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote
@@ -167,6 +167,64 @@ If Claude Code does not open the Plannotator UI on ExitPlan:
 2. Confirm `plannotator` is on `PATH` in the Claude Code environment.
 3. Run `/hooks` and confirm `PermissionRequest > ExitPlanMode > plannotator`.
 4. Check the Claude Code plugin errors view for Plannotator load errors.
+
+## Vendored slash commands
+
+`/plannotator-annotate`, `/plannotator-last` and `/plannotator-review` reach both
+harnesses through files this repo vendors, not through the plugin or the npm
+package.
+
+Upstream delivers them from `scripts/install.sh`, which copies
+`apps/skills/claude/plannotator-*` into `~/.claude/skills` and, for OpenCode,
+relies on the `@plannotator/opencode` package's `postinstall` to drop
+`commands/*.md` into `~/.config/opencode/commands`. Provisioning here installs
+only the checksum-verified CLI binary and never runs that installer, so the copy
+step never happens. Six tracked files stand in for it:
+
+| Target | Source in `backnotprop/plannotator` |
+| :--- | :--- |
+| `dot_claude/skills/plannotator-*/SKILL.md` | `apps/skills/claude/plannotator-*/SKILL.md` |
+| `private_dot_config/opencode/commands/plannotator-*.md` | `apps/opencode-plugin/commands/plannotator-*.md` |
+
+Claude Code needs the full skill bodies because nothing intercepts the command —
+each skill runs `plannotator` itself and acts on the output. The OpenCode files
+are frontmatter-only stubs; there, the plugin intercepts the command at runtime.
+Do not give the OpenCode stubs a body: it becomes a preamble message, and
+`/plannotator-last` would then annotate that preamble instead of the real reply.
+
+Do not add `dot_claude/commands/plannotator-*.md` alongside the skills. Upstream
+`install.sh` deletes those whenever the matching skill directory exists.
+
+`configs/plannotator-assets.json` records each file's upstream path and `sha256`,
+pinned to the tag matching `plannotator_version` in `.chezmoidata.yaml`. Check
+and refresh with:
+
+```sh
+python3 assets/sync-plannotator-assets.py --check
+python3 assets/sync-plannotator-assets.py --write
+bash ./assets/sync-devcontainer-assets.sh
+```
+
+The tag is deliberately coupled to the CLI pin. These files call `plannotator`
+subcommands by name, and upstream already spells the same operation two ways
+(`plannotator last` under `apps/skills/core/`, `plannotator annotate-last` under
+`apps/skills/claude/`). Without the coupling, a Renovate CLI bump that renamed a
+subcommand would break the vendored copies silently. With it, the bump fails
+`--check` until someone re-syncs, and `--write` then follows the pin rather than
+the manifest's own stale tag.
+
+Two limits of that coupling, both intentional:
+
+- It binds the vendored files to the **CLI** pin in `.chezmoidata.yaml` only. The
+  `plannotator@plannotator` entry in `configs/host-ai-plugin-refresh.jsonc` is a
+  separate Renovate sentinel for the Claude Code plugin, and that file's own
+  header notes its versions are notification triggers rather than enforced pins.
+  Nothing asserts the two agree, and they can land in separate PRs.
+- It does not cover the container-dotfiles mirrors under
+  `private_Documents/development/container-dotfiles/`. Those are generated for
+  every mirrored asset by `assets/sync-devcontainer-assets.sh` and guarded by
+  `configs/devcontainer-sync.jsonc`, the same as the other mirrored skills; run
+  that script after `--write` rather than expecting `--check` to notice.
 
 ## Agents of Empire
 
@@ -405,7 +463,10 @@ When Claude Code requests approval to exit plan mode, the Plannotator UI should
 open on one of `9014..9019` on host/WSL or `10014..10019` in the devcontainer.
 Do not approve the README edit unless a real edit is desired.
 
-Plannotator slash commands are OpenCode TUI commands, not shell commands.
+Plannotator slash commands are typed into the OpenCode or Claude Code input box.
+They are not shell commands.
+
+OpenCode:
 
 1. Start `opencode-plannotator`.
 2. Ask any trivial question so there is a last assistant message.
@@ -414,6 +475,18 @@ Plannotator slash commands are OpenCode TUI commands, not shell commands.
    in the devcontainer.
 5. Repeat with `opencode-plannotator-custom` and confirm `9004..9009` on
    host/WSL or `10004..10009` in the devcontainer.
+
+Claude Code:
+
+1. Start `claude-plannotator`.
+2. Ask any trivial question so there is a last assistant message.
+3. Type `/plannotator-last` in the Claude Code input box.
+4. Confirm Firefox opens on one of `9014..9019` on host/WSL or `10014..10019`
+   in the devcontainer.
+5. Repeat `/plannotator-review` in a worktree with uncommitted changes.
+
+If the commands do not appear in Claude Code, the vendored skills are missing or
+unapplied — see [Vendored slash commands](#vendored-slash-commands).
 
 For a full approval-path test, start a planning agent and ask it to submit a
 one-line test plan through Plannotator.
