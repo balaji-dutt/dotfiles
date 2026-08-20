@@ -27,6 +27,25 @@ python3 assets/sync-browser-policies.py --write
 
 No mode flag is equivalent to `--write`.
 
+### Better Beads Kanban pin sync
+
+Renovate bumps only the version sentinel in the three VSIX install sites; the
+tag and asset name are derived from it inside each script, and the release
+checksum is the one value Renovate cannot compute.
+
+```sh
+./assets/sync-beads-kanban-pin.sh --check
+./assets/sync-beads-kanban-pin.sh --write
+```
+
+No mode flag is equivalent to `--write`. Both modes read the pinned version from
+the two `run_onchange_after_install_better_beads_kanban.*.tmpl` scripts and the
+homelab-IaC `devcontainer-common.sh`, fail if the three disagree, then
+resolve the checksum from the release's `SHA256SUMS` asset (falling back to
+hashing the VSIX). CI runs `--write` on `renovate/beads-kanban-*` branches and
+`--check` everywhere else — see
+`docs/automation/renovate-gitlab-runner-setup.md`.
+
 ### Plannotator slash-command sync
 
 Plannotator's slash commands ship as files upstream installs outside chezmoi:

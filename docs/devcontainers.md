@@ -226,14 +226,24 @@ from a single designated clone with `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate`
 followed by `bd dolt push`, then re-bootstrap any other clones. Back up first
 with a Dolt branch and `bd export --all -o ~/hliac-backup.jsonl`.
 
-The VS Code Beads Kanban fork is installed from a pinned GitHub release VSIX in
-`postCreate.sh` and retried by `postStart.sh`. Lifecycle scripts prefer the VS
-Code Server CLI and log the selected executable before installing. Troubleshoot
-with `/tmp/postCreate.log`, `/tmp/postStart.log`, and:
+Better Beads Kanban (`balaji-dutt.better-beads-kanban`) is installed from a
+pinned GitHub release VSIX in `postCreate.sh` and retried by `postStart.sh`.
+Lifecycle scripts prefer the VS Code Server CLI and log the selected executable
+before installing. They also uninstall upstream `davidcforbes.beads-kanban` and
+the pre-rename fork `balaji-dutt.beads-kanban-bd-fixes` on every run: all three
+contribute `beadsKanban.openBoard`, and VS Code treats each extension id as a
+separate install. Troubleshoot with `/tmp/postCreate.log`, `/tmp/postStart.log`,
+and:
 
 ```sh
 code --list-extensions --show-versions | grep beads-kanban
 ```
+
+Only the version is hand-pinned. `assets/sync-beads-kanban-pin.sh --check`
+verifies the checksum in all three install sites against the release; CI runs
+it on every branch. The cache directory moved from `dotfiles/beads-kanban-vsix`
+to `dotfiles/better-beads-kanban-vsix` — the old one holds a stale VSIX and
+markers and can be deleted by hand.
 
 ## Runtime-Generated Files
 

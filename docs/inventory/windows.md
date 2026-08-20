@@ -138,7 +138,7 @@ rendered hook targets:
 | `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange, after | Reconcile declarative user-scope Claude MCP registrations |
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
 | `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange, after | Refresh Claude plugins and rebuild the OpenCode package cache when no blocking client is active |
-| `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
+| `install_better_beads_kanban.ps1` | `run_onchange_after_install_better_beads_kanban.ps1.tmpl` | onchange, after | Install the pinned Better Beads Kanban VSIX fork when VS Code is available |
 | `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
 | `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
