@@ -651,6 +651,17 @@ if [[ -n "${CBM_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
     rm -rf "$CBM_TMP"
     codebase-memory-mcp --version
   fi
+
+  CBM_AUTO_INDEX=$(codebase-memory-mcp config get auto_index)
+  if [[ "$CBM_AUTO_INDEX" != "true" ]]; then
+    codebase-memory-mcp config set auto_index true
+  fi
+  CBM_AUTO_INDEX=$(codebase-memory-mcp config get auto_index)
+  if [[ "$CBM_AUTO_INDEX" != "true" ]]; then
+    echo "ERROR: codebase-memory-mcp auto_index verification failed." >&2
+    exit 1
+  fi
+  echo "[mcp] codebase-memory-mcp auto_index enabled for the active cache."
 else
   echo "WARN: CBM_VERSION not set or architecture unsupported; skipping codebase-memory-mcp install."
 fi

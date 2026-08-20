@@ -75,9 +75,11 @@
         "cbm_search_graph": true,
         "cbm_trace_path": true,
         "cbm_list_projects": true,
-        "cbm_index_status": true
+        "cbm_index_status": true,
+        "cbm_index_repository": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
         "bash": {
           "bd*": "ask",
           "bd show*": "allow",
@@ -101,9 +103,11 @@
         "cbm_search_graph": true,
         "cbm_trace_path": true,
         "cbm_list_projects": true,
-        "cbm_index_status": true
+        "cbm_index_status": true,
+        "cbm_index_repository": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
         "bash": {
           "bd*": "ask",
           "bd show*": "allow",
@@ -134,6 +138,7 @@
         "cbm_get_code_snippet": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
@@ -170,6 +175,10 @@
     },
     "agent-engineer": {
       "tools": {
+        "cbm_list_projects": true,
+        "cbm_index_status": true,
+        "cbm_index_repository": true,
+        "cbm_get_graph_schema": true,
         "cbm_search_graph": true,
         "cbm_trace_path": true,
         "cbm_detect_changes": true,
@@ -177,6 +186,7 @@
         "cbm_get_code_snippet": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",
@@ -213,6 +223,10 @@
     },
     "special-builder": {
       "tools": {
+        "cbm_list_projects": true,
+        "cbm_index_status": true,
+        "cbm_index_repository": true,
+        "cbm_get_graph_schema": true,
         "cbm_search_graph": true,
         "cbm_trace_path": true,
         "cbm_detect_changes": true,
@@ -220,6 +234,7 @@
         "cbm_get_code_snippet": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
         "bash": {
           "bd close*--actor \"OpenCode\"*": "allow",
           "./assets/sync-devcontainer-assets.sh*": "allow",

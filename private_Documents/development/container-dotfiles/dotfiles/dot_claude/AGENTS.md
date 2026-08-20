@@ -105,20 +105,32 @@
 
 ## Codebase Memory (MCP)
 
-The `cbm` MCP server (codebase-memory-mcp) is registered at user scope, so its
-tools are available in every session. It answers structural questions about an
-indexed repository; treat graph results as supporting evidence and verify
-important findings against the current source.
+The `cbm` MCP server (codebase-memory-mcp) is registered at user scope. Use it
+when a task depends on structural relationships: architecture, module
+boundaries, cross-file definitions or usages, callers/callees, data flow,
+dependencies, shared code, or transitive impact. Treat graph results as
+supporting evidence and verify material findings against the current source.
 
-- In an unfamiliar repository, call `get_graph_schema` once, then
-  `get_architecture`. For a specific task, use `search_graph` to find relevant
-  symbols and then `trace_path` on key entry points. After editing, use
-  `detect_changes` to assess affected symbols.
-- Skip it when grep or glob answers the question directly, when the change has
-  no structural impact, or when the repository is not indexed.
-- When indexing, pass `persistence: false` to `index_repository`. Without it CBM
-  exports a repository snapshot and may modify `.gitattributes` even when
-  `.codebase-memory/` is ignored.
+- Do not invoke CBM for known-file reads, literal searches, isolated
+  single-file changes with no structural impact, or non-code content that
+  direct filesystem tools can answer.
+- For structural work, call `list_projects` and `index_status` first when they
+  are available. Otherwise, call `get_architecture` or `search_graph` and treat
+  an index error as the availability signal. Auto-index is expected but can be
+  skipped by root-detection or discovery-preflight failure, or the configured
+  file limit.
+- In an unfamiliar repository, call `get_graph_schema` once when available,
+  then `get_architecture`. Use `search_graph` and `trace_path` for the relevant
+  symbols. Inspect inbound impact before shared edits and use `detect_changes`
+  after cross-cutting changes when those tools are available.
+- If CBM is unavailable, skipped, over-limit, stale, or incomplete, continue
+  with direct inspection and state the limitation. Do not make exhaustive
+  negative claims without index-coverage support and source verification.
+- When `index_repository` is explicitly available for manual recovery, pass
+  `persistence: false`. Do not broaden tool permissions. Cache-local auto-index
+  and local-only recovery must not export `.codebase-memory` or modify
+  `.gitattributes`. Do not use recovery to bypass a known file-limit or safety
+  refusal.
 - **Never run `codebase-memory-mcp install`**, `uninstall`, or `update`. Chezmoi
   owns both the binary and the MCP client configuration; the upstream installer
   rewrites managed settings, skills, hooks, and agents.

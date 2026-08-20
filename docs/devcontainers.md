@@ -139,12 +139,14 @@ enabled by these dotfiles.
 `CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
 matching portable Linux release archive for compatibility with the container's
 glibc/libstdc++ versions, verifies it against the upstream checksum file, and
-installs only the binary; it never runs CBM's native installer or its client
-configuration hooks. `CBM_CACHE_DIR` points to
+installs the binary without running CBM's native installer or client
+configuration hooks. It then reconciles and verifies `auto_index=true` through
+the binary's process-local config CLI. `CBM_CACHE_DIR` points to
 `/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
-volume so the SQLite cache does not land on the workspace bind mount. Registering
-the binary as a Claude MCP server is a separate step handled by the Claude
-lifecycle wiring below, not by the install block.
+volume, so the SQLite index and `_config.db` survive rebuilds and do not land on
+the workspace bind mount. Registering the binary as a Claude MCP server is a
+separate step handled by the Claude lifecycle wiring below, not by the install
+block.
 
 `TF_MCP_VERSION` pins terraform-mcp-server. `postCreate.sh` selects the Linux
 amd64 or arm64 archive for the container architecture, downloads it from

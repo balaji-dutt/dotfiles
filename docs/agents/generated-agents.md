@@ -160,7 +160,7 @@ new bug.
 
 ### Codebase Memory frontmatter
 
-The Claude renders add five `mcp__cbm__*` tools and an agent-scoped `cbm`
+The Claude renders add nine `mcp__cbm__*` tools and an agent-scoped `cbm`
 server. Unlike the model override, these capabilities can be represented by the
 external generator source. That source is not part of this repository, so the
 rendered files use the existing accepted-divergence workflow for now. Move the
@@ -183,10 +183,10 @@ The generated `tools:` line named tools that Claude Code has since retired. Both
 files were hand-patched to:
 
 ```
-tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__* (five explicit entries, unchanged)
+tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__* (nine explicit entries)
 ```
 
-The `mcp__cbm__*` shorthand above stands for the five names spelled out in the
+The `mcp__cbm__*` shorthand above stands for the nine names spelled out in the
 files themselves; read the real frontmatter before copying this line.
 
 - `LS` and `TodoRead` were dropped. Neither exists in Claude Code 2.1.227.

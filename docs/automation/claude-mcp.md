@@ -130,11 +130,28 @@ is platform-specific and deliberately separate from this registration:
 | Dev Container | portable release archive installed to `/usr/local/bin` by `postCreate.sh` |
 | Native Windows | `~/.local/codebase-memory-mcp.exe` via `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` |
 
+Each environment has its own CBM cache and configuration. Chezmoi's POSIX and
+Windows `run_after_zz-configure-codebase-memory-mcp.*.tmpl` hooks reconcile
+`auto_index=true` after binary provisioning. The homelab devcontainer performs
+the same get/set/get verification in `postCreate.sh`, using its persistent
+`CBM_CACHE_DIR`. These paths configure the standard binary directly; they never
+run the upstream installer or export `.codebase-memory` into a repository.
+
+Auto-index runs when a new MCP server process can identify a repository root,
+finish its bounded discovery preflight, and confirm that the repository is
+within the default 50,000-file limit. A preflight timeout can skip auto-index
+even below that limit. It also does not guarantee a fresh index when a
+pre-existing database is stale, so structural agents with explicit
+`index_repository` access may request approval and recover cache-locally with
+`persistence: false`; known limit or safety refusals still require direct-source
+fallback. Restart Claude Code after a configuration apply so its MCP process
+reads the reconciled cache setting.
+
 `dot_claude/settings-base.json` allows the nine read-only cbm tools outright and
 denies `mcp__cbm__delete_project`. `index_repository`, `query_graph`,
 `manage_adr`, and `ingest_traces` still prompt under `defaultMode: plan`.
-Operating rules for the tools (notably `index_repository`'s `persistence: false`
-and the prohibition on running `codebase-memory-mcp install`) live in
+Operating rules for the tools (notably manual `index_repository` recovery with
+`persistence: false` and the prohibition on CBM lifecycle commands) live in
 `dot_claude/AGENTS.md`, with the long-form OpenCode version in
 `.opencode/instructions/mcp-usage.md`. The non-MCP entries in that same allow
 list, and the rule syntax they follow, are covered in
