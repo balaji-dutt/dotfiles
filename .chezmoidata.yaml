@@ -5,7 +5,7 @@
 # ansible extra vars from run_onchange_before_00-wsl-provision.sh.tmpl.
 beads_version: "1.1.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
 ccr_port: 3456
-codebase_memory_mcp_version: "0.10.2" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
+codebase_memory_mcp_version: "0.10.3" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
 dolt_version: "2.2.4" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
 lazygit_version: "0.64.0" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).
