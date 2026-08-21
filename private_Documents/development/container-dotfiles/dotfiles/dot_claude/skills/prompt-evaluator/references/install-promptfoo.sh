@@ -26,23 +26,21 @@ validate_runtime() {
 
     [[ -f "$runtime_dir/package.json" && -x "$promptfoo_bin" ]] || return 1
 
-    node - "$runtime_dir" <<'NODE'
-const { createRequire } = require('node:module');
-const path = require('node:path');
-
-const root = path.resolve(process.argv[2]);
-const requireFromRuntime = createRequire(path.join(root, 'package.json'));
+    (
+        cd "$runtime_dir"
+        node --input-type=module <<'NODE'
 for (const packageName of [
   'promptfoo',
   '@opencode-ai/sdk',
   '@anthropic-ai/claude-agent-sdk',
   '@anthropic-ai/sdk',
 ]) {
-  requireFromRuntime.resolve(packageName);
+  import.meta.resolve(packageName);
 }
 NODE
+    ) || return 1
 
-    "$promptfoo_bin" --version >/dev/null
+    "$promptfoo_bin" --version >/dev/null || return 1
     printf '%s\n' "$runtime_dir"
 }
 

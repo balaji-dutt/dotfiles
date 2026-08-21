@@ -67,6 +67,13 @@ class PromptfooRuntimeTests(unittest.TestCase):
         )
         self.assertIn('cd "$runtime_dir"', macos_hook)
         self.assertIn("mise exec -- npm ci", macos_hook)
+        self.assertIn("--input-type=module", macos_hook)
+        self.assertIn("import.meta.resolve(packageName)", macos_hook)
+        self.assertIn('cd "$runtime_dir"', ansible)
+        self.assertIn("--input-type=module", ansible)
+        self.assertIn("import.meta.resolve(packageName)", ansible)
+        self.assertNotIn("createRequire", macos_hook)
+        self.assertNotIn("createRequire", ansible)
         for filename in ("package.json", "package-lock.json"):
             source_path = f"configs/promptfoo-runtime/{filename}"
             self.assertIn(source_path, macos_hook)
@@ -75,6 +82,39 @@ class PromptfooRuntimeTests(unittest.TestCase):
         for package_name in EXPECTED_DEPENDENCIES:
             self.assertIn(package_name, macos_hook)
             self.assertIn(package_name, ansible)
+
+    def test_generated_verifiers_use_esm_resolution(self) -> None:
+        skill_roots = (
+            "dot_claude/skills/prompt-evaluator/references",
+            "private_dot_config/opencode/skills/prompt-evaluator/references",
+            "private_Documents/development/container-dotfiles/dotfiles/"
+            "dot_claude/skills/prompt-evaluator/references",
+            "private_Documents/development/container-dotfiles/dotfiles/"
+            "private_dot_config/opencode/skills/prompt-evaluator/references",
+        )
+
+        for skill_root in skill_roots:
+            with self.subTest(skill_root=skill_root, platform="posix"):
+                verifier = read_text(f"{skill_root}/install-promptfoo.sh")
+                self.assertIn('cd "$runtime_dir"', verifier)
+                self.assertIn("--input-type=module", verifier)
+                self.assertIn("import.meta.resolve(packageName)", verifier)
+                self.assertNotIn("createRequire", verifier)
+                self.assertIn(") || return 1", verifier)
+                self.assertIn(
+                    '"$promptfoo_bin" --version >/dev/null || return 1',
+                    verifier,
+                )
+
+            with self.subTest(skill_root=skill_root, platform="powershell"):
+                verifier = read_text(f"{skill_root}/install-promptfoo.ps1")
+                self.assertIn("--input-type=module", verifier)
+                self.assertIn("import.meta.resolve(packageName)", verifier)
+                self.assertNotIn("createRequire", verifier)
+                self.assertIn(
+                    "Push-Location -LiteralPath $PackageRoot -ErrorAction Stop",
+                    verifier,
+                )
 
     def test_renovate_scope_and_group_are_narrow(self) -> None:
         renovate = read_text("renovate.json5")

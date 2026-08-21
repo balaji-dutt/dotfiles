@@ -251,19 +251,15 @@
       ansible.builtin.shell: |
         set -euo pipefail
         runtime_dir={{ promptfoo_runtime_dir | quote }}
-        mise exec -- node - "$runtime_dir" <<'NODE'
-        const { createRequire } = require('node:module');
-        const path = require('node:path');
-
-        const root = path.resolve(process.argv[2]);
-        const requireFromRuntime = createRequire(path.join(root, 'package.json'));
+        cd "$runtime_dir"
+        mise exec -- node --input-type=module <<'NODE'
         for (const packageName of [
           'promptfoo',
           '@opencode-ai/sdk',
           '@anthropic-ai/claude-agent-sdk',
           '@anthropic-ai/sdk',
         ]) {
-          requireFromRuntime.resolve(packageName);
+          import.meta.resolve(packageName);
         }
         NODE
         mise exec -- "$runtime_dir/node_modules/.bin/promptfoo" --version

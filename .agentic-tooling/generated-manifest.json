@@ -172,16 +172,16 @@
       "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.ps1",
       "platform": "claude",
       "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
-      "sourceDigest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f",
-      "digest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f"
+      "sourceDigest": "sha256:0db4d113b878256c3bb669ec7c603ec13c40f2d5cfb6a9a348b1a48e996ee3c5",
+      "digest": "sha256:0db4d113b878256c3bb669ec7c603ec13c40f2d5cfb6a9a348b1a48e996ee3c5"
     },
     {
       "kind": "skill",
       "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.sh",
       "platform": "claude",
       "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
-      "sourceDigest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f",
-      "digest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f"
+      "sourceDigest": "sha256:63de53962b9091a8deb7e0afa13cd27b146b7a961fd8a03f65fd70c4f0a4ecb3",
+      "digest": "sha256:63de53962b9091a8deb7e0afa13cd27b146b7a961fd8a03f65fd70c4f0a4ecb3"
     },
     {
       "kind": "skill",
@@ -212,16 +212,16 @@
       "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.ps1",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
-      "sourceDigest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f",
-      "digest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f"
+      "sourceDigest": "sha256:0db4d113b878256c3bb669ec7c603ec13c40f2d5cfb6a9a348b1a48e996ee3c5",
+      "digest": "sha256:0db4d113b878256c3bb669ec7c603ec13c40f2d5cfb6a9a348b1a48e996ee3c5"
     },
     {
       "kind": "skill",
       "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.sh",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
-      "sourceDigest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f",
-      "digest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f"
+      "sourceDigest": "sha256:63de53962b9091a8deb7e0afa13cd27b146b7a961fd8a03f65fd70c4f0a4ecb3",
+      "digest": "sha256:63de53962b9091a8deb7e0afa13cd27b146b7a961fd8a03f65fd70c4f0a4ecb3"
     },
     {
       "kind": "skill",

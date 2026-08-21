@@ -45,22 +45,24 @@ function Test-PromptfooRuntime {
     }
 
     $resolver = @'
-const { createRequire } = require('node:module');
-const path = require('node:path');
-const root = path.resolve(process.argv[1]);
-const requireFromRuntime = createRequire(path.join(root, 'package.json'));
 for (const packageName of [
   'promptfoo',
   '@opencode-ai/sdk',
   '@anthropic-ai/claude-agent-sdk',
   '@anthropic-ai/sdk',
 ]) {
-  requireFromRuntime.resolve(packageName);
+  import.meta.resolve(packageName);
 }
 '@
 
-    & node -e $resolver $PackageRoot 2>$null
-    if ($LASTEXITCODE -ne 0) { return $false }
+    Push-Location -LiteralPath $PackageRoot -ErrorAction Stop
+    try {
+        & node --input-type=module -e $resolver 2>$null
+        if ($LASTEXITCODE -ne 0) { return $false }
+    }
+    finally {
+        Pop-Location
+    }
 
     & $promptfooBin --version 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
