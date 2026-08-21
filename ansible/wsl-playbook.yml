@@ -83,6 +83,7 @@
     local_bin: "{{ ansible_env.HOME }}/.local/bin"
     local_share: "{{ ansible_env.HOME }}/.local/share"
     packages_file: "{{ chezmoi_source_dir }}/configs/packages.yaml"
+    promptfoo_runtime_dir: "{{ local_share }}/promptfoo-runtime"
 
     # Homelab config - passed from chezmoi, with safe defaults
     nfs_server: "{{ nfs_server | default('') }}"
@@ -206,6 +207,69 @@
 
     - name: Install mise tools from global config
       ansible.builtin.command: mise install -y
+
+    - name: Ensure Promptfoo runtime directory exists
+      ansible.builtin.file:
+        path: "{{ promptfoo_runtime_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Promptfoo runtime package manifest
+      ansible.builtin.copy:
+        src: "{{ chezmoi_source_dir }}/configs/promptfoo-runtime/package.json"
+        dest: "{{ promptfoo_runtime_dir }}/package.json"
+        mode: "0644"
+      register: promptfoo_package_manifest
+
+    - name: Copy Promptfoo runtime lockfile
+      ansible.builtin.copy:
+        src: "{{ chezmoi_source_dir }}/configs/promptfoo-runtime/package-lock.json"
+        dest: "{{ promptfoo_runtime_dir }}/package-lock.json"
+        mode: "0644"
+      register: promptfoo_package_lock
+
+    - name: Check Promptfoo runtime binary
+      ansible.builtin.stat:
+        path: "{{ promptfoo_runtime_dir }}/node_modules/.bin/promptfoo"
+      register: promptfoo_runtime_binary
+
+    - name: Install Promptfoo runtime from lockfile
+      ansible.builtin.command:
+        argv:
+          - mise
+          - exec
+          - --
+          - npm
+          - ci
+        chdir: "{{ promptfoo_runtime_dir }}"
+      when: >-
+        promptfoo_package_manifest is changed
+        or promptfoo_package_lock is changed
+        or not promptfoo_runtime_binary.stat.exists
+
+    - name: Verify Promptfoo runtime and provider SDKs
+      ansible.builtin.shell: |
+        set -euo pipefail
+        runtime_dir={{ promptfoo_runtime_dir | quote }}
+        mise exec -- node - "$runtime_dir" <<'NODE'
+        const { createRequire } = require('node:module');
+        const path = require('node:path');
+
+        const root = path.resolve(process.argv[2]);
+        const requireFromRuntime = createRequire(path.join(root, 'package.json'));
+        for (const packageName of [
+          'promptfoo',
+          '@opencode-ai/sdk',
+          '@anthropic-ai/claude-agent-sdk',
+          '@anthropic-ai/sdk',
+        ]) {
+          requireFromRuntime.resolve(packageName);
+        }
+        NODE
+        mise exec -- "$runtime_dir/node_modules/.bin/promptfoo" --version
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Read uv tools manifest
       ansible.builtin.slurp:

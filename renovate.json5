@@ -1,10 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "enabledManagers": ["custom.regex"],
+  "enabledManagers": ["custom.regex", "npm"],
   "labels": ["dependencies", "renovate"],
   "dependencyDashboard": true,
   "rangeStrategy": "replace",
+  "npm": {
+    "managerFilePatterns": [
+      "/^configs\\/promptfoo-runtime\\/package\\.json$/"
+    ]
+  },
   // Keep release-age checks internal. Do not set prCreation to "not-pending"
   // with minimumReleaseAge; Renovate disables the not-pending timeout and can
   // leave updates stuck in Dashboard "Pending Status Checks" when stability
@@ -424,6 +429,24 @@
       ],
       "matchUpdateTypes": ["major"],
       "groupName": "fast moving tools (major)"
+    },
+    {
+      // Keep each provider SDK and Promptfoo aligned between the host bundle and
+      // the devcontainer. Review the cohort together because provider loading is
+      // sensitive to runtime compatibility.
+      "matchManagers": ["npm", "custom.regex"],
+      "matchDepNames": [
+        "promptfoo",
+        "@opencode-ai/sdk",
+        "@anthropic-ai/claude-agent-sdk",
+        "@anthropic-ai/sdk"
+      ],
+      "matchFileNames": [
+        "configs/promptfoo-runtime/package.json",
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+      ],
+      "groupName": "promptfoo runtime",
+      "automerge": false
     }
   ]
 }

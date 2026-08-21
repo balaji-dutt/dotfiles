@@ -72,6 +72,12 @@
       "matrix_row": "DeepWiki MCP",
       "command_aliases": [],
       "mcp_server_aliases": ["deepwiki"]
+    },
+    {
+      "id": "promptfoo",
+      "matrix_row": "Promptfoo runtime",
+      "command_aliases": ["promptfoo"],
+      "mcp_server_aliases": []
     }
   ]
 }

@@ -3,8 +3,6 @@
 bun = "latest"
 jq = "latest"
 node = "lts"
-"npm:@opencode-ai/sdk" = "latest"
-"npm:promptfoo" = "latest"
 # Reviewed 2026-08-01: @yarnpkg/libzip 3.2.2 tag/gitHead match; no provenance.
 # Reviewed 2026-08-15: @smithy/core 3.33.0 and node-http-handler 4.11.0 were
 # manually published by aws-sdk-bot during smithy-lang/smithy-typescript#2228's

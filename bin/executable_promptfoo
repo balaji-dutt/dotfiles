@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+runtime_dir="${PROMPTFOO_RUNTIME_DIR:-$HOME/.local/share/promptfoo-runtime}"
+promptfoo_bin="$runtime_dir/node_modules/.bin/promptfoo"
+
+if [[ ! -x "$promptfoo_bin" ]]; then
+    echo "ERROR: managed Promptfoo runtime is missing: $promptfoo_bin" >&2
+    echo "Run chezmoi apply to hydrate the lockfile-backed runtime." >&2
+    exit 1
+fi
+
+exec "$promptfoo_bin" "$@"

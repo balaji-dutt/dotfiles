@@ -156,8 +156,8 @@
       "path": "dot_claude/skills/prompt-evaluator/SKILL.md",
       "platform": "claude",
       "source": "skills/prompt-evaluator/SKILL.md",
-      "sourceDigest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7",
-      "digest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7"
+      "sourceDigest": "sha256:aa8d57a42eaf8bfb39644aea8b36f9063ee03e170ebf4b67b7756157c94bc292",
+      "digest": "sha256:aa8d57a42eaf8bfb39644aea8b36f9063ee03e170ebf4b67b7756157c94bc292"
     },
     {
       "kind": "skill",
@@ -172,32 +172,32 @@
       "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.ps1",
       "platform": "claude",
       "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
-      "sourceDigest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9",
-      "digest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9"
+      "sourceDigest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f",
+      "digest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f"
     },
     {
       "kind": "skill",
       "path": "dot_claude/skills/prompt-evaluator/references/install-promptfoo.sh",
       "platform": "claude",
       "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
-      "sourceDigest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650",
-      "digest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650"
+      "sourceDigest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f",
+      "digest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f"
     },
     {
       "kind": "skill",
       "path": "dot_claude/skills/prompt-evaluator/references/promptfoo-guide.md",
       "platform": "claude",
       "source": "skills/prompt-evaluator/references/promptfoo-guide.md",
-      "sourceDigest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b",
-      "digest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b"
+      "sourceDigest": "sha256:d9405085f3c5dfdff829739d737a3e4cf983e1641927811c64cac8bc1c33c55f",
+      "digest": "sha256:d9405085f3c5dfdff829739d737a3e4cf983e1641927811c64cac8bc1c33c55f"
     },
     {
       "kind": "skill",
       "path": "private_dot_config/opencode/skills/prompt-evaluator/SKILL.md",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/SKILL.md",
-      "sourceDigest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7",
-      "digest": "sha256:115e0fae0c7c027f488e1b5789cc066390bfd531f828aa54960e3df3c356a5b7"
+      "sourceDigest": "sha256:aa8d57a42eaf8bfb39644aea8b36f9063ee03e170ebf4b67b7756157c94bc292",
+      "digest": "sha256:aa8d57a42eaf8bfb39644aea8b36f9063ee03e170ebf4b67b7756157c94bc292"
     },
     {
       "kind": "skill",
@@ -212,24 +212,24 @@
       "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.ps1",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/references/install-promptfoo.ps1",
-      "sourceDigest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9",
-      "digest": "sha256:d22881737eb16ed7d6c58d74ea31b6f115bed09b7787b60cd49fa849fe5037e9"
+      "sourceDigest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f",
+      "digest": "sha256:4964b40929eeae3397bbacb5c6d0e95f1cf650aa4dfc1a1d68987ae31d52cc2f"
     },
     {
       "kind": "skill",
       "path": "private_dot_config/opencode/skills/prompt-evaluator/references/install-promptfoo.sh",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/references/install-promptfoo.sh",
-      "sourceDigest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650",
-      "digest": "sha256:f1bd93cbac23a75f6954d1c1a24fe709af6f646b80be63ef7e9f56743d5b5650"
+      "sourceDigest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f",
+      "digest": "sha256:be436b770d6cdfcbfe0f6a35b62558be010bfdd0fb96105a676baa16199f2f7f"
     },
     {
       "kind": "skill",
       "path": "private_dot_config/opencode/skills/prompt-evaluator/references/promptfoo-guide.md",
       "platform": "opencode",
       "source": "skills/prompt-evaluator/references/promptfoo-guide.md",
-      "sourceDigest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b",
-      "digest": "sha256:0eeb80a64799780cd7ca103b1c28dff74f738802ebd746af5d67e7156529f36b"
+      "sourceDigest": "sha256:d9405085f3c5dfdff829739d737a3e4cf983e1641927811c64cac8bc1c33c55f",
+      "digest": "sha256:d9405085f3c5dfdff829739d737a3e4cf983e1641927811c64cac8bc1c33c55f"
     },
     {
       "kind": "skill",

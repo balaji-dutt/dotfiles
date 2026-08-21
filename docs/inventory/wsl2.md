@@ -43,6 +43,7 @@ predicates.
 | Area | Target Path | Source Pattern |
 | :--- | :--- | :--- |
 | VS Code wrapper | `~/bin/code` | `bin/executable_code` |
+| Promptfoo runtime | `~/bin/promptfoo`, `~/.local/share/promptfoo-runtime/**` | `bin/executable_promptfoo`, `configs/promptfoo-runtime/**`, `ansible/wsl-playbook.yml` |
 | Devcontainer launcher (Debian only) | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Devcontainer sync wrapper (Debian only) | `~/bin/sync-devcontainer-all.sh` | `bin/executable_sync-devcontainer-all.sh.tmpl` |
 | Git ignore (WSL2 off) | `~/.gitignore_global` (not applied on WSL2 by ignore rules) | `dot_gitignore_global.tmpl` |
