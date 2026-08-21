@@ -18,8 +18,18 @@ offer to capture the plan as a Beads issue before the first edit.
 
 This offer is enforced by the `PostToolUse` / `ExitPlanMode` hook
 `.claude/hooks/remind-beads-on-plan-approval.sh`, which fires on plan
-approval and blocks with the create/attach/skip prompt (silent once
-`.beads/in-progress-claude.json` exists).
+approval and blocks with the create/attach/skip prompt.
+
+The hook is silent only when `.beads/in-progress-claude.json` names an issue
+that `bd` confirms is still live — `open`, `in_progress`, or `blocked`. The
+common case is `in_progress`, since claiming the issue is what writes the
+state file. Existence alone is not enough: a state file
+whose issue is closed, missing, or unreadable is stale and still prompts, and
+a state file that cannot be checked at all (no `bd`, unreachable Dolt server)
+prompts with a distinct tooling-failure message rather than a claim about the
+issue. The three block messages are tagged `[BEADS_GATE: absent]`,
+`[BEADS_GATE: stale]`, and `[BEADS_GATE: unverified]`. Validation lives in
+`.claude/hooks/lib/beads_state.py`.
 
 ### When this applies
 
