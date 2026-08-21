@@ -100,6 +100,26 @@ Windows has a separate PowerShell implementation inside
 `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`. See
 `docs/automation/claude-mcp.md`.
 
+### Existing Git hook sync
+
+`git-template-hook-sync.py` copies the hooks from the managed Git template into
+existing repositories. The POSIX and Windows `20-git-template-hooks` apply
+hooks invoke it with the standard development roots on every `chezmoi apply`.
+
+The helper stores content-hash ownership beside each repository's Git hooks. It
+updates or removes only unchanged owned copies, adopts byte-identical hooks,
+and preserves unknown or unrelated hooks. Valid custom `core.hooksPath` values
+are reported and left alone.
+
+For a targeted reconciliation, pass the template directory and one or more
+roots explicitly:
+
+```sh
+python3 assets/git-template-hook-sync.py \
+  --template-hooks-dir "$HOME/.config/git/template/hooks" \
+  --repo-root "$HOME/Documents/development"
+```
+
 ### macOS / Linux / WSL2
 
 ```sh

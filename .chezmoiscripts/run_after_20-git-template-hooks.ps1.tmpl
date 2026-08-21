@@ -1,0 +1,56 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$helper = Join-Path '{{ .chezmoi.sourceDir }}' "assets\git-template-hook-sync.py"
+$repoRoot = '{{ .chezmoi.workingTree }}'
+$templateHooksDir = Join-Path $HOME ".config\git\template\hooks"
+$pythonCommand = $null
+$pythonPrefix = @()
+
+foreach ($candidate in @(
+  @{ Name = "python3"; Prefix = @() },
+  @{ Name = "python"; Prefix = @() },
+  @{ Name = "py"; Prefix = @("-3") }
+)) {
+  $command = Get-Command $candidate.Name -ErrorAction SilentlyContinue
+  if (-not $command) {
+    continue
+  }
+  $probeArguments = @($candidate.Prefix) + @(
+    "-c"
+    "import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)"
+  )
+  $probeExitCode = -1
+  try {
+    & $command.Source @probeArguments 2>$null
+    $probeExitCode = $LASTEXITCODE
+  } catch {
+    $probeExitCode = -1
+  }
+  if ($probeExitCode -eq 0) {
+    $pythonCommand = $command.Source
+    $pythonPrefix = $candidate.Prefix
+    break
+  }
+}
+
+if (-not $pythonCommand) {
+  Write-Warning "Python 3.9 or newer is unavailable; existing Git hooks were not synchronized."
+  exit 0
+}
+
+$arguments = @($pythonPrefix) + @(
+  $helper
+  "--template-hooks-dir", $templateHooksDir
+  "--repo-root", $repoRoot
+  "--repo-root", (Join-Path $HOME "Documents\development")
+  "--repo-root", "F:\Balaji\Development"
+)
+& $pythonCommand @arguments
+if ($LASTEXITCODE -ne 0) {
+  throw "Git template hook synchronization failed with exit code $LASTEXITCODE."
+}
+{{- end -}}

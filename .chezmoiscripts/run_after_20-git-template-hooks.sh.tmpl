@@ -1,0 +1,31 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- /* Windows uses the PowerShell variant. */ -}}
+{{- else -}}
+#!/bin/bash
+set -euo pipefail
+
+helper={{ printf "%s/assets/git-template-hook-sync.py" .chezmoi.sourceDir | quote }}
+repo_root={{ .chezmoi.workingTree | quote }}
+template_hooks_dir="$HOME/.config/git/template/hooks"
+
+python_command=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1 &&
+      "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+    python_command="$candidate"
+    break
+  fi
+done
+
+if [ -z "$python_command" ]; then
+  echo "WARNING: Python 3.9 or newer is unavailable; existing Git hooks were not synchronized." >&2
+  exit 0
+fi
+
+"$python_command" "$helper" \
+  --template-hooks-dir "$template_hooks_dir" \
+  --repo-root "$repo_root" \
+  --repo-root "$HOME/Documents/development" \
+  --repo-root /mnt/devdrive \
+  --repo-root /Volumes/devdrive
+{{- end -}}

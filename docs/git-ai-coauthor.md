@@ -7,9 +7,9 @@ This repository manages a Git hook workflow that can append a
 
 - Hook type: `prepare-commit-msg`
 - Arming flag: global `coauthor.gptNext` (one-shot)
-- The dotfiles repo's apply scripts set local `core.hooksPath` to the managed
-  git template hooks directory so this hook and the Beads pre-commit guard both
-  run even when stale repo-local hook paths exist.
+- Each `chezmoi apply` copies managed template hooks into existing repositories
+  under the standard development roots. Git's global `core.hooksPath` remains
+  unset so repository-specific hook frameworks keep working.
 - Trailer precedence:
   1. repo-local `coauthor.gptTrailer`
   2. global `coauthor.gptTrailer`
@@ -57,28 +57,16 @@ New clones and new `git init` repos receive the hook automatically from
 
 ## Existing Repositories
 
-Templates do not retrofit existing clones. Install the hook once per repo.
+The `20-git-template-hooks` apply hook retrofits repositories found directly at
+the configured development roots or one directory below them. It records a
+content hash for each installed hook in the repository's Git hooks directory.
+Later applies update or remove only an unchanged, recorded copy. Byte-identical
+copies are adopted; unrelated hooks and unknown same-name hooks are preserved.
 
-### Bash (macOS/WSL2/Linux/Git Bash)
-
-```bash
-hook_src="$HOME/.config/git/template/hooks/prepare-commit-msg"
-hooks_dir="$(git rev-parse --git-path hooks)"
-hook_dst="$hooks_dir/prepare-commit-msg"
-
-cp "$hook_src" "$hook_dst"
-chmod +x "$hook_dst" 2>/dev/null || true
-```
-
-### PowerShell (Windows)
-
-```powershell
-$hookSrc = Join-Path $HOME ".config\git\template\hooks\prepare-commit-msg"
-$hooksDir = git rev-parse --git-path hooks
-$hookDst = Join-Path $hooksDir "prepare-commit-msg"
-
-Copy-Item $hookSrc $hookDst -Force
-```
+Valid repository-specific `core.hooksPath` values are also preserved and
+reported. The apply hook removes only two stale local overrides after seeding
+the default hooks directory: the old managed template path and a missing
+`.beads/hooks` path.
 
 ## Usage
 
@@ -108,9 +96,10 @@ git config --global --unset-all coauthor.gptNext
 
 ## Troubleshooting
 
-- If the trailer is not added in a repo, check for custom `core.hooksPath`.
-  Outside the dotfiles repo, custom hook paths bypass the template hooks; inside
-  this repo, `chezmoi apply` should repair it to the managed template directory.
+- If the trailer is not added in a repo, inspect the latest `chezmoi apply`
+  output for a preserved same-name hook, inaccessible repository, or custom
+  `core.hooksPath`. Resolve custom paths in the repository that owns them; the
+  apply hook intentionally does not replace valid repository-specific paths.
 - `--no-verify` bypasses the Beads pre-commit guard. Git still runs
   `prepare-commit-msg` hooks by design.
 - Keep hook files with LF line endings.

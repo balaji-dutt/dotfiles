@@ -127,12 +127,13 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these sixteen
+Windows ignores `.chezmoiscripts/**` by default and then admits these seventeen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
 | :--- | :--- | :--- | :--- |
-| `10-dotfiles-commit-template.ps1` | `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Configure this repo's commit template and managed Git hooks path |
+| `10-dotfiles-commit-template.ps1` | `run_after_10-dotfiles-commit-template.ps1.tmpl` | after | Configure this repo's commit template |
+| `20-git-template-hooks.ps1` | `run_after_20-git-template-hooks.ps1.tmpl` | after | Reconcile managed Git template hooks into existing repositories while preserving custom hooks |
 | `99-cleanup-wrong-apply.ps1` | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once, after | Remove curated repo and non-Windows paths from the Windows home directory |
 | `browser-policies.ps1` | `run_onchange_after_browser-policies.ps1.tmpl` | onchange, after | Import enabled Chrome and Firefox registry policies |
 | `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange, after | Reconcile declarative user-scope Claude MCP registrations |

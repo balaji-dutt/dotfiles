@@ -6,7 +6,6 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = "{{ .chezmoi.workingTree }}"
 $gitMessage = Join-Path $repoRoot ".gitmessage"
-$templateHooksDir = Join-Path $HOME ".config\git\template\hooks"
 
 function Configure-CommitTemplate {
   if (-not (Test-Path -LiteralPath $gitMessage)) {
@@ -38,24 +37,5 @@ function Configure-CommitTemplate {
   Write-Host "INFO: reset commit.template to .gitmessage for $repoRoot (previous path missing)"
 }
 
-function Configure-HooksPath {
-  $preCommitHook = Join-Path $templateHooksDir "pre-commit"
-  if (-not (Test-Path -LiteralPath $preCommitHook)) {
-    return
-  }
-
-  $desiredHooksPath = $templateHooksDir.Replace("\", "/")
-  $currentHooksPath = (& git -C $repoRoot config --local --get core.hooksPath 2>$null) -join "`n"
-  $currentHooksPath = $currentHooksPath.Trim().Replace("\", "/")
-
-  if ($currentHooksPath -eq $desiredHooksPath) {
-    return
-  }
-
-  & git -C $repoRoot config --local core.hooksPath $desiredHooksPath
-  Write-Host "INFO: set core.hooksPath to $desiredHooksPath for $repoRoot"
-}
-
 Configure-CommitTemplate
-Configure-HooksPath
 {{- end -}}

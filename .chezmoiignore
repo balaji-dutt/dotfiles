@@ -113,6 +113,7 @@ Documents/PowerShell
 !/.chezmoiscripts/windows-bootstrap.ps1
 !/.chezmoiscripts/copy_sublime_merge_packages.ps1
 !/.chezmoiscripts/10-dotfiles-commit-template.ps1
+!/.chezmoiscripts/20-git-template-hooks.ps1
 !/.chezmoiscripts/windows-zz-register-startup-tasks.ps1
 !/.chezmoiscripts/browser-policies.ps1
 !/.chezmoiscripts/install_better_beads_kanban.ps1
