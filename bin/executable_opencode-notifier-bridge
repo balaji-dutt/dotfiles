@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shim used by opencode-notifier's command.path on macOS and WSL2.
-# Suppresses notifications when running inside AoE; otherwise forwards to the
+# Suppresses notifications when running inside AoE and stale permission
+# notifications from OpenCode --auto sessions; otherwise forwards to the
 # platform notifier. AoE fires its own status_hooks (~/bin/aoe-notify) for the
 # same waiting/error events, so this avoids duplicate banners.
 # Accepted edge case: a standalone `opencode` run inside an attached
@@ -36,6 +37,40 @@ is_wsl2() {
   [[ -r /proc/sys/kernel/osrelease ]] || return 1
   osrelease=$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/osrelease 2>/dev/null || true)
   [[ $osrelease == *microsoft* && $osrelease == *wsl2* ]]
+}
+
+opencode_owner_is_auto() {
+  local process_pid=$PPID
+  local process_ppid process_comm process_args comm_name argv_name
+  local hops=0
+  local -r max_hops=8
+
+  while ((process_pid > 1 && hops < max_hops)); do
+    process_ppid=$(ps -o ppid= -p "$process_pid" 2>/dev/null) || return 1
+    process_comm=$(ps -o comm= -p "$process_pid" 2>/dev/null) || return 1
+    process_args=$(ps -o args= -p "$process_pid" 2>/dev/null) || return 1
+
+    process_ppid=${process_ppid//[[:space:]]/}
+    process_comm=${process_comm#"${process_comm%%[![:space:]]*}"}
+    process_args=${process_args#"${process_args%%[![:space:]]*}"}
+    [[ $process_ppid =~ ^[0-9]+$ ]] || return 1
+
+    comm_name=${process_comm##*/}
+    argv_name=${process_args%%[[:space:]]*}
+    argv_name=${argv_name##*/}
+
+    if [[ $comm_name == opencode || $comm_name == opencode.exe ||
+          $argv_name == opencode || $argv_name == opencode.exe ]]; then
+      [[ $process_args =~ (^|[[:space:]])--auto($|[[:space:]]) ]]
+      return
+    fi
+
+    ((process_ppid != process_pid)) || return 1
+    process_pid=$process_ppid
+    ((hops += 1))
+  done
+
+  return 1
 }
 
 parse_args() {
@@ -113,6 +148,10 @@ main() {
   fi
 
   parse_args "$@"
+
+  if [[ $event == permission ]] && opencode_owner_is_auto; then
+    exit 0
+  fi
 
   if try_terminal_notifier; then
     exit 0

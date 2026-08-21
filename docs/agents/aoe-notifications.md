@@ -77,6 +77,25 @@ on macOS because the upstream focus-detection path is marked "untested" in the
 plugin README and almost certainly contributes to the "no banner appears"
 symptom even outside AoE.
 
+## Permission notifications in `--auto` mode
+
+On macOS and WSL2, `opencode-notifier-bridge` suppresses the plugin's
+`permission` event when the nearest OpenCode ancestor was launched with the
+exact `--auto` argument. OpenCode has already approved that permission by the
+time the detached notification command runs, so the popup would be stale.
+
+Only the `permission` event is suppressed. The plugin's separate `question`
+event remains enabled because an agent question still requires input, and all
+other enabled completion/error events keep their existing behavior. Permission
+notifications also remain enabled when OpenCode is not running in `--auto`
+mode.
+
+The bridge checks a bounded process-ancestor chain and fails open when it cannot
+identify the owning OpenCode process, preserving the notification rather than
+silently hiding a possible prompt. Native Windows is unchanged because its
+notifier configuration invokes PowerShell directly instead of using the
+macOS/WSL2 bridge.
+
 ## OpenCode inside AoE on WSL2
 
 AoE's WSL2 OpenCode status detection was fixed upstream after
