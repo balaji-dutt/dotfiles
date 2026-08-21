@@ -914,7 +914,7 @@ install_better_beads_kanban_vscode_extension() {
   local code_cmd cache_base cache_root vsix_path marker_path download_url
   local current_sha tmp_file list_output install_output
 
-  repo="balaji-dutt/better-beads-kanban"
+  repo="balajidutt/better-beads-kanban"
   fork_version="2.2.0"
   tag="v${fork_version}"
   asset="better-beads-kanban-${fork_version}.vsix"

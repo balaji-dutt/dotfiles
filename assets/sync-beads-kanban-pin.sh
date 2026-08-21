@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-REPO="balaji-dutt/better-beads-kanban"
+REPO="balajidutt/better-beads-kanban"
 
 SH_FILE="${ROOT}/.chezmoiscripts/run_onchange_after_install_better_beads_kanban.sh.tmpl"
 PS1_FILE="${ROOT}/.chezmoiscripts/run_onchange_after_install_better_beads_kanban.ps1.tmpl"
