@@ -40,6 +40,7 @@ This page lists the main managed targets expected on macOS.
 | :--- | :--- | :--- |
 | LaunchAgents | `~/Library/LaunchAgents/*.plist` | `private_Library/LaunchAgents/*.plist.tmpl` |
 | User bin scripts | `~/bin/vnc_monitor.sh`, `~/bin/nfs_dot_clean.sh` | `bin/executable_vnc_monitor.sh`, `bin/executable_nfs_dot_clean.sh` |
+| Promptfoo runtime | `~/bin/promptfoo`, `~/.local/share/promptfoo-runtime/**` | `bin/executable_promptfoo`, `configs/promptfoo-runtime/**`, `.chezmoiscripts/run_onchange_after_install_promptfoo_runtime.sh.tmpl` |
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Browser policy profiles | `~/.local/share/dotfiles/browser-policies/justthebrowser/*.mobileconfig` | `.chezmoiscripts/run_onchange_after_browser-policies.sh.tmpl`, `configs/browser-policies/**` |
 | NFS client defaults | `/etc/nfs.conf` | `.chezmoiscripts/run_after_macos-nfs-config.sh.tmpl` |

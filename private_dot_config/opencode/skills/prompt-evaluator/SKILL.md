@@ -53,22 +53,39 @@ reviewer using a structured rubric.
 
 Uses promptfoo for automated, reproducible evaluation with assertions.
 
-**Prerequisite**: promptfoo and `@opencode-ai/sdk` must be available. Run the
-install script if needed:
+**Prerequisite**: Promptfoo and its provider SDK must be installed in one package
+root. The supported runtime includes `promptfoo`, `@opencode-ai/sdk`,
+`@anthropic-ai/claude-agent-sdk`, and `@anthropic-ai/sdk`. Validate it with:
 - macOS/Linux/WSL2: `bash references/install-promptfoo.sh`
 - Windows: `pwsh references/install-promptfoo.ps1`
 
+The compatibility-named scripts validate an existing managed runtime. They do
+not install unpinned packages. If validation fails, provision the bundle through
+the host or project's lockfile workflow.
+
+**Choose a provider deliberately**:
+- `opencode:sdk`: Route through configured OpenCode providers; requires
+  `@opencode-ai/sdk`.
+- `anthropic:claude-agent-sdk` (alias `anthropic:claude-code`): Exercise an
+  authenticated Claude agent workflow; requires
+  `@anthropic-ai/claude-agent-sdk`.
+- `anthropic:messages:<model>` or `anthropic:completion:<model>`: Call the
+  Anthropic API directly; requires `@anthropic-ai/sdk` and API credentials.
+- `echo`: Preview rendered prompts only. Do not use echo results as evidence
+  that a live provider or its SDK works.
+
 **Workflow**:
-1. Generate a `promptfooconfig.yaml` from the prompt and test scenarios.
-2. Define assertion types per test case:
+1. Select the provider whose runtime behavior the evaluation must cover.
+2. Generate a `promptfooconfig.yaml` from the prompt and test scenarios.
+3. Define assertion types per test case:
    - `contains` / `not-contains`: String presence checks.
    - `regex`: Pattern matching.
    - `llm-rubric`: LLM-judged quality criteria.
    - `python`: Custom Python assertion scripts.
    - `latency`: Response time thresholds.
-3. Run `npx promptfoo@latest eval`.
-4. Parse results and generate the evaluation report.
-5. If failures found, propose specific prompt edits and re-evaluate.
+4. Run `promptfoo eval`.
+5. Parse results and generate the evaluation report.
+6. If failures are found, propose specific prompt edits and re-evaluate.
 
 See `references/promptfoo-guide.md` for configuration reference.
 

@@ -3,6 +3,35 @@
 Reference for generating `promptfooconfig.yaml` files for automated prompt
 evaluation.
 
+## Runtime prerequisite
+
+Run Promptfoo from a lockfile-managed package root that co-locates these
+packages:
+
+- `promptfoo`
+- `@opencode-ai/sdk`
+- `@anthropic-ai/claude-agent-sdk`
+- `@anthropic-ai/sdk`
+
+Promptfoo loads provider SDKs at runtime. A standalone global or mise install of
+an SDK is not sufficient when the Promptfoo package cannot resolve that sibling.
+Set `PROMPTFOO_RUNTIME_DIR` when the managed package root is not the current
+project or `~/.local/share/promptfoo-runtime`, then run the platform verifier in
+this skill's `references/` directory.
+
+## Provider selection
+
+Choose the provider that exercises the behavior under test:
+
+- `opencode:sdk` routes through configured OpenCode providers and requires
+  `@opencode-ai/sdk`.
+- `anthropic:claude-agent-sdk` (alias `anthropic:claude-code`) exercises a Claude
+  agent workflow and requires `@anthropic-ai/claude-agent-sdk`.
+- `anthropic:messages:<model>` or `anthropic:completion:<model>` calls Anthropic
+  directly and requires `@anthropic-ai/sdk` plus API credentials.
+- `echo` only previews rendered prompts. It does not prove a provider SDK can
+  load or authenticate.
+
 ## Basic Configuration
 
 ```yaml
@@ -25,7 +54,15 @@ providers:
       provider_id: openai
       model: gpt-4o
 
-  # Requires: npm install @opencode-ai/sdk
+  # Requires @opencode-ai/sdk in Promptfoo's managed package root
+
+  # Or exercise the authenticated Claude Agent SDK workflow
+  - id: anthropic:claude-agent-sdk
+    config:
+      model: claude-sonnet-4-20250514
+
+  # Or call the Anthropic Messages API directly
+  - id: anthropic:messages:claude-sonnet-4-20250514
 
 tests:
   - vars:
@@ -132,19 +169,19 @@ tests: file://tests/test-cases.yaml
 
 ```bash
 # Run evaluation
-npx promptfoo@latest eval
+promptfoo eval
 
 # Run with specific config
-npx promptfoo@latest eval -c path/to/config.yaml
+promptfoo eval -c path/to/config.yaml
 
 # View results in browser
-npx promptfoo@latest view
+promptfoo view
 
 # Output results as JSON
-npx promptfoo@latest eval -o results.json
+promptfoo eval -o results.json
 
 # Compare two prompts
-npx promptfoo@latest eval -c config.yaml --prompt-prefix "v1:" "v2:"
+promptfoo eval -c config.yaml --prompt-prefix "v1:" "v2:"
 ```
 
 ## Red Team / Adversarial Mode
@@ -167,10 +204,10 @@ redteam:
 
 ```bash
 # Generate red team tests
-npx promptfoo@latest redteam generate -c config.yaml
+promptfoo redteam generate -c config.yaml
 
 # Run red team evaluation
-npx promptfoo@latest redteam eval
+promptfoo redteam eval
 ```
 
 ## Echo Provider (Preview Mode)
@@ -187,3 +224,7 @@ tests:
       - type: contains
         value: "test input"  # verifies the prompt template renders correctly
 ```
+
+Echo verifies template rendering only. Keep deterministic echo or static-provider
+tests in the fast suite, and run separate opt-in evaluations against the real
+provider when provider behavior is part of the acceptance criteria.

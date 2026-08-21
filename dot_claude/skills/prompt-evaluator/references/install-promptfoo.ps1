@@ -1,124 +1,91 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Cross-platform promptfoo installer for Windows (PowerShell 7).
+    Validates a managed Promptfoo runtime package root.
 
 .DESCRIPTION
-    Ensures promptfoo and @opencode-ai/sdk are available.
-    promptfoo is installed globally via npm if missing.
-    @opencode-ai/sdk is installed in the current project via npm if missing.
-    Exit codes: 0 = installed/already present, 1 = install failed.
+    The compatibility filename is retained for existing skill consumers. This
+    script does not install packages. It verifies that Promptfoo and all supported
+    provider SDKs resolve from one lockfile-managed node_modules tree.
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Position = 0)]
+    [string]$RuntimeDir
+)
 
 $ErrorActionPreference = 'Stop'
 
-function Test-OpenCodeSdk {
-    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-    if (-not $nodeCmd) { return $false }
-
-    try {
-        & node -e "require.resolve('@opencode-ai/sdk')" 2>$null | Out-Null
-        return $true
-    }
-    catch {
-        return $false
-    }
-}
-
-$promptfooReady = $false
-$sdkReady = $false
-
-# -------------------------------------------------------------------
-# Check if promptfoo is already installed
-# -------------------------------------------------------------------
-$existing = Get-Command promptfoo -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "promptfoo is already installed: $($existing.Source)"
-    & promptfoo --version 2>$null
-    $promptfooReady = $true
-}
-
-# Check npx availability
-$npxCmd = Get-Command npx -ErrorAction SilentlyContinue
-if (-not $promptfooReady -and $npxCmd) {
-    try {
-        $null = & npx promptfoo@latest --version 2>$null
-        Write-Host "promptfoo is available via npx"
-        $promptfooReady = $true
-    }
-    catch {
-        # npx check failed, continue to install
-    }
-}
-
-if (Test-OpenCodeSdk) {
-    Write-Host "@opencode-ai/sdk is already available in current project"
-    $sdkReady = $true
-}
-
-if (-not $promptfooReady) {
-    Write-Host "promptfoo not found. Attempting installation..."
-}
-
-# -------------------------------------------------------------------
-# Install via npm
-# -------------------------------------------------------------------
-$installNeeded = (-not $promptfooReady) -or (-not $sdkReady)
-$npmCmd = Get-Command npm -ErrorAction SilentlyContinue
-if ($installNeeded -and -not $npmCmd) {
-    Write-Error @"
-ERROR: npm not found. Install Node.js first:
-  winget install OpenJS.NodeJS.LTS
-  Or visit: https://nodejs.org/
-"@
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Error 'ERROR: node is required to validate the Promptfoo runtime.'
     exit 1
 }
 
-if (-not $promptfooReady) {
-    Write-Host "Installing promptfoo via npm (global)..."
-    & npm install -g promptfoo
-    $promptfooReady = $true
-}
+$candidates = [System.Collections.Generic.List[string]]::new()
+if ($RuntimeDir) { $candidates.Add($RuntimeDir) }
+if ($env:PROMPTFOO_RUNTIME_DIR) { $candidates.Add($env:PROMPTFOO_RUNTIME_DIR) }
+$candidates.Add((Get-Location).Path)
+$candidates.Add((Join-Path $HOME '.local/share/promptfoo-runtime'))
 
-if (-not $sdkReady) {
-    Write-Host "Installing @opencode-ai/sdk via npm (project local)..."
-    & npm install @opencode-ai/sdk
-    if (Test-OpenCodeSdk) {
-        $sdkReady = $true
-    }
-}
+function Test-PromptfooRuntime {
+    param([Parameter(Mandatory)][string]$PackageRoot)
 
-# -------------------------------------------------------------------
-# Verify installation
-# -------------------------------------------------------------------
-# Refresh PATH for current session
-$env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-            [System.Environment]::GetEnvironmentVariable('Path', 'User')
-
-$installed = Get-Command promptfoo -ErrorAction SilentlyContinue
-if (-not $promptfooReady -and $installed) {
-    $promptfooReady = $true
-}
-
-if ($promptfooReady -and $sdkReady) {
-    if ($installed) {
-        Write-Host "promptfoo ready: $(& promptfoo --version)"
+    $packageJson = Join-Path $PackageRoot 'package.json'
+    $promptfooBin = if ($IsWindows) {
+        Join-Path $PackageRoot 'node_modules/.bin/promptfoo.cmd'
     }
     else {
-        Write-Host "promptfoo ready via npx"
+        Join-Path $PackageRoot 'node_modules/.bin/promptfoo'
     }
-    Write-Host "@opencode-ai/sdk is installed"
-    exit 0
+
+    if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $promptfooBin -PathType Leaf)) {
+        return $false
+    }
+
+    $resolver = @'
+const { createRequire } = require('node:module');
+const path = require('node:path');
+const root = path.resolve(process.argv[1]);
+const requireFromRuntime = createRequire(path.join(root, 'package.json'));
+for (const packageName of [
+  'promptfoo',
+  '@opencode-ai/sdk',
+  '@anthropic-ai/claude-agent-sdk',
+  '@anthropic-ai/sdk',
+]) {
+  requireFromRuntime.resolve(packageName);
 }
-else {
-    if (-not $promptfooReady) {
-        Write-Error "ERROR: promptfoo is not available after installation attempt."
-    }
-    if (-not $sdkReady) {
-        Write-Error "ERROR: @opencode-ai/sdk is not available after installation attempt."
-    }
-    exit 1
+'@
+
+    & node -e $resolver $PackageRoot 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    & $promptfooBin --version 2>$null | Out-Null
+    return $LASTEXITCODE -eq 0
 }
+
+foreach ($candidate in $candidates | Select-Object -Unique) {
+    if ($candidate -and (Test-PromptfooRuntime -PackageRoot $candidate)) {
+        $resolvedRoot = (Resolve-Path -LiteralPath $candidate).Path
+        Write-Host "Promptfoo runtime ready: $resolvedRoot"
+        $promptfooBin = if ($IsWindows) {
+            Join-Path $resolvedRoot 'node_modules/.bin/promptfoo.cmd'
+        }
+        else {
+            Join-Path $resolvedRoot 'node_modules/.bin/promptfoo'
+        }
+        & $promptfooBin --version
+        Write-Host 'Provider SDKs resolve from the same package root.'
+        exit 0
+    }
+}
+
+Write-Error @'
+ERROR: no complete managed Promptfoo runtime was found.
+Expected promptfoo, @opencode-ai/sdk, @anthropic-ai/claude-agent-sdk, and
+@anthropic-ai/sdk in one node_modules tree. Install the project's lockfile or
+set PROMPTFOO_RUNTIME_DIR to its package root, then run this verifier again.
+'@
+exit 1

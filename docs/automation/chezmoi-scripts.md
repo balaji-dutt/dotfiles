@@ -49,6 +49,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_onchange_after_install_plannotator.sh.tmpl` | onchange | Host Plannotator CLI installation |
 | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange | Windows Plannotator CLI installation |
 | `run_onchange_after_install_packages.sh.tmpl` | onchange | non-WSL package installs |
+| `run_onchange_after_install_promptfoo_runtime.sh.tmpl` | onchange | macOS lockfile-backed Promptfoo runtime |
 | `run_onchange_after_macos-vdi-apps.sh.tmpl` | onchange | macOS Citrix/Zoom VDI version reporting and opt-in installs |
 | `run_onchange_after_reload_launch_agents.sh.tmpl` | onchange | LaunchAgent reload, including NFS dot-clean |
 | `run_onchange_after_ansible_syntax_image.sh.tmpl` | onchange | Ansible syntax image update |

@@ -64,9 +64,10 @@ Task files under `ansible/tasks/`:
 
 WSL2 package and tool hydration is owned by the Ansible playbook. Changes to
 watched inputs such as `.chezmoidata.yaml`, `configs/packages.yaml`,
-`configs/mise*.toml`, `configs/uv_tools.txt`, and npm/bun manifests retrigger
-the WSL provisioning hook on the next `chezmoi apply`. The WSL lazygit binary is
-installed to `~/.local/bin/lazygit` from the Renovate-managed
+`configs/mise*.toml`, `configs/promptfoo-runtime/*`, `configs/uv_tools.txt`, and
+npm/bun manifests retrigger the WSL provisioning hook on the next
+`chezmoi apply`. The WSL lazygit binary is installed to
+`~/.local/bin/lazygit` from the Renovate-managed
 `.chezmoidata.yaml:lazygit_version` pin.
 
 ## Validation
