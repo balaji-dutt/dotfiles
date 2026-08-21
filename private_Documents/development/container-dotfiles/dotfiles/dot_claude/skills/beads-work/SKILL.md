@@ -262,21 +262,60 @@ Repeat for each logical commit the plan requires.
 ### Step 10: Collect commit SHAs since claim
 
 Do not rely on conversation memory. Read `started_sha` from the state file
-and enumerate every commit between then and `HEAD`:
+and enumerate every commit between then and `HEAD`. **Capture the result
+into a variable now** — Step 11 deletes the state file, so this is the last
+point at which `started_sha` is readable:
 
 ```bash
 STARTED_SHA="$(jq -r .started_sha .beads/in-progress-claude.json)"
-git log "${STARTED_SHA}..HEAD" --format=%h
+SHAS="$(git log "${STARTED_SHA}..HEAD" --format=%h | paste -sd, -)"
+echo "$SHAS"
 ```
 
 Use the OpenCode state file path when running under OpenCode. Use whatever
 short SHA `--format=%h` produces (typically 7–12 chars depending on repo
 size). Both short and full-40 forms are valid.
 
-### Step 11: Close the issue with the SHAs
+### Step 11: Delete the state file
 
-Build a comma-separated SHA list and close the issue. Run the literal
-command for the harness:
+Remove the harness-specific state file **before** closing the issue:
+
+```bash
+command rm -f -- .beads/in-progress-claude.json   # Claude Code
+command rm -f -- .beads/in-progress-opencode.json # OpenCode
+```
+
+Use `command rm`, not bare `rm`. Prezto aliases `rm` to `nocorrect rm -i` in
+interactive zsh; in an agent shell that prompt can read EOF, leave the file
+in place, and still exit 0. This delete is a safety property, not a tidy-up,
+so verify it rather than assuming it, for whichever file you removed:
+
+```bash
+STATE_FILE=.beads/in-progress-claude.json   # or -opencode.json
+if [ -e "$STATE_FILE" ]; then
+  echo "ABORT: $STATE_FILE still present; do not close the issue" >&2
+  exit 1
+fi
+```
+
+Do not proceed to Step 12 while the file is still there — closing on top of a
+surviving state file is the exact pairing this ordering exists to prevent.
+
+The order matters. An interruption between the delete and the close leaves
+(open issue, no state file), which is recoverable — the plan-approval gate
+prompts and the issue is still visibly open. The reverse order leaves
+(closed issue, stale state file), which used to disable the Claude Code
+plan gate silently and indefinitely.
+
+Confirm `SHAS` from Step 10 is still set before continuing; if the shell was
+lost, recover the range from the issue's claim time or `git log` rather than
+recreating the state file.
+
+### Step 12: Close the issue with the SHAs
+
+Close the issue with the comma-separated SHA list from Step 10. If `SHAS` is
+empty — no commits since the claim — close with a reason that says so rather
+than an empty list. Run the literal command for the harness:
 
 Claude Code:
 
@@ -294,20 +333,11 @@ command bd close <id> \
   --actor "OpenCode"
 ```
 
-### Step 12: Delete the state file
-
 If the repo's Beads conventions (documented in `CLAUDE.md`/`AGENTS.md`)
 require refreshing or committing `.beads/issues.jsonl` after close, do so.
 Some repos disable JSONL auto-export entirely (e.g. Dolt-backed setups
 where Dolt is the source of truth) and ignore the file — defer to the
 repo's docs.
-
-Remove the harness-specific state file:
-
-```bash
-rm -f .beads/in-progress-claude.json   # Claude Code
-rm -f .beads/in-progress-opencode.json # OpenCode
-```
 
 ### Step 13: Final report
 
