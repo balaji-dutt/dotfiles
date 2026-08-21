@@ -39,11 +39,23 @@ The following tools may be available, so check for their availability before exe
   instead. Accidentally assigning to `path` mutates `PATH` and can make commands
   such as `python3`, `dirname`, or `chezmoi` disappear mid-run; assigning to
   `status` fails because it is read-only.
-- Prezto's utility module aliases `rm` to `nocorrect rm -i` in interactive zsh.
-  In an agent command, that prompt can read EOF, leave the target in place, and
-  still return success. For intentional unattended deletion, use
-  `command rm -f -- <path>` and verify the target is absent when later checks
-  depend on its removal; do not rely on bare `rm` or `rm -f`.
+- Prezto's utility module aliases `cp`, `ln`, `mv`, and `rm` to their
+  `nocorrect ... -i` forms in interactive zsh. In an agent command that prompt
+  can read EOF, leave the target untouched, and still return success; it can
+  also sit waiting for input that never arrives, stranding a background shell.
+- Adding `-f` is not a dependable escape. It usually cancels the `-i`, but not
+  always: measured on macOS (Darwin 25), `/bin/cp -i -f` still prompts and
+  refuses, in either flag order and with no alias involved, despite the BSD man
+  page saying `-f` overrides any previous `-i`. Prefix with `command` instead,
+  which bypasses the alias on every platform: `command cp -f`,
+  `command mv -f`, `command ln -f` (add `-s` only if you want a symlink),
+  `command rm -f -- <path>`. Verify the result when later steps depend on it.
+- Never chain a cleanup step on the assumption that a bare `cp`/`mv` succeeded.
+  A declined `mv` exits 0, so `mv src dst; rm -f src` deletes the source that
+  was never moved. Exit status is not a dependable guard across platforms, so
+  join steps with `&&` and verify the content too. To restore a file from a
+  backup and then drop the backup:
+  `command cp -f -- "$b" "$f" && cmp -s -- "$b" "$f" && command rm -f -- "$b"`.
 - That shell also sets `noclobber`, so `> file` onto an existing path fails with
   `file exists` and the command never runs. Use `command rm -f -- file` first,
   or `>| file`; note `>> file` fails when `file` does not exist, so pair the
