@@ -651,6 +651,17 @@ if [[ -n "${CBM_VERSION:-}" && -n "${HOP_ARCH:-}" ]]; then
     rm -rf "$CBM_TMP"
     codebase-memory-mcp --version
   fi
+
+  CBM_AUTO_INDEX=$(codebase-memory-mcp config get auto_index)
+  if [[ "$CBM_AUTO_INDEX" != "true" ]]; then
+    codebase-memory-mcp config set auto_index true
+  fi
+  CBM_AUTO_INDEX=$(codebase-memory-mcp config get auto_index)
+  if [[ "$CBM_AUTO_INDEX" != "true" ]]; then
+    echo "ERROR: codebase-memory-mcp auto_index verification failed." >&2
+    exit 1
+  fi
+  echo "[mcp] codebase-memory-mcp auto_index enabled for the active cache."
 else
   echo "WARN: CBM_VERSION not set or architecture unsupported; skipping codebase-memory-mcp install."
 fi
@@ -822,11 +833,11 @@ step "Install OpenCode managed assets"
 materialize_opencode_managed_assets
 done_step "Install OpenCode managed assets"
 
-step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
-if ! install_beads_kanban_bd_fixes_vscode_extension; then
-  echo "WARN: Beads Kanban BD Fixes VSIX install failed; continuing container setup." >&2
+step "Install Better Beads Kanban VSIX (if VS Code CLI is available)"
+if ! install_better_beads_kanban_vscode_extension; then
+  echo "WARN: Better Beads Kanban VSIX install failed; continuing container setup." >&2
 fi
-done_step "Install Beads Kanban BD Fixes VSIX (if VS Code CLI is available)"
+done_step "Install Better Beads Kanban VSIX (if VS Code CLI is available)"
 
 step "Ensure Dolt CLI"
 install_dolt_if_missing

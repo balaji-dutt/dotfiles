@@ -53,6 +53,56 @@ statusline-sync:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
+beads-kanban-pin-sync:
+  stage: sync
+  image: alpine:3.20
+  timeout: 10m
+  before_script:
+    - apk add --no-cache bash curl git
+  script:
+    # Renovate bumps only the version sentinel in the three install sites; it
+    # cannot compute the release checksum. Refresh EXPECTED_SHA here, before
+    # platformAutomerge can fire.
+    - |
+      bash <<'JOBSCRIPT'
+      set -euo pipefail
+      BK_FILES=(
+        .chezmoiscripts/run_onchange_after_install_better_beads_kanban.sh.tmpl
+        .chezmoiscripts/run_onchange_after_install_better_beads_kanban.ps1.tmpl
+        private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh
+      )
+      if [[ "${CI_COMMIT_REF_NAME}" =~ ^renovate/beads-kanban- ]]; then
+        echo "==> beads kanban pin branch detected: ${CI_COMMIT_REF_NAME}"
+        bash assets/sync-beads-kanban-pin.sh --write
+        if git diff --quiet -- "${BK_FILES[@]}"; then
+          echo "==> pinned checksum already matches the release; nothing to push"
+          exit 0
+        fi
+        if [ -z "${VENDOREDFILE_SYNC_TOKEN:-}" ]; then
+          echo "ERROR: VENDOREDFILE_SYNC_TOKEN CI variable is not set;" >&2
+          echo "       see docs/automation/renovate-gitlab-runner-setup.md" >&2
+          exit 1
+        fi
+        export GIT_AUTHOR_NAME="Renovate Bot"
+        export GIT_AUTHOR_EMAIL="service_account_group_65498163_3cf840e6e3ac6e34bec3beb607caff8a@noreply.gitlab.com"
+        export GIT_COMMITTER_NAME="Renovate Bot"
+        export GIT_COMMITTER_EMAIL="service_account_group_65498163_3cf840e6e3ac6e34bec3beb607caff8a@noreply.gitlab.com"
+        git add "${BK_FILES[@]}"
+        git commit --amend --no-edit
+        git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+        git push \
+          --force-with-lease="refs/heads/${CI_COMMIT_REF_NAME}:${CI_COMMIT_SHA}" \
+          origin "HEAD:${CI_COMMIT_REF_NAME}"
+        echo "==> amended commit pushed; superseding pipeline will validate"
+      else
+        echo "==> non-beads-kanban branch; validating pinned checksum against the release"
+        bash assets/sync-beads-kanban-pin.sh --check
+      fi
+      JOBSCRIPT
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
 browser-policy-sync:
   stage: sync
   image: alpine:3.20

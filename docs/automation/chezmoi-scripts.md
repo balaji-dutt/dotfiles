@@ -38,6 +38,8 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-beads-pin.ps1.tmpl` | after | Windows Beads Winget pin reconciliation |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
+| `run_after_zz-configure-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL cache-local CBM auto-index configuration |
+| `run_after_zz-configure-codebase-memory-mcp.ps1.tmpl` | after | Windows cache-local CBM auto-index configuration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
 | `run_onchange_after_host_ai_plugin_refresh.sh.tmpl` | onchange | Claude/OpenCode host plugin refresh |
@@ -62,6 +64,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   `configs/claude-mcp.json`; see `docs/automation/claude-mcp.md`.
 - Native Windows admits the Claude MCP, Plannotator install, and host plugin
   refresh hooks; see `docs/inventory/windows.md`.
+- The two always-run CBM configuration hooks execute after platform installers,
+  set `auto_index=true` only when needed, and verify the cache-local value. They
+  never call CBM's native installer or export a repository graph.
 - The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
   `dot_claude/settings-base.json`, but only the former is hashed into its
   onchange trigger; see `docs/devcontainers.md`.

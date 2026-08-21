@@ -112,6 +112,26 @@
       ]
     },
     {
+      // Only the version is pinned; the tag (v<version>) and asset name
+      // (better-beads-kanban-<version>.vsix) are derived in each script.
+      // EXPECTED_SHA cannot be computed by Renovate — assets/sync-beads-kanban-pin.sh
+      // rewrites it on renovate/beads-kanban-* branches. See .gitlab-ci.yml.
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.chezmoiscripts\\/run_onchange_after_install_better_beads_kanban\\.sh\\.tmpl$/",
+        "/^\\.chezmoiscripts\\/run_onchange_after_install_better_beads_kanban\\.ps1\\.tmpl$/",
+        "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/dot_devcontainer\\/devcontainer-common\\.sh$/"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "balaji-dutt/better-beads-kanban",
+      // Strips the v from release tags so currentValue stays bare semver. Also
+      // excludes the retired bd-fixes-v* prereleases, which cannot match.
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "matchStrings": [
+        "(?:^|\\r?\\n)[ \\t]*(?:\\$ForkVersion[ \\t]*=|FORK_VERSION=|fork_version=)[ \\t]*\\\"(?<currentValue>[0-9][^\\\"]*)\\\""
+      ]
+    },
+    {
       "customType": "regex",
       "managerFilePatterns": ["/^configs\\/host-ai-plugin-refresh\\.jsonc$/"],
       "matchStrings": [
@@ -351,6 +371,14 @@
       ],
       "groupName": "claude-pace statusline",
       "additionalBranchPrefix": "statusline-"
+    },
+    {
+      // The branch prefix is what beads-kanban-pin-sync dispatches on to
+      // refresh EXPECTED_SHA before automerge can fire.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["balaji-dutt/better-beads-kanban"],
+      "groupName": "better beads kanban vsix",
+      "additionalBranchPrefix": "beads-kanban-"
     },
     {
       "matchManagers": ["custom.regex"],

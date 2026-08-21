@@ -66,8 +66,8 @@ than installing it as a shell side effect.
 
 WSL2 Bash sessions use mise shims because they do not run full activation, and
 the ansible-installed Dolt binary remains the real `~/.local/bin/dolt` file.
-On macOS, Beads Kanban receives the absolute mise shim path through the managed
-workspace setting, so Finder and Dock launches do not depend on shell
+On macOS, Better Beads Kanban receives the absolute mise shim path through the
+managed workspace setting, so Finder and Dock launches do not depend on shell
 activation or launch `PATH`. `assets/beads-sync.sh` likewise resolves the tools
 from `PATH` or their managed locations. The former `~/.local/bin/bd` and `dolt`
 links were retired because interactive mise activation could expose a direct
@@ -247,8 +247,8 @@ How it is wired:
 - `.chezmoiscripts/run_after_windows-beads-client.ps1.tmpl` reads the port from
   the WSL2 checkout's `.beads/dolt-server.port` and exports
   `BEADS_DOLT_SERVER_PORT` at **User** scope, so bare `bd.exe` callers — agents,
-  OpenCode, the VSCode Beads Kanban extension — inherit it without a shell
-  profile. It also exports `BEADS_CLIENT_WSL_DISTRO` and
+  OpenCode, the VSCode Better Beads Kanban extension — inherit it without a
+  shell profile. It also exports `BEADS_CLIENT_WSL_DISTRO` and
   `BEADS_CLIENT_WSL_REPO_REL` for `assets/beads-sync.ps1`, which is never
   templated.
 - `~/.config/powershell/beads-env.ps1` supplies the helpers the PowerShell `bd`

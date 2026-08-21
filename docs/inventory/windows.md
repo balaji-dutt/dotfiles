@@ -127,7 +127,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these fifteen
+Windows ignores `.chezmoiscripts/**` by default and then admits these sixteen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -138,7 +138,7 @@ rendered hook targets:
 | `claude_mcp_servers.ps1` | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange, after | Reconcile declarative user-scope Claude MCP registrations |
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
 | `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange, after | Refresh Claude plugins and rebuild the OpenCode package cache when no blocking client is active |
-| `install_beads_kanban_bd_fixes.ps1` | `run_onchange_after_install_beads_kanban_bd_fixes.ps1.tmpl` | onchange, after | Install the pinned Beads Kanban VSIX fork when VS Code is available |
+| `install_better_beads_kanban.ps1` | `run_onchange_after_install_better_beads_kanban.ps1.tmpl` | onchange, after | Install the pinned Better Beads Kanban VSIX fork when VS Code is available |
 | `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
 | `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
@@ -147,6 +147,7 @@ rendered hook targets:
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |
+| `zz-configure-codebase-memory-mcp.ps1` | `run_after_zz-configure-codebase-memory-mcp.ps1.tmpl` | after | Reconcile and verify cache-local CBM auto-index configuration |
 
 The browser-policy hook imports registry files only when the feature is enabled.
 A non-elevated apply skips the import with a command for running it separately
@@ -174,6 +175,14 @@ termination cannot finish safely, the hook leaves the existing binary in place
 and fails promptly instead of blocking `chezmoi apply`. It does not delete or
 rebuild CBM cache or database files.
 
+The separate always-run `zz-configure-codebase-memory-mcp.ps1` hook executes
+after the installer and reconciles `auto_index=true` in the active cache. Its
+bounded short-lived `config get` / conditional `config set` / `config get`
+sequence reads `_config.db` directly and works when the installer has stopped or
+force-stopped the coordination daemon. It intentionally does not restart the
+daemon; the next OpenCode or Claude Code MCP process starts normally and reads
+the setting.
+
 `windows-bootstrap.ps1` owns `~/.local` in the persistent user `PATH`. Restart
 OpenCode, Claude Code, and any terminal that predates the installation before
 testing command-name resolution.
@@ -196,19 +205,23 @@ claude mcp add --transport stdio --scope user cbm -- codebase-memory-mcp
 Unless `CBM_CACHE_DIR` is set at runtime, the pinned standard binary keeps its
 unmanaged databases, configuration, and logs under
 `~/.cache/codebase-memory-mcp`. The install hook creates the active cache
-directory so read-only commands work before the first index, but chezmoi does
-not manage its contents. Verify the native installation from a fresh
-PowerShell/OpenCode process:
+directory, and the configuration hook declaratively reconciles only the
+`auto_index` setting; chezmoi does not manage the cache contents. Verify the
+native installation from a fresh PowerShell/OpenCode process:
 
 ```powershell
 codebase-memory-mcp --version
+codebase-memory-mcp config get auto_index
 codebase-memory-mcp cli list_projects
 opencode mcp list
 ```
 
-The version must match `.chezmoidata.yaml`, `list_projects` must complete
-successfully, and the `cbm` entry must report connected. Provisioning does not
-index the current repository automatically.
+The version must match `.chezmoidata.yaml`, `auto_index` must report `true`,
+`list_projects` must complete successfully, and the `cbm` entry must report
+connected. Auto-index runs on a later MCP startup only when repository-root
+detection and bounded discovery preflight succeed and the repository is within
+the configured file limit. A preflight timeout can skip auto-index even below
+that limit. It does not export repository-local graph artifacts.
 
 ## AI Automation Hook Audit
 

@@ -139,12 +139,14 @@ enabled by these dotfiles.
 `CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
 matching portable Linux release archive for compatibility with the container's
 glibc/libstdc++ versions, verifies it against the upstream checksum file, and
-installs only the binary; it never runs CBM's native installer or its client
-configuration hooks. `CBM_CACHE_DIR` points to
+installs the binary without running CBM's native installer or client
+configuration hooks. It then reconciles and verifies `auto_index=true` through
+the binary's process-local config CLI. `CBM_CACHE_DIR` points to
 `/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
-volume so the SQLite cache does not land on the workspace bind mount. Registering
-the binary as a Claude MCP server is a separate step handled by the Claude
-lifecycle wiring below, not by the install block.
+volume, so the SQLite index and `_config.db` survive rebuilds and do not land on
+the workspace bind mount. Registering the binary as a Claude MCP server is a
+separate step handled by the Claude lifecycle wiring below, not by the install
+block.
 
 `TF_MCP_VERSION` pins terraform-mcp-server. `postCreate.sh` selects the Linux
 amd64 or arm64 archive for the container architecture, downloads it from
@@ -224,14 +226,24 @@ from a single designated clone with `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate`
 followed by `bd dolt push`, then re-bootstrap any other clones. Back up first
 with a Dolt branch and `bd export --all -o ~/hliac-backup.jsonl`.
 
-The VS Code Beads Kanban fork is installed from a pinned GitHub release VSIX in
-`postCreate.sh` and retried by `postStart.sh`. Lifecycle scripts prefer the VS
-Code Server CLI and log the selected executable before installing. Troubleshoot
-with `/tmp/postCreate.log`, `/tmp/postStart.log`, and:
+Better Beads Kanban (`balaji-dutt.better-beads-kanban`) is installed from a
+pinned GitHub release VSIX in `postCreate.sh` and retried by `postStart.sh`.
+Lifecycle scripts prefer the VS Code Server CLI and log the selected executable
+before installing. They also uninstall upstream `davidcforbes.beads-kanban` and
+the pre-rename fork `balaji-dutt.beads-kanban-bd-fixes` on every run: all three
+contribute `beadsKanban.openBoard`, and VS Code treats each extension id as a
+separate install. Troubleshoot with `/tmp/postCreate.log`, `/tmp/postStart.log`,
+and:
 
 ```sh
 code --list-extensions --show-versions | grep beads-kanban
 ```
+
+Only the version is hand-pinned. `assets/sync-beads-kanban-pin.sh --check`
+verifies the checksum in all three install sites against the release; CI runs
+it on every branch. The cache directory moved from `dotfiles/beads-kanban-vsix`
+to `dotfiles/better-beads-kanban-vsix` — the old one holds a stale VSIX and
+markers and can be deleted by hand.
 
 ## Runtime-Generated Files
 

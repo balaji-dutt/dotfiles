@@ -1,28 +1,28 @@
 {{- if ne .chezmoi.os "windows" -}}
 {{- /* not Windows: do nothing */ -}}
 {{- else -}}
-# Install the forked Beads-Kanban VSIX release used for local bd work.
-# Change trigger (chezmoi re-runs on hash change):
-# tag: bd-fixes-v2.1.4-bd.5-fed50b3
-# sha256: f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526
+# Install the Better Beads Kanban VSIX release used for local bd work.
+# $ForkVersion is the Renovate-tracked pin; $Tag and $Asset derive from it.
+# $ExpectedSha is maintained by assets/sync-beads-kanban-pin.sh.
 
 $ErrorActionPreference = "Stop"
 
-$Repo                = "balaji-dutt/Beads-Kanban"
-$Tag                 = "bd-fixes-v2.1.4-bd.5-fed50b3"
-$Asset               = "beads-kanban-bd-fixes-2.1.4-bd.5-integration-bd-fixes-fed50b3.vsix"
-$ExpectedSha         = "f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526"
-$ForkExtensionId     = "balaji-dutt.beads-kanban-bd-fixes"
-$ForkVersion         = "2.1.4-bd.5"
-$UpstreamExtensionId = "davidcforbes.beads-kanban"
+$Repo                    = "balaji-dutt/better-beads-kanban"
+$ForkVersion             = "2.2.0"
+$Tag                     = "v$ForkVersion"
+$Asset                   = "better-beads-kanban-$ForkVersion.vsix"
+$ExpectedSha             = "9a32a77ec0e0311bae5e080ca24331710f00e734535e859fe127c2c8d382700b"
+$ForkExtensionId         = "balaji-dutt.better-beads-kanban"
+$LegacyForkExtensionId   = "balaji-dutt.beads-kanban-bd-fixes"
+$UpstreamExtensionId     = "davidcforbes.beads-kanban"
 
 if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
-  Write-Host "INFO: code command not found; skipping Beads Kanban VSIX install."
+  Write-Host "INFO: code command not found; skipping Better Beads Kanban VSIX install."
   exit 0
 }
 
 $CacheBase = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME ".cache" }
-$CacheRoot = Join-Path $CacheBase "dotfiles\beads-kanban-vsix"
+$CacheRoot = Join-Path $CacheBase "dotfiles\better-beads-kanban-vsix"
 New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
 
 $VsixPath = Join-Path $CacheRoot $Asset
@@ -31,6 +31,18 @@ $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Asset"
 
 function Invoke-Code {
   param([Parameter(Mandatory=$true)] [string[]] $Arguments)
+
+  # Uninstalling an extension that is not installed exits 1 and writes to
+  # stderr; post-migration that is the steady state on every apply. This
+  # function owns exit-code handling, so neither should terminate:
+  #   - PowerShell 7.4+ turns a non-zero native exit into a terminating error
+  #     when $ErrorActionPreference is Stop.
+  #   - Windows PowerShell 5.1 has no such setting, but `2>&1` promotes native
+  #     stderr to ErrorRecords, which Stop turns into a NativeCommandError.
+  # chezmoi pins no ps1 interpreter, so both hosts are reachable. Assigning
+  # inside the function scopes both overrides to it.
+  $PSNativeCommandUseErrorActionPreference = $false
+  $ErrorActionPreference = "Continue"
 
   $output = & code @Arguments 2>&1
   $exitCode = $LASTEXITCODE
@@ -52,8 +64,11 @@ function Test-ForkExtensionInstalled {
   return $false
 }
 
-# Avoid duplicate command/configuration contributions if upstream was present.
+# Avoid duplicate command/configuration contributions if upstream or the
+# pre-rename fork was present. Both contribute beadsKanban.openBoard, and VS
+# Code treats each extension id as a separate install.
 $null = Invoke-Code -Arguments @("--uninstall-extension", $UpstreamExtensionId)
+$null = Invoke-Code -Arguments @("--uninstall-extension", $LegacyForkExtensionId)
 
 if ((Test-Path -LiteralPath $MarkerPath -PathType Leaf) -and
     ((Get-Content -LiteralPath $MarkerPath -Raw).Trim() -eq $ExpectedSha) -and
