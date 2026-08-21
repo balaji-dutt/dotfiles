@@ -111,6 +111,10 @@ updates or removes only unchanged owned copies, adopts byte-identical hooks,
 and preserves unknown or unrelated hooks. Valid custom `core.hooksPath` values
 are reported and left alone.
 
+Repositories rejected by Git's `safe.directory` ownership check are skipped
+with an informational message. Trust must be granted deliberately through Git
+configuration; the helper never weakens or bypasses that check.
+
 For a targeted reconciliation, pass the template directory and one or more
 roots explicitly:
 

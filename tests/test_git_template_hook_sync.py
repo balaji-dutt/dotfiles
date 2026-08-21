@@ -83,6 +83,17 @@ class GitTemplateHookSyncTests(unittest.TestCase):
             self.git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
         ) / "hooks"
 
+    def test_run_git_forces_deterministic_diagnostics(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(
+            hook_sync.subprocess, "run", return_value=completed
+        ) as run_mock:
+            hook_sync.run_git(self.repos, ["status"])
+
+        environment = run_mock.call_args.kwargs["env"]
+        self.assertEqual(environment["LC_ALL"], "C")
+        self.assertEqual(environment["HOME"], str(self.home))
+
     def manifest(self, repo: Path) -> dict[str, str]:
         manifest_path = self.hooks_dir(repo) / hook_sync.MANIFEST_NAME
         return json.loads(manifest_path.read_text(encoding="utf-8"))["hooks"]
@@ -277,7 +288,50 @@ class GitTemplateHookSyncTests(unittest.TestCase):
         self.assertIn("installed managed hook", output)
         self.assertIn("pre-commit", self.manifest(repo))
 
-    def test_dubious_or_invalid_repo_warns_without_failing_other_repos(self) -> None:
+    def test_dubious_ownership_is_a_concise_info_skip(self) -> None:
+        valid = self.init_repo("valid")
+        rejected = self.repos / "rejected"
+        rejected_hooks = rejected / ".git" / "hooks"
+        rejected_hooks.mkdir(parents=True)
+        sentinel = rejected_hooks / "custom-hook"
+        sentinel.write_text("untouched\n", encoding="utf-8")
+        diagnostic = (
+            f"fatal: detected dubious ownership in repository at '{rejected}'\n"
+            "To add an exception for this directory, call:\n\n"
+            f"\tgit config --global --add safe.directory {rejected}"
+        )
+        actual_run_git = hook_sync.run_git
+
+        def reject_untrusted_repo(repo: Path, arguments: list[str]) -> hook_sync.GitResult:
+            if repo == rejected:
+                return hook_sync.GitResult(128, "", diagnostic)
+            return actual_run_git(repo, arguments)
+
+        with mock.patch.object(hook_sync, "run_git", side_effect=reject_untrusted_repo):
+            return_code, output, errors = self.run_sync()
+
+        skip_lines = [
+            line
+            for line in output.splitlines()
+            if "skipping repository rejected by Git safe.directory" in line
+        ]
+        combined_output = output + errors
+        self.assertEqual(return_code, 0)
+        self.assertEqual(
+            skip_lines,
+            [f"INFO: skipping repository rejected by Git safe.directory: {rejected}"],
+        )
+        self.assertNotIn("fatal: detected dubious ownership", combined_output)
+        self.assertNotIn("To add an exception", combined_output)
+        self.assertNotIn("git config --global --add safe.directory", combined_output)
+        self.assertEqual(errors, "")
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched\n")
+        self.assertFalse((rejected_hooks / "pre-commit").exists())
+        self.assertFalse((rejected_hooks / hook_sync.MANIFEST_NAME).exists())
+        self.assertTrue((self.hooks_dir(valid) / "pre-commit").exists())
+        self.assertIn("failures=0", output)
+
+    def test_invalid_repo_warns_without_failing_other_repos(self) -> None:
         self.init_repo("valid")
         invalid = self.repos / "invalid"
         (invalid / ".git").mkdir(parents=True)
@@ -285,7 +339,9 @@ class GitTemplateHookSyncTests(unittest.TestCase):
         return_code, output, errors = self.run_sync()
 
         self.assertEqual(return_code, 0)
+        self.assertIn("WARNING:", errors)
         self.assertIn("resolving --git-common-dir", errors)
+        self.assertNotIn("skipping repository rejected by Git safe.directory", output)
         self.assertIn("failures=0", output)
 
     def test_real_sync_error_fails_the_run(self) -> None:

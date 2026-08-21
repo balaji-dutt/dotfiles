@@ -19,7 +19,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import NoReturn, Sequence
 
 
 MANIFEST_NAME = ".dotfiles-managed-hooks.json"
@@ -32,6 +32,14 @@ class SyncError(RuntimeError):
 
 class RepositoryUnavailable(RuntimeError):
     """A repository that cannot be inspected and should be skipped."""
+
+
+class RepositoryOwnershipRejected(RuntimeError):
+    """A repository Git refuses to inspect until it is explicitly trusted."""
+
+    def __init__(self, repo: Path) -> None:
+        super().__init__(str(repo))
+        self.repo = repo
 
 
 @dataclass(frozen=True)
@@ -71,9 +79,12 @@ def sha256(file_path: Path) -> str:
 
 
 def run_git(repo: Path, arguments: Sequence[str]) -> GitResult:
+    environment = os.environ.copy()
+    environment["LC_ALL"] = "C"
     process = subprocess.run(
         ["git", "-C", str(repo), *arguments],
         check=False,
+        env=environment,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -85,11 +96,25 @@ def run_git(repo: Path, arguments: Sequence[str]) -> GitResult:
     )
 
 
+def raise_git_failure(
+    repo: Path,
+    result: GitResult,
+    operation: str,
+    error_type: type[RuntimeError] = RepositoryUnavailable,
+) -> NoReturn:
+    diagnostic = result.stderr or result.stdout
+    if "detected dubious ownership in repository" in diagnostic.casefold():
+        if error_type is RepositoryUnavailable:
+            raise RepositoryOwnershipRejected(repo)
+        raise error_type(f"{operation} for {repo}: Git rejected repository ownership")
+    detail = diagnostic or f"exit {result.returncode}"
+    raise error_type(f"{operation} for {repo}: {detail}")
+
+
 def require_git(repo: Path, arguments: Sequence[str], operation: str) -> str:
     result = run_git(repo, arguments)
     if result.returncode != 0:
-        detail = result.stderr or result.stdout or f"exit {result.returncode}"
-        raise RepositoryUnavailable(f"{operation} for {repo}: {detail}")
+        raise_git_failure(repo, result, operation)
     return result.stdout
 
 
@@ -296,8 +321,7 @@ def local_hooks_path(repo: Path) -> str | None:
     if result.returncode == 1:
         return None
     if result.returncode != 0:
-        detail = result.stderr or result.stdout or f"exit {result.returncode}"
-        raise RepositoryUnavailable(f"reading local core.hooksPath for {repo}: {detail}")
+        raise_git_failure(repo, result, "reading local core.hooksPath")
     return result.stdout or None
 
 
@@ -306,8 +330,7 @@ def effective_hooks_path(repo: Path) -> str | None:
     if result.returncode == 1:
         return None
     if result.returncode != 0:
-        detail = result.stderr or result.stdout or f"exit {result.returncode}"
-        raise RepositoryUnavailable(f"reading effective core.hooksPath for {repo}: {detail}")
+        raise_git_failure(repo, result, "reading effective core.hooksPath")
     return result.stdout or None
 
 
@@ -321,8 +344,7 @@ def is_missing_beads_hooks(value: str, resolved: Path) -> bool:
 def unset_local_hooks_path(repo: Path) -> None:
     result = run_git(repo, ["config", "--local", "--unset-all", "core.hooksPath"])
     if result.returncode not in (0, 5):
-        detail = result.stderr or result.stdout or f"exit {result.returncode}"
-        raise SyncError(f"clearing local core.hooksPath for {repo}: {detail}")
+        raise_git_failure(repo, result, "clearing local core.hooksPath", SyncError)
 
 
 def reconcile_repository(
@@ -413,6 +435,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 totals.removed + result.removed,
                 totals.conflicts + result.conflicts,
             )
+        except RepositoryOwnershipRejected as exc:
+            info(f"skipping repository rejected by Git safe.directory: {exc.repo}")
         except RepositoryUnavailable as exc:
             warning(str(exc))
         except SyncError as exc:
