@@ -71,6 +71,47 @@ class Config:
     submodule_init: bool
 
 
+@dataclass(frozen=True)
+class DoctorFinding:
+    section: str
+    severity: str
+    code: str
+    message: str
+    hint: str = ""
+
+
+@dataclass(frozen=True)
+class DoctorFix:
+    kind: str
+    target: Path
+    description: str
+    original: bytes | None = None
+
+
+@dataclass(frozen=True)
+class DoctorFixResult:
+    success: bool
+    message: str
+
+
+@dataclass
+class DoctorReport:
+    repo_root: Path
+    findings: list[DoctorFinding]
+    fixes: list[DoctorFix]
+
+    @property
+    def actionable(self) -> list[DoctorFinding]:
+        return [item for item in self.findings if item.severity in {"WARN", "ERROR"}]
+
+
+@dataclass(frozen=True)
+class DoctorMetadata:
+    path: Path
+    original: bytes
+    data: dict[str, Any]
+
+
 def eprint(message: str) -> None:
     print(f"{SCRIPT_NAME}: {message}", file=sys.stderr)
 
@@ -1780,6 +1821,1196 @@ def cmd_cleanup(raw_args: list[str]) -> int:
     return 0 if ok else 1
 
 
+DOCTOR_SECTIONS = (
+    "Repository",
+    "Ignore coverage",
+    "State layout",
+    "Session metadata",
+    "Stale metadata",
+    "Retained worktrees",
+    "Worktree registry",
+    "Configuration",
+    "Tool commands",
+    "Cleanup risk",
+)
+DOCTOR_REQUIRED_METADATA = (
+    "version",
+    "session_id",
+    "repo_root",
+    "tool",
+    "branch",
+    "worktree_path",
+    "created_at",
+    "updated_at",
+    "cleanup_status",
+)
+
+
+def doctor_finding(
+    findings: list[DoctorFinding],
+    section: str,
+    severity: str,
+    code: str,
+    message: str,
+    hint: str = "",
+) -> None:
+    findings.append(DoctorFinding(section, severity, code, message, hint))
+
+
+def doctor_source_value(
+    repo_root: Path,
+    args: argparse.Namespace,
+    attr: str,
+    env_name: str,
+    git_key: str,
+    default: str | None = None,
+) -> tuple[str | None, str]:
+    cli_value = getattr(args, attr, None)
+    if cli_value not in (None, ""):
+        return str(cli_value), "command line"
+    env_value = os.environ.get(env_name)
+    if env_value not in (None, ""):
+        return env_value, env_name
+    configured = git_config(repo_root, git_key)
+    if configured not in (None, ""):
+        return configured, git_key
+    return default, "default"
+
+
+def doctor_parse_bool(
+    value: str | None,
+    default: bool,
+    *,
+    name: str,
+    source: str,
+    findings: list[DoctorFinding],
+    invalid: set[str],
+) -> bool:
+    try:
+        return parse_bool(value, default)
+    except AiWtError:
+        invalid.add(name)
+        doctor_finding(
+            findings,
+            "Configuration",
+            "ERROR",
+            f"config.{name}",
+            f"{source} has an invalid boolean for {name}: {value!r}",
+            "Use true/false, yes/no, on/off, or 1/0.",
+        )
+        return default
+
+
+def load_doctor_config(
+    repo_root: Path,
+    git_common_dir: Path,
+    args: argparse.Namespace,
+) -> tuple[Config, list[DoctorFinding], set[str]]:
+    findings: list[DoctorFinding] = []
+    invalid: set[str] = set()
+
+    path_template, _ = doctor_source_value(
+        repo_root,
+        args,
+        "path_template",
+        "AI_WT_PATH_TEMPLATE",
+        "ai-wt.pathTemplate",
+        DEFAULT_PATH_TEMPLATE,
+    )
+    state_raw, state_source = doctor_source_value(
+        repo_root,
+        args,
+        "state_dir",
+        "AI_WT_STATE_DIR",
+        "ai-wt.stateDir",
+        DEFAULT_STATE_DIR,
+    )
+    parent_raw, parent_source = doctor_source_value(
+        repo_root,
+        args,
+        "worktree_parent",
+        "AI_WT_WORKTREE_PARENT",
+        "ai-wt.worktreeParent",
+    )
+    base_ref, _ = doctor_source_value(
+        repo_root,
+        args,
+        "base_ref",
+        "AI_WT_BASE_REF",
+        "ai-wt.baseRef",
+        "HEAD",
+    )
+    cleanup_dirty, cleanup_source = doctor_source_value(
+        repo_root,
+        args,
+        "cleanup_dirty",
+        "AI_WT_CLEANUP_DIRTY",
+        "ai-wt.cleanupDirty",
+        "keep",
+    )
+    cleanup_dirty = (cleanup_dirty or "keep").strip().lower()
+    if cleanup_dirty not in {"keep", "delete"}:
+        invalid.add("cleanupDirty")
+        doctor_finding(
+            findings,
+            "Configuration",
+            "ERROR",
+            "config.cleanup-dirty",
+            f"{cleanup_source} has invalid cleanupDirty={cleanup_dirty!r}",
+            "Set ai-wt.cleanupDirty to keep or delete.",
+        )
+        cleanup_dirty = "keep"
+
+    delete_raw, delete_source = doctor_source_value(
+        repo_root,
+        args,
+        "delete_branch_on_cleanup",
+        "AI_WT_DELETE_BRANCH_ON_CLEANUP",
+        "ai-wt.deleteBranchOnCleanup",
+    )
+    update_raw, update_source = doctor_source_value(
+        repo_root,
+        args,
+        "update_exclude",
+        "AI_WT_UPDATE_EXCLUDE",
+        "ai-wt.updateExclude",
+    )
+    submodule_raw, submodule_source = doctor_source_value(
+        repo_root,
+        args,
+        "submodule_init",
+        "AI_WT_SUBMODULE_INIT",
+        "ai-wt.submoduleInit",
+    )
+    delete_branch = doctor_parse_bool(
+        delete_raw,
+        False,
+        name="deleteBranchOnCleanup",
+        source=delete_source,
+        findings=findings,
+        invalid=invalid,
+    )
+    update_exclude = doctor_parse_bool(
+        update_raw,
+        True,
+        name="updateExclude",
+        source=update_source,
+        findings=findings,
+        invalid=invalid,
+    )
+    submodule_init = doctor_parse_bool(
+        submodule_raw,
+        False,
+        name="submoduleInit",
+        source=submodule_source,
+        findings=findings,
+        invalid=invalid,
+    )
+
+    state_dir = repo_root / DEFAULT_STATE_DIR
+    try:
+        state_dir = resolve_path(repo_root, state_raw, DEFAULT_STATE_DIR)
+    except (OSError, RuntimeError, ValueError) as exc:
+        invalid.add("stateDir")
+        doctor_finding(
+            findings,
+            "Configuration",
+            "ERROR",
+            "config.state-dir",
+            f"{state_source} has an unusable state directory: {exc}",
+            "Set ai-wt.stateDir to a valid path.",
+        )
+
+    worktree_parent: Path | None = None
+    if parent_raw:
+        try:
+            worktree_parent = resolve_path(repo_root, parent_raw, "worktrees")
+        except (OSError, RuntimeError, ValueError) as exc:
+            invalid.add("worktreeParent")
+            doctor_finding(
+                findings,
+                "Configuration",
+                "ERROR",
+                "config.worktree-parent",
+                f"{parent_source} has an unusable worktree parent: {exc}",
+                "Set ai-wt.worktreeParent to a valid path.",
+            )
+
+    profile_raw, profile_source = doctor_source_value(
+        repo_root,
+        args,
+        "opencode_profile",
+        "AI_WT_OPENCODE_PROFILE",
+        "ai-wt.opencodeProfile",
+    )
+    opencode_profile: str | None = None
+    try:
+        opencode_profile = normalize_opencode_profile(profile_raw)
+    except AiWtError:
+        invalid.add("opencodeProfile")
+        doctor_finding(
+            findings,
+            "Configuration",
+            "ERROR",
+            "config.opencode-profile",
+            f"{profile_source} has invalid OpenCode profile {profile_raw!r}",
+            "Use build or custom.",
+        )
+
+    opencode_command, _ = doctor_source_value(
+        repo_root,
+        args,
+        "opencode_command",
+        "AI_WT_OPENCODE_COMMAND",
+        "ai-wt.opencodeCommand",
+    )
+    claude_command, _ = doctor_source_value(
+        repo_root,
+        args,
+        "claude_command",
+        "AI_WT_CLAUDE_COMMAND",
+        "ai-wt.claudeCommand",
+    )
+    return (
+        Config(
+            repo_root=repo_root,
+            git_common_dir=git_common_dir,
+            worktree_parent=worktree_parent,
+            path_template=path_template or DEFAULT_PATH_TEMPLATE,
+            state_dir=state_dir,
+            base_ref=base_ref or "HEAD",
+            delete_branch_on_cleanup=delete_branch,
+            cleanup_dirty=cleanup_dirty,
+            update_exclude=update_exclude,
+            opencode_command=opencode_command,
+            opencode_profile=opencode_profile,
+            claude_command=claude_command,
+            submodule_init=submodule_init,
+        ),
+        findings,
+        invalid,
+    )
+
+
+def doctor_ignore_detail(repo_root: Path, path: Path) -> tuple[str, str]:
+    rel = rel_to_repo(repo_root, path)
+    if rel is None:
+        return "external", ""
+    rel = rel.strip("/")
+    if not rel:
+        return "invalid", ""
+    probe = f"{rel}/.ai-wt-doctor-probe"
+    result = run_git(
+        repo_root,
+        ["check-ignore", "-v", "--no-index", "--", probe],
+        check=False,
+    )
+    if result.returncode == 0:
+        return "ignored", result.stdout.strip().split("\t", 1)[0]
+    if result.returncode == 1:
+        return "missing", f"/{rel}/"
+    detail = (result.stderr or result.stdout or "git check-ignore failed").strip()
+    return "error", detail
+
+
+def validate_doctor_metadata(
+    config: Config,
+    path: Path,
+    data: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    missing = [key for key in DOCTOR_REQUIRED_METADATA if key not in data]
+    if missing:
+        errors.append(f"missing required fields: {', '.join(missing)}")
+    version = data.get("version")
+    if "version" in data and (not isinstance(version, int) or isinstance(version, bool)):
+        errors.append("version must be an integer")
+    elif isinstance(version, int) and version != VERSION:
+        errors.append(f"unsupported metadata version: {version}")
+    for key in DOCTOR_REQUIRED_METADATA:
+        if key == "version" or key not in data:
+            continue
+        if not isinstance(data[key], str) or not data[key].strip():
+            errors.append(f"{key} must be a non-empty string")
+    session_id = data.get("session_id")
+    if isinstance(session_id, str) and session_id and session_id != path.stem:
+        errors.append("session_id does not match the metadata filename")
+    tool = data.get("tool")
+    if isinstance(tool, str) and tool not in {"opencode", "claude"}:
+        errors.append("tool must be opencode or claude")
+    raw_root = data.get("repo_root")
+    if isinstance(raw_root, str) and raw_root:
+        try:
+            if Path(raw_root).expanduser().resolve() != config.repo_root:
+                errors.append("repo_root does not match this repository")
+        except (OSError, RuntimeError, ValueError):
+            errors.append("repo_root is not a usable path")
+    return errors
+
+
+def read_doctor_metadata(
+    config: Config,
+    findings: list[DoctorFinding],
+) -> list[DoctorMetadata]:
+    sessions_dir = config.state_dir / "sessions"
+    if not sessions_dir.exists():
+        doctor_finding(
+            findings,
+            "Session metadata",
+            "PASS",
+            "metadata.absent",
+            f"Sessions directory does not exist yet: {sessions_dir}",
+        )
+        return []
+    if not sessions_dir.is_dir() or sessions_dir.is_symlink():
+        return []
+    records: list[DoctorMetadata] = []
+    try:
+        paths = sorted(sessions_dir.glob("*.json"))
+    except OSError as exc:
+        doctor_finding(
+            findings,
+            "Session metadata",
+            "ERROR",
+            "metadata.scan",
+            f"could not scan {sessions_dir}: {exc}",
+        )
+        return records
+    if not paths:
+        doctor_finding(
+            findings,
+            "Session metadata",
+            "PASS",
+            "metadata.empty",
+            "No retained session metadata found.",
+        )
+        return records
+    for path in paths:
+        if path.is_symlink():
+            doctor_finding(
+                findings,
+                "Session metadata",
+                "ERROR",
+                "metadata.symlink",
+                f"Metadata is a symlink and will not be followed: {path}",
+                "Replace it with a regular metadata file after inspecting its target.",
+            )
+            continue
+        try:
+            original = path.read_bytes()
+            parsed = json.loads(original.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            doctor_finding(
+                findings,
+                "Session metadata",
+                "ERROR",
+                "metadata.malformed",
+                f"Could not read valid JSON from {path}: {exc}",
+                "Repair or remove the file manually after confirming the session state.",
+            )
+            continue
+        if not isinstance(parsed, dict):
+            doctor_finding(
+                findings,
+                "Session metadata",
+                "ERROR",
+                "metadata.object",
+                f"Metadata must contain a JSON object: {path}",
+            )
+            continue
+        errors = validate_doctor_metadata(config, path, parsed)
+        if errors:
+            for error in errors:
+                doctor_finding(
+                    findings,
+                    "Session metadata",
+                    "ERROR",
+                    "metadata.invalid",
+                    f"{path}: {error}",
+                    "Malformed or incomplete metadata is never deleted by doctor.",
+                )
+            continue
+        doctor_finding(
+            findings,
+            "Session metadata",
+            "PASS",
+            "metadata.valid",
+            f"Valid metadata: {path.name}",
+        )
+        records.append(DoctorMetadata(path, original, parsed))
+    return records
+
+
+def doctor_worktree_paths(repo_root: Path) -> tuple[set[Path], int]:
+    result = run_git(repo_root, ["worktree", "list", "--porcelain"], check=False)
+    if result.returncode != 0:
+        return set(), result.returncode
+    paths: set[Path] = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            try:
+                paths.add(Path(line[9:]).resolve())
+            except (OSError, RuntimeError, ValueError):
+                continue
+    return paths, 0
+
+
+def doctor_rendered_worktree(config: Config) -> tuple[Path | None, str | None]:
+    try:
+        return render_worktree_path(config, "feat/doctor-check", "doctor-sample"), None
+    except AiWtError as exc:
+        return None, str(exc)
+
+
+def collect_doctor_report(
+    repo_root: Path,
+    git_common_dir: Path,
+    args: argparse.Namespace,
+) -> tuple[DoctorReport, Config]:
+    config, findings, invalid = load_doctor_config(repo_root, git_common_dir, args)
+    fixes: list[DoctorFix] = []
+    doctor_finding(
+        findings,
+        "Repository",
+        "PASS",
+        "repo.root",
+        f"Repository root: {repo_root}",
+    )
+    doctor_finding(
+        findings,
+        "Repository",
+        "PASS",
+        "repo.common-dir",
+        f"Git common directory: {git_common_dir}",
+    )
+
+    state_usable = "stateDir" not in invalid
+    if state_usable and config.state_dir == repo_root:
+        state_usable = False
+        doctor_finding(
+            findings,
+            "State layout",
+            "ERROR",
+            "state.repo-root",
+            "The state directory must not be the repository root.",
+            "Set ai-wt.stateDir to a dedicated directory such as .ai-wt.",
+        )
+    elif state_usable and path_inside(git_common_dir, config.state_dir):
+        state_usable = False
+        doctor_finding(
+            findings,
+            "State layout",
+            "ERROR",
+            "state.git-dir",
+            f"The state directory is inside the Git common directory: {config.state_dir}",
+            "Move ai-wt.stateDir outside Git administrative storage.",
+        )
+    elif state_usable and not config.state_dir.exists():
+        doctor_finding(
+            findings,
+            "State layout",
+            "PASS",
+            "state.absent",
+            f"State directory does not exist yet: {config.state_dir}",
+        )
+    elif state_usable and (config.state_dir.is_symlink() or not config.state_dir.is_dir()):
+        state_usable = False
+        doctor_finding(
+            findings,
+            "State layout",
+            "ERROR",
+            "state.type",
+            f"State path is not a regular directory: {config.state_dir}",
+        )
+    elif state_usable and not os.access(config.state_dir, os.R_OK | os.X_OK):
+        state_usable = False
+        doctor_finding(
+            findings,
+            "State layout",
+            "ERROR",
+            "state.unreadable",
+            f"State directory is not readable: {config.state_dir}",
+        )
+    elif state_usable:
+        doctor_finding(
+            findings,
+            "State layout",
+            "PASS",
+            "state.directory",
+            f"State directory is readable: {config.state_dir}",
+        )
+        sessions_dir = config.state_dir / "sessions"
+        if sessions_dir.exists() and (sessions_dir.is_symlink() or not sessions_dir.is_dir()):
+            state_usable = False
+            doctor_finding(
+                findings,
+                "State layout",
+                "ERROR",
+                "state.sessions-type",
+                f"Sessions path is not a regular directory: {sessions_dir}",
+            )
+        elif sessions_dir.exists() and not os.access(sessions_dir, os.R_OK | os.X_OK):
+            state_usable = False
+            doctor_finding(
+                findings,
+                "State layout",
+                "ERROR",
+                "state.sessions-unreadable",
+                f"Sessions directory is not readable: {sessions_dir}",
+            )
+        else:
+            doctor_finding(
+                findings,
+                "State layout",
+                "PASS",
+                "state.sessions",
+                f"Sessions directory is usable or not yet needed: {sessions_dir}",
+            )
+
+    rendered_path: Path | None = None
+    if "worktreeParent" not in invalid:
+        rendered_path, template_error = doctor_rendered_worktree(config)
+        if template_error:
+            invalid.add("pathTemplate")
+            doctor_finding(
+                findings,
+                "Configuration",
+                "ERROR",
+                "config.path-template",
+                f"Path template is invalid: {template_error}",
+                "Use only repo_root, branch, safe_branch, session_id, or session-id keys.",
+            )
+        elif rendered_path in {repo_root, git_common_dir} or (
+            rendered_path is not None and path_inside(git_common_dir, rendered_path)
+        ):
+            invalid.add("pathTemplate")
+            doctor_finding(
+                findings,
+                "Configuration",
+                "ERROR",
+                "config.path-template-safety",
+                f"Path template renders to an unsafe location: {rendered_path}",
+            )
+        elif rendered_path is not None:
+            doctor_finding(
+                findings,
+                "Configuration",
+                "PASS",
+                "config.path-template",
+                f"Path template sample: {rendered_path}",
+            )
+
+    ref_result = run_git(
+        repo_root,
+        ["rev-parse", "--verify", "--quiet", f"{config.base_ref}^" + "{commit}"],
+        check=False,
+    )
+    if ref_result.returncode == 0:
+        doctor_finding(
+            findings,
+            "Configuration",
+            "PASS",
+            "config.base-ref",
+            f"Base ref resolves to a commit: {config.base_ref}",
+        )
+    else:
+        doctor_finding(
+            findings,
+            "Configuration",
+            "ERROR",
+            "config.base-ref",
+            f"Base ref does not resolve to a commit: {config.base_ref}",
+            "Set ai-wt.baseRef or pass --base-ref with an existing commit-like ref.",
+        )
+    if "updateExclude" in invalid:
+        doctor_finding(
+            findings,
+            "Configuration",
+            "INFO",
+            "config.update-exclude-blocked",
+            "Local exclude policy checks are blocked by invalid updateExclude configuration.",
+        )
+    elif config.update_exclude:
+        doctor_finding(
+            findings,
+            "Configuration",
+            "PASS",
+            "config.update-exclude",
+            "Local exclude updates are enabled.",
+        )
+    else:
+        doctor_finding(
+            findings,
+            "Configuration",
+            "INFO",
+            "config.update-exclude-disabled",
+            "Local exclude updates are disabled by ai-wt.updateExclude=false.",
+            "Doctor will report uncovered paths but will not edit info/exclude.",
+        )
+
+    ignore_paths: list[tuple[str, Path]] = []
+    if state_usable:
+        ignore_paths.append(("state", config.state_dir))
+    if rendered_path is not None and "pathTemplate" not in invalid:
+        ignore_paths.append(("worktree", rendered_path.parent))
+    seen_ignore_paths: set[Path] = set()
+    for label, path in ignore_paths:
+        if path in seen_ignore_paths:
+            continue
+        seen_ignore_paths.add(path)
+        status, detail = doctor_ignore_detail(repo_root, path)
+        if status == "ignored":
+            doctor_finding(
+                findings,
+                "Ignore coverage",
+                "PASS",
+                f"ignore.{label}",
+                f"{path} is ignored by {detail}",
+            )
+        elif status == "missing":
+            doctor_finding(
+                findings,
+                "Ignore coverage",
+                "WARN",
+                f"ignore.{label}",
+                f"{path} is not ignored.",
+                f"Add {detail} to {git_common_dir / 'info' / 'exclude'}.",
+            )
+            if config.update_exclude and "updateExclude" not in invalid:
+                fixes.append(
+                    DoctorFix(
+                        "exclude",
+                        path,
+                        f"Add {detail} to {git_common_dir / 'info' / 'exclude'}",
+                    )
+                )
+        elif status == "external":
+            doctor_finding(
+                findings,
+                "Ignore coverage",
+                "INFO",
+                f"ignore.{label}-external",
+                f"{path} is outside the repository; Git ignore coverage is not applicable.",
+            )
+        elif status == "invalid":
+            doctor_finding(
+                findings,
+                "Ignore coverage",
+                "ERROR",
+                f"ignore.{label}-unsafe",
+                f"Cannot derive a safe ignore rule for {path}.",
+            )
+        else:
+            doctor_finding(
+                findings,
+                "Ignore coverage",
+                "ERROR",
+                f"ignore.{label}-check",
+                f"Could not check ignore coverage for {path}: {detail}",
+            )
+    if not ignore_paths:
+        doctor_finding(
+            findings,
+            "Ignore coverage",
+            "INFO",
+            "ignore.blocked",
+            "Ignore checks are blocked by invalid state or path configuration.",
+        )
+
+    metadata = read_doctor_metadata(config, findings) if state_usable else []
+    metadata_paths: dict[Path, DoctorMetadata] = {}
+    stale_count = 0
+    retained_count = 0
+    for record in metadata:
+        raw_worktree = str(record.data["worktree_path"])
+        try:
+            worktree = Path(raw_worktree).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            doctor_finding(
+                findings,
+                "Retained worktrees",
+                "ERROR",
+                "worktree.path",
+                f"Session {record.path.stem} has an unusable worktree path: {raw_worktree}",
+            )
+            continue
+        metadata_paths[worktree] = record
+        if not worktree.exists():
+            stale_count += 1
+            doctor_finding(
+                findings,
+                "Stale metadata",
+                "WARN",
+                "metadata.stale",
+                f"Valid metadata points to a missing worktree: {record.path}",
+                f"Run {SCRIPT_NAME} prune --dry-run or use doctor --autofix.",
+            )
+            fixes.append(
+                DoctorFix(
+                    "metadata",
+                    record.path,
+                    f"Remove stale metadata {record.path}",
+                    record.original,
+                )
+            )
+            continue
+        retained_count += 1
+        if not worktree.is_dir():
+            doctor_finding(
+                findings,
+                "Retained worktrees",
+                "ERROR",
+                "worktree.type",
+                f"Recorded worktree path is not a directory: {worktree}",
+            )
+            continue
+        status_result = run_git(
+            worktree,
+            ["status", "--porcelain", "--untracked-files=all"],
+            check=False,
+        )
+        if status_result.returncode != 0:
+            detail = (status_result.stderr or status_result.stdout or "git status failed").strip()
+            doctor_finding(
+                findings,
+                "Retained worktrees",
+                "ERROR",
+                "worktree.status",
+                f"Could not inspect {worktree}: {detail}",
+            )
+        elif status_result.stdout.strip():
+            doctor_finding(
+                findings,
+                "Retained worktrees",
+                "WARN",
+                "worktree.dirty",
+                f"Retained worktree is dirty: {worktree}",
+                f"Resume with {SCRIPT_NAME} resume {record.path.stem}; inspect git status before cleanup.",
+            )
+        else:
+            doctor_finding(
+                findings,
+                "Retained worktrees",
+                "WARN",
+                "worktree.clean",
+                f"Retained worktree is clean: {worktree}",
+                f"Review with {SCRIPT_NAME} cleanup {record.path.stem} --dry-run.",
+            )
+    if stale_count == 0:
+        doctor_finding(
+            findings,
+            "Stale metadata",
+            "PASS",
+            "metadata.no-stale",
+            "No valid stale metadata found.",
+        )
+    if retained_count == 0:
+        doctor_finding(
+            findings,
+            "Retained worktrees",
+            "PASS",
+            "worktree.none",
+            "No valid retained worktrees found.",
+        )
+
+    registry_paths, registry_rc = doctor_worktree_paths(repo_root)
+    if registry_rc != 0:
+        doctor_finding(
+            findings,
+            "Worktree registry",
+            "ERROR",
+            "registry.list",
+            "git worktree list --porcelain failed.",
+        )
+    else:
+        missing_registration = [
+            path for path in metadata_paths if path.exists() and path not in registry_paths
+        ]
+        for path in sorted(missing_registration):
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "WARN",
+                "registry.missing",
+                f"Retained worktree is not registered with Git: {path}",
+                "Inspect git worktree list and the session metadata before manual repair.",
+            )
+        managed_root = (
+            rendered_path.parent
+            if rendered_path is not None and "pathTemplate" not in invalid
+            else None
+        )
+        orphans: list[Path] = []
+        if managed_root is not None:
+            for path in registry_paths:
+                if path == repo_root or path in metadata_paths:
+                    continue
+                if path_inside(managed_root, path):
+                    orphans.append(path)
+        for path in sorted(orphans):
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "WARN",
+                "registry.orphan",
+                f"Plausibly ai-wt-managed worktree has no metadata: {path}",
+                "Inspect the worktree and registry manually; doctor will not remove it.",
+            )
+        if not missing_registration and not orphans:
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "PASS",
+                "registry.consistent",
+                "No ai-wt registry inconsistencies found.",
+            )
+        if managed_root is None:
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "INFO",
+                "registry.orphan-limited",
+                "Orphan discovery is limited because no stable managed root could be rendered.",
+            )
+        prune_result = run_git(
+            repo_root,
+            ["worktree", "prune", "--dry-run", "--verbose"],
+            check=False,
+        )
+        prune_detail = (prune_result.stdout + prune_result.stderr).strip()
+        if prune_result.returncode != 0:
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "ERROR",
+                "registry.prune-check",
+                "git worktree prune --dry-run --verbose failed.",
+            )
+        elif prune_detail:
+            doctor_finding(
+                findings,
+                "Worktree registry",
+                "WARN",
+                "registry.prunable",
+                f"Git has prunable administrative records: {display_cell(prune_detail)}",
+                "Review the dry-run output before pruning manually.",
+            )
+
+    for tool in ("opencode", "claude"):
+        if tool == "opencode" and "opencodeProfile" in invalid:
+            doctor_finding(
+                findings,
+                "Tool commands",
+                "INFO",
+                "tool.opencode-blocked",
+                "OpenCode command check is blocked by the invalid profile.",
+            )
+            continue
+        try:
+            command, _ = build_tool_command(
+                config,
+                tool,
+                rendered_path or repo_root,
+                [],
+            )
+        except AiWtError as exc:
+            doctor_finding(
+                findings,
+                "Tool commands",
+                "ERROR",
+                f"tool.{tool}",
+                f"{tool} command is unavailable or invalid: {exc}",
+                f"Configure ai-wt.{tool}Command or install the expected executable.",
+            )
+            continue
+        executable = command_path(command[0])
+        if executable is None:
+            doctor_finding(
+                findings,
+                "Tool commands",
+                "ERROR",
+                f"tool.{tool}",
+                f"Configured {tool} executable is not available: {command[0]}",
+                f"Fix ai-wt.{tool}Command or PATH.",
+            )
+        else:
+            doctor_finding(
+                findings,
+                "Tool commands",
+                "PASS",
+                f"tool.{tool}",
+                f"{tool} executable: {executable}",
+            )
+
+    if config.cleanup_dirty == "delete" and "cleanupDirty" not in invalid:
+        doctor_finding(
+            findings,
+            "Cleanup risk",
+            "WARN",
+            "risk.cleanup-dirty",
+            "cleanupDirty=delete allows automatic forced removal of dirty worktrees.",
+            "Prefer ai-wt.cleanupDirty=keep unless forced cleanup is intentional.",
+        )
+    if config.delete_branch_on_cleanup and "deleteBranchOnCleanup" not in invalid:
+        doctor_finding(
+            findings,
+            "Cleanup risk",
+            "WARN",
+            "risk.delete-branch",
+            "deleteBranchOnCleanup=true allows automatic branch deletion.",
+            "Set ai-wt.deleteBranchOnCleanup=false for the safer default.",
+        )
+    if {"cleanupDirty", "deleteBranchOnCleanup"} & invalid:
+        doctor_finding(
+            findings,
+            "Cleanup risk",
+            "INFO",
+            "risk.blocked",
+            "Cleanup risk assessment is blocked by invalid policy configuration.",
+        )
+    elif not any(item.section == "Cleanup risk" for item in findings):
+        doctor_finding(
+            findings,
+            "Cleanup risk",
+            "PASS",
+            "risk.safe",
+            "Cleanup policies use the conservative defaults.",
+        )
+
+    section_order = {name: index for index, name in enumerate(DOCTOR_SECTIONS)}
+    findings.sort(key=lambda item: (section_order[item.section], item.code, item.message))
+    fixes.sort(key=lambda item: (item.kind, str(item.target)))
+    return DoctorReport(repo_root, findings, fixes), config
+
+
+def doctor_gum_table(gum: str, findings: list[DoctorFinding]) -> None:
+    rows = [
+        (
+            item.section,
+            item.severity,
+            item.code,
+            display_cell(item.message),
+        )
+        for item in findings
+    ]
+    terminal = shutil.get_terminal_size(fallback=(140, 28))
+    message_width = max(36, min(76, terminal.columns - 59))
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            prefix="ai-wt-doctor-",
+            suffix=".csv",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            csv.writer(handle).writerows(rows)
+        run_gum_selection(
+            gum,
+            [
+                "table",
+                "--file",
+                str(temp_path),
+                "--columns",
+                "SECTION,STATUS,CHECK,DETAIL",
+                "--widths",
+                f"20,7,24,{message_width}",
+                "--height",
+                str(min(max(len(rows) + 1, 6), max(6, terminal.lines - 4))),
+                "--border",
+                "rounded",
+                "--show-help",
+            ],
+            operation="doctor report",
+        )
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def render_doctor_report(
+    report: DoctorReport,
+    *,
+    gum: str | None,
+    title: str = "ai-wt doctor",
+) -> None:
+    counts = {
+        severity: sum(item.severity == severity for item in report.findings)
+        for severity in ("PASS", "INFO", "WARN", "ERROR")
+    }
+    if gum is not None:
+        present_summary(title, [f"Repository: {report.repo_root}"], gum=gum)
+        doctor_gum_table(gum, report.findings)
+        actionable_lines = [
+            f"[{item.severity}] {item.code}: {item.message}"
+            + (f"\n  Hint: {item.hint}" if item.hint else "")
+            for item in report.actionable
+        ]
+        if actionable_lines:
+            present_summary("Actionable findings", actionable_lines, gum=gum)
+        present_summary(
+            "Doctor summary",
+            [
+                f"Pass: {counts['PASS']}",
+                f"Info: {counts['INFO']}",
+                f"Warnings: {counts['WARN']}",
+                f"Errors: {counts['ERROR']}",
+            ],
+            gum=gum,
+        )
+        return
+
+    print(title)
+    print(f"Repository: {report.repo_root}")
+    current_section = ""
+    for item in report.findings:
+        if item.section != current_section:
+            current_section = item.section
+            print(f"\n{current_section}")
+        print(f"  [{item.severity}] {item.code}: {item.message}")
+        if item.hint:
+            print(f"    Hint: {item.hint}")
+    print(
+        "\nSummary: "
+        f"{counts['PASS']} pass, {counts['INFO']} info, "
+        f"{counts['WARN']} warning(s), {counts['ERROR']} error(s)"
+    )
+
+
+def apply_doctor_exclude_fix(config: Config, fix: DoctorFix) -> DoctorFixResult:
+    if not config.update_exclude:
+        return DoctorFixResult(False, f"Skipped {fix.target}: updateExclude is disabled.")
+    status, detail = doctor_ignore_detail(config.repo_root, fix.target)
+    if status == "ignored":
+        return DoctorFixResult(True, f"Already ignored: {fix.target} ({detail})")
+    if status != "missing":
+        return DoctorFixResult(False, f"Could not revalidate ignore coverage for {fix.target}: {detail}")
+    exclude_path = config.git_common_dir / "info" / "exclude"
+    try:
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+        if any(line.strip() == detail for line in existing.splitlines()):
+            return DoctorFixResult(True, f"Exact local exclude already exists: {detail}")
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        with exclude_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{prefix}{detail}\n")
+    except OSError as exc:
+        return DoctorFixResult(False, f"Could not update {exclude_path}: {exc}")
+    return DoctorFixResult(True, f"Added {detail} to {exclude_path}")
+
+
+def apply_doctor_metadata_fix(config: Config, fix: DoctorFix) -> DoctorFixResult:
+    sessions_dir = config.state_dir / "sessions"
+    if fix.target.parent != sessions_dir or fix.target.suffix != ".json":
+        return DoctorFixResult(False, f"Refused metadata path outside sessions: {fix.target}")
+    if fix.target.is_symlink():
+        return DoctorFixResult(False, f"Refused symlinked metadata: {fix.target}")
+    try:
+        current = fix.target.read_bytes()
+    except OSError as exc:
+        return DoctorFixResult(False, f"Could not re-read {fix.target}: {exc}")
+    if fix.original is None or current != fix.original:
+        return DoctorFixResult(False, f"Metadata changed since collection; retained {fix.target}")
+    try:
+        parsed = json.loads(current.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return DoctorFixResult(False, f"Metadata became malformed; retained {fix.target}: {exc}")
+    if not isinstance(parsed, dict):
+        return DoctorFixResult(False, f"Metadata is no longer an object; retained {fix.target}")
+    errors = validate_doctor_metadata(config, fix.target, parsed)
+    if errors:
+        return DoctorFixResult(False, f"Metadata no longer validates; retained {fix.target}: {errors[0]}")
+    try:
+        worktree = Path(str(parsed["worktree_path"])).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        return DoctorFixResult(False, f"Worktree path became invalid; retained {fix.target}: {exc}")
+    if worktree.exists():
+        return DoctorFixResult(False, f"Worktree now exists; retained {fix.target}")
+    try:
+        fix.target.unlink()
+    except OSError as exc:
+        return DoctorFixResult(False, f"Could not remove {fix.target}: {exc}")
+    return DoctorFixResult(True, f"Removed stale metadata: {fix.target}")
+
+
+def apply_doctor_fixes(config: Config, fixes: list[DoctorFix]) -> list[DoctorFixResult]:
+    results: list[DoctorFixResult] = []
+    for fix in fixes:
+        if fix.kind == "exclude":
+            results.append(apply_doctor_exclude_fix(config, fix))
+    metadata_fixes = [fix for fix in fixes if fix.kind == "metadata"]
+    if metadata_fixes:
+        try:
+            with RepoLock(config.state_dir / "lock"):
+                for fix in metadata_fixes:
+                    results.append(apply_doctor_metadata_fix(config, fix))
+        except OSError as exc:
+            results.extend(
+                DoctorFixResult(False, f"Could not acquire repository lock for {fix.target}: {exc}")
+                for fix in metadata_fixes
+            )
+    return results
+
+
+def cmd_doctor(raw_args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog=f"{SCRIPT_NAME} doctor",
+        description="Check ai-wt repository, configuration, and retained-session health.",
+        epilog="Exit status: 0 healthy, 1 actionable findings remain, 2 fatal invocation error.",
+    )
+    parser.add_argument("--autofix", action="store_true", help="apply only safe local-exclude and stale-metadata fixes")
+    parser.add_argument("--yes", action="store_true", help="skip autofix confirmation; required when stdin is not interactive")
+    parser.add_argument("--state-dir", help="directory containing ai-wt session metadata")
+    parser.add_argument("--worktree-parent", help="parent directory for managed worktrees")
+    parser.add_argument("--path-template", help="template used to name managed worktree paths")
+    parser.add_argument("--base-ref", help="base ref used when creating a new branch")
+    parsed = parser.parse_args(raw_args)
+    if parsed.yes and not parsed.autofix:
+        parser.error("--yes requires --autofix")
+
+    repo_root = resolve_repo_root()
+    git_common_dir = resolve_git_common_dir(repo_root)
+    if not git_common_dir.exists() or not git_common_dir.is_dir():
+        die(f"Git common directory is not usable: {git_common_dir}")
+    gum = interactive_gum_path(ui_backend(), require_stdout=True)
+    report, config = collect_doctor_report(repo_root, git_common_dir, parsed)
+    render_doctor_report(report, gum=gum)
+    if not parsed.autofix:
+        return 1 if report.actionable else 0
+
+    plan_lines = [fix.description for fix in report.fixes]
+    if not plan_lines:
+        present_summary("Autofix plan", ["No eligible safe fixes were found."], gum=gum)
+        return 1 if report.actionable else 0
+    present_summary("Autofix plan", plan_lines, gum=gum)
+    if not parsed.yes:
+        if not sys.stdin.isatty():
+            die("doctor --autofix requires --yes when stdin is not interactive")
+        confirmed = (
+            confirm_gum(gum, f"Apply {len(report.fixes)} doctor fix(es)?")
+            if gum is not None
+            else confirm_plain(f"Apply {len(report.fixes)} doctor fix(es)?")
+        )
+        if not confirmed:
+            present_summary("Autofix result", ["Cancelled; no changes were made."], gum=gum)
+            return 1 if report.actionable else 0
+
+    results = apply_doctor_fixes(config, report.fixes)
+    present_summary(
+        "Autofix result",
+        [f"{'OK' if item.success else 'FAILED'}: {item.message}" for item in results],
+        gum=gum,
+    )
+    final_report, _ = collect_doctor_report(repo_root, git_common_dir, parsed)
+    render_doctor_report(final_report, gum=gum, title="ai-wt doctor after autofix")
+    return 1 if final_report.actionable else 0
+
+
 def cmd_prune(raw_args: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog=f"{SCRIPT_NAME} prune",
@@ -1893,6 +3124,7 @@ def usage() -> str:
   {SCRIPT_NAME} list
   {SCRIPT_NAME} cleanup [<session-id|branch|path>] [--delete] [--force] [--dry-run] [--yes]
   {SCRIPT_NAME} prune [--dry-run] [--force] [--yes]
+  {SCRIPT_NAME} doctor [--autofix] [--yes] [--state-dir PATH] [--worktree-parent PATH] [--path-template TEMPLATE] [--base-ref REF]
   {SCRIPT_NAME} name --type <type> --description <text>
 
 Commands:
@@ -1903,6 +3135,7 @@ Commands:
   list      Browse retained sessions interactively or print a plain table.
   cleanup   Select and safely remove a retained worktree.
   prune     Preview and remove stale metadata and retained worktrees.
+  doctor    Diagnose repository, configuration, and retained-session health.
   name      Build a valid branch name from a type and description.
 
 Run '{SCRIPT_NAME} <command> --help' for command-specific options.
@@ -1929,6 +3162,8 @@ def main(argv: list[str]) -> int:
             return cmd_cleanup(argv[1:])
         if command == "prune":
             return cmd_prune(argv[1:])
+        if command == "doctor":
+            return cmd_doctor(argv[1:])
         die(f"unknown command: {command}")
     except AiWtError as exc:
         eprint(str(exc))

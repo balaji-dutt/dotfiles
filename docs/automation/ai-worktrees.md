@@ -57,6 +57,7 @@ Each command has its own help output:
 ai-wt opencode --help
 ai-wt resume --help
 ai-wt cleanup --help
+ai-wt doctor --help
 ```
 
 Name generation can also be used directly:
@@ -86,6 +87,54 @@ Active or retained session metadata is stored under:
 ```text
 .ai-wt/sessions/<session-id>.json
 ```
+
+## Doctor
+
+`ai-wt doctor` checks repository health without creating state, changing Git
+configuration, or removing anything. It reports these areas:
+
+1. Repository and Git common-directory health.
+2. Ignore coverage for the state and managed-worktree directories, including
+   the matching ignore source.
+3. State-directory structure, safety, and readability.
+4. Malformed, incomplete, or mismatched session metadata.
+5. Valid metadata whose recorded worktree no longer exists.
+6. Clean and dirty retained worktrees, with resume or cleanup guidance.
+7. Missing, orphaned, or prunable Git worktree registry records that appear to
+   belong to `ai-wt`.
+8. Cleanup, boolean, base-ref, path-template, and exclude-policy configuration.
+9. OpenCode and Claude command availability without launching either tool.
+10. Risky cleanup policies such as `cleanupDirty=delete` or
+    `deleteBranchOnCleanup=true`.
+
+Use command-line overrides to diagnose proposed settings:
+
+```sh
+ai-wt doctor
+ai-wt doctor --state-dir .custom-state --base-ref main
+ai-wt doctor --worktree-parent ../worktrees --path-template '{safe_branch}-{session_id}'
+```
+
+Exit status is `0` when no actionable findings remain, `1` when warnings or
+errors remain, and `2` for a fatal invocation or repository/configuration
+failure that prevents the doctor from running.
+
+`ai-wt doctor --autofix` first shows its exact plan and asks for a default-No
+confirmation. In a non-interactive context, mutation requires both `--autofix`
+and `--yes`. Autofix is deliberately limited to adding missing entries to the
+repository-local `<git-common-dir>/info/exclude` and deleting valid, unchanged
+session metadata whose worktree is still missing after revalidation under the
+repository lock. It never removes worktrees or branches, forces dirty cleanup,
+deletes malformed metadata, or calls the normal cleanup path. When
+`ai-wt.updateExclude=false`, missing ignore coverage remains a finding with
+manual remediation; doctor does not override the policy.
+
+In an interactive terminal, doctor uses Gum for its report, warnings, summary,
+autofix plan, and confirmation when Gum is available. The `auto` UI backend
+falls back to deterministic plain text when Gum or terminal streams are
+unavailable. A forced `AI_WT_UI_BACKEND=gum` fails clearly instead of falling
+back. Plain output is intended for readable logs and tests, not as a stable
+machine-readable automation interface.
 
 ## Cleanup Behavior
 
@@ -176,6 +225,7 @@ The operator-command UI dispositions are:
 | `resume` | Gum-backed | An omitted target opens the session selector. |
 | `cleanup` | Gum-backed | An omitted target opens the selector; all manual cleanup shows a plan and uses the confirmation policy above. |
 | `prune` | Gum-backed | Shows the aggregate prune plan and confirms it once. |
+| `doctor` | Gum-backed | Shows the health report and any safe autofix plan; mutation uses the confirmation policy above. |
 | `name` | Intentionally plain | Remains a deterministic single-value name transformer with no state or action to select. |
 
 When Gum UI requirements are not met, `list` and `resume list` retain their
@@ -193,7 +243,9 @@ first use it idempotently ensures these local-only ignore entries in
 
 If a path is already ignored by `.gitignore`, global excludes, or local
 excludes, nothing is appended. Existing exact local exclude entries are not
-duplicated.
+duplicated. `ai-wt doctor` uses `git check-ignore -v --no-index` to report the
+effective source and only offers a local-exclude autofix when no rule covers the
+path.
 
 This dotfiles repo also commits `.ai-wt/` to `.gitignore` because it uses the
 wrapper itself.

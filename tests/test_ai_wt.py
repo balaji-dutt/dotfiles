@@ -1448,5 +1448,304 @@ class OperatorCommandTests(unittest.TestCase):
         self.assertIn("No valid sessions can be pruned", stdout.getvalue())
 
 
+class DoctorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="ai-wt-doctor-")
+        self.repo = Path(self.temporary.name) / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.name", "AI WT Tests")
+        self.git("config", "user.email", "ai-wt@example.invalid")
+        (self.repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
+        self.git("add", "tracked.txt")
+        self.git("commit", "-qm", "initial")
+        self.git("config", "ai-wt.opencodeCommand", sys.executable)
+        self.git("config", "ai-wt.claudeCommand", sys.executable)
+        self.common_dir = Path(
+            self.git("rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
+        ).resolve()
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def git(self, *args: str, capture: bool = False) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        return result.stdout.strip() if capture else ""
+
+    def args(self, **overrides):
+        values = {
+            "autofix": False,
+            "yes": False,
+            "state_dir": None,
+            "worktree_parent": None,
+            "path_template": None,
+            "base_ref": None,
+            "cleanup_dirty": None,
+            "delete_branch_on_cleanup": None,
+            "update_exclude": None,
+            "submodule_init": None,
+            "opencode_profile": None,
+            "opencode_command": None,
+            "claude_command": None,
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
+
+    def exclude_file(self) -> Path:
+        return self.common_dir / "info" / "exclude"
+
+    def set_healthy_excludes(self) -> None:
+        path = self.exclude_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("/.ai-wt/\n/worktrees/\n", encoding="utf-8")
+
+    def clear_excludes(self) -> None:
+        path = self.exclude_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    def collect(self, **overrides):
+        return ai_wt.collect_doctor_report(
+            self.repo,
+            self.common_dir,
+            self.args(**overrides),
+        )
+
+    def write_metadata(self, session_id: str, worktree: Path) -> Path:
+        sessions = self.repo / ".ai-wt" / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        path = sessions / f"{session_id}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "version": ai_wt.VERSION,
+                    "session_id": session_id,
+                    "repo_root": str(self.repo),
+                    "tool": "opencode",
+                    "branch": "feat/doctor-test",
+                    "worktree_path": str(worktree),
+                    "created_at": "2026-08-21T00:00:00Z",
+                    "updated_at": "2026-08-21T00:00:00Z",
+                    "cleanup_status": "retained_dirty",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def codes(self, report) -> set[str]:
+        return {item.code for item in report.findings}
+
+    def test_healthy_report_is_read_only_and_has_all_sections(self) -> None:
+        self.set_healthy_excludes()
+        state_dir = self.repo / ".ai-wt"
+        before = self.exclude_file().read_bytes()
+
+        report, _ = self.collect()
+
+        self.assertFalse(report.actionable)
+        self.assertEqual({item.section for item in report.findings}, set(ai_wt.DOCTOR_SECTIONS))
+        self.assertFalse(state_dir.exists())
+        self.assertFalse((self.repo / "worktrees").exists())
+        self.assertEqual(self.exclude_file().read_bytes(), before)
+
+    def test_missing_excludes_autofix_is_idempotent(self) -> None:
+        self.clear_excludes()
+        report, config = self.collect()
+        self.assertEqual([fix.kind for fix in report.fixes], ["exclude", "exclude"])
+
+        results = ai_wt.apply_doctor_fixes(config, report.fixes)
+        self.assertTrue(all(item.success for item in results))
+        first = self.exclude_file().read_text(encoding="utf-8")
+        self.assertEqual(first.count("/.ai-wt/"), 1)
+        self.assertEqual(first.count("/worktrees/"), 1)
+
+        final, _ = self.collect()
+        self.assertNotIn("ignore.state", {item.code for item in final.actionable})
+        self.assertEqual(final.fixes, [])
+        self.assertEqual(self.exclude_file().read_text(encoding="utf-8"), first)
+
+    def test_update_exclude_false_reports_without_fixing(self) -> None:
+        self.git("config", "ai-wt.updateExclude", "false")
+        self.clear_excludes()
+        before = self.exclude_file().read_bytes()
+
+        report, _ = self.collect()
+
+        self.assertIn("config.update-exclude-disabled", self.codes(report))
+        self.assertIn("ignore.state", {item.code for item in report.actionable})
+        self.assertEqual(report.fixes, [])
+        self.assertEqual(self.exclude_file().read_bytes(), before)
+
+    def test_valid_stale_metadata_is_the_only_metadata_autofix(self) -> None:
+        self.set_healthy_excludes()
+        stale = self.write_metadata("stale-session", self.repo / "missing-worktree")
+        malformed = stale.parent / "broken.json"
+        malformed.write_text("{not json", encoding="utf-8")
+
+        report, config = self.collect()
+        metadata_fixes = [fix for fix in report.fixes if fix.kind == "metadata"]
+        self.assertEqual([fix.target for fix in metadata_fixes], [stale])
+        self.assertIn("metadata.malformed", self.codes(report))
+
+        with mock.patch.object(ai_wt, "cleanup_session") as cleanup:
+            results = ai_wt.apply_doctor_fixes(config, metadata_fixes)
+
+        self.assertTrue(all(item.success for item in results))
+        self.assertFalse(stale.exists())
+        self.assertTrue(malformed.exists())
+        cleanup.assert_not_called()
+
+    def test_stale_metadata_revalidation_retains_changed_or_revived_session(self) -> None:
+        self.set_healthy_excludes()
+        stale = self.write_metadata("stale-session", self.repo / "missing-worktree")
+        report, config = self.collect()
+        fix = next(item for item in report.fixes if item.kind == "metadata")
+        stale.write_bytes(stale.read_bytes() + b"\n")
+        changed = ai_wt.apply_doctor_metadata_fix(config, fix)
+        self.assertFalse(changed.success)
+        self.assertTrue(stale.exists())
+
+        revived_path = self.repo / "revived-worktree"
+        revived = self.write_metadata("revived-session", revived_path)
+        report, config = self.collect()
+        fix = next(item for item in report.fixes if item.target == revived)
+        revived_path.mkdir()
+        result = ai_wt.apply_doctor_metadata_fix(config, fix)
+        self.assertFalse(result.success)
+        self.assertTrue(revived.exists())
+
+    def test_dirty_retained_worktree_and_registry_mismatch_are_reported(self) -> None:
+        self.set_healthy_excludes()
+        self.write_metadata("root-session", self.repo)
+        (self.repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
+        report, _ = self.collect()
+        self.assertIn("worktree.dirty", self.codes(report))
+
+        other = self.repo.parent / "unregistered-worktree"
+        other.mkdir()
+        self.write_metadata("unregistered-session", other)
+        report, _ = self.collect()
+        self.assertIn("registry.missing", self.codes(report))
+        self.assertIn("worktree.status", self.codes(report))
+
+    def test_registered_managed_orphan_is_reported(self) -> None:
+        self.set_healthy_excludes()
+        orphan = self.repo / "worktrees" / "orphan"
+        orphan.parent.mkdir()
+        self.git("worktree", "add", "-q", "-b", "feat/orphan", str(orphan), "HEAD")
+
+        report, _ = self.collect()
+
+        self.assertIn("registry.orphan", self.codes(report))
+
+    def test_unsafe_template_does_not_expand_orphan_scope(self) -> None:
+        self.set_healthy_excludes()
+        sibling = self.repo.parent / "unrelated-worktree"
+        with mock.patch.object(ai_wt, "doctor_worktree_paths", return_value=({sibling}, 0)):
+            report, _ = self.collect(path_template="{repo_root}")
+
+        self.assertIn("config.path-template-safety", self.codes(report))
+        self.assertNotIn("registry.orphan", self.codes(report))
+
+    def test_invalid_configuration_tools_and_risky_cleanup_are_findings(self) -> None:
+        self.set_healthy_excludes()
+        self.git("config", "ai-wt.updateExclude", "maybe")
+        self.git("config", "ai-wt.cleanupDirty", "delete")
+        self.git("config", "ai-wt.deleteBranchOnCleanup", "true")
+        self.git("config", "ai-wt.opencodeCommand", "/definitely/missing-opencode")
+        self.git("config", "ai-wt.claudeCommand", "/definitely/missing-claude")
+
+        report, _ = self.collect(path_template="{unknown}", base_ref="missing-ref")
+
+        codes = self.codes(report)
+        self.assertIn("config.updateExclude", codes)
+        self.assertIn("config.path-template", codes)
+        self.assertIn("config.base-ref", codes)
+        self.assertIn("tool.opencode", codes)
+        self.assertIn("tool.claude", codes)
+        self.assertIn("risk.cleanup-dirty", codes)
+        self.assertIn("risk.delete-branch", codes)
+        self.assertNotIn("config.update-exclude", codes)
+
+    def test_plain_and_gum_reports_use_the_selected_backend(self) -> None:
+        self.set_healthy_excludes()
+        report, _ = self.collect()
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            ai_wt.render_doctor_report(report, gum=None)
+        self.assertIn("ai-wt doctor", stdout.getvalue())
+        self.assertIn("Summary:", stdout.getvalue())
+
+        with (
+            mock.patch.object(ai_wt, "doctor_gum_table") as table,
+            mock.patch.object(ai_wt, "present_summary") as summary,
+        ):
+            ai_wt.render_doctor_report(report, gum="/usr/bin/gum")
+        table.assert_called_once_with("/usr/bin/gum", report.findings)
+        self.assertGreaterEqual(summary.call_count, 2)
+
+    def test_doctor_gum_table_sanitizes_csv_and_removes_it(self) -> None:
+        finding = ai_wt.DoctorFinding("Repository", "WARN", "test.code", "line,one\r\nline two")
+        captured: Path | None = None
+
+        def fake_run(_gum, command, **_kwargs):
+            nonlocal captured
+            captured = Path(command[command.index("--file") + 1])
+            with captured.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.reader(handle))
+            self.assertEqual(rows, [["Repository", "WARN", "test.code", "line,one line two"]])
+            return ""
+
+        with mock.patch.object(ai_wt, "run_gum_selection", side_effect=fake_run):
+            ai_wt.doctor_gum_table("/usr/bin/gum", [finding])
+        self.assertIsNotNone(captured)
+        self.assertFalse(captured.exists())
+
+    def test_noninteractive_autofix_requires_yes_and_yes_applies(self) -> None:
+        self.clear_excludes()
+        patches = (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=self.repo),
+            mock.patch.object(ai_wt, "resolve_git_common_dir", return_value=self.common_dir),
+            mock.patch.object(ai_wt, "ui_backend", return_value="plain"),
+            mock.patch.object(ai_wt.sys, "stdin", io.StringIO()),
+        )
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            contextlib.redirect_stdout(io.StringIO()),
+            self.assertRaisesRegex(ai_wt.AiWtError, "requires --yes"),
+        ):
+            ai_wt.cmd_doctor(["--autofix"])
+
+        with (
+            mock.patch.object(ai_wt, "resolve_repo_root", return_value=self.repo),
+            mock.patch.object(ai_wt, "resolve_git_common_dir", return_value=self.common_dir),
+            mock.patch.object(ai_wt, "ui_backend", return_value="plain"),
+            mock.patch.object(ai_wt.sys, "stdin", io.StringIO()),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            result = ai_wt.cmd_doctor(["--autofix", "--yes"])
+        self.assertEqual(result, 0)
+        self.assertIn("/.ai-wt/", self.exclude_file().read_text(encoding="utf-8"))
+
+    def test_dispatch_usage_and_exit_statuses(self) -> None:
+        self.assertIn("doctor", ai_wt.usage())
+        with mock.patch.object(ai_wt, "cmd_doctor", return_value=1) as doctor:
+            self.assertEqual(ai_wt.main(["doctor", "--base-ref", "HEAD"]), 1)
+        doctor.assert_called_once_with(["--base-ref", "HEAD"])
+
+        with mock.patch.object(ai_wt, "cmd_doctor", side_effect=ai_wt.AiWtError("fatal")):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(ai_wt.main(["doctor"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
