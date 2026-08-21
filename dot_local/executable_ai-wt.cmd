@@ -1,6 +1,8 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
+set "_AI_WT_PYTHON="
+set "_AI_WT_PYTHON_ARGS="
 set "_AI_WT_SCRIPT=%~dp0ai-wt.py"
 if not exist "%_AI_WT_SCRIPT%" (
   >&2 echo ai-wt: managed Python payload not found: %_AI_WT_SCRIPT%
@@ -19,7 +21,8 @@ if defined _AI_WT_PYTHON goto run
 endlocal & exit /b 2
 
 :run
-"%_AI_WT_PYTHON%" %_AI_WT_PYTHON_ARGS% "%_AI_WT_SCRIPT%" %*
+rem Percent expansion happens before this chain runs, so Python starts without launcher-private state.
+set "_AI_WT_SCRIPT=" & set "_AI_WT_PYTHON=" & set "_AI_WT_PYTHON_ARGS=" & set "_AI_WT_EXIT=" & "%_AI_WT_PYTHON%" %_AI_WT_PYTHON_ARGS% "%_AI_WT_SCRIPT%" %*
 set "_AI_WT_EXIT=%ERRORLEVEL%"
 endlocal & exit /b %_AI_WT_EXIT%
 

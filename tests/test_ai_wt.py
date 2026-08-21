@@ -842,8 +842,8 @@ class WindowsLauncherTests(unittest.TestCase):
             (root / "where.cmd").write_text("@exit /b 1\n", encoding="utf-8")
             env = os.environ.copy()
             env["PATH"] = str(root)
-            env.pop("_AI_WT_PYTHON", None)
-            env.pop("_AI_WT_PYTHON_ARGS", None)
+            env["_AI_WT_PYTHON"] = str(root / "stale-python.exe")
+            env["_AI_WT_PYTHON_ARGS"] = "--stale-argument"
             result = subprocess.run(
                 [self.comspec, "/d", "/c", str(root / "ai-wt.cmd"), "--help"],
                 env=env,
@@ -891,6 +891,8 @@ class WindowsLauncherTests(unittest.TestCase):
                 "        'system_prompt_path': os.environ.get('ANTHROPIC_SYSTEM_PROMPT_PATH'),\n"
                 "        'disable_claude_prompt': os.environ.get('OPENCODE_DISABLE_CLAUDE_CODE_PROMPT'),\n"
                 "        'disable_claude_skills': os.environ.get('OPENCODE_DISABLE_CLAUDE_CODE_SKILLS'),\n"
+                "        'launcher_private_env': sorted(\n"
+                "            name for name in os.environ if name.upper().startswith('_AI_WT_')),\n"
                 "    }), encoding='utf-8')\n"
                 "raise SystemExit(7)\n",
                 encoding="utf-8",
@@ -921,6 +923,10 @@ class WindowsLauncherTests(unittest.TestCase):
             env.pop("ANTHROPIC_SYSTEM_PROMPT_PATH", None)
             env["OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"] = "0"
             env["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"] = "0"
+            env["_AI_WT_SCRIPT"] = "stale-script.py"
+            env["_AI_WT_PYTHON"] = "stale-python.exe"
+            env["_AI_WT_PYTHON_ARGS"] = "--stale-argument"
+            env["_AI_WT_EXIT"] = "99"
             result = subprocess.run(
                 [
                     self.comspec,
@@ -957,6 +963,7 @@ class WindowsLauncherTests(unittest.TestCase):
             self.assertEqual(launched["system_prompt_path"].lower(), "nul")
             self.assertEqual(launched["disable_claude_prompt"], "1")
             self.assertEqual(launched["disable_claude_skills"], "1")
+            self.assertEqual(launched["launcher_private_env"], [])
             sessions = repo / ".ai-wt" / "sessions"
             self.assertEqual(list(sessions.glob("*.json")), [])
             self.assertEqual(
