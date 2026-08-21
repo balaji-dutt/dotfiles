@@ -4,6 +4,9 @@
     "anthropic",
     "opencode-go"
   ],
+  "opencodeGoWindows": [
+    "rolling"
+  ],
   "enableToast": false,
   "requestTimeoutMs": 12000,
   "minIntervalMs": 600000,
