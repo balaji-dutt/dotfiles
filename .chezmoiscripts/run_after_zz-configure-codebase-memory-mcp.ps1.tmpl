@@ -1,0 +1,75 @@
+{{- if eq .chezmoi.os "windows" -}}
+$ErrorActionPreference = "Stop"
+
+$CbmPath = Join-Path (Join-Path $HOME ".local") "codebase-memory-mcp.exe"
+$TimeoutSeconds = 10
+
+function Invoke-CbmNative {
+  param(
+    [Parameter(Mandatory)][string] $Path,
+    [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Arguments,
+    [Parameter(Mandatory)][ValidateRange(1, 300)][int] $TimeoutSeconds
+  )
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $Path
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  foreach ($argument in $Arguments) {
+    [void] $startInfo.ArgumentList.Add($argument)
+  }
+
+  $process = [System.Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  try {
+    if (-not $process.Start()) {
+      throw "Could not start '$Path'."
+    }
+
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      try {
+        $process.Kill($true)
+      } catch {
+        try { $process.Kill() } catch { }
+      }
+      [void] $process.WaitForExit(2000)
+      throw "Timed out running '$Path' with arguments '$($Arguments -join ' ')'."
+    }
+
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) {
+      $detail = @($stdout, $stderr) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Join-String -Separator "`n"
+      throw "codebase-memory-mcp exited with code $($process.ExitCode): $detail"
+    }
+
+    return $stdout.Trim()
+  } finally {
+    $process.Dispose()
+  }
+}
+
+if (-not (Test-Path -LiteralPath $CbmPath -PathType Leaf)) {
+  throw "codebase-memory-mcp is not installed at '$CbmPath'."
+}
+
+# The config CLI reads and writes the cache-local _config.db directly. It does
+# not require or restart the coordination daemon that the installer may stop.
+$autoIndex = Invoke-CbmNative -Path $CbmPath -Arguments @("config", "get", "auto_index") -TimeoutSeconds $TimeoutSeconds
+if ($autoIndex -ne "true") {
+  [void] (Invoke-CbmNative -Path $CbmPath -Arguments @("config", "set", "auto_index", "true") -TimeoutSeconds $TimeoutSeconds)
+}
+
+$autoIndex = Invoke-CbmNative -Path $CbmPath -Arguments @("config", "get", "auto_index") -TimeoutSeconds $TimeoutSeconds
+if ($autoIndex -ne "true") {
+  throw "codebase-memory-mcp auto_index verification failed."
+}
+
+Write-Host "codebase-memory-mcp auto_index is enabled for the active cache."
+{{- end -}}

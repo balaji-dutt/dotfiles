@@ -179,12 +179,19 @@ fully rewrite by itself:
   and the container-dotfiles mirror)
 - Just the Browser policy artifacts under
   `configs/browser-policies/justthebrowser/**`
+- the Better Beads Kanban VSIX checksum. Renovate bumps only the version
+  sentinel in the three install sites; the tag and asset name are derived from
+  it inside each script, but the release checksum cannot be computed by
+  Renovate.
 
 `.gitlab-ci.yml` closes that gap on known Renovate branches:
 
 - `renovate/statusline-*` runs `assets/sync-statusline.sh`
 - `renovate/browser-policies-*` runs
   `python3 assets/sync-browser-policies.py --write`
+- `renovate/beads-kanban-*` runs `assets/sync-beads-kanban-pin.sh --write`,
+  which reads the release's `SHA256SUMS` asset (falling back to hashing the
+  VSIX) and rewrites `EXPECTED_SHA` in all three sites
 
 Each job amends the synced files onto the Renovate commit and force-pushes back
 to the MR branch before `platformAutomerge` can fire.

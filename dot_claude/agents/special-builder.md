@@ -3,7 +3,7 @@ name: special-builder
 description: Meta-level builder for agents, skills, plugins, tooling, evaluation harnesses, and infrastructure work.
 model: fable
 effort: xhigh
-tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__search_graph, mcp__cbm__trace_path, mcp__cbm__detect_changes, mcp__cbm__get_architecture, mcp__cbm__get_code_snippet
+tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__list_projects, mcp__cbm__index_status, mcp__cbm__index_repository, mcp__cbm__get_graph_schema, mcp__cbm__search_graph, mcp__cbm__trace_path, mcp__cbm__detect_changes, mcp__cbm__get_architecture, mcp__cbm__get_code_snippet
 mcpServers:
   cbm:
     type: stdio

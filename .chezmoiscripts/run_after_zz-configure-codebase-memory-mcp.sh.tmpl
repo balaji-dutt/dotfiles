@@ -1,0 +1,72 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+is_wsl=0
+if [[ -n "${WSL_DISTRO_NAME:-}" ]] \
+  || [[ "$(uname -r 2>/dev/null || true)" == *[Mm]icrosoft* ]]; then
+  is_wsl=1
+fi
+
+is_native_candidate() {
+  local candidate="$1"
+  local resolved="$candidate"
+
+  [[ -n "$candidate" && -x "$candidate" && ! -d "$candidate" ]] || return 1
+  if [[ "$is_wsl" -eq 0 ]]; then
+    return 0
+  fi
+
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f -- "$candidate" 2>/dev/null || printf '%s' "$candidate")"
+  fi
+
+  [[ "$candidate" != /mnt/[[:alpha:]]/* \
+    && "$resolved" != /mnt/[[:alpha:]]/* \
+    && "$candidate" != *.exe \
+    && "$resolved" != *.exe ]]
+}
+
+resolve_cbm() {
+  local candidate=""
+  local mise_bin=""
+
+  mise_bin="$(command -v mise 2>/dev/null || true)"
+  if is_native_candidate "$mise_bin"; then
+    candidate="$("$mise_bin" which codebase-memory-mcp 2>/dev/null || true)"
+    if is_native_candidate "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  candidate="$(command -v codebase-memory-mcp 2>/dev/null || true)"
+  if is_native_candidate "$candidate"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+cbm_bin="$(resolve_cbm)" || {
+  echo "ERROR: native codebase-memory-mcp is not available; cannot configure auto_index." >&2
+  exit 1
+}
+
+auto_index="$("$cbm_bin" config get auto_index)"
+auto_index="${auto_index//$'\r'/}"
+if [[ "$auto_index" != "true" ]]; then
+  "$cbm_bin" config set auto_index true
+fi
+
+auto_index="$("$cbm_bin" config get auto_index)"
+auto_index="${auto_index//$'\r'/}"
+if [[ "$auto_index" != "true" ]]; then
+  echo "ERROR: codebase-memory-mcp auto_index verification failed." >&2
+  exit 1
+fi
+
+echo "codebase-memory-mcp auto_index is enabled for the active cache."
+{{- end -}}

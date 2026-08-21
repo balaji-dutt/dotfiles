@@ -906,32 +906,36 @@ find_vscode_cli() {
   return 1
 }
 
-install_beads_kanban_bd_fixes_vscode_extension() {
-  local repo tag asset expected_sha fork_extension_id fork_version upstream_extension_id
+install_better_beads_kanban_vscode_extension() {
+  # fork_version is the Renovate-tracked pin; tag and asset derive from it.
+  # expected_sha is maintained by assets/sync-beads-kanban-pin.sh in dotfiles.
+  local repo tag asset expected_sha fork_extension_id fork_version
+  local legacy_fork_extension_id upstream_extension_id
   local code_cmd cache_base cache_root vsix_path marker_path download_url
   local current_sha tmp_file list_output install_output
 
-  repo="balaji-dutt/Beads-Kanban"
-  tag="bd-fixes-v2.1.4-bd.5-fed50b3"
-  asset="beads-kanban-bd-fixes-2.1.4-bd.5-integration-bd-fixes-fed50b3.vsix"
-  expected_sha="f3fdbd169c1cf255fe2a90cd58a7b2d0329cc3a1be8df4695a3d90711dfab526"
-  fork_extension_id="balaji-dutt.beads-kanban-bd-fixes"
-  fork_version="2.1.4-bd.5"
+  repo="balaji-dutt/better-beads-kanban"
+  fork_version="2.2.0"
+  tag="v${fork_version}"
+  asset="better-beads-kanban-${fork_version}.vsix"
+  expected_sha="9a32a77ec0e0311bae5e080ca24331710f00e734535e859fe127c2c8d382700b"
+  fork_extension_id="balaji-dutt.better-beads-kanban"
+  legacy_fork_extension_id="balaji-dutt.beads-kanban-bd-fixes"
   upstream_extension_id="davidcforbes.beads-kanban"
 
   if ! code_cmd="$(find_vscode_cli)"; then
-    echo "INFO: VS Code CLI not found; skipping Beads Kanban VSIX install."
+    echo "INFO: VS Code CLI not found; skipping Better Beads Kanban VSIX install."
     return 0
   fi
-  echo "Using VS Code CLI for Beads Kanban install: $code_cmd"
+  echo "Using VS Code CLI for Better Beads Kanban install: $code_cmd"
 
   if ! command -v curl >/dev/null 2>&1; then
-    echo "INFO: curl command not found; skipping Beads Kanban VSIX install."
+    echo "INFO: curl command not found; skipping Better Beads Kanban VSIX install."
     return 0
   fi
 
   if ! command -v sha256sum >/dev/null 2>&1; then
-    echo "WARN: sha256sum command not found; skipping Beads Kanban VSIX install." >&2
+    echo "WARN: sha256sum command not found; skipping Better Beads Kanban VSIX install." >&2
     return 0
   fi
 
@@ -941,18 +945,21 @@ install_beads_kanban_bd_fixes_vscode_extension() {
     cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
   fi
 
-  cache_root="$cache_base/dotfiles/beads-kanban-vsix"
+  cache_root="$cache_base/dotfiles/better-beads-kanban-vsix"
   vsix_path="$cache_root/$asset"
   marker_path="$cache_root/$tag.installed"
   download_url="https://github.com/${repo}/releases/download/${tag}/${asset}"
   mkdir -p "$cache_root"
 
+  # Both ids contribute beadsKanban.openBoard, and VS Code treats each
+  # extension id as a separate install.
   "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
+  "$code_cmd" --uninstall-extension "$legacy_fork_extension_id" >/dev/null 2>&1 || true
 
   if [[ -f "$marker_path" ]] && [[ "$(<"$marker_path")" == "$expected_sha" ]]; then
     if list_output="$("$code_cmd" --list-extensions --show-versions 2>&1)" && \
       grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
-      echo "Beads Kanban BD Fixes VSIX already installed: ${fork_extension_id}@${fork_version}"
+      echo "Better Beads Kanban VSIX already installed: ${fork_extension_id}@${fork_version}"
       return 0
     fi
   fi
@@ -967,14 +974,14 @@ install_beads_kanban_bd_fixes_vscode_extension() {
     tmp_file="$(mktemp "$cache_root/${asset}.XXXXXX")"
     if ! curl -fL --retry 3 --retry-delay 2 -o "$tmp_file" "$download_url"; then
       rm -f "$tmp_file"
-      echo "WARN: Failed downloading Beads Kanban VSIX: $download_url" >&2
+      echo "WARN: Failed downloading Better Beads Kanban VSIX: $download_url" >&2
       return 1
     fi
 
     current_sha="$(sha256sum "$tmp_file" | awk '{print $1}')"
     if [[ "$current_sha" != "$expected_sha" ]]; then
       rm -f "$tmp_file"
-      echo "ERROR: Beads Kanban VSIX checksum mismatch." >&2
+      echo "ERROR: Better Beads Kanban VSIX checksum mismatch." >&2
       echo "ERROR: expected $expected_sha" >&2
       echo "ERROR: actual   $current_sha" >&2
       return 1
@@ -983,10 +990,10 @@ install_beads_kanban_bd_fixes_vscode_extension() {
     mv -f "$tmp_file" "$vsix_path"
   fi
 
-  echo "Installing Beads Kanban BD Fixes VSIX: ${fork_extension_id}@${fork_version}"
+  echo "Installing Better Beads Kanban VSIX: ${fork_extension_id}@${fork_version}"
   if ! install_output="$("$code_cmd" --install-extension "$vsix_path" --force 2>&1)"; then
     printf '%s\n' "$install_output" >&2
-    echo "ERROR: Failed installing Beads Kanban BD Fixes with: $code_cmd" >&2
+    echo "ERROR: Failed installing Better Beads Kanban with: $code_cmd" >&2
     return 1
   fi
 
@@ -1001,7 +1008,7 @@ install_beads_kanban_bd_fixes_vscode_extension() {
   fi
 
   if ! grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
-    echo "ERROR: Beads Kanban BD Fixes extension was not listed after install." >&2
+    echo "ERROR: Better Beads Kanban extension was not listed after install." >&2
     echo "ERROR: VS Code CLI used: $code_cmd" >&2
     if grep -i 'beads-kanban' <<<"$list_output" >&2; then
       :
@@ -1012,5 +1019,5 @@ install_beads_kanban_bd_fixes_vscode_extension() {
   fi
 
   printf '%s\n' "$expected_sha" > "$marker_path"
-  echo "Installed Beads Kanban BD Fixes VSIX from $tag"
+  echo "Installed Better Beads Kanban VSIX from $tag"
 }

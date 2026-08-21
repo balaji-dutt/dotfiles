@@ -85,11 +85,23 @@
   special parameters. Do not use them as loop/local variables in inline commands;
   use names like `file_path`, `relpath`, or `rc` instead. Assigning to `path`
   mutates `PATH`; assigning to `status` fails because it is read-only.
-- Prezto's utility module aliases `rm` to `nocorrect rm -i` in interactive zsh.
-  In an agent command, that prompt can read EOF, leave the target in place, and
-  still return success. For intentional unattended deletion, use
-  `command rm -f -- <path>` and verify the target is absent when later checks
-  depend on its removal; do not rely on bare `rm` or `rm -f`.
+- Prezto's utility module aliases `cp`, `ln`, `mv`, and `rm` to their
+  `nocorrect ... -i` forms in interactive zsh. In an agent command that prompt
+  can read EOF, leave the target untouched, and still return success; it can
+  also sit waiting for input that never arrives, stranding a background shell.
+- Adding `-f` is not a dependable escape. It usually cancels the `-i`, but not
+  always: measured on macOS (Darwin 25), `/bin/cp -i -f` still prompts and
+  refuses, in either flag order and with no alias involved, despite the BSD man
+  page saying `-f` overrides any previous `-i`. Prefix with `command` instead,
+  which bypasses the alias on every platform: `command cp -f`,
+  `command mv -f`, `command ln -f` (add `-s` only if you want a symlink),
+  `command rm -f -- <path>`. Verify the result when later steps depend on it.
+- Never chain a cleanup step on the assumption that a bare `cp`/`mv` succeeded.
+  A declined `mv` exits 0, so `mv src dst; rm -f src` deletes the source that
+  was never moved. Exit status is not a dependable guard across platforms, so
+  join steps with `&&` and verify the content too. To restore a file from a
+  backup and then drop the backup:
+  `command cp -f -- "$b" "$f" && cmp -s -- "$b" "$f" && command rm -f -- "$b"`.
 - That shell also sets `noclobber`, so `> file` onto an existing path fails with
   `file exists`. The command never runs, the old contents stay, and the shell
   returns non-zero, which reads as the command itself failing. Use
@@ -105,20 +117,32 @@
 
 ## Codebase Memory (MCP)
 
-The `cbm` MCP server (codebase-memory-mcp) is registered at user scope, so its
-tools are available in every session. It answers structural questions about an
-indexed repository; treat graph results as supporting evidence and verify
-important findings against the current source.
+The `cbm` MCP server (codebase-memory-mcp) is registered at user scope. Use it
+when a task depends on structural relationships: architecture, module
+boundaries, cross-file definitions or usages, callers/callees, data flow,
+dependencies, shared code, or transitive impact. Treat graph results as
+supporting evidence and verify material findings against the current source.
 
-- In an unfamiliar repository, call `get_graph_schema` once, then
-  `get_architecture`. For a specific task, use `search_graph` to find relevant
-  symbols and then `trace_path` on key entry points. After editing, use
-  `detect_changes` to assess affected symbols.
-- Skip it when grep or glob answers the question directly, when the change has
-  no structural impact, or when the repository is not indexed.
-- When indexing, pass `persistence: false` to `index_repository`. Without it CBM
-  exports a repository snapshot and may modify `.gitattributes` even when
-  `.codebase-memory/` is ignored.
+- Do not invoke CBM for known-file reads, literal searches, isolated
+  single-file changes with no structural impact, or non-code content that
+  direct filesystem tools can answer.
+- For structural work, call `list_projects` and `index_status` first when they
+  are available. Otherwise, call `get_architecture` or `search_graph` and treat
+  an index error as the availability signal. Auto-index is expected but can be
+  skipped by root-detection or discovery-preflight failure, or the configured
+  file limit.
+- In an unfamiliar repository, call `get_graph_schema` once when available,
+  then `get_architecture`. Use `search_graph` and `trace_path` for the relevant
+  symbols. Inspect inbound impact before shared edits and use `detect_changes`
+  after cross-cutting changes when those tools are available.
+- If CBM is unavailable, skipped, over-limit, stale, or incomplete, continue
+  with direct inspection and state the limitation. Do not make exhaustive
+  negative claims without index-coverage support and source verification.
+- When `index_repository` is explicitly available for manual recovery, pass
+  `persistence: false`. Do not broaden tool permissions. Cache-local auto-index
+  and local-only recovery must not export `.codebase-memory` or modify
+  `.gitattributes`. Do not use recovery to bypass a known file-limit or safety
+  refusal.
 - **Never run `codebase-memory-mcp install`**, `uninstall`, or `update`. Chezmoi
   owns both the binary and the MCP client configuration; the upstream installer
   rewrites managed settings, skills, hooks, and agents.
