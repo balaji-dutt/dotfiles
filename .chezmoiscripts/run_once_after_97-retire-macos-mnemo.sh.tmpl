@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "{{ .chezmoi.os }}" != "darwin" ]]; then
+  exit 0
+fi
+
+resolve_brew() {
+  local candidate
+
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  command -v brew 2>/dev/null
+}
+
+brew_bin="$(resolve_brew || true)"
+if [[ -z "$brew_bin" ]]; then
+  printf 'INFO: Homebrew is not installed; no mnemo formula to retire.\n'
+  exit 0
+fi
+
+mnemo_formula_is_installed() {
+  "$brew_bin" list --formula --full-name 2>/dev/null \
+    | /usr/bin/grep -Fx 'pilan-ai/tap/mnemo' >/dev/null
+}
+
+if mnemo_formula_is_installed; then
+  "$brew_bin" uninstall --formula pilan-ai/tap/mnemo
+fi
+
+if mnemo_formula_is_installed; then
+  printf 'ERROR: failed to remove retired Homebrew formula: pilan-ai/tap/mnemo\n' >&2
+  exit 1
+fi
+
+if "$brew_bin" tap | /usr/bin/grep -Fx 'pilan-ai/tap' >/dev/null; then
+  if "$brew_bin" untap pilan-ai/tap; then
+    printf 'Removed retired Homebrew tap: pilan-ai/tap\n'
+  else
+    printf 'INFO: preserving Homebrew tap still required by another formula: pilan-ai/tap\n'
+  fi
+fi

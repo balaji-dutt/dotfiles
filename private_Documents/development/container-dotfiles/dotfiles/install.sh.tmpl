@@ -257,82 +257,18 @@ install_lazygit_gh() {
 }
 install_lazygit_gh || echo "!! lazygit install failed; continuing"
 
-# mnemo: install latest/pinned Linux binary from GitHub releases.
-# Supports amd64 and arm64 container architectures.
-# Set MNEMO_VERSION as a container variable to a tag like "1.3.7" or "latest".
-mnemo_cli_version() {
-  mnemo version 2>/dev/null | awk '/^mnemo[[:space:]]+[0-9]/ { print $2; exit }'
-}
-
-install_mnemo_gh() {
-  local want_version="${MNEMO_VERSION:-latest}"
-  local arch norm_arch
-  arch="$(uname -m)"
-  case "$arch" in
-    x86_64|amd64) norm_arch="amd64" ;;
-    aarch64|arm64) norm_arch="arm64" ;;
-    *) echo "!! Unsupported arch for mnemo binary: $arch"; return 1 ;;
-  esac
-
-  # Resolve "latest" using GitHub API (requires jq)
-  if [ "$want_version" = "latest" ]; then
-    if ! need_cmd jq; then
-      echo "!! jq not available; cannot resolve latest mnemo. Install jq or set MNEMO_VERSION."
-      return 1
+# Retire the binary previously installed by these dotfiles. Do not resolve a
+# different mnemo from PATH or remove its user data.
+if [ -e /usr/local/bin/mnemo ] || [ -L /usr/local/bin/mnemo ]; then
+  echo "==> Removing retired mnemo binary from /usr/local/bin/mnemo"
+  if as_root "command rm -f -- /usr/local/bin/mnemo"; then
+    if [ -e /usr/local/bin/mnemo ] || [ -L /usr/local/bin/mnemo ]; then
+      echo "!! Failed to remove retired mnemo binary; continuing"
     fi
-    echo "==> Resolving latest mnemo version from GitHub..."
-    local tag
-    tag="$(curl -fsSL https://api.github.com/repos/Pilan-AI/mnemo/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
-    [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "!! Unable to resolve latest mnemo version."; return 1; }
-    want_version="$tag"
+  else
+    echo "!! Failed to remove retired mnemo binary; continuing"
   fi
-
-  # If already installed and version matches, skip
-  if need_cmd mnemo; then
-    local curr
-    curr="$(mnemo_cli_version)"
-    if [ -n "$curr" ] && [ "$curr" = "$want_version" ]; then
-      echo "==> mnemo $curr already installed; skipping."
-      return 0
-    elif [ -n "$curr" ]; then
-      echo "==> mnemo $curr found; upgrading to $want_version"
-    else
-      echo "==> mnemo found; upgrading to $want_version"
-    fi
-  fi
-
-  local tmpd asset url
-  tmpd="$(mktemp -d)"
-  asset="mnemo_${want_version}_linux_${norm_arch}.tar.gz"
-  url="https://github.com/Pilan-AI/mnemo/releases/download/v${want_version}/${asset}"
-
-  echo "==> Installing mnemo ${want_version} (${norm_arch})"
-  curl -fsSL "$url" -o "${tmpd}/mnemo.tgz"
-  tar -xzf "${tmpd}/mnemo.tgz" -C "$tmpd"
-
-  if [ ! -f "${tmpd}/mnemo" ]; then
-    echo "!! mnemo binary not found in archive."
-    rm -rf "$tmpd"
-    return 1
-  fi
-
-  as_root "install -m 0755 '${tmpd}/mnemo' /usr/local/bin/mnemo"
-  rm -rf "$tmpd"
-
-  # Verify
-  if ! need_cmd mnemo; then
-    echo "!! mnemo not found after install."
-    return 1
-  fi
-  local installed
-  installed="$(mnemo_cli_version)"
-  if [ -z "$installed" ] || [ "$installed" != "$want_version" ]; then
-    echo "!! mnemo version mismatch after install (wanted: ${want_version}, got: ${installed:-unknown})."
-    return 1
-  fi
-  echo "==> mnemo installed: ${installed}"
-}
-install_mnemo_gh || echo "!! mnemo install failed; continuing"
+fi
 
 # dolt: install latest/pinned Linux binary from GitHub releases.
 # Supports amd64 and arm64 container architectures.
