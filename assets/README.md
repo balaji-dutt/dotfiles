@@ -83,6 +83,24 @@ py -3 assets/check-ai-tooling.py
 See `docs/inventory/ai-tooling.md` for the scan boundary, update checklist, and
 native-Windows preflight.
 
+### Automation test inventory
+
+Checks that every tracked automation candidate has exactly one ownership and
+test-suite classification, without changing files or contacting external
+services:
+
+```sh
+python3 assets/check-automation-test-inventory.py
+```
+
+```powershell
+py -3 assets/check-automation-test-inventory.py
+```
+
+Use `--list-candidates` to review the tracked census and replacement digest.
+See `docs/inventory/automation-testing.md` for discovery rules, classifications,
+and the update workflow.
+
 ### Claude MCP registration
 
 Registers the user-scope Claude MCP servers declared in `configs/claude-mcp.json`.
