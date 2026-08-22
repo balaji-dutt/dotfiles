@@ -45,6 +45,27 @@
 - Do not use emojis in anything unless creating Plan documents.
 - Prose style rules: @~/.claude/no-ai-isms.md
 
+## Code comments
+
+- Never write a comment describing a change, a fix, a defect, its cause, or what
+  the code used to do. No "was/now/previously/instead of", no "this fixes", no
+  "needed because otherwise", no "note that we no longer". That context expires
+  when the change merges and already belongs in the commit body.
+- Apply the survival test before writing any comment: would this still be true
+  and useful to someone reading this file a year from now, who never saw the
+  diff? If it only makes sense beside the diff, it is a changelog entry — put it
+  in the commit body instead.
+- Default to zero comments. Declarative config (Terraform, DNS records, k8s
+  manifests, CI YAML, Helm values) is self-describing. A resource named
+  `dmarc-example-com` does not need a comment saying it is the DMARC record.
+- Comment only where a future editor would break something without it: a
+  non-obvious external constraint, a required out-of-band manual step, or an
+  invariant the surrounding code cannot show. One line. If it needs a paragraph,
+  it belongs in a plan document, not inline.
+- This applies to comments you edit as well as ones you add. When a change
+  invalidates an existing comment, delete it rather than rewriting it into a
+  narrative about the change.
+
 ## GitHub issue AI-assistance disclosure
 
 - When you create a GitHub issue at my request, in any repository and through
@@ -170,6 +191,12 @@ supporting evidence and verify material findings against the current source.
   arguments. Pass normal `git commit` arguments from either supported shell.
 - When work is complete and verified, propose a commit message for approval before running `cc-commit`.
 - When drafting or cleaning up that commit message, use the `unslop-commit` skill to keep it in direct engineer voice (Conventional Commits, no AI/marketing slop). The skill only writes the message; it never stages or runs `git`.
+- Before committing, re-read the comment lines the change adds. On POSIX,
+  `git diff --cached | grep -E '^\+.*(#|//|/\*)'`; in PowerShell 7,
+  `git diff --cached | Select-String '^\+.*(#|//|/\*)'`. Each hit must pass the
+  survival test in **Code comments** on its own. Deleting is always an acceptable
+  outcome; "I already wrote it", "it is only one line", and "this one is
+  genuinely useful" are not exemptions.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
 
 ## Repo safety & secrets
