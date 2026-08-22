@@ -275,6 +275,26 @@ Big change → full format (subject + blank line + bullets):
 A task is not complete unless the final response includes a proposed commit message
 that follows the rules above.
 
+## Landing a branch on main
+
+- Use the `worktree-merge` skill rather than running `git merge` by hand.
+- `assets/agent-wt-merge` is this repo's canonical merge helper. The skill
+  discovers it at `<main-worktree>/assets/agent-wt-merge`, so the full helper
+  path runs here instead of the approval-gated manual fallback other repos get.
+- Start from `agent-wt-merge inspect --json` and treat its output as the source
+  of truth: `feature.fast_forward_possible` picks `ff` versus `no-ff`, and
+  `beads.<actor>.matches` is the only signal that authorizes
+  `--close-beads <issue-id>`. On success the helper closes the issue and
+  removes the handoff state file.
+- Cleanup is classified per worktree, not per repo, and the helper checks in
+  this order: an `aoe-managed` lock defers to Agent of Empires; native Windows
+  defers until the active agent exits; an `ai-wt` session suggests
+  `ai-wt cleanup <session> --delete --yes`; an unmanaged worktree suggests
+  `git worktree remove` plus `git branch -d`. Read `cleanup.action` and
+  `cleanup.manager` rather than assuming: `defer` means do not offer cleanup at
+  all, `suggest` still needs confirmation, and `git branch -D` is never part of
+  this workflow.
+
 ## New files (not yet in chezmoi state)
 
 If you add a brand new file to the repo/source state, it may not appear in `chezmoi managed` yet on this machine (because it hasn’t been applied/recorded in state). In this case, do not assume it is unmanaged; instead, preview the computed target output.
