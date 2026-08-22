@@ -101,6 +101,27 @@ Use `--list-candidates` to review the tracked census and replacement digest.
 See `docs/inventory/automation-testing.md` for discovery rules, classifications,
 and the update workflow.
 
+### Test suites
+
+Runs repository tests through the same isolated suite contract on POSIX and
+PowerShell hosts. No suite argument selects the fast suite:
+
+```sh
+./assets/run-tests.sh
+./assets/run-tests.sh integration
+./assets/run-tests.sh --list all
+```
+
+```powershell
+pwsh -NoProfile -File ./assets/run-tests.ps1
+pwsh -NoProfile -File ./assets/run-tests.ps1 integration
+pwsh -NoProfile -File ./assets/run-tests.ps1 --list all
+```
+
+Available suites are `fast`, `integration`, `render`, `provenance`, `platform`,
+and `all`. See `docs/tooling/test-runner.md` for capability skips, CI enforcement,
+exit codes, suite registration, and fixture contracts.
+
 ### Claude MCP registration
 
 Registers the user-scope Claude MCP servers declared in `configs/claude-mcp.json`.

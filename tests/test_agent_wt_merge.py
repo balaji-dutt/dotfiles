@@ -11,6 +11,8 @@ from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
+from tests.support.fixtures import read_json, run_git, write_executable, write_json
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_HELPER = REPO_ROOT / "assets" / "agent-wt-merge"
@@ -61,8 +63,8 @@ class GitFixture:
             self.commit_feature("feature.txt", "feature\n", "feature")
 
         self.fake_bin.mkdir()
-        fake_bd = self.fake_bin / "bd"
-        fake_bd.write_text(
+        write_executable(
+            self.fake_bin / "bd",
             """#!/usr/bin/env python3
 import json
 import os
@@ -78,9 +80,7 @@ if os.environ.get("FAKE_BD_FAIL"):
     print("simulated bd failure", file=sys.stderr)
     raise SystemExit(17)
 """,
-            encoding="utf-8",
         )
-        fake_bd.chmod(0o755)
 
     @property
     def main_helper(self) -> Path:
@@ -94,28 +94,7 @@ if os.environ.get("FAKE_BD_FAIL"):
         self._temporary.cleanup()
 
     def git(self, cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=str(cwd),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if check and result.returncode != 0:
-            self.fail_command(["git", *args], cwd, result)
-        return result
-
-    @staticmethod
-    def fail_command(
-        command: list[str],
-        cwd: Path,
-        result: subprocess.CompletedProcess[str],
-    ) -> None:
-        raise AssertionError(
-            f"command failed in {cwd}: {command!r}\n"
-            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
+        return run_git(cwd, *args, check=check)
 
     def output(self, cwd: Path, *args: str) -> str:
         return self.git(cwd, *args).stdout.strip()
@@ -126,8 +105,7 @@ if os.environ.get("FAKE_BD_FAIL"):
         if text is None:
             shutil.copy2(SOURCE_HELPER, helper)
         else:
-            helper.write_text(text, encoding="utf-8")
-        helper.chmod(0o755)
+            write_executable(helper, text)
         return helper
 
     def commit_all(self, cwd: Path, message: str) -> str:
@@ -166,31 +144,27 @@ if os.environ.get("FAKE_BD_FAIL"):
     def write_state(self, *, started_sha: str, issue_id: str = "dots-test") -> Path:
         state_path = self.feature / ".beads" / "in-progress-opencode.json"
         state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
-            json.dumps(
-                {
-                    "id": issue_id,
-                    "branch": "feature",
-                    "worktree_path": str(self.feature),
-                    "started_sha": started_sha,
-                }
-            ),
-            encoding="utf-8",
+        write_json(
+            state_path,
+            {
+                "id": issue_id,
+                "branch": "feature",
+                "worktree_path": str(self.feature),
+                "started_sha": started_sha,
+            },
         )
         return state_path
 
     def write_ai_wt_session(self, session_id: str = "test-session") -> Path:
         metadata_path = self.main / ".ai-wt" / "sessions" / f"{session_id}.json"
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        metadata_path.write_text(
-            json.dumps(
-                {
-                    "session_id": session_id,
-                    "worktree_path": str(self.feature),
-                    "branch_created": True,
-                }
-            ),
-            encoding="utf-8",
+        write_json(
+            metadata_path,
+            {
+                "session_id": session_id,
+                "worktree_path": str(self.feature),
+                "branch_created": True,
+            },
         )
         return metadata_path
 
@@ -487,7 +461,7 @@ class AgentWtMergeTests(unittest.TestCase):
             "--format=%h",
         ).splitlines()
         reason = "Fixed with commit(s) " + " ".join(expected_shas)
-        bd_args = json.loads(fixture.bd_log.read_text(encoding="utf-8"))
+        bd_args = read_json(fixture.bd_log)
         recorded_reason = bd_args[bd_args.index("--reason") + 1]
         self.assertEqual(recorded_reason, reason)
         self.assertIn(f"Close reason: {reason}", result.stdout)

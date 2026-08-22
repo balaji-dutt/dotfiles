@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "capabilities": {
+    "bash": {"command": "bash"},
+    "git": {"command": "git"},
+    "ps": {"command": "ps"},
+    "pwsh": {"command": "pwsh"},
+    "sh": {"command": "sh"},
+    "zsh": {"command": "zsh"}
+  },
+  "steps": [
+    {
+      "id": "agent-worktree-merge",
+      "suites": ["integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_agent_wt_merge"],
+      "covers": ["tests/test_agent_wt_merge.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "ai-tooling-drift",
+      "suites": ["provenance"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_ai_tooling_drift"],
+      "covers": ["tests/test_ai_tooling_drift.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "ai-worktree",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_ai_wt"],
+      "covers": ["tests/test_ai_wt.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "automation-test-inventory",
+      "suites": ["provenance"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_automation_test_inventory"],
+      "covers": ["tests/test_automation_test_inventory.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "beads-helpers-posix",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers"],
+      "covers": ["tests/test_beads_helpers.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
+      "id": "beads-helpers-powershell",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers.PowerShellBeadsDispatchTests"],
+      "covers": ["tests/test_beads_helpers.py"],
+      "requires": ["git", "pwsh"]
+    },
+    {
+      "id": "codebase-memory-installer-powershell",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_codebase_memory_mcp_installer_windows"],
+      "covers": ["tests/test_codebase_memory_mcp_installer_windows.py"],
+      "requires": ["pwsh"]
+    },
+    {
+      "id": "envrc-render",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_envrc"],
+      "covers": ["tests/test_envrc.py"],
+      "requires": ["bash"]
+    },
+    {
+      "id": "git-template-hook-sync",
+      "suites": ["integration", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_git_template_hook_sync"],
+      "covers": ["tests/test_git_template_hook_sync.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "host-plugin-refresh-posix",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_host_ai_plugin_refresh_posix"],
+      "covers": ["tests/test_host_ai_plugin_refresh_posix.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
+      "id": "host-plugin-refresh-windows",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_host_ai_plugin_refresh_windows"],
+      "covers": ["tests/test_host_ai_plugin_refresh_windows.py"],
+      "requires": ["pwsh"]
+    },
+    {
+      "id": "notifier-bridge",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_notifier_bridge"],
+      "covers": ["tests/test_opencode_notifier_bridge.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "ps"]
+    },
+    {
+      "id": "opencode-profile-posix",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_profile_refresh.OpenCodeProfileRefreshTests"],
+      "covers": ["tests/test_opencode_profile_refresh.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "zsh"]
+    },
+    {
+      "id": "opencode-profile-powershell",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_profile_refresh.PowerShellOpenCodeProfileRefreshTests"],
+      "covers": ["tests/test_opencode_profile_refresh.py"],
+      "requires": ["pwsh"]
+    },
+    {
+      "id": "project-deps-guard",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_project_deps_guard"],
+      "covers": ["tests/test_opencode_project_deps_guard.py"]
+    },
+    {
+      "id": "promptfoo-runtime",
+      "suites": ["provenance"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_promptfoo_runtime"],
+      "covers": ["tests/test_promptfoo_runtime.py"]
+    },
+    {
+      "id": "remind-beads-hook",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_remind_beads_hook"],
+      "covers": ["tests/test_remind_beads_hook.py"],
+      "requires": ["sh"]
+    },
+    {
+      "id": "test-fixtures",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_test_fixtures"],
+      "covers": ["tests/test_test_fixtures.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "test-runner",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_test_runner"],
+      "covers": ["tests/test_test_runner.py"],
+      "requires": ["git"]
+    }
+  ]
+}

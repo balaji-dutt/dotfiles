@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "candidate_digest": "sha256:4699efcdb569f0e24552fe3cdd0c63f6db63f4b9a1d4c3a26cfa2f603a49a805",
+  "candidate_digest": "sha256:8abf48c64a4c1082c296be9f99a80feff25320ef5939fcc84adaae70f1f66110",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -185,7 +185,7 @@
     {
       "id": "excluded-test-support",
       "classification": "excluded",
-      "paths": ["tests/*.py"],
+      "paths": ["tests/*.py", "tests/support/**"],
       "owner": {"kind": "repository", "name": "test harness implementation"},
       "languages": ["python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -371,6 +371,24 @@
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {"suite_id": "sync-tooling", "status": "planned", "work_item": "dots-4jy.10.2.4", "test_paths": []},
       "rationale": "Render, mirror, statusline, and workspace override synchronization need deterministic fixtures."
+    },
+    {
+      "id": "test-foundation",
+      "classification": "owned",
+      "paths": ["assets/run-tests.ps1", "assets/run-tests.py", "assets/run-tests.sh"],
+      "owner": {"kind": "repository", "name": "test-foundation"},
+      "languages": ["bash", "powershell", "python"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "high",
+      "side_effects": ["filesystem", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "suite_id": "test-foundation",
+        "status": "covered",
+        "work_item": "test-foundation",
+        "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py"]
+      },
+      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, and shared fixtures."
     },
     {
       "id": "user-utilities",

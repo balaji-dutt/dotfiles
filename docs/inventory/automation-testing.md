@@ -14,8 +14,9 @@ every discovered candidate as owned, mirrored, generated, vendored/upstream,
 archived, or excluded.
 
 The inventory is a planning boundary, not a claim that every owned path already
-has full coverage. Each owned entry names its suite, work item, current coverage
-status, required test layers, supported platforms, risk, and side effects.
+has full coverage. Each owned entry names its suite, durable work item or
+component, current coverage status, required test layers, supported platforms,
+risk, and side effects.
 
 ## Candidate discovery
 
@@ -75,9 +76,12 @@ Every entry records:
 - the canonical `owner` kind, name, and source when applicable;
 - `languages`, `platforms`, `risk`, and observable `side_effects`;
 - required `test_layers`; and
-- `coverage` with a suite ID, status, work item, and tracked test paths.
+- `coverage` with a suite ID, status, durable work item or component, and tracked
+  test paths.
 
-Owned entries require a suite ID and work item. `covered` and `partial` entries
+Owned entries require a suite ID and durable ownership reference. Long-lived
+components such as `test-foundation` are preferred when ownership should outlive
+the Beads story that introduced the automation. `covered` and `partial` entries
 require at least one tracked test path. Non-owned entries require a provenance or
 exclusion rationale. The checker also validates stable enums, ordering, duplicate
 IDs and paths, stale selectors, and references to missing tests.
@@ -115,13 +119,13 @@ When adding, removing, renaming, generating, or mirroring automation:
 
 1. Run `--list-candidates` and review every changed path and reason.
 2. Add or update one manifest entry with the correct primary classification.
-3. For owned automation, assign its suite and work item and record any existing
-   tests. Do not mark planned coverage as covered.
+3. For owned automation, assign its suite and durable work item or component and
+   record any existing tests. Do not mark planned coverage as covered.
 4. Update `candidate_digest` to the reviewed value printed by the checker.
 5. Run the checker and its fixture-driven unit tests.
 
 Do not weaken discovery merely to make an unexpected candidate disappear. Do
 not add duplicate behavioral suites for mirrors or generated files. Canonical
-test commands and shared fixture libraries belong to `dots-4jy.10.1.2`;
-portable CI belongs to `dots-4jy.10.1.3`; source and mirror verification belongs
+commands and shared fixtures are documented in `docs/tooling/test-runner.md`.
+Portable CI belongs to `dots-4jy.10.1.3`; source and mirror verification belongs
 to `dots-4jy.10.1.4`.
