@@ -413,26 +413,6 @@ _repair_openusage_formula_link() {
 brew-update-all() {
     brew update && brew upgrade || return $?
     _repair_openusage_formula_link || return $?
-
-    local cu_log cu_rc
-    cu_log=$(mktemp "${TMPDIR:-/tmp}/brew-cu.XXXXXX") || return $?
-
-    brew cu --include-mas -a 2>&1 | tee "$cu_log"
-    cu_rc=${pipestatus[1]}
-
-    if [ "$cu_rc" -eq 0 ]; then
-        rm -f "$cu_log"
-        return 0
-    fi
-
-    if grep -Fq "can't modify frozen Array" "$cu_log"; then
-        rm -f "$cu_log"
-        print -u2 "brew-update-all: brew cu failed with the Homebrew frozen Array bug; falling back to brew upgrade --cask --greedy"
-        brew upgrade --cask --greedy
-        return $?
-    fi
-
-    rm -f "$cu_log"
-    return "$cu_rc"
+    brew cu --include-mas -a
 }
 {{- end }}
