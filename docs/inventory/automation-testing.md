@@ -9,9 +9,9 @@
 # Automation Test Inventory
 
 `configs/automation-test-inventory.json` is the canonical ownership and test
-mapping for automation tracked by this repository. The manifest currently
-classifies 274 candidates: 156 owned, 52 mirrored, 34 vendored or upstream,
-10 generated, 5 archived, and 17 excluded.
+mapping for automation tracked by this repository. The manifest classifies
+every discovered candidate as owned, mirrored, generated, vendored/upstream,
+archived, or excluded.
 
 The inventory is a planning boundary, not a claim that every owned path already
 has full coverage. Each owned entry names its suite, work item, current coverage
