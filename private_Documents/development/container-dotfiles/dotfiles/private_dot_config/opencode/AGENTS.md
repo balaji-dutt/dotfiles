@@ -95,3 +95,9 @@ These rules apply to all OpenCode sessions regardless of repository.
   outcome; "I already wrote it", "it is only one line", and "this one is
   genuinely useful" are not exemptions.
 - Follow the commit message format specified in the repo's AGENTS.md or project documentation. If no repo-specific format exists, use a concise subject line in imperative mood.
+- To land a feature branch or worktree on `main`, use the `worktree-merge` skill
+  rather than running `git merge` by hand. Where a repo ships no merge helper,
+  the skill falls back to an approval-gated manual path.
+- Before hand-rolling a multi-step git or repository workflow, look for a skill
+  or a helper script that already covers it. Reading one tool's `--help` is not
+  a search; search the repo for the workflow name as well.
