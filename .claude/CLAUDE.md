@@ -82,7 +82,8 @@ the user once whether this is an implementation plan (route here, to
    reason and ask the user before proceeding to edits.
 5. Do not close the resulting issue from a feature-branch commit. Close
    only after the work lands on `main`/`master` (worktree-merge or
-   direct), via the `beads-work` skill's close steps.
+   direct), via the `beads-work` skill's close steps or
+   `agent-wt-merge --close-beads` at merge time.
 
 ### Identity constants (implementation handoff)
 

@@ -281,16 +281,18 @@ that follows the rules above.
 - `assets/agent-wt-merge` is this repo's canonical merge helper. The skill
   discovers it at `<main-worktree>/assets/agent-wt-merge`, so the full helper
   path runs here instead of the approval-gated manual fallback other repos get.
-- Start from `agent-wt-merge inspect --json` and treat its output as the source
-  of truth: `feature.fast_forward_possible` picks `ff` versus `no-ff`, and
-  `beads.<actor>.matches` is the only signal that authorizes
-  `--close-beads <issue-id>`. On success the helper closes the issue and
-  removes the handoff state file.
+- Start from `./assets/agent-wt-merge inspect --json` and treat its output as
+  the source of truth: `feature.fast_forward_possible` selects `ff` when true
+  and `no-ff` when false. The actor-specific match
+  (`beads.claude.matches` or `beads.opencode.matches`) is the only signal that
+  authorizes `--close-beads <issue-id>`. After closing the issue, the helper
+  removes the handoff state file; if removal fails, it warns and leaves the
+  closed issue with the state file still present.
 - Cleanup is classified per worktree, not per repo, and the helper checks in
   this order: an `aoe-managed` lock defers to Agent of Empires; native Windows
-  defers until the active agent exits; an `ai-wt` session suggests
-  `ai-wt cleanup <session> --delete --yes`; an unmanaged worktree suggests
-  `git worktree remove` plus `git branch -d`. Read `cleanup.action` and
+  always defers cleanup until the active agent exits; an `ai-wt` session
+  suggests `ai-wt cleanup <session-id> --delete --yes`; an unmanaged worktree
+  suggests `git worktree remove` plus `git branch -d`. Read `cleanup.action` and
   `cleanup.manager` rather than assuming: `defer` means do not offer cleanup at
   all, `suggest` still needs confirmation, and `git branch -D` is never part of
   this workflow.
