@@ -58,6 +58,7 @@ ansible-playbook "{{ .chezmoi.sourceDir }}/ansible/wsl-playbook.yml" \
     -e "lazygit_version={{ .lazygit_version }}" \
     -e "beads_version={{ .beads_version }}" \
     -e "dolt_version={{ .dolt_version }}" \
+    -e "codebase_memory_mcp_version={{ .codebase_memory_mcp_version }}" \
     -e "plannotator_version={{ .plannotator_version }}" \
     {{- if .CERTPATH }}
     -e {{ printf "%q" (printf "cert_path=%s" (.CERTPATH | toJson)) }} \

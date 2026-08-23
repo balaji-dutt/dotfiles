@@ -46,6 +46,8 @@ Tools that must stay aligned across hosts are pinned in `.chezmoidata.yaml`
 instead, so there is no second version file to drift against. `beads_version`
 feeds macOS mise, WSL2 ansible, and the native-Windows Winget pin;
 `dolt_version` feeds only macOS and WSL2 because Windows runs in client mode.
+`codebase_memory_mcp_version` feeds the macOS and WSL2 mise fragments, the
+native-Windows installer, and the homelab devcontainer template.
 See `docs/beads.md` for why a Beads minor skew breaks the shared Dolt schema.
 
 On WSL2, `ansible/wsl-playbook.yml` consumes `configs/packages.yaml`,
@@ -63,7 +65,7 @@ provider SDK resolution does not depend on isolated npm or mise installs.
   formulae such as `anomalyco/tap/opencode`. Citrix Workspace is intentionally not
   listed there; see `docs/automation/macos-vdi-apps.md`.
 - `.chezmoidata.yaml`: public template data, including the Renovate-managed
-  `codebase_memory_mcp_version` Windows pin, the `lazygit_version` pin, and
+  shared `codebase_memory_mcp_version` pin, the `lazygit_version` pin, and
   non-secret macOS VDI version policy under `macos_vdi`.
 
 ## Validation

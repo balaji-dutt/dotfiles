@@ -129,6 +129,7 @@
     # a migrated remote; see docs/beads.md "Schema migrations".
     beads_version: "{{ beads_version | default('') }}"
     dolt_version: "{{ dolt_version | default('') }}"
+    codebase_memory_mcp_version: "{{ codebase_memory_mcp_version | default('') }}"
 
   pre_tasks:
     - name: Load packages configuration
@@ -204,6 +205,24 @@
           [tools]
           "github:gastownhall/beads" = "{{ beads_version }}"
       when: (beads_version | default('')) | length > 0
+
+    # CBM no longer has a fallback in configs/mise.toml, so direct playbook
+    # invocations must provide this shared pin just like the chezmoi hook does.
+    - name: Validate codebase-memory-mcp pin
+      ansible.builtin.assert:
+        that:
+          - (codebase_memory_mcp_version | default('')) | length > 0
+        fail_msg: >-
+          codebase_memory_mcp_version must be provided from .chezmoidata.yaml
+
+    - name: Write mise codebase-memory-mcp pin fragment
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.config/mise/conf.d/96-codebase-memory-mcp.toml"
+        mode: "0644"
+        content: |
+          # Managed by ansible/wsl-playbook.yml. Pin lives in .chezmoidata.yaml.
+          [tools]
+          "github:DeusData/codebase-memory-mcp" = "{{ codebase_memory_mcp_version }}"
 
     - name: Install mise tools from global config
       ansible.builtin.command: mise install -y

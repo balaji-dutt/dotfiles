@@ -10,7 +10,6 @@ node = "lts"
 # provenance/gitHead.
 "npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2", "@smithy/core@3.33.0", "@smithy/node-http-handler@4.11.0"] }
 "pipx:lastversion" = "latest"
-"github:DeusData/codebase-memory-mcp" = "latest"
 python = "3.14"
 uv = "latest"
 "pipx:unslop" = "latest"

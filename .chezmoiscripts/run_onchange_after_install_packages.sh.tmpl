@@ -19,6 +19,10 @@
 # unrelated pin bump would re-run the whole hydration.
 # beads/dolt pins: {{ .beads_version }}/{{ .dolt_version }}
 
+# Rendered into ~/.config/mise/conf.d/96-codebase-memory-mcp.toml. Keep this
+# trigger narrow so unrelated .chezmoidata.yaml changes do not rerun hydration.
+# codebase-memory-mcp pin: {{ .codebase_memory_mcp_version }}
+
 {{- $npm := joinPath .chezmoi.sourceDir "configs/npm_globals.txt" }}
 # npm_globals.txt hash: {{ if stat $npm }}{{ include $npm | sha256sum }}{{ else }}empty{{ end }}
 

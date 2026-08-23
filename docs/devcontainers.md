@@ -138,17 +138,18 @@ resolves the package's `dist/cli.cjs` from the global npm root and runs it with
 `node`. Configure MCP clients to use the fixed wrapper if the upstream
 `ansible-mcp-server` entrypoint fails at startup.
 
-`CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
-matching portable Linux release archive for compatibility with the container's
-glibc/libstdc++ versions, verifies it against the upstream checksum file, and
-installs the binary without running CBM's native installer or client
-configuration hooks. It then reconciles and verifies `auto_index=true` through
-the binary's process-local config CLI. `CBM_CACHE_DIR` points to
-`/home/vscode/persistent-data/codebase-memory-mcp` on the existing local named
-volume, so the SQLite index and `_config.db` survive rebuilds and do not land on
-the workspace bind mount. Registering the binary as a Claude MCP server is a
-separate step handled by the Claude lifecycle wiring below, not by the install
-block.
+`CBM_VERSION` similarly pins codebase-memory-mcp, rendered from the shared
+Renovate-managed `codebase_memory_mcp_version` in `.chezmoidata.yaml`.
+`postCreate.sh` downloads the matching portable Linux release archive for
+compatibility with the container's glibc/libstdc++ versions, verifies it against
+the upstream checksum file, and installs the binary without running CBM's
+native installer or client configuration hooks. It then reconciles and verifies
+`auto_index=true` through the binary's process-local config CLI. `CBM_CACHE_DIR`
+points to `/home/vscode/persistent-data/codebase-memory-mcp` on the existing
+local named volume, so the SQLite index and `_config.db` survive rebuilds and
+do not land on the workspace bind mount. Registering the binary as a Claude MCP
+server is a separate step handled by the Claude lifecycle wiring below, not by
+the install block.
 
 `TF_MCP_VERSION` pins terraform-mcp-server. `postCreate.sh` selects the Linux
 amd64 or arm64 archive for the container architecture, downloads it from
