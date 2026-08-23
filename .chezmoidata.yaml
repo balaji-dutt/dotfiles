@@ -3,9 +3,9 @@
 # schema and cannot read a migrated remote; see docs/beads.md "Schema
 # migrations". macOS reads these via private_dot_config/mise/conf.d, WSL2 via
 # ansible extra vars from run_onchange_before_00-wsl-provision.sh.tmpl.
-beads_version: "1.1.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
+beads_version: "1.2.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
 ccr_port: 3456
-codebase_memory_mcp_version: "0.10.3" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
+codebase_memory_mcp_version: "0.10.5" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
 dolt_version: "2.3.0" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
 lazygit_version: "0.64.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).

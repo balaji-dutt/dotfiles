@@ -12,12 +12,14 @@ DEVCONTAINER_NPM = REPO_ROOT / (
     "private_Documents/development/container-dotfiles/devcontainers/"
     "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
 )
-EXPECTED_DEPENDENCIES = {
-    "promptfoo": "0.122.0",
-    "@opencode-ai/sdk": "1.18.18",
-    "@anthropic-ai/claude-agent-sdk": "0.3.220",
-    "@anthropic-ai/sdk": "0.115.0",
-}
+# package.json is the pin Renovate updates for this bundle; every other location
+# has to agree with it. Reading it here instead of restating the versions keeps
+# this file out of the set that would have to be bumped in lockstep. Version
+# changes stay human-reviewed through automerge:false on the "promptfoo runtime"
+# group in renovate.json5.
+EXPECTED_DEPENDENCIES: dict[str, str] = json.loads(
+    (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
+)["dependencies"]
 
 
 def read_text(relative_path: str) -> str:
@@ -25,11 +27,15 @@ def read_text(relative_path: str) -> str:
 
 
 class PromptfooRuntimeTests(unittest.TestCase):
+    def test_manifest_pins_every_dependency_exactly(self) -> None:
+        self.assertTrue(EXPECTED_DEPENDENCIES, "package.json declares no dependencies")
+        for package_name, version in EXPECTED_DEPENDENCIES.items():
+            with self.subTest(package=package_name):
+                self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+
     def test_manifest_and_lockfile_have_exact_direct_dependencies(self) -> None:
-        package = json.loads((RUNTIME_DIR / "package.json").read_text(encoding="utf-8"))
         lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(package["dependencies"], EXPECTED_DEPENDENCIES)
         self.assertEqual(lock["packages"][""]["dependencies"], EXPECTED_DEPENDENCIES)
 
     def test_devcontainer_pins_match_host_bundle(self) -> None:

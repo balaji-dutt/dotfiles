@@ -5,7 +5,6 @@ tap "edouard-claude/tap", trusted: true
 tap "homebrew/bundle"
 tap "janekbaraniewski/tap", trusted: true
 tap "jesseduffield/lazygit", trusted: true
-tap "pilan-ai/tap", "https://github.com/Pilan-AI/homebrew-tap", trusted: true
 tap "wyne/tap", trusted: true
 # Plugin manager for zsh, inspired by antigen and antibody
 brew "antidote"
@@ -49,8 +48,6 @@ brew "yt-dlp"
 brew "anomalyco/tap/opencode"
 # Monitor your AI coding tool quotas from a single TUI dashboard
 brew "janekbaraniewski/tap/openusage", link: true, trusted: true
-# Memory for AI-assisted development. Search your AI coding sessions.
-brew "pilan-ai/tap/mnemo"
 # Modern version of fasd productivity booster, offering quick access to files and directories
 brew "wyne/tap/fasder"
 # Command-line interface for 1Password

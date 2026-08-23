@@ -482,7 +482,7 @@ done_step "Install python3-pip + python3-venv + ripgrep"
 
 # --- 2) uv install ---
 step "Install uv (user) and ensure PATH"
-python3 -m pip install --user "uv==0.12.4" # renovate: datasource=pypi depName=uv versioning=pep440
+python3 -m pip install --user "uv==0.12.5" # renovate: datasource=pypi depName=uv versioning=pep440
 export PATH="$HOME/.local/bin:$PATH"
 hash -r
 command -v uv
@@ -749,8 +749,32 @@ else
 fi
 done_step "Source /tmp/host-container-configs/container_env (if present)"
 
-ensure_mnemo_persistence_link() {
-  ensure_opencode_persistence_link /home/vscode/persistent-data/mnemo "$HOME/.mnemo"
+retire_mnemo_persistence_link() {
+  local actual_target link_path target_dir
+
+  link_path="$HOME/.mnemo"
+  target_dir="/home/vscode/persistent-data/mnemo"
+
+  if [[ ! -L "$link_path" ]]; then
+    if [[ -e "$link_path" ]]; then
+      echo "Preserving non-symlink mnemo data path: $link_path"
+    fi
+    return 0
+  fi
+
+  actual_target="$(readlink "$link_path")"
+  if [[ "$actual_target" != "$target_dir" ]]; then
+    echo "Preserving mnemo symlink with a different target: $link_path"
+    return 0
+  fi
+
+  command rm -f -- "$link_path"
+  if [[ -e "$link_path" || -L "$link_path" ]]; then
+    echo "ERROR: failed to retire mnemo persistence symlink: $link_path" >&2
+    return 1
+  fi
+
+  echo "Retired mnemo persistence symlink; data remains at $target_dir"
 }
 
 install_opencode_env_file() {
@@ -794,18 +818,20 @@ install_opencode_env_file() {
   rm -f "$profile_lines" ${tmp_file:+"$tmp_file"}
 }
 
-step "Prime OpenCode/AoE/mnemo persistent-data symlinks before install"
+step "Retire mnemo persistence symlink"
+retire_mnemo_persistence_link
+done_step "Retire mnemo persistence symlink"
+
+step "Prime OpenCode/AoE persistent-data symlinks before install"
 mkdir -p \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
-  /home/vscode/persistent-data/mnemo \
   "$HOME/.cache" \
   "$HOME/.local/share" \
   "$HOME/.local/state"
 
 ensure_agent_of_empires_persistence_link
 ensure_opencode_persistence_links
-ensure_mnemo_persistence_link
-done_step "Prime OpenCode/AoE/mnemo persistent-data symlinks before install"
+done_step "Prime OpenCode/AoE persistent-data symlinks before install"
 
 step "Install generated OpenCode env file (if present)"
 install_opencode_env_file

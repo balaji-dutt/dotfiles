@@ -30,12 +30,15 @@
 {{- if gt (len (trim $input)) 0 -}}
 {{-   $live = ($input | fromToml) | default dict -}}
 {{- end -}}
-{{- /* Prune keys removed in aoe 1.13.2, including from generated targets that aoe never opens. */ -}}
+{{- /* Prune keys retired by aoe 1.13.2, including from generated targets that aoe never opens. */ -}}
 {{- if hasKey $live "session" -}}
 {{-   $_ := unset (get $live "session") "new_session_attach_mode" -}}
 {{- end -}}
 {{- if hasKey $live "status_hooks" -}}
 {{-   $_ := unset (get $live "status_hooks") "debounce_ms" -}}
+{{- end -}}
+{{- if hasKey $live "worktree" -}}
+{{-   $_ := unset (get $live "worktree") "show_branch_in_tui" -}}
 {{- end -}}
 {{- $repo := `
 [acp]

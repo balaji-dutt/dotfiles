@@ -13,11 +13,20 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
 
 - **Backend:** Dolt. `bd` auto-starts and manages a project-local `dolt
   sql-server` (`dolt.shared-server: false`, `dolt.mode: server`) on
-  `127.0.0.1`. The repo does not track a single `dolt.port`. On non-WSL2 POSIX
-  hosts, `bd` chooses a per-project runtime port. In WSL2, `.envrc` instead
-  exports a stable per-checkout `BEADS_DOLT_SERVER_PORT` for the native-Windows
-  client. `bd` records the active port in `.beads/dolt-server.port` in both
-  cases.
+  `127.0.0.1`. No `dolt.port` is tracked in git. On non-WSL2 POSIX hosts, `bd`
+  chooses a per-project runtime port. In WSL2 the port has to stay put, because
+  the native-Windows client dials it: `.envrc` derives a stable per-checkout
+  value, exports it as `BEADS_DOLT_SERVER_PORT`, **and** pins it as `dolt.port`
+  in gitignored `.beads/config.local.yaml`. `bd` records the active port in
+  `.beads/dolt-server.port` in both cases.
+
+  The pin is what actually fixes the port; exporting the variable alone does
+  not, because `bd` does not reliably bind the per-project port its own
+  `bd dolt start --help` describes. Do not move the pin into `.beads/config.yaml`
+  or `.beads/metadata.json` — both are tracked, and every host needs a different
+  port. `.envrc` writes the pin only when the key is absent, so a fresh clone
+  self-heals on the first `cd`; an existing pin wins and is exported as-is, so
+  the file and the variable cannot drift apart.
 - **Data dir:** `<repo>/.beads/dolt/` (the `dots` database lives at
   `.beads/dolt/dots/`). The whole `dolt/` tree and the `dolt-server.*` runtime
   files are git-ignored (`.beads/.gitignore`). `.beads/config.yaml` and

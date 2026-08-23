@@ -39,7 +39,7 @@
 
 - `base_apt_packages`: common apt packages for WSL2
 - `ubuntu_apt_packages`: Ubuntu-specific package additions
-- `versions`: externally fetched WSL tool version pins (for example mnemo,
+- `versions`: externally fetched WSL tool version pins (for example openusage,
   lazydocker)
 
 Tools that must stay aligned across hosts are pinned in `.chezmoidata.yaml`
@@ -60,7 +60,7 @@ provider SDK resolution does not depend on isolated npm or mise installs.
 ## Related Top-Level Manifest
 
 - `brewfile.txt`: Homebrew bundle manifest for macOS, including tap-scoped
-  formulae such as `Pilan-AI/tap/mnemo`. Citrix Workspace is intentionally not
+  formulae such as `anomalyco/tap/opencode`. Citrix Workspace is intentionally not
   listed there; see `docs/automation/macos-vdi-apps.md`.
 - `.chezmoidata.yaml`: public template data, including the Renovate-managed
   `codebase_memory_mcp_version` Windows pin, the `lazygit_version` pin, and

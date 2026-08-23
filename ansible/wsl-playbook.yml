@@ -472,58 +472,10 @@
             path: "{{ local_bin }}/openusage"
             mode: "0755"
 
-    - name: Check installed mnemo version
-      ansible.builtin.command: "{{ local_bin }}/mnemo version"
-      register: mnemo_version_cmd
-      changed_when: false
-      failed_when: false
-
-    - name: Parse installed mnemo version
-      ansible.builtin.set_fact:
-        mnemo_installed_version: >-
-          {{
-            (mnemo_version_cmd.stdout | default(''))
-            | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
-            | default('')
-          }}
-
-    - name: Install or upgrade mnemo
-      when: (mnemo_installed_version | default('')) != versions.mnemo
-      block:
-        - name: Download mnemo release archive
-          ansible.builtin.unarchive:
-            src: "https://github.com/Pilan-AI/mnemo/releases/download/v{{ versions.mnemo }}/mnemo_{{ versions.mnemo }}_linux_{{ deb_arch }}.tar.gz"
-            dest: "{{ local_bin }}"
-            remote_src: true
-            include:
-              - mnemo
-
-        - name: Ensure mnemo binary permissions
-          ansible.builtin.file:
-            path: "{{ local_bin }}/mnemo"
-            mode: "0755"
-
-        - name: Verify installed mnemo version
-          ansible.builtin.command: "{{ local_bin }}/mnemo version"
-          register: mnemo_verify_cmd
-          changed_when: false
-
-        - name: Parse verified mnemo version
-          ansible.builtin.set_fact:
-            mnemo_verified_version: >-
-              {{
-                (mnemo_verify_cmd.stdout | default(''))
-                | regex_search('[0-9]+\.[0-9]+\.[0-9]+')
-                | default('')
-              }}
-
-        - name: Assert mnemo version matches package pin
-          ansible.builtin.assert:
-            that:
-              - mnemo_verified_version == versions.mnemo
-            fail_msg: >-
-              mnemo version mismatch after install
-              (wanted {{ versions.mnemo }}, got {{ mnemo_verified_version | default('unknown') }})
+    - name: Remove retired dotfiles-managed mnemo binary
+      ansible.builtin.file:
+        path: "{{ local_bin }}/mnemo"
+        state: absent
 
     - name: Check installed dolt version
       ansible.builtin.command: "{{ local_bin }}/dolt version"

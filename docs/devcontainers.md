@@ -138,11 +138,6 @@ resolves the package's `dist/cli.cjs` from the global npm root and runs it with
 `node`. Configure MCP clients to use the fixed wrapper if the upstream
 `ansible-mcp-server` entrypoint fails at startup.
 
-Release-binary pins such as `MNEMO_VERSION` live in the template's
-`containerEnv` and are consumed by the container-dotfiles installer. `mnemo` is
-installed as a CLI only; MCP tools and automatic context injection are not
-enabled by these dotfiles.
-
 `CBM_VERSION` similarly pins codebase-memory-mcp. `postCreate.sh` downloads the
 matching portable Linux release archive for compatibility with the container's
 glibc/libstdc++ versions, verifies it against the upstream checksum file, and
@@ -584,17 +579,17 @@ than a different build package.
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
 
-## mnemo in Devcontainers
+## Retired mnemo data
 
-The `mnemo` CLI is installed from its pinned GitHub release. Its local search
-index is persisted under:
+The devcontainer no longer installs `mnemo` or links its index into the home
+directory. Data created by earlier containers remains under:
 
 - `/home/vscode/persistent-data/mnemo`
 
-`postCreate.sh` links `~/.mnemo` to that directory so the SQLite/FTS index
-survives container rebuild/recreate cycles. Host AI history directories are not
-mounted into the devcontainer by default, and `mnemo` MCP/auto-context setup is
-intentionally left opt-in.
+When `postCreate.sh` encounters the former `~/.mnemo` symlink pointing to that
+directory, it removes only the symlink. It does not remove a real `~/.mnemo`
+directory, a differently targeted symlink, or the persistent data. Recover or
+delete the retained index manually when it is no longer needed.
 
 ## opencode-claude-bridge Validation
 

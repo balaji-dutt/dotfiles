@@ -23,7 +23,7 @@
       {
         "id": "cc-safety-net@cc-marketplace",
         "scope": "user",
-        "version": "2.0.3" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
+        "version": "2.0.5" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
       }
     ]
   },
@@ -43,7 +43,7 @@
       },
       {
         "package": "@plannotator/opencode",
-        "version": "0.27.2" // renovate: datasource=npm depName=@plannotator/opencode
+        "version": "0.27.3" // renovate: datasource=npm depName=@plannotator/opencode
       },
       {
         "package": "@gotgenes/opencode-agent-identity",
@@ -51,7 +51,7 @@
       },
       {
         "package": "cc-safety-net",
-        "version": "2.0.3" // renovate: datasource=npm depName=cc-safety-net
+        "version": "2.0.5" // renovate: datasource=npm depName=cc-safety-net
       },
       {
         "package": "envsitter-guard",
