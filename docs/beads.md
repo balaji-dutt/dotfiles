@@ -150,16 +150,38 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
 
 `bd` schema bumps are deliberately kept off unattended automerge:
 
-- Under `renovate.json5`, all custom-regex-managed deps (including both Beads
-  package sources) auto-merge only patch/digest updates; minor/major bumps carry
-  `automerge: false`, so a schema-moving `bd` bump lands as a human-reviewed PR.
-  A Beads-specific rule covers both `gastownhall/beads` and `@beads/bd` and
-  hard-blocks `1.0.5` (`allowedVersions: "!/^1\\.0\\.5$/"`). The npm name is
-  retained because the DevContainer still installs that package.
+- The repository-wide release quarantine is 7 days. A final Beads-specific
+  package rule raises that to 14 days for both `gastownhall/beads` and
+  `@beads/bd` and blocks the known bad versions `1.0.5`, `1.2.0`, and `1.2.1`.
+- That rule groups the `.chezmoidata.yaml` `beads_version` pin with the
+  homelab-IaC `npm_packages.txt` `@beads/bd` pin and requires both updates before
+  creating a `renovate/beads-core-*` branch. The release-note check also refuses
+  mismatched pins, so one client cannot land by itself.
+- Patch/digest updates remain eligible for automerge, but
+  `platformAutomerge: false` makes Renovate wait for the branch pipeline.
+  Minor/major updates retain `automerge: false`, so a schema-moving `bd` bump
+  lands as a human-reviewed PR.
+- `assets/check-beads-release-notes.py` lists every published release newer than
+  the proposed pin, including prereleases, and blocks when successor notes use
+  data-loss, corruption, retraction, or recovery language. API, rate-limit, and
+  malformed-data failures also block. The scan is deliberately conservative:
+  warning text needs human review, and an unreported problem can still evade
+  the keyword check. The 14-day quarantine remains the independent defense.
 - The annotated `beads_version` and `dolt_version` pins in `.chezmoidata.yaml`
   use the `github-releases` datasource, so Renovate proposes upstream releases
   without routing installation through npm. `configs/mise_wsl2.toml` is a
   comment stub now and Renovate no longer scans it.
+
+Run the guard manually from the repository root when reviewing or making a
+coordinated recovery update:
+
+```sh
+python3 assets/check-beads-release-notes.py
+```
+
+An urgent recovery can still be pinned manually in both files in one reviewed
+change. Do not weaken the quarantine, split the pins, or waive a warning merely
+to restore automerge.
 
 ## Cross-machine sync
 

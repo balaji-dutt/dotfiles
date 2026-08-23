@@ -46,6 +46,37 @@ hashing the VSIX). CI runs `--write` on `renovate/beads-kanban-*` branches and
 `--check` everywhere else — see
 `docs/automation/renovate-gitlab-runner-setup.md`.
 
+### Beads release-note check
+
+Before a core Beads client update can automerge, compare the host and
+devcontainer pins and inspect every newer upstream release for incident
+language:
+
+```sh
+python3 assets/check-beads-release-notes.py
+```
+
+The helper requires the `beads_version` pin in `.chezmoidata.yaml` and the
+`@beads/bd` pin in the homelab-IaC `npm_packages.txt` file to be identical. It
+then queries the public GitHub releases API and fails closed on input, API, or
+rate-limit errors. Set `GITHUB_TOKEN` or `GH_TOKEN` when an authenticated API
+request is needed; unauthenticated requests are supported.
+
+For deterministic local testing, provide a GitHub releases JSON array without
+contacting the network:
+
+```sh
+python3 assets/check-beads-release-notes.py \
+  --releases-file <path-to-releases.json>
+```
+
+The fixture path is an input seam; the repository does not keep a live release
+snapshot. Exit status 0 is clean, 1 means newer release notes contain an
+incident term that needs review, and 2 means the pins or release data could not
+be trusted. CI runs this check only for `renovate/beads-core-*` push and merge
+request pipelines. Better Beads Kanban uses the separate
+`renovate/beads-kanban-*` dispatch.
+
 ### Plannotator slash-command sync
 
 Plannotator's slash commands ship as files upstream installs outside chezmoi:

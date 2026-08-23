@@ -147,6 +147,19 @@ browser-policy-sync:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
+beads-release-notes:
+  stage: sync
+  image: alpine:3.20
+  timeout: 5m
+  before_script:
+    - apk add --no-cache ca-certificates python3
+  script:
+    - python3 assets/check-beads-release-notes.py
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\/beads-core-/'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^renovate\/beads-core-/'
+    - when: never
+
 linux-fast:
   stage: test
   image: python:3.13.7-bookworm

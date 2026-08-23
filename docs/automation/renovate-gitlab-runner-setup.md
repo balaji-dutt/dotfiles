@@ -125,7 +125,8 @@ renovate-config-validator renovate.json5 --no-global
 - Keep automerge off initially.
 - Keep major updates grouped but separate from minor/patch groups.
 - Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
-  except OpenCode plugin patch/digest updates.
+  except OpenCode plugin patch/digest updates. Core Beads clients use a stricter
+  14-day package rule.
 - Disable hourly and concurrent Renovate limits (`commitHourlyLimit`,
   `prHourlyLimit`, `prConcurrentLimit`, and `branchConcurrentLimit` are `0`).
   Eligible updates should be created in one run; release-age-blocked updates
@@ -169,6 +170,36 @@ Runner-side `RENOVATE_X_GITLAB_SKIP_STATUS_WITHOUT_PIPELINE=true` may help only
 when the status update lacks a pipeline id. It is not the primary fix for this
 repo because the observed failure can also come from other GitLab status API
 response shapes.
+
+### Beads release-note guard
+
+The final Beads package rule groups `gastownhall/beads` and `@beads/bd`, waits
+until both clients can update, and gives the group the
+`renovate/beads-core-*` branch prefix. A dedicated `.gitlab-ci.yml` job runs
+`python3 assets/check-beads-release-notes.py` only for that prefix in push and
+merge-request pipelines. It does not match the unrelated
+`renovate/beads-kanban-*` checksum-sync branches.
+
+The checker first requires the host and devcontainer pins to agree. It then
+uses the public `gastownhall/beads` GitHub releases API to list every published
+successor, including prereleases, and scans successor titles and bodies for
+data-loss, corruption, retraction, and recovery language. It exits nonzero on a
+match, malformed response, missing proposed release, network failure, or rate
+limit. Set an unprotected, masked `GITHUB_TOKEN` or `GH_TOKEN` CI variable with
+read-only public-repository access if unauthenticated rate limits become a
+problem; the job does not require a token during normal low-volume operation.
+
+This is a review tripwire, not a safety proof. Benign recovery wording may need
+manual review, and incidents missing from upstream notes will not match. The
+14-day release quarantine is independent of the text scan.
+
+The Beads rule also sets `platformAutomerge: false`. For patch/digest updates,
+Renovate therefore waits for GitLab branch status and will not perform its own
+merge while this job is pending or failing. Minor and major updates remain
+manual. The project currently has **Pipelines must succeed** disabled, so a
+human can still manually merge a failing pipeline. Enabling that GitLab project
+setting would protect every merge request and needs a separate, project-wide
+decision; do not describe this Beads job as preventing that manual override.
 
 ## 9) Vendored-file auto-sync token (`VENDOREDFILE_SYNC_TOKEN`)
 

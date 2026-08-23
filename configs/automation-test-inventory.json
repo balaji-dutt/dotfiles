@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:0db674e9b8d8466c562c0702d84051e07540bea7218a9e6407aa4633ea4c4e15",
+  "candidate_digest": "sha256:b10073674069adb116548c4c365792bd0230bffb8926ca7919dabe560c80bc9d",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -117,6 +117,47 @@
         ]
       },
       "rationale": "The POSIX and PowerShell implementations require parity and failure-contract tests."
+    },
+    {
+      "id": "beads-release-notes",
+      "classification": "owned",
+      "paths": ["assets/check-beads-release-notes.py"],
+      "owner": {"kind": "repository", "name": "Beads release-note guard"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["network"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "suite_id": "beads-release-notes",
+        "status": "covered",
+        "work_item": "dots-j3rs",
+        "test_paths": ["tests/test_check_beads_release_notes.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-untrusted-release-state",
+            "kind": "failure",
+            "description": "Block pin drift, malformed release data, API failures, and hazardous successor notes.",
+            "status": "covered",
+            "test_paths": ["tests/test_check_beads_release_notes.py"]
+          },
+          {
+            "id": "safety-token-boundary",
+            "kind": "safety",
+            "description": "Reject redirects and pagination outside the trusted Beads GitHub API before sending credentials.",
+            "status": "covered",
+            "test_paths": ["tests/test_check_beads_release_notes.py"]
+          },
+          {
+            "id": "success-clean-release-set",
+            "kind": "success",
+            "description": "Accept matching pins when no newer release exists or every successor is clean.",
+            "status": "covered",
+            "test_paths": ["tests/test_check_beads_release_notes.py"]
+          }
+        ]
+      },
+      "rationale": "The registered suite covers pin validation, SemVer ordering, release hazards, and trusted API boundaries."
     },
     {
       "id": "beads-sync",
