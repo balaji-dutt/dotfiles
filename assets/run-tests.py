@@ -68,6 +68,24 @@ class Registry:
     steps: tuple[Step, ...]
 
 
+@dataclass(frozen=True)
+class StepResult:
+    step: Step
+    status: str
+    reason: str | None
+    exit_code: int | None
+
+
+@dataclass(frozen=True)
+class RunResult:
+    platform: str
+    steps: tuple[StepResult, ...]
+
+    @property
+    def exit_code(self) -> int:
+        return 1 if any(result.status == "fail" for result in self.steps) else 0
+
+
 def _string_list(
     value: object,
     label: str,
@@ -302,32 +320,42 @@ def run_steps(
     *,
     repo_root: Path,
     require_capabilities: bool,
-) -> int:
+    required_capabilities: frozenset[str],
+) -> RunResult:
     passed = skipped = failed = 0
     platform = current_platform()
+    step_results: list[StepResult] = []
     with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
         env = isolated_environment(repo_root, Path(temp_dir))
         capability_cache: dict[str, str | None] = {}
         for step in steps:
             if platform not in step.platforms:
-                print(f"SKIP {step.step_id}: requires platform {', '.join(step.platforms)}")
+                reason = f"requires platform {', '.join(step.platforms)}"
+                print(f"SKIP {step.step_id}: {reason}")
                 skipped += 1
+                step_results.append(StepResult(step, "skip", reason, None))
                 continue
-            missing: list[str] = []
+            missing: list[tuple[str, str]] = []
             for name in step.requires:
                 if name not in capability_cache:
                     capability_cache[name] = capability_reason(
                         registry.capabilities[name], env=env, repo_root=repo_root
                     )
                 if capability_cache[name]:
-                    missing.append(capability_cache[name])
+                    missing.append((name, capability_cache[name]))
             if missing:
-                status = "FAIL" if require_capabilities else "SKIP"
-                print(f"{status} {step.step_id}: {'; '.join(missing)}")
-                if require_capabilities:
+                should_fail = require_capabilities or any(
+                    name in required_capabilities for name, _ in missing
+                )
+                status = "FAIL" if should_fail else "SKIP"
+                reason = "; ".join(message for _, message in missing)
+                print(f"{status} {step.step_id}: {reason}")
+                if should_fail:
                     failed += 1
+                    step_results.append(StepResult(step, "fail", reason, None))
                 else:
                     skipped += 1
+                    step_results.append(StepResult(step, "skip", reason, None))
                 continue
 
             command = _expanded_argv(step, repo_root)
@@ -348,11 +376,52 @@ def run_steps(
             if result.returncode == 0:
                 print(f"PASS {step.step_id}")
                 passed += 1
+                step_results.append(StepResult(step, "pass", None, 0))
             else:
-                print(f"FAIL {step.step_id}: exit {result.returncode}")
+                reason = f"exit {result.returncode}"
+                print(f"FAIL {step.step_id}: {reason}")
                 failed += 1
+                step_results.append(StepResult(step, "fail", reason, result.returncode))
     print(f"SUMMARY pass={passed} skip={skipped} fail={failed}")
-    return 1 if failed else 0
+    return RunResult(platform, tuple(step_results))
+
+
+def write_report(destination: Path, suite: str, result: RunResult) -> None:
+    payload = {
+        "schema_version": 1,
+        "platform": result.platform,
+        "selected_suites": [suite],
+        "steps": [
+            {
+                "id": step_result.step.step_id,
+                "suites": list(step_result.step.suites),
+                "covers": list(step_result.step.covers),
+                "status": step_result.status,
+                "reason": step_result.reason,
+                "exit_code": step_result.exit_code,
+            }
+            for step_result in result.steps
+        ],
+        "totals": {
+            status: sum(step.status == status for step in result.steps)
+            for status in ("pass", "skip", "fail")
+        },
+        "exit_code": result.exit_code,
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -363,6 +432,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--require-capabilities",
         action="store_true",
         help="fail when a selected current-platform step lacks a declared capability",
+    )
+    parser.add_argument(
+        "--require-capability",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="fail when a selected step lacks this capability; may be repeated",
+    )
+    parser.add_argument(
+        "--report-file",
+        type=Path,
+        help="write a deterministic JSON suite-registration report",
     )
     parser.add_argument(
         "--repo-root",
@@ -382,6 +463,12 @@ def main(argv: list[str] | None = None) -> int:
         registry_path = repo_root / registry_path
     try:
         registry = load_registry(repo_root, registry_path)
+        unknown_required = set(args.require_capability) - set(registry.capabilities)
+        if unknown_required:
+            raise ConfigurationError(
+                "--require-capability references unknown capability(s): "
+                f"{', '.join(sorted(unknown_required))}"
+            )
         steps = select_steps(registry, args.suite)
         if not steps:
             raise ConfigurationError(f"suite {args.suite!r} has no registered steps")
@@ -393,12 +480,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{step.step_id}\t{','.join(step.suites)}\t{' '.join(_expanded_argv(step, repo_root))}")
         print(f"Selected steps: {len(steps)}")
         return 0
-    return run_steps(
+    result = run_steps(
         registry,
         steps,
         repo_root=repo_root,
         require_capabilities=args.require_capabilities,
+        required_capabilities=frozenset(args.require_capability),
     )
+    if args.report_file:
+        report_path = args.report_file
+        if not report_path.is_absolute():
+            report_path = repo_root / report_path
+        try:
+            write_report(report_path, args.suite, result)
+        except OSError as error:
+            print(f"ERROR: cannot write report {report_path}: {error}", file=sys.stderr)
+            return 2
+    return result.exit_code
 
 
 if __name__ == "__main__":

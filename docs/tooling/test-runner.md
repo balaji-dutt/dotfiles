@@ -46,10 +46,26 @@ validate and print the selected steps without executing them:
 pwsh -NoProfile -File ./assets/run-tests.ps1 --list integration
 ```
 
-Local runs report an unavailable tool as `SKIP`. A CI lane that promises the
-tools for its current operating system adds `--require-capabilities`; an
-applicable missing tool then becomes `FAIL`. A step for another operating
-system remains a platform skip.
+Local runs report an unavailable tool as `SKIP`. A CI lane that promises every
+declared tool for its current operating system adds `--require-capabilities`; an
+applicable missing tool then becomes `FAIL`. A lane with narrower promises uses
+repeatable `--require-capability NAME`, so other optional tools remain visible
+skips. Unknown capability names are configuration errors. A step for another
+operating system remains a platform skip.
+
+CI can request a deterministic suite-registration report:
+
+```sh
+./assets/run-tests.sh fast \
+  --require-capability git \
+  --report-file ci-artifacts/linux-fast.json
+```
+
+The schema-versioned JSON contains the platform, selected suite, stable step
+IDs, registered `covers` paths, status/reason/exit code for each step, totals,
+and the overall exit code. It is written atomically after execution, including
+test and capability failures. This describes registered path execution; it is
+not source line or branch coverage.
 
 The runner exits `0` when every executed step passes, including permitted local
 skips; `1` for a test failure or a required missing capability; and `2` for CLI
@@ -156,7 +172,11 @@ test module rather than growing the shared file into a second test framework.
 2. Add one sorted registry step with stable suites, argv, `covers`, and only the
    capabilities it actually requires.
 3. Run `./assets/run-tests.sh --list all` to validate registration.
-4. Run the affected suite locally, then run it with `--require-capabilities` on
-   each CI platform that claims those tools.
+4. Run the affected suite locally, then require only the capabilities each CI
+   lane explicitly claims. Use `--require-capabilities` only for a lane that
+   promises every applicable step requirement.
 5. If production automation or nested test support changed, update the
    automation inventory and review its candidate digest.
+
+The current GitLab lanes, artifacts, rules, and platform gaps are documented in
+`docs/tooling/continuous-integration.md`.

@@ -119,8 +119,9 @@ pwsh -NoProfile -File ./assets/run-tests.ps1 --list all
 ```
 
 Available suites are `fast`, `integration`, `render`, `provenance`, `platform`,
-and `all`. See `docs/tooling/test-runner.md` for capability skips, CI enforcement,
-exit codes, suite registration, and fixture contracts.
+and `all`. See `docs/tooling/test-runner.md` for capability skips, reports, exit
+codes, suite registration, and fixture contracts. GitLab jobs and the guarded
+feature-push workflow are documented in `docs/tooling/continuous-integration.md`.
 
 ### Claude MCP registration
 
@@ -153,6 +154,12 @@ are reported and left alone.
 Repositories rejected by Git's `safe.directory` ownership check are skipped
 with an informational message. Trust must be granted deliberately through Git
 configuration; the helper never weakens or bypasses that check.
+
+This repository also opts into a managed `pre-push` check that requires a
+successful GitLab `linux-fast` job before `origin/main` is pushed. The hook is a
+no-op in repositories without `configs/gitlab-pipeline-guard.json`; see
+`docs/tooling/continuous-integration.md` for normal use and the explicit
+common-directory override.
 
 For a targeted reconciliation, pass the template directory and one or more
 roots explicitly:

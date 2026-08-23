@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "candidate_digest": "sha256:8abf48c64a4c1082c296be9f99a80feff25320ef5939fcc84adaae70f1f66110",
+  "candidate_digest": "sha256:981192dcba3b7835b69cb39af157859f125b9081ca48bdf5aaad6a9f3694b23a",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -111,15 +111,15 @@
     {
       "id": "ci-automation",
       "classification": "owned",
-      "paths": [".gitlab-ci.yml"],
+      "paths": [".gitlab-ci.yml", "assets/check-gitlab-pipeline.py"],
       "owner": {"kind": "repository", "name": "GitLab CI automation"},
-      "languages": ["yaml"],
-      "platforms": ["ci"],
+      "languages": ["python", "yaml"],
+      "platforms": ["ci", "linux", "macos", "windows", "wsl2"],
       "risk": "high",
       "side_effects": ["filesystem", "network", "process"],
       "test_layers": ["contract", "platform-smoke", "static"],
-      "coverage": {"suite_id": "portable-ci", "status": "planned", "work_item": "dots-4jy.10.1.3", "test_paths": []},
-      "rationale": "The portable CI contract is intentionally deferred to the CI foundation story."
+      "coverage": {"suite_id": "portable-ci", "status": "covered", "work_item": "dots-4jy.10.1.3", "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"]},
+      "rationale": "Offline contract suites cover job dispatch, reports, and the fail-closed feature-pipeline guard."
     },
     {
       "id": "claude-review-hooks",
@@ -226,8 +226,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "process"],
       "test_layers": ["integration", "platform-smoke", "unit"],
-      "coverage": {"suite_id": "git-hooks", "status": "covered", "work_item": "dots-4jy.10.3.3", "test_paths": ["tests/test_git_template_hook_sync.py"]},
-      "rationale": "The existing suite covers hook ownership, synchronization, and safety behavior."
+      "coverage": {"suite_id": "git-hooks", "status": "covered", "work_item": "dots-4jy.10.3.3", "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"]},
+      "rationale": "Contract suites cover hook ownership, synchronization, pipeline enforcement, and override behavior."
     },
     {
       "id": "inventory-policy",

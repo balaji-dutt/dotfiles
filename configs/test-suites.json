@@ -74,6 +74,19 @@
       "requires": ["git"]
     },
     {
+      "id": "gitlab-ci",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_gitlab_ci"],
+      "covers": ["tests/test_gitlab_ci.py"]
+    },
+    {
+      "id": "gitlab-pipeline-guard",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_gitlab_pipeline_guard"],
+      "covers": ["tests/test_gitlab_pipeline_guard.py"],
+      "requires": ["git"]
+    },
+    {
       "id": "host-plugin-refresh-posix",
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_host_ai_plugin_refresh_posix"],

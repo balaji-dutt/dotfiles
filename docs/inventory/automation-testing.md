@@ -127,5 +127,6 @@ When adding, removing, renaming, generating, or mirroring automation:
 Do not weaken discovery merely to make an unexpected candidate disappear. Do
 not add duplicate behavioral suites for mirrors or generated files. Canonical
 commands and shared fixtures are documented in `docs/tooling/test-runner.md`.
-Portable CI belongs to `dots-4jy.10.1.3`; source and mirror verification belongs
+Portable CI and its main-push guard are documented in
+`docs/tooling/continuous-integration.md`; source and mirror verification belongs
 to `dots-4jy.10.1.4`.

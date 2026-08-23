@@ -163,6 +163,86 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(strict.returncode, 1)
         self.assertIn("FAIL alpha: missing capability absent", strict.stdout)
 
+    def test_selected_capability_requirement_preserves_other_skips(self) -> None:
+        self.fixture.capabilities = {
+            "absent": {"command": "definitely-not-a-real-command"},
+            "optional": {"command": "another-command-that-does-not-exist"},
+        }
+        self.fixture.steps[0]["requires"] = ["absent"]
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(
+            self.fixture.step(
+                "beta", ["fast"], "second.py", requires=["optional"]
+            )
+        )
+        self.fixture.write_registry()
+
+        required = self.fixture.run("--require-capability", "absent")
+        self.assertEqual(required.returncode, 1)
+        self.assertIn("FAIL alpha: missing capability absent", required.stdout)
+        self.assertIn("SKIP beta: missing capability optional", required.stdout)
+
+        optional = self.fixture.run("--require-capability", "optional")
+        self.assertEqual(optional.returncode, 1)
+        self.assertIn("SKIP alpha: missing capability absent", optional.stdout)
+        self.assertIn("FAIL beta: missing capability optional", optional.stdout)
+
+    def test_unknown_selected_capability_returns_two(self) -> None:
+        result = self.fixture.run("--require-capability", "unknown")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown capability", result.stderr)
+
+    def test_report_records_success_and_replaces_existing_file(self) -> None:
+        report = self.fixture.root / "reports" / "result.json"
+        report.parent.mkdir()
+        report.write_text("stale\n", encoding="utf-8")
+
+        result = self.fixture.run("--report-file", str(report))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["selected_suites"], ["fast"])
+        self.assertEqual(payload["exit_code"], 0)
+        self.assertEqual(payload["totals"], {"fail": 0, "pass": 1, "skip": 0})
+        self.assertEqual(
+            payload["steps"],
+            [
+                {
+                    "covers": ["tests/pass.py"],
+                    "exit_code": 0,
+                    "id": "alpha",
+                    "reason": None,
+                    "status": "pass",
+                    "suites": ["fast", "integration"],
+                }
+            ],
+        )
+        self.assertTrue(report.read_text(encoding="utf-8").endswith("\n"))
+
+    def test_report_records_capability_skip_and_child_failure(self) -> None:
+        report = self.fixture.root / "report.json"
+        self.fixture.capabilities = {"absent": {"command": "not-a-real-command"}}
+        self.fixture.steps[0]["requires"] = ["absent"]
+        self.fixture.write_registry()
+
+        skipped = self.fixture.run("--report-file", str(report))
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
+        skipped_payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(skipped_payload["steps"][0]["status"], "skip")
+        self.assertIsNone(skipped_payload["steps"][0]["exit_code"])
+
+        self.fixture.capabilities = {}
+        self.fixture.steps[0].pop("requires")
+        self.fixture.write_script("pass.py", "raise SystemExit(23)\n")
+        self.fixture.write_registry()
+        failed = self.fixture.run("--report-file", str(report))
+        self.assertEqual(failed.returncode, 1)
+        failed_payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(failed_payload["exit_code"], 1)
+        self.assertEqual(failed_payload["steps"][0]["status"], "fail")
+        self.assertEqual(failed_payload["steps"][0]["exit_code"], 23)
+
     def test_platform_mismatch_is_a_skip_even_when_capabilities_are_required(self) -> None:
         other = "windows" if os.name != "nt" else "linux"
         self.fixture.steps[0]["platforms"] = [other]
