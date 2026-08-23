@@ -68,6 +68,12 @@
       "requires": ["pwsh"]
     },
     {
+      "id": "codebase-memory-pin",
+      "suites": ["fast", "provenance"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_codebase_memory_mcp_pin"],
+      "covers": ["tests/test_codebase_memory_mcp_pin.py"]
+    },
+    {
       "id": "config-contracts",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_config_contracts"],

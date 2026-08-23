@@ -84,7 +84,12 @@ class TestFixtureTests(unittest.TestCase):
             self.assertEqual(result.stdout, "hello\n")
             self.assertEqual(
                 read_json_lines(log),
-                [{"argv": ["two words", "literal;value"], "cwd": str(fixture.root)}],
+                [
+                    {
+                        "argv": ["two words", "literal;value"],
+                        "cwd": str(fixture.root.resolve()),
+                    }
+                ],
             )
 
     def test_json_helpers_are_deterministic(self) -> None:
