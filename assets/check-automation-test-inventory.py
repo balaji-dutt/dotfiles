@@ -18,8 +18,11 @@ from typing import Any
 CLASSIFICATIONS = frozenset(
     {"archived", "excluded", "generated", "mirrored", "owned", "vendored-upstream"}
 )
-SCHEMA_REF = "./schemas/automation-test-inventory.v1.schema.json"
+SCHEMA_REF = "./schemas/automation-test-inventory.v2.schema.json"
 COVERAGE_STATUSES = frozenset({"covered", "not-applicable", "partial", "planned"})
+BEHAVIOR_KINDS = frozenset({"failure", "safety", "success"})
+BEHAVIOR_STATUSES = frozenset({"covered", "planned"})
+BEHAVIORAL_SUITES = frozenset({"fast", "integration", "platform", "render"})
 LANGUAGES = frozenset(
     {
         "ansible",
@@ -283,7 +286,35 @@ def _check_nonempty_string(value: Any, label: str) -> str:
     return value
 
 
-def check_repository(repo_root: Path, manifest_path: Path | None = None) -> CheckResult:
+def registry_coverage(repo_root: Path, registry_path: Path | None) -> dict[str, frozenset[str]]:
+    selected = repo_root / (registry_path or Path("configs/test-suites.json"))
+    payload = load_json(selected)
+    if not isinstance(payload, dict) or not isinstance(payload.get("steps"), list):
+        raise CheckFailure(f"{selected}: registry root must contain a steps list")
+
+    coverage: dict[str, set[str]] = {}
+    for index, step in enumerate(payload["steps"]):
+        prefix = f"{selected}: steps[{index}]"
+        if not isinstance(step, dict):
+            raise CheckFailure(f"{prefix} must be an object")
+        if not step.get("covers"):
+            continue
+        suites = _check_string_list(
+            step.get("suites"), label=f"{prefix}.suites", allowed=None, allow_empty=False
+        )
+        covers = _check_string_list(
+            step.get("covers"), label=f"{prefix}.covers", allowed=None, allow_empty=False
+        )
+        for test_path in covers:
+            coverage.setdefault(test_path, set()).update(suites)
+    return {path: frozenset(suites) for path, suites in coverage.items()}
+
+
+def check_repository(
+    repo_root: Path,
+    manifest_path: Path | None = None,
+    registry_path: Path | None = None,
+) -> CheckResult:
     root = repo_root.resolve()
     selected_manifest = manifest_path or root / "configs/automation-test-inventory.json"
     if not selected_manifest.is_absolute():
@@ -299,6 +330,11 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
     errors: list[str] = []
 
     try:
+        registered_coverage = registry_coverage(root, registry_path)
+    except CheckFailure as error:
+        return CheckResult((str(error),), candidates, ())
+
+    try:
         manifest = load_json(selected_manifest)
     except CheckFailure as error:
         return CheckResult((f"{selected_manifest}: {error}",), candidates, ())
@@ -306,8 +342,8 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
         return CheckResult((f"{selected_manifest}: manifest root must be an object",), candidates, ())
     if manifest.get("$schema") != SCHEMA_REF:
         errors.append(f"{selected_manifest}: $schema must be {SCHEMA_REF!r}")
-    if manifest.get("schema_version") != 1:
-        errors.append(f"{selected_manifest}: schema_version must be 1")
+    if manifest.get("schema_version") != 2:
+        errors.append(f"{selected_manifest}: schema_version must be 2")
     expected_digest = manifest.get("candidate_digest")
     actual_digest = candidate_digest(candidates)
     if expected_digest != actual_digest:
@@ -369,7 +405,7 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
             )
             if "none" in side_effects and len(side_effects) != 1:
                 raise CheckFailure(f"{prefix}.side_effects cannot combine 'none' with other values")
-            _check_string_list(
+            test_layers = _check_string_list(
                 entry.get("test_layers"),
                 label=f"{prefix}.test_layers",
                 allowed=TEST_LAYERS,
@@ -385,6 +421,7 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
             _check_nonempty_string(owner.get("name"), f"{prefix}.owner.name")
             if "source" in owner:
                 _check_nonempty_string(owner["source"], f"{prefix}.owner.source")
+            _check_nonempty_string(entry.get("rationale"), f"{prefix}.rationale")
 
             coverage = entry.get("coverage")
             if not isinstance(coverage, dict):
@@ -400,18 +437,187 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
                 allowed=None,
                 allow_empty=True,
             )
+            behavior_requirements = coverage.get("behavior_requirements")
+            if not isinstance(behavior_requirements, list):
+                raise CheckFailure(f"{prefix}.coverage.behavior_requirements must be a list")
+
             if classification == "owned":
                 _check_nonempty_string(suite_id, f"{prefix}.coverage.suite_id")
                 _check_nonempty_string(work_item, f"{prefix}.coverage.work_item")
                 if status == "not-applicable":
                     raise CheckFailure(f"{prefix}.coverage.status cannot be not-applicable for owned automation")
-            elif classification != "owned":
-                _check_nonempty_string(entry.get("rationale"), f"{prefix}.rationale")
             if status in {"covered", "partial"} and not test_paths:
                 raise CheckFailure(f"{prefix}.coverage.test_paths must not be empty for {status} coverage")
+            if status in {"planned", "not-applicable"} and test_paths:
+                raise CheckFailure(f"{prefix}.coverage.test_paths must be empty for {status} coverage")
             for test_path in test_paths:
                 if test_path not in tracked_paths:
                     errors.append(f"{prefix}.coverage.test_paths references untracked path {test_path!r}")
+                elif test_path not in registered_coverage:
+                    errors.append(
+                        f"{prefix}.coverage.test_paths references unregistered test {test_path!r}"
+                    )
+                elif classification == "owned" and not (
+                    registered_coverage[test_path] & BEHAVIORAL_SUITES
+                ):
+                    errors.append(
+                        f"{prefix}.coverage.test_paths requires behavioral suite registration "
+                        f"for {test_path!r}"
+                    )
+
+            previous_requirement_id = ""
+            requirement_kinds: set[str] = set()
+            requirement_statuses: list[str] = []
+            behavior_evidence: set[str] = set()
+            for requirement_index, requirement in enumerate(behavior_requirements):
+                requirement_prefix = (
+                    f"{prefix}.coverage.behavior_requirements[{requirement_index}]"
+                )
+                if not isinstance(requirement, dict):
+                    raise CheckFailure(f"{requirement_prefix} must be an object")
+                expected_keys = {"description", "id", "kind", "status", "test_paths"}
+                if set(requirement) != expected_keys:
+                    raise CheckFailure(
+                        f"{requirement_prefix} must contain exactly {sorted(expected_keys)!r}"
+                    )
+                requirement_id = _check_nonempty_string(
+                    requirement.get("id"), f"{requirement_prefix}.id"
+                )
+                if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", requirement_id):
+                    raise CheckFailure(f"{requirement_prefix}.id must be a lowercase slug")
+                if previous_requirement_id and requirement_id <= previous_requirement_id:
+                    raise CheckFailure(
+                        f"{requirement_prefix}.id must be unique and sorted after "
+                        f"{previous_requirement_id!r}"
+                    )
+                previous_requirement_id = requirement_id
+                kind = _check_nonempty_string(
+                    requirement.get("kind"), f"{requirement_prefix}.kind"
+                )
+                if kind not in BEHAVIOR_KINDS:
+                    raise CheckFailure(f"{requirement_prefix}.kind is unsupported: {kind}")
+                requirement_kinds.add(kind)
+                _check_nonempty_string(
+                    requirement.get("description"), f"{requirement_prefix}.description"
+                )
+                requirement_status = _check_nonempty_string(
+                    requirement.get("status"), f"{requirement_prefix}.status"
+                )
+                if requirement_status not in BEHAVIOR_STATUSES:
+                    raise CheckFailure(
+                        f"{requirement_prefix}.status is unsupported: {requirement_status}"
+                    )
+                requirement_statuses.append(requirement_status)
+                requirement_tests = _check_string_list(
+                    requirement.get("test_paths"),
+                    label=f"{requirement_prefix}.test_paths",
+                    allowed=None,
+                    allow_empty=True,
+                )
+                if requirement_status == "covered" and not requirement_tests:
+                    raise CheckFailure(
+                        f"{requirement_prefix}.test_paths must not be empty for covered behavior"
+                    )
+                if requirement_status == "planned" and requirement_tests:
+                    raise CheckFailure(
+                        f"{requirement_prefix}.test_paths must be empty for planned behavior"
+                    )
+                for test_path in requirement_tests:
+                    if test_path not in tracked_paths:
+                        errors.append(
+                            f"{requirement_prefix}.test_paths references untracked path {test_path!r}"
+                        )
+                    elif not (registered_coverage.get(test_path, frozenset()) & BEHAVIORAL_SUITES):
+                        errors.append(
+                            f"{requirement_prefix}.test_paths requires behavioral suite registration "
+                            f"for {test_path!r}"
+                        )
+                    behavior_evidence.add(test_path)
+
+            if classification == "owned":
+                if risk == "critical":
+                    missing_kinds = sorted(BEHAVIOR_KINDS - requirement_kinds)
+                    if missing_kinds:
+                        raise CheckFailure(
+                            f"{prefix}.coverage.behavior_requirements is missing critical kind(s): "
+                            f"{', '.join(missing_kinds)}"
+                        )
+                    if "integration" not in test_layers:
+                        raise CheckFailure(
+                            f"{prefix}.test_layers must include integration for critical automation"
+                        )
+                    expected_status = (
+                        "covered"
+                        if set(requirement_statuses) == {"covered"}
+                        else "planned"
+                        if set(requirement_statuses) == {"planned"}
+                        else "partial"
+                    )
+                    if status != expected_status:
+                        raise CheckFailure(
+                            f"{prefix}.coverage.status must be {expected_status!r} from critical "
+                            "behavior requirement statuses"
+                        )
+                    if test_paths != sorted(behavior_evidence):
+                        raise CheckFailure(
+                            f"{prefix}.coverage.test_paths must equal covered behavior evidence"
+                        )
+                elif behavior_requirements:
+                    raise CheckFailure(
+                        f"{prefix}.coverage.behavior_requirements must be empty unless risk is critical"
+                    )
+
+                if risk == "high" and not ({"contract", "integration"} & set(test_layers)):
+                    raise CheckFailure(
+                        f"{prefix}.test_layers must include contract or integration for high risk"
+                    )
+                if risk == "medium" and not (
+                    {"contract", "integration", "platform-smoke", "render", "unit"}
+                    & set(test_layers)
+                ):
+                    raise CheckFailure(
+                        f"{prefix}.test_layers lacks a deterministic medium-risk layer"
+                    )
+                if risk == "low" and not (
+                    {"contract", "integration", "render", "static", "unit"} & set(test_layers)
+                ):
+                    raise CheckFailure(
+                        f"{prefix}.test_layers lacks a deterministic low-risk layer"
+                    )
+                platforms = entry["platforms"]
+                if platforms in (["devcontainer"], ["windows"], ["wsl2"]) and (
+                    "platform-smoke" not in test_layers
+                ):
+                    raise CheckFailure(
+                        f"{prefix}.test_layers must include platform-smoke for platform-only automation"
+                    )
+            else:
+                if behavior_requirements:
+                    raise CheckFailure(
+                        f"{prefix}.coverage.behavior_requirements must be empty for non-owned automation"
+                    )
+                if classification == "excluded":
+                    if owner_kind != "repository":
+                        raise CheckFailure(f"{prefix}.owner.kind must be repository for exclusions")
+                    if risk != "low":
+                        raise CheckFailure(f"{prefix}.risk must be low for exclusions")
+                    if side_effects != ["none"]:
+                        raise CheckFailure(f"{prefix}.side_effects must be ['none'] for exclusions")
+                    if test_layers:
+                        raise CheckFailure(f"{prefix}.test_layers must be empty for exclusions")
+                    if status != "not-applicable" or suite_id is not None or work_item is not None:
+                        raise CheckFailure(
+                            f"{prefix}.coverage must be not-applicable with null suite/work item"
+                        )
+                elif classification in {"archived", "generated", "mirrored", "vendored-upstream"}:
+                    if "provenance" not in test_layers:
+                        raise CheckFailure(
+                            f"{prefix}.test_layers must include provenance for {classification} automation"
+                        )
+                    if status != "covered":
+                        raise CheckFailure(
+                            f"{prefix}.coverage.status must be covered for {classification} automation"
+                        )
 
             for selector in paths:
                 has_glob = "*" in selector or "?" in selector
@@ -458,6 +664,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="inventory path, absolute or relative to --repo-root",
     )
     parser.add_argument(
+        "--registry",
+        type=Path,
+        help="suite registry path, absolute or relative to --repo-root",
+    )
+    parser.add_argument(
         "--list-candidates",
         action="store_true",
         help="list tracked candidates and discovery reasons without reading the manifest",
@@ -480,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Candidate digest: {candidate_digest(candidates)}")
         return 0
 
-    result = check_repository(root, args.manifest)
+    result = check_repository(root, args.manifest, args.registry)
     if result.errors:
         for error in result.errors:
             print(f"ERROR: {error}", file=sys.stderr)

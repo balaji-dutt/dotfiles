@@ -39,3 +39,24 @@ Existing members: `cz-audit.sh` / `cz-audit.ps1`, `beads-sync.sh` /
 `beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge`,
 `claude-mcp-apply.py`, `sync-browser-policies.py`, and the `sync-*` scripts.
 See `assets/README.md` for their usage.
+
+## Test and ownership checklist
+
+Adding, renaming, or removing production automation also requires an update to
+`configs/automation-test-inventory.json`:
+
+1. Run `python3 assets/check-automation-test-inventory.py --list-candidates`
+   and review the changed candidate paths and digest.
+2. Classify each path exactly once with its repository owner, risk, platforms,
+   side effects, and required test layers.
+3. Register behavioral evidence in `configs/test-suites.json`, or record a
+   truthful planned/partial gap with a durable work item and rationale.
+4. For critical automation, list success, failure, and safety requirements. A
+   covered requirement must cite a tracked test in a behavioral suite.
+5. Use `excluded` only for a repository-owned non-production target with an
+   explicit rationale. Static, audit, and provenance checks do not replace
+   behavioral evidence for owned automation.
+6. Run the inventory checker and the affected canonical suite before review.
+
+The complete policy, including platform-only rules and optional targeted
+language metrics, is in `docs/tooling/automation-coverage-policy.md`.

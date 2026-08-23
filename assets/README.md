@@ -99,7 +99,8 @@ py -3 assets/check-automation-test-inventory.py
 
 Use `--list-candidates` to review the tracked census and replacement digest.
 See `docs/inventory/automation-testing.md` for discovery rules, classifications,
-and the update workflow.
+and the update workflow. Risk tiers, critical branch matrices, and new-script
+review criteria are documented in `docs/tooling/automation-coverage-policy.md`.
 
 ### Automation provenance
 

@@ -25,7 +25,7 @@
 | `configs/bun_globals.txt` | bun global packages |
 | `configs/devcontainer-sync.jsonc` | manifest for mirrored/generated container-dotfiles inputs |
 | `configs/automation-provenance.json` | non-derivable provenance authorities and accepted generated divergences |
-| `configs/automation-test-inventory.json` | owned automation classification and test coverage mapping |
+| `configs/automation-test-inventory.json` | owned automation classification, risk, and behavioral coverage mapping |
 | `configs/gitlab-pipeline-guard.json` | main-push GitLab pipeline guard policy |
 | `configs/test-suites.json` | canonical test suite, command, platform, and capability registry |
 | `configs/schemas/*.schema.json` | immutable JSON Schema contracts for repository policy files |
@@ -71,6 +71,8 @@ provider SDK resolution does not depend on isolated npm or mise installs.
 The versioned policy contracts and their owning consumers are cataloged in
 `docs/tooling/config-contracts.md`. JSON Schema defines file structure; each
 consumer also enforces cross-file and runtime semantics.
+The automation risk and evidence rules are documented in
+`docs/tooling/automation-coverage-policy.md`.
 
 ```sh
 python3 -m unittest tests.test_config_contracts

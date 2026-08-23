@@ -89,6 +89,20 @@ differently:
 are denied on the OpenCode side, so the reviewer cannot fall back to scanning
 the working tree when it should be reading scoped diffs or untracked files.
 
+## Automation coverage review
+
+The reviewer applies the coverage policy only to the scoped diff; it does not
+scan the repository for unrelated gaps. Added, renamed, or removed production
+automation must update `configs/automation-test-inventory.json`. New owned
+automation needs registered evidence or a truthful planned/partial declaration
+with a durable work item and rationale. Exclusions require repository ownership
+and a rationale. Critical behavior changes require success, failure, and safety
+requirements with matching evidence or explicit planned gaps. Existing truthful
+gaps do not block unrelated changes.
+
+See `docs/tooling/automation-coverage-policy.md` for the machine-enforced rules
+and `docs/agents/ADDING_SCRIPTS.md` for the author checklist.
+
 Claude Code snapshots subagent definitions at session start. Editing
 `.claude/agents/dotfiles-reviewer.md` does not affect reviewer runs later in
 the same session, so verify changes to it from a fresh session.

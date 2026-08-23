@@ -18,7 +18,7 @@ values, tracked paths, cross-file references, and runtime capability rules.
 | Instance | Schema | Semantic consumer |
 | :--- | :--- | :--- |
 | `configs/automation-provenance.json` | `configs/schemas/automation-provenance.v1.schema.json` | `assets/check-automation-provenance.py` |
-| `configs/automation-test-inventory.json` | `configs/schemas/automation-test-inventory.v1.schema.json` | `assets/check-automation-test-inventory.py` |
+| `configs/automation-test-inventory.json` | `configs/schemas/automation-test-inventory.v2.schema.json` | `assets/check-automation-test-inventory.py` |
 | `configs/gitlab-pipeline-guard.json` | `configs/schemas/gitlab-pipeline-guard.v1.schema.json` | `assets/check-gitlab-pipeline.py` |
 | `configs/test-suites.json` | `configs/schemas/test-suites.v1.schema.json` | `assets/run-tests.py` |
 
@@ -31,7 +31,8 @@ file. The schemas use JSON Schema Draft 2020-12 and reject undeclared fields.
 Published `configs/schemas/*.vN.schema.json` files are immutable. A breaking
 shape change gets a new schema file, a new `$id` suffix, and a matching
 `schema_version`. Update the instance, consumer, tests, and this catalog in the
-same change. Keep the previous schema while any tracked instance still uses it.
+same change. Retain published schemas as historical contracts; the automation
+inventory's v1 schema remains immutable while v2 adds behavioral requirements.
 
 Compatible semantic tightening can remain within the consumer when the JSON
 shape is unchanged. Document the new rule and add a consumer test rather than

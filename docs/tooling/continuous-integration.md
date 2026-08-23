@@ -96,8 +96,9 @@ can reuse the same command and capability contract.
 Artifacts are uploaded even when tests fail and expire after seven days. Their
 JSON records selected steps, registered `covers` paths, skips, failures, and the
 overall exit code. This is suite-registration coverage, not line or branch
-coverage. Risk-based measurement and rejection policy belong to
-`dots-4jy.10.1.5`.
+coverage. The automatic fast suite also enforces the automation inventory's
+classification, risk, and critical-behavior declarations; see
+`docs/tooling/automation-coverage-policy.md`.
 
 No CI cache is configured. The current suites use repository and standard-library
 inputs and have no dependency-download phase, so caching would add stale-state

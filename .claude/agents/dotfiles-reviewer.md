@@ -61,6 +61,22 @@ Keep suggestions minimal and behavior-identical.
 3) Keep changes small (aim <10 lines per suggestion).
 4) Do not propose “big rewrites”, new frameworks, or repo-wide reformatting.
 
+## Automation coverage review
+
+Apply this checklist only to production automation visible in the scoped diff;
+do not scan for other scripts or try to complete unrelated planned suites.
+
+- Added, renamed, or removed automation must update
+  `configs/automation-test-inventory.json`. Treat a missing update as must-fix.
+- New owned automation needs registered test evidence or an explicit
+  `planned`/`partial` work item and rationale. Existing truthful planned gaps do
+  not block unrelated changes.
+- An exclusion needs a repository owner and a concrete rationale.
+- Critical behavior changes need matching success, failure, and safety matrix
+  updates plus registered evidence for every branch claimed covered.
+- Static, audit, and provenance checks are not substitutes for owned behavioral
+  coverage.
+
 ## Language-specific review checklist
 
 ### Chezmoi Go templates

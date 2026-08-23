@@ -19,7 +19,7 @@
     },
     {
       "id": "ai-tooling-drift",
-      "suites": ["provenance"],
+      "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_ai_tooling_drift"],
       "covers": ["tests/test_ai_tooling_drift.py"],
       "requires": ["git"]
@@ -33,14 +33,14 @@
     },
     {
       "id": "automation-provenance",
-      "suites": ["provenance"],
+      "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.AutomationProvenanceTests"],
       "covers": ["tests/test_automation_provenance.py"],
       "requires": ["git"]
     },
     {
       "id": "automation-test-inventory",
-      "suites": ["provenance"],
+      "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_test_inventory"],
       "covers": ["tests/test_automation_test_inventory.py"],
       "requires": ["git"]

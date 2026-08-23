@@ -76,7 +76,8 @@ by the runner.
 
 ## Suite boundary
 
-- `fast`: deterministic policy, guard, runner, fixture, and hook tests.
+- `fast`: deterministic inventory and drift policy, guard, runner, fixture, and
+  hook tests.
 - `integration`: isolated Git, worktree, subprocess, sync, and runtime tests.
 - `render`: shell, profile, hook, and template rendering tests.
 - `provenance`: inventory, config-contract, generated, mirror, and runtime drift
@@ -177,8 +178,10 @@ test module rather than growing the shared file into a second test framework.
    lane explicitly claims. Use `--require-capabilities` only for a lane that
    promises every applicable step requirement.
 5. If production automation or nested test support changed, update the
-   automation inventory and review its candidate digest.
+   automation inventory, apply the risk policy, and review its candidate digest.
 
 The current GitLab lanes, artifacts, rules, and platform gaps are documented in
 `docs/tooling/continuous-integration.md`. Provenance authorities and accepted
 divergences are documented in `docs/inventory/automation-provenance.md`.
+Risk tiers and new-script evidence requirements are documented in
+`docs/tooling/automation-coverage-policy.md`.

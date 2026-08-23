@@ -16,7 +16,7 @@ archived, or excluded.
 The inventory is a planning boundary, not a claim that every owned path already
 has full coverage. Each owned entry names its suite, durable work item or
 component, current coverage status, required test layers, supported platforms,
-risk, and side effects.
+risk, side effects, and any required critical-behavior matrix.
 
 ## Candidate discovery
 
@@ -75,19 +75,22 @@ Every entry records:
 - the canonical `owner` kind, name, and source when applicable;
 - `languages`, `platforms`, `risk`, and observable `side_effects`;
 - required `test_layers`; and
-- `coverage` with a suite ID, status, durable work item or component, and tracked
-  test paths.
+- `coverage` with a suite ID, status, durable work item or component, tracked
+  test paths, and behavioral requirements where required by risk.
 
 Owned entries require a suite ID and durable ownership reference. Long-lived
 components such as `test-foundation` are preferred when ownership should outlive
 the Beads story that introduced the automation. `covered` and `partial` entries
-require at least one tracked test path. Non-owned entries require a provenance or
-exclusion rationale. The checker also validates stable enums, ordering, duplicate
-IDs and paths, stale selectors, and references to missing tests.
+require tracked tests registered in a canonical suite. Critical entries also
+record success, failure, and safety requirements, with truthful `covered` or
+`planned` status for each branch. Non-owned entries require a provenance or
+exclusion rationale. The checker also validates stable enums, ordering,
+duplicate IDs and paths, stale selectors, and references to missing tests.
 
 `planned`, `partial`, and `covered` describe the current implementation state.
-They do not set the final risk-based rejection policy; that policy belongs to
-`dots-4jy.10.1.5`.
+Truthful planned gaps remain valid declarations and do not block unrelated
+changes. The risk tiers, mandatory critical branch matrix, and evidence rules
+are documented in `docs/tooling/automation-coverage-policy.md`.
 
 ## Run the drift check
 
@@ -118,8 +121,10 @@ When adding, removing, renaming, generating, or mirroring automation:
 
 1. Run `--list-candidates` and review every changed path and reason.
 2. Add or update one manifest entry with the correct primary classification.
-3. For owned automation, assign its suite and durable work item or component and
-   record any existing tests. Do not mark planned coverage as covered.
+3. For owned automation, assign its suite and durable work item or component,
+   record registered test evidence, and apply the risk policy. Critical entries
+   must list success, failure, and safety requirements. Do not mark planned
+   coverage as covered.
 4. Update `candidate_digest` to the reviewed value printed by the checker.
 5. Run the checker and its fixture-driven unit tests.
 
