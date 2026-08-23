@@ -5,8 +5,9 @@
 # codebase-memory-mcp are foreground children of `claude` / `opencode`, so they
 # win that race and the tab reads `codebase-memory-mcp` instead of the agent.
 #
-# Emit an explicit title on launch instead. oh-my-zsh's omz_termsupport_precmd
-# restores the cwd title when the agent exits, so no reset hook is needed here.
+# Emit an explicit title on launch instead. A matching precmd hook writes the
+# idle cwd title through OSC 0 after the command exits; this uses the same title
+# channel and avoids leaving an application name behind.
 #
 # This registers after antidote loads oh-my-zsh (see dot_zshrc.tmpl ordering),
 # so this preexec hook runs last and wins.
@@ -44,6 +45,21 @@ _agent_title_context() {
     esac
 }
 
+_agent_title_precmd() {
+    emulate -L zsh
+
+    [[ "${DISABLE_AUTO_TITLE:-}" != true ]] || return 0
+    [[ -t 1 ]] || return 0
+
+    # Match oh-my-zsh's idle titles, but reset the tab through OSC 0. Its title
+    # helper emits separate OSC 1 and OSC 2 sequences, which do not reliably
+    # clear a stale iTerm Session Name after an application exits. OSC 0 also
+    # changes the window title, so restore the longer idle value with OSC 2.
+    local tab_title=${ZSH_THEME_TERM_TAB_TITLE_IDLE:-'%15<..<%~%<<'}
+    local window_title=${ZSH_THEME_TERM_TITLE_IDLE:-'%n@%m:%~'}
+    print -Pn "\e]0;${tab_title}\a\e]2;${window_title}\a"
+}
+
 _agent_title_preexec() {
     emulate -L zsh
 
@@ -70,4 +86,5 @@ _agent_title_preexec() {
     printf '\033]0;%s\007' "${tool} · $(_agent_title_context)"
 }
 
+add-zsh-hook precmd _agent_title_precmd
 add-zsh-hook preexec _agent_title_preexec

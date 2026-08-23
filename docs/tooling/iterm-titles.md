@@ -106,9 +106,15 @@ tmux that helper emits screen's `\ek...\e\\`, which sets the tmux window name
 and never reaches the outer terminal.
 
 Ordering matters: `dot_zshrc.tmpl` sources this file after `antidote load`, so
-the hook registers after oh-my-zsh's `omz_termsupport_preexec` and therefore
-runs last. No reset hook is needed — oh-my-zsh's `precmd` restores the cwd
-title when the agent exits.
+the hooks register after oh-my-zsh's `omz_termsupport_preexec` and
+`omz_termsupport_precmd`. The `preexec` hook therefore wins when an agent
+starts. The companion `precmd` hook renders oh-my-zsh's idle tab title and
+writes it through OSC 0 when the prompt returns. This uses the same title
+channel as the explicit agent title rather than relying on oh-my-zsh's separate
+OSC 1 and OSC 2 updates, which can leave iTerm's Session Name showing the last
+application after it exits. Because OSC 0 also changes the window title, the
+hook follows it with OSC 2 to restore `ZSH_THEME_TERM_TITLE_IDLE`; the normal
+short-tab/long-window split remains intact.
 
 The hook also returns early when stdout is not a terminal, so escape bytes
 never land in redirected output such as `zsh -ic claude | tee log`.
@@ -157,6 +163,11 @@ is in the foreground. That is a real dependency — drop `ohmyzsh/ohmyzsh path:l
 from `dot_zsh_plugins.txt.tmpl`, or set `DISABLE_AUTO_TITLE=true`, and the
 dashboard tab loses its name.
 
+When AoE exits, `_agent_title_precmd` sends the idle cwd title through OSC 0,
+so the dashboard name does not remain stuck on the direct iTerm tab. Inside a
+tmux pane the same sequence only updates `pane_title`; with `set-titles` off it
+is not forwarded to the outer AoE dashboard tab.
+
 If any of this is revisited: a running tmux server does not pick up config
 changes, and AoE applies its per-session options at session creation. Restart
 the server (or kill all AoE sessions) before judging the result.
@@ -171,13 +182,16 @@ printf '\033]0;probe\007'
 exec zsh
 claude
 
-# 3. The MCP server is still running, it just no longer wins.
+# 3. AoE reset. Start aoe, then quit it. The tab should return to the cwd title.
+aoe
+
+# 4. The MCP server is still running, it just no longer wins.
 ps -eo pid,ppid,pgid,tpgid,tty,comm | grep -E 'claude|codebase-memory'
 
-# 4. ai-wt helpers.
+# 5. ai-wt helpers.
 python3 tests/test_ai_wt.py
 
-# 5. No tmux config, and AoE owns the status bar. Run on a server started
+# 6. No tmux config, and AoE owns the status bar. Run on a server started
 #    after the config change; a running server does not reload.
 test ! -e ~/.config/tmux/tmux.conf
 tmux show-options -g set-titles   # must report: set-titles off
@@ -191,4 +205,5 @@ tmux show-options -g set-titles   # must report: set-titles off
 tmux show-options status-right    # must contain: #{@aoe_title}
 ```
 
-Quitting the agent returns the tab to the cwd title.
+Quitting an agent or another foreground application returns the tab to the cwd
+title when the next prompt appears.
