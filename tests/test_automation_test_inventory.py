@@ -91,7 +91,12 @@ class InventoryFixture:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
             json.dumps(
-                {"schema_version": 1, "candidate_digest": digest, "entries": self.entries},
+                {
+                    "$schema": "./schemas/automation-test-inventory.v1.schema.json",
+                    "schema_version": 1,
+                    "candidate_digest": digest,
+                    "entries": self.entries,
+                },
                 indent=2,
             )
             + "\n",

@@ -60,9 +60,8 @@ Each path has one primary classification:
 
 When provenance categories overlap, use this primary precedence: container
 mirror target, generated output, vendored/upstream copy, archive, then deliberate
-exclusion. The provenance stories will verify source relationships separately;
-this inventory records the ownership decision but does not compare bytes or
-hashes.
+exclusion. This inventory records the ownership decision; the separate
+provenance contract compares the source relationships.
 
 The devcontainer runtime is currently repository-owned. `dots-7mx` tracks a
 future same-path submodule split, so the inventory must not claim that move has
@@ -128,5 +127,5 @@ Do not weaken discovery merely to make an unexpected candidate disappear. Do
 not add duplicate behavioral suites for mirrors or generated files. Canonical
 commands and shared fixtures are documented in `docs/tooling/test-runner.md`.
 Portable CI and its main-push guard are documented in
-`docs/tooling/continuous-integration.md`; source and mirror verification belongs
-to `dots-4jy.10.1.4`.
+`docs/tooling/continuous-integration.md`. Generated, mirrored, and vendored
+relationships are documented in `docs/inventory/automation-provenance.md`.

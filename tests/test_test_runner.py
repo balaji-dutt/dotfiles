@@ -60,6 +60,7 @@ class RunnerFixture:
         self.registry.write_text(
             json.dumps(
                 {
+                    "$schema": "./schemas/test-suites.v1.schema.json",
                     "schema_version": 1,
                     "capabilities": self.capabilities,
                     "steps": self.steps,

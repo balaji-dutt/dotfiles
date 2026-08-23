@@ -18,6 +18,7 @@ from typing import NoReturn
 
 
 OVERRIDE_NAME = "pipeline-guard.override"
+SCHEMA_REF = "./schemas/gitlab-pipeline-guard.v1.schema.json"
 ZERO_SHAS = frozenset({"0" * 40, "0" * 64})
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -87,7 +88,11 @@ def load_policy(path: Path) -> Policy:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         fail(f"cannot read pipeline guard policy {path}: {error}")
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    if not isinstance(payload, dict):
+        fail("pipeline guard policy root must be an object")
+    if payload.get("$schema") != SCHEMA_REF:
+        fail(f"pipeline guard policy $schema must be {SCHEMA_REF!r}")
+    if payload.get("schema_version") != 1:
         fail("pipeline guard policy schema_version must be 1")
 
     def required_string(name: str) -> str:

@@ -117,6 +117,7 @@ class PipelineGuardTests(unittest.TestCase):
 
     def policy(self, api_url: str, **updates: object) -> Path:
         payload: dict[str, object] = {
+            "$schema": "./schemas/gitlab-pipeline-guard.v1.schema.json",
             "schema_version": 1,
             "api_url": api_url,
             "project_id": 44618209,

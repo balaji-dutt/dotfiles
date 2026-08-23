@@ -101,6 +101,23 @@ Use `--list-candidates` to review the tracked census and replacement digest.
 See `docs/inventory/automation-testing.md` for discovery rules, classifications,
 and the update workflow.
 
+### Automation provenance
+
+Checks generated outputs, tracked devcontainer mirrors, derived Promptfoo pins,
+Espanso render chains, statusline copies, and upstream-derived unslop copies
+without changing files or contacting external services:
+
+```sh
+python3 assets/check-automation-provenance.py
+```
+
+```powershell
+py -3 assets/check-automation-provenance.py
+```
+
+See `docs/inventory/automation-provenance.md` for authorities, accepted
+divergences, offline boundaries, and the update workflow.
+
 ### Test suites
 
 Runs repository tests through the same isolated suite contract on POSIX and

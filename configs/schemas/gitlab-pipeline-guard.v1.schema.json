@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:gitlab-pipeline-guard:v1",
+  "title": "GitLab pipeline guard policy v1",
+  "description": "Repository opt-in policy for the managed pre-push pipeline guard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "api_url",
+    "guarded_ref",
+    "guarded_remote",
+    "project_id",
+    "required_job",
+    "schema_version",
+    "timeout_seconds"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/gitlab-pipeline-guard.v1.schema.json"},
+    "schema_version": {"const": 1},
+    "api_url": {"type": "string", "format": "uri", "pattern": "^https?://"},
+    "project_id": {"type": "integer", "minimum": 1},
+    "guarded_remote": {"type": "string", "minLength": 1},
+    "guarded_ref": {"type": "string", "pattern": "^refs/heads/"},
+    "required_job": {"type": "string", "minLength": 1},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30}
+  }
+}

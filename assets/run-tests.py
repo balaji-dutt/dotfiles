@@ -17,6 +17,7 @@ from string import Formatter
 
 
 SUITES = ("fast", "integration", "render", "provenance", "platform")
+SCHEMA_REF = "./schemas/test-suites.v1.schema.json"
 PLATFORMS = ("linux", "macos", "windows", "wsl2")
 STEP_PLACEHOLDERS = {"python", "repo"}
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
@@ -119,6 +120,8 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
         raise ConfigurationError(f"cannot read registry {registry_path}: {error}") from error
     if not isinstance(payload, dict):
         raise ConfigurationError("registry root must be an object")
+    if payload.get("$schema") != SCHEMA_REF:
+        raise ConfigurationError(f"$schema must be {SCHEMA_REF!r}")
     if payload.get("schema_version") != 1:
         raise ConfigurationError("schema_version must be 1")
 

@@ -1,6 +1,7 @@
 {
+  "$schema": "./schemas/automation-test-inventory.v1.schema.json",
   "schema_version": 1,
-  "candidate_digest": "sha256:981192dcba3b7835b69cb39af157859f125b9081ca48bdf5aaad6a9f3694b23a",
+  "candidate_digest": "sha256:e0deedc5c797cba55406d131ce4f1e65b61002ccbb38f0e3e31fbda58ca86190",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -66,8 +67,8 @@
       "risk": "low",
       "side_effects": ["none"],
       "test_layers": ["provenance"],
-      "coverage": {"suite_id": null, "status": "planned", "work_item": "dots-4jy.10.1.4", "test_paths": []},
-      "rationale": "Archived scripts are retained for history and are not active automation."
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py"]},
+      "rationale": "The provenance suite proves archived scripts remain classified and absent from behavioral suites."
     },
     {
       "id": "audit-tools",
@@ -213,8 +214,8 @@
       "risk": "medium",
       "side_effects": ["filesystem", "installer", "network", "process"],
       "test_layers": ["provenance", "render"],
-      "coverage": {"suite_id": null, "status": "planned", "work_item": "dots-4jy.10.1.4", "test_paths": []},
-      "rationale": "Generated copies are tested through their canonical sources and provenance workflow, not edited as independent implementations."
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_promptfoo_runtime.py"]},
+      "rationale": "Generated copies are checked against their canonical manifests and template chains rather than tested as independent implementations."
     },
     {
       "id": "git-hooks",
@@ -313,8 +314,21 @@
       "risk": "high",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["provenance"],
-      "coverage": {"suite_id": null, "status": "planned", "work_item": "dots-4jy.10.1.4", "test_paths": []},
-      "rationale": "Container copies are mirrors of host-owned sources and require provenance checks rather than duplicate behavioral suites."
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py"]},
+      "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules rather than duplicate behavioral suites."
+    },
+    {
+      "id": "provenance-policy",
+      "classification": "owned",
+      "paths": ["assets/check-automation-provenance.py"],
+      "owner": {"kind": "repository", "name": "automation provenance policy and checker"},
+      "languages": ["python"],
+      "platforms": ["devcontainer", "linux", "macos", "windows", "wsl2"],
+      "risk": "high",
+      "side_effects": ["none"],
+      "test_layers": ["contract", "provenance", "unit"],
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_config_contracts.py"]},
+      "rationale": "Fixture tests cover authority derivation, exact divergence locks, mirror drift, and behavioral-suite exclusions."
     },
     {
       "id": "repo-opencode-plugins",
@@ -369,8 +383,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "sync-tooling", "status": "planned", "work_item": "dots-4jy.10.2.4", "test_paths": []},
-      "rationale": "Render, mirror, statusline, and workspace override synchronization need deterministic fixtures."
+      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py"]},
+      "rationale": "Mirror and statusline provenance contracts are covered; render and workspace synchronization behavior remains planned."
     },
     {
       "id": "test-foundation",
@@ -432,8 +446,8 @@
       "risk": "medium",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["provenance"],
-      "coverage": {"suite_id": null, "status": "planned", "work_item": "dots-4jy.10.1.4", "test_paths": []},
-      "rationale": "These copies remain upstream-derived and need source/provenance checks rather than repository-owned behavioral coverage."
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py"]},
+      "rationale": "Local parity, version markers, entrypoints, and integrity locks cover provenance without duplicating upstream behavioral suites."
     },
     {
       "id": "windows-shell",

@@ -18,6 +18,7 @@ from typing import Any
 CLASSIFICATIONS = frozenset(
     {"archived", "excluded", "generated", "mirrored", "owned", "vendored-upstream"}
 )
+SCHEMA_REF = "./schemas/automation-test-inventory.v1.schema.json"
 COVERAGE_STATUSES = frozenset({"covered", "not-applicable", "partial", "planned"})
 LANGUAGES = frozenset(
     {
@@ -303,6 +304,8 @@ def check_repository(repo_root: Path, manifest_path: Path | None = None) -> Chec
         return CheckResult((f"{selected_manifest}: {error}",), candidates, ())
     if not isinstance(manifest, dict):
         return CheckResult((f"{selected_manifest}: manifest root must be an object",), candidates, ())
+    if manifest.get("$schema") != SCHEMA_REF:
+        errors.append(f"{selected_manifest}: $schema must be {SCHEMA_REF!r}")
     if manifest.get("schema_version") != 1:
         errors.append(f"{selected_manifest}: schema_version must be 1")
     expected_digest = manifest.get("candidate_digest")

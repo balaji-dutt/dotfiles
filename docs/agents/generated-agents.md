@@ -30,36 +30,26 @@ the banner sits below the frontmatter, so a partial read of the first few lines
 will miss it. (The OpenCode renders have no frontmatter and open with the banner
 on line 1.)
 
-**Only agents carry a banner.** The 40 generated *skill* files have no marking
-at all. For those the manifest is the only signal — see below.
+**Only agents carry a banner.** Generated *skill* files have no marking at all.
+For those the manifest is the only signal — see below.
 
 ## The manifest is authoritative
 
 `.agentic-tooling/generated-manifest.json` (`schemaVersion: 1`, `shape:
-chezmoi`, platforms `claude` and `opencode`) is the real list: 44 entries, of
-which 4 are agents and 40 are skills. Each entry records the source path, its
-`sourceDigest`, and a `digest` for the rendered output file. Only the 4 agent
-entries have a `.yaml` source; the 40 skill entries are copied from `.md`,
-`.sh`, and `.ps1` files.
+chezmoi`, platforms `claude` and `opencode`) is the real list. Each entry records
+the source path, its `sourceDigest`, and a `digest` for the rendered output file.
+Agent entries have a `.yaml` source; skill entries are copied from `.md`, `.sh`,
+and `.ps1` files.
 
-Check any file against it before hand-editing, from the repo root:
+Check the complete manifest and accepted local exceptions before hand-editing,
+from the repo root:
 
 ```sh
-python3 -c "
-import json, hashlib, os
-d = json.load(open('.agentic-tooling/generated-manifest.json'))
-for f in d['files']:
-    if not os.path.exists(f['path']):
-        print('MISSING', f['kind'], f['path'])
-        continue
-    h = 'sha256:' + hashlib.sha256(open(f['path'], 'rb').read()).hexdigest()
-    if h != f.get('digest'):
-        print('DRIFTED', f['kind'], f['path'])
-"
+python3 assets/check-automation-provenance.py
 ```
 
-As of 2026-08-02 that reports exactly two drifted entries, both expected — see
-"Accepted divergence" below.
+The exact accepted digests, required local markers, and rationales live in
+`configs/automation-provenance.json`; see "Accepted divergence" below.
 
 ## Agents
 
@@ -220,5 +210,8 @@ other two.
 
 - `docs/devcontainers.md` — the container-dotfiles mirror these agents sync into
 - `configs/devcontainer-sync.jsonc` — the mirror manifest
+- `configs/automation-provenance.json` — exact local divergence policy
+- `docs/inventory/automation-provenance.md` — generated, mirror, and vendored
+  verification contract
 - `docs/automation/claude-permissions.md` — the Claude tool-name vocabulary
   these `tools:` lines draw from

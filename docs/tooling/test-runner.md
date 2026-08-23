@@ -79,7 +79,8 @@ by the runner.
 - `fast`: deterministic policy, guard, runner, fixture, and hook tests.
 - `integration`: isolated Git, worktree, subprocess, sync, and runtime tests.
 - `render`: shell, profile, hook, and template rendering tests.
-- `provenance`: inventory and generated/runtime drift tests.
+- `provenance`: inventory, config-contract, generated, mirror, and runtime drift
+  tests.
 - `platform`: native and shell-specific behavior for the current host.
 
 The registry is `configs/test-suites.json`. Every step has a stable `id`, one or
@@ -179,4 +180,5 @@ test module rather than growing the shared file into a second test framework.
    automation inventory and review its candidate digest.
 
 The current GitLab lanes, artifacts, rules, and platform gaps are documented in
-`docs/tooling/continuous-integration.md`.
+`docs/tooling/continuous-integration.md`. Provenance authorities and accepted
+divergences are documented in `docs/inventory/automation-provenance.md`.

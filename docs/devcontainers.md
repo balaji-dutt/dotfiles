@@ -41,6 +41,13 @@ hand-edit the generated container copy. Host bin wrappers are mirrored only when
 explicitly listed in the manifest; `ai-wt` uses this selective mirror so
 container-specific wrappers can continue to diverge when needed.
 
+`assets/check-automation-provenance.py` applies the same manifest include and
+exclude rules to Git-tracked paths and verifies mirror bytes, executable modes,
+symlink targets, and cleanup-managed stale targets. Run it after synchronization
+or use the canonical `provenance` test suite. Ignored and untracked files are not
+part of committed mirror provenance. See
+`docs/inventory/automation-provenance.md`.
+
 ## homelab-IaC: package pins
 
 Shared container-dotfiles config and generated inputs live under:
