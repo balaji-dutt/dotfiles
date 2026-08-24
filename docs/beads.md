@@ -129,9 +129,39 @@ do not use the `winget` PowerShell function — it re-exports and commits the
 winget manifest. Use `pwsh -NoProfile` with `winget.exe`, or Settings →
 Installed apps.
 
-Keep `bd` at the **same minor version** across machines. Different builds of the
-same version string are fine, but a machine on an older minor that targets a
-lower Dolt schema cannot read a migrated remote.
+Keep every host aligned to the shared `beads_version` pin after a rollout, but
+do not use the semver minor as a proxy for schema compatibility. Check the
+release's target schema and migration notes before upgrading. A temporary
+mixed-version fleet is safe only after that check: `bd` 1.1.2 and 1.2.2 both
+targeted schema v53 and interoperated during the 1.2.2 rollout. Equal schemas do
+not make two releases behaviorally identical; 1.2.2 still changed Dolt port
+selection and required the per-checkout pin described under **Architecture**.
+
+### Upgrade rollout prerequisites
+
+Pull the current dotfiles source on each host before applying it. Native Windows
+uses its own checkout, so run the update from that checkout before moving the
+Winget pin:
+
+```powershell
+Set-Location 'F:\Balaji\Development\dotfiles'
+git pull
+chezmoi apply
+winget.exe upgrade --id GasTownHall.Beads --exact --source winget
+bd.exe version
+```
+
+The always-run `run_after_windows-beads-pin.ps1.tmpl` hook reads
+`beads_version` from that checkout. Applying stale source reasserts the old
+Gating pin and leaves the new package version blocked. The hook manages only the
+pin; the Winget install, upgrade, or downgrade remains manual.
+
+On macOS, run this repo's `chezmoi apply` from a local desktop session with
+1Password unlocked and desktop-app integration available. An SSH session cannot
+complete the apply: rendering `.config/opencode/opencode.env` invokes the
+1Password CLI, which aborts when it cannot use the desktop app integration.
+Remote sessions can still pull the source and run checks that do not render
+secret-backed templates.
 
 ### Anonymous usage metrics
 
@@ -468,7 +498,8 @@ Upgrade flow across all machines:
    clone cannot upgrade in place) — see the recovery section below, since a
    pre-existing clone will hit `database exists`. The native Windows client is
    not a clone: it reads the WSL2 peer's database, so it has nothing of its own
-   to migrate. Keep its `bd.exe` on the same minor version as the host anyway.
+   to migrate. During rollout, use only a `bd.exe` version verified to target
+   the host's schema, then align it to the shared `beads_version` pin.
 
 ## Recovery
 
@@ -1049,8 +1080,8 @@ mv .beads/dolt/dots/.dolt/git-remote-cache ~/dots-git-remote-cache-$(date +%Y%m%
 If push is still rejected on `main -> main` with a fresh mirror, suspect a dolt
 version skew between peers — the remote carries both `refs/heads/main` and
 `refs/heads/__dolt_remote_info__`, and builds differ in which one they write.
-Compare `dolt version` across machines against `dolt_version` in
-`.chezmoidata.yaml` (currently `2.2.4`). That theory is **unconfirmed**: on
+Compare `dolt version` across machines against the `dolt_version` pin in
+`.chezmoidata.yaml`. That theory is **unconfirmed**: on
 2026-08-08 the mirror reset alone fixed both directions on dolt 2.2.1, so it was
 never tested. Since 2026-08-15 both tools are pinned from that one file and
 neither is Homebrew-managed, so the drift the theory depends on should no longer
@@ -1068,8 +1099,8 @@ verdict are kept in
 
 Both halves of this are reported upstream and **both issues are closed with no
 documented fix**. Last confirmed to reproduce on `bd` 1.1.0 / dolt 2.2.1; not
-re-tested against the current pin (`bd` 1.1.2 / dolt 2.2.4 in
-`.chezmoidata.yaml`), and `beads-sync pull` still assumes it is present:
+re-tested against the versions currently pinned in `.chezmoidata.yaml`, and
+`beads-sync pull` still assumes it is present:
 
 - [dolt#7973](https://github.com/dolthub/dolt/issues/7973) — `dolt pull` fails in
   the presence of ignored tables. This is the root cause: `dolt_ignore` suppresses
@@ -1105,7 +1136,9 @@ bd import /mnt/devdrive/beads-snapshots/dots/<machine>/<snapshot>.jsonl
 ### Import behavior verified on bd 1.1.2
 
 An isolated disposable-repo test on 2026-08-10 used `bd version 1.1.2`
-(`20e493e56`) and exercised scalar fields, labels, comments, and dependencies:
+(`20e493e56`) and exercised scalar fields, labels, comments, and dependencies.
+These results remain in the live runbook because 1.2.2 was cut from the 1.1.2
+code line and the current recovery procedure depends on these import semantics:
 
 - An older incoming row was reported in `stale_skipped_ids`. Newer local scalar
   fields and local collections survived; collections from that stale row did
