@@ -94,6 +94,7 @@
           "executable_aoe-notify.tmpl",
           "executable_ai-wt.tmpl",
           "executable_cc-commit",
+          "executable_claude-token-check",
           "executable_oc-commit"
         ],
         "exclude": []

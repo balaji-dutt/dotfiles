@@ -67,6 +67,13 @@
       "covers": ["tests/test_check_beads_release_notes.py"]
     },
     {
+      "id": "claude-token-check",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_claude_token_check"],
+      "covers": ["tests/test_claude_token_check.py"],
+      "requires": ["bash"]
+    },
+    {
       "id": "codebase-memory-installer-powershell",
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_codebase_memory_mcp_installer_windows"],

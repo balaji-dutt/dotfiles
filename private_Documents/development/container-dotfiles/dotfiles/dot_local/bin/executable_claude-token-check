@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+# Preflight check for whether Anthropic will still accept the local Claude
+# credential, so an expired login surfaces before a session starts rather than
+# as a mid-work `Run /login` prompt.
+#
+# `claude auth status` alone only reads local state and cannot tell whether the
+# server still honours the credential, so this also probes the OAuth usage
+# endpoint. Exit 2 means "could not determine" and is deliberately distinct from
+# exit 1 "credential rejected"; a rate-limited or unreachable endpoint must
+# never be reported as a dead token.
+#
+# The usage endpoint is undocumented and discovered from @slkiser/opencode-quota.
+# If it changes shape or disappears, degrade to exit 2, never to exit 1.
+set -Eeuo pipefail
+
+readonly PROGRAM_NAME=claude-token-check
+readonly USAGE_URL="https://api.anthropic.com/api/oauth/usage"
+readonly OAUTH_BETA_HEADER="oauth-2025-04-20"
+readonly KEYCHAIN_SERVICE="Claude Code-credentials"
+readonly CREDENTIAL_TIMEOUT_SECONDS=3
+readonly REQUEST_TIMEOUT_SECONDS=10
+
+readonly EXIT_VALID=0
+readonly EXIT_INVALID=1
+readonly EXIT_INDETERMINATE=2
+
+debug_enabled=0
+
+note() {
+  printf '%s: %s\n' "$PROGRAM_NAME" "$*" >&2
+}
+
+debug() {
+  ((debug_enabled)) || return 0
+  printf '%s: debug: %s\n' "$PROGRAM_NAME" "$*" >&2
+}
+
+usage() {
+  cat <<'EOF'
+usage: claude-token-check [--debug] [--help]
+
+Reports whether the local Claude credential is still accepted by Anthropic.
+
+  --debug   Print the credential source and a truncated fingerprint. Never
+            prints token material.
+
+Exit codes:
+  0  Valid; the usage endpoint accepted the credential.
+  1  Invalid; run `claude auth login`.
+  2  Indeterminate; no credential found, or the endpoint could not be reached.
+EOF
+}
+
+resolve_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    printf 'python3\n'
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1 \
+    && python -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    printf 'python\n'
+    return 0
+  fi
+  return 1
+}
+
+# Reads `claude auth status --json` and echoes true, false, or unknown.
+# Upstream treats the JSON field as authoritative and only falls back to the
+# exit code, so this does the same.
+local_auth_state() {
+  local python_bin=$1 output
+
+  command -v claude >/dev/null 2>&1 || {
+    printf 'unknown\n'
+    return 0
+  }
+
+  if ! output=$(claude auth status --json 2>/dev/null); then
+    printf 'unknown\n'
+    return 0
+  fi
+
+  printf '%s' "$output" | "$python_bin" -c '
+import json, sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    print("unknown")
+    sys.exit(0)
+
+if not isinstance(payload, dict):
+    print("unknown")
+    sys.exit(0)
+
+for key in ("authenticated", "isAuthenticated", "loggedIn"):
+    value = payload.get(key)
+    if isinstance(value, bool):
+        print("true" if value else "false")
+        sys.exit(0)
+
+print("unknown")
+' 2>/dev/null || printf 'unknown\n'
+}
+
+# Echoes "<source>\t<fingerprint>\t<token>", or "none\t\t" when nothing usable
+# is found. Discovery order matches the upstream plugin: OpenCode's own
+# auth.json, then the macOS Keychain, then the Claude credentials file.
+discover_credential() {
+  local python_bin=$1
+
+  "$python_bin" - "$KEYCHAIN_SERVICE" "$CREDENTIAL_TIMEOUT_SECONDS" <<'PY'
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+keychain_service = sys.argv[1]
+timeout_seconds = float(sys.argv[2])
+home = Path(os.path.expanduser("~"))
+
+
+def fingerprint(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+
+
+def emit(source, token):
+    sys.stdout.write("{}\t{}\t{}\n".format(source, fingerprint(token), token))
+    sys.exit(0)
+
+
+def token_from_object(value):
+    """Accept the credential shapes the upstream plugin accepts."""
+    if not isinstance(value, dict):
+        return None
+    for candidate in (value.get("claudeAiOauth"), value.get("oauth"), value):
+        if not isinstance(candidate, dict):
+            continue
+        for key in ("accessToken", "access_token", "token"):
+            token = candidate.get(key)
+            if isinstance(token, str) and token.strip():
+                return token.strip()
+    return None
+
+
+def opencode_data_dirs():
+    dirs = []
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        dirs.append(Path(xdg) / "opencode")
+    dirs.append(home / ".local" / "share" / "opencode")
+    if sys.platform == "darwin":
+        dirs.append(home / "Library" / "Application Support" / "opencode")
+    return dirs
+
+
+def try_opencode():
+    for directory in opencode_data_dirs():
+        try:
+            payload = json.loads((directory / "auth.json").read_text("utf-8"))
+        except Exception:
+            continue
+        entry = payload.get("anthropic") if isinstance(payload, dict) else None
+        if not isinstance(entry, dict) or entry.get("type") != "oauth":
+            continue
+        token = entry.get("access")
+        if not isinstance(token, str) or not token.strip():
+            continue
+        expires = entry.get("expires")
+        if isinstance(expires, (int, float)) and expires <= time.time() * 1000:
+            continue
+        emit("opencode", token.strip())
+
+
+def try_keychain():
+    if sys.platform != "darwin":
+        return
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", keychain_service, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        return
+    if result.returncode != 0:
+        return
+    payload = result.stdout.strip()
+    if not payload:
+        return
+    try:
+        parsed = json.loads(payload)
+    except ValueError:
+        emit("keychain", payload)
+        return
+    if isinstance(parsed, str) and parsed.strip():
+        emit("keychain", parsed.strip())
+    token = token_from_object(parsed)
+    if token:
+        emit("keychain", token)
+
+
+def try_credentials_file():
+    try:
+        parsed = json.loads((home / ".claude" / ".credentials.json").read_text("utf-8"))
+    except Exception:
+        return
+    token = token_from_object(parsed)
+    if token:
+        emit("credentials-file", token)
+
+
+try_opencode()
+try_keychain()
+try_credentials_file()
+sys.stdout.write("none\t\t\n")
+PY
+}
+
+# Echoes the HTTP status, or 000 when the request never completed. The token is
+# passed through a curl config on stdin so it never appears in the process list.
+probe_usage_endpoint() {
+  local token=$1 response
+
+  command -v curl >/dev/null 2>&1 || {
+    printf '000\n'
+    return 0
+  }
+
+  response=$(
+    printf 'url = "%s"\nheader = "Authorization: Bearer %s"\nheader = "anthropic-beta: %s"\n' \
+      "$USAGE_URL" "$token" "$OAUTH_BETA_HEADER" \
+      | curl --config - \
+        --silent \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        --connect-timeout "$REQUEST_TIMEOUT_SECONDS" \
+        --max-time "$REQUEST_TIMEOUT_SECONDS" \
+        2>/dev/null
+  ) || response=""
+
+  printf '%s\n' "${response:-000}"
+}
+
+main() {
+  local python_bin auth_state discovery source fingerprint token status
+
+  while (($#)); do
+    case $1 in
+      --debug) debug_enabled=1 ;;
+      -h | --help | help)
+        usage
+        return 0
+        ;;
+      *)
+        note "unknown argument: $1"
+        usage >&2
+        return "$EXIT_INDETERMINATE"
+        ;;
+    esac
+    shift
+  done
+
+  if ! python_bin=$(resolve_python); then
+    note 'Python 3 was not found; cannot inspect credentials'
+    return "$EXIT_INDETERMINATE"
+  fi
+
+  auth_state=$(local_auth_state "$python_bin")
+  debug "local auth state: $auth_state"
+
+  if [[ $auth_state == false ]]; then
+    printf 'INVALID: Claude reports no active login. Run `claude auth login`.\n'
+    return "$EXIT_INVALID"
+  fi
+
+  discovery=$(discover_credential "$python_bin") || discovery=""
+  source=""
+  fingerprint=""
+  token=""
+  IFS=$'\t' read -r source fingerprint token <<<"$discovery" || true
+
+  if [[ -z ${source:-} || $source == none || -z ${token:-} ]]; then
+    note 'no usable OAuth credential found in OpenCode, Keychain, or the credentials file'
+    printf 'INDETERMINATE: no credential available to verify.\n'
+    return "$EXIT_INDETERMINATE"
+  fi
+
+  debug "credential source: $source (fingerprint ${fingerprint})"
+
+  status=$(probe_usage_endpoint "$token")
+  debug "usage endpoint status: $status"
+
+  case $status in
+    200)
+      printf 'VALID: credential accepted by Anthropic (source: %s).\n' "$source"
+      return "$EXIT_VALID"
+      ;;
+    401 | 403)
+      printf 'INVALID: Anthropic rejected the credential (HTTP %s). Run `claude auth login`.\n' "$status"
+      return "$EXIT_INVALID"
+      ;;
+    000)
+      note 'the usage endpoint could not be reached'
+      printf 'INDETERMINATE: no response from the usage endpoint.\n'
+      return "$EXIT_INDETERMINATE"
+      ;;
+    *)
+      note "unexpected status from the usage endpoint: $status"
+      printf 'INDETERMINATE: usage endpoint returned HTTP %s.\n' "$status"
+      return "$EXIT_INDETERMINATE"
+      ;;
+  esac
+}
+
+main "$@"

@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:b10073674069adb116548c4c365792bd0230bffb8926ca7919dabe560c80bc9d",
+  "candidate_digest": "sha256:a0607e979d9190cddb0a75f421cae2babf2a896b8f56ed9e50bda76514b3ab0a",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -222,6 +222,19 @@
       "rationale": "The reminder hook has coverage; the shared review-gate paths remain planned."
     },
     {
+      "id": "claude-token-check",
+      "classification": "owned",
+      "paths": ["bin/executable_claude-token-check"],
+      "owner": {"kind": "repository", "name": "Claude credential preflight check"},
+      "languages": ["bash", "python"],
+      "platforms": ["devcontainer", "linux", "macos", "wsl2"],
+      "risk": "high",
+      "side_effects": ["network", "process", "secrets"],
+      "test_layers": ["contract", "unit"],
+      "coverage": {"suite_id": "claude-token-check", "status": "covered", "work_item": "dots-9hoc", "test_paths": ["tests/test_claude_token_check.py"], "behavior_requirements": []},
+      "rationale": "The suite stubs the CLI, Keychain, and network to cover exit-code mapping, discovery precedence, and token non-disclosure. Keychain discovery is macOS-gated and skips elsewhere."
+    },
+    {
       "id": "devcontainer-runtime",
       "classification": "owned",
       "paths": [
@@ -424,6 +437,7 @@
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_aoe-notify.tmpl",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_cc-commit",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_claude-plannotator.tmpl",
+        "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_claude-token-check",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_oc-commit",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-plannotator-custom.tmpl",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-plannotator.tmpl",
