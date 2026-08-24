@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -15,49 +16,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "bin" / "executable_opencode-notifier-bridge"
 
-DIRECT_OWNER = """
-import subprocess
-import sys
-
-process = subprocess.Popen(sys.argv[1:], start_new_session=True)
-raise SystemExit(process.wait())
-"""
-
-INTERMEDIARY_OWNER = f"""
-import os
-import subprocess
-import sys
-
-code = {DIRECT_OWNER!r}
-command = [os.environ["PYTHON_EXECUTABLE"], "-c", code, *sys.argv[1:]]
-raise SystemExit(subprocess.run(command, check=False).returncode)
-"""
-
 
 class OpenCodeNotifierBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        if shutil.which("bash") is None or shutil.which("ps") is None:
-            raise unittest.SkipTest("bash and ps are required")
-
-        probe = subprocess.run(
-            [
-                "ps",
-                "-o",
-                "ppid=",
-                "-o",
-                "comm=",
-                "-o",
-                "args=",
-                "-p",
-                str(os.getpid()),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if probe.returncode != 0:
-            raise unittest.SkipTest("ps does not support the required fields")
+        if shutil.which("bash") is None:
+            raise unittest.SkipTest("bash is required")
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -74,6 +38,25 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self._write_executable(
             "terminal-notifier",
             "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$NOTIFIER_LOG\"\n",
+        )
+        self._write_executable(
+            "ps",
+            f"#!{sys.executable}\n"
+            "import json\n"
+            "import os\n"
+            "import sys\n"
+            "\n"
+            "if len(sys.argv) != 5 or sys.argv[1] != '-o' or sys.argv[3] != '-p':\n"
+            "    raise SystemExit(1)\n"
+            "field = sys.argv[2].rstrip('=')\n"
+            "if field not in {'ppid', 'comm', 'args'}:\n"
+            "    raise SystemExit(1)\n"
+            "try:\n"
+            "    table = json.loads(os.environ['FAKE_PROCESS_TABLE'])\n"
+            "    value = table[sys.argv[4]][field]\n"
+            "except (KeyError, TypeError, ValueError):\n"
+            "    raise SystemExit(1)\n"
+            "print(value)\n",
         )
 
     def _write_executable(self, name: str, content: str) -> None:
@@ -97,11 +80,29 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
             {
                 "NOTIFIER_LOG": str(self.notifier_log),
                 "PATH": f"{self.fake_bin}{os.pathsep}{env['PATH']}",
-                "PYTHON_EXECUTABLE": sys.executable,
             }
         )
         if extra_env:
             env.update(extra_env)
+
+        owner_pid = str(os.getpid())
+        opencode_process = {
+            "ppid": "1",
+            "comm": "/opt/homebrew/bin/opencode",
+            "args": " ".join(("/opt/homebrew/bin/opencode", *owner_args)),
+        }
+        process_table = {owner_pid: opencode_process}
+        if intermediary:
+            opencode_pid = str(os.getpid() + 1_000_000)
+            process_table = {
+                owner_pid: {
+                    "ppid": opencode_pid,
+                    "comm": sys.executable,
+                    "args": f"{sys.executable} -c intermediary",
+                },
+                opencode_pid: opencode_process,
+            }
+        env["FAKE_PROCESS_TABLE"] = json.dumps(process_table)
 
         bridge_args = [
             "bash",
@@ -113,11 +114,8 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
             "--event",
             event,
         ]
-        owner_code = INTERMEDIARY_OWNER if intermediary else DIRECT_OWNER
-        command = ["opencode", "-c", owner_code, *bridge_args, *owner_args]
         return subprocess.run(
-            command,
-            executable=sys.executable,
+            bridge_args,
             env=env,
             check=False,
             capture_output=True,
