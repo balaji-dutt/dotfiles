@@ -1,73 +1,220 @@
 from __future__ import annotations
 
 import json
+import runpy
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS = REPO_ROOT / "configs"
+LOAD_JSON = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
 CONTRACTS = {
-    "automation-provenance.json": (
-        "schemas/automation-provenance.v1.schema.json",
-        "assets/check-automation-provenance.py",
-        1,
-    ),
-    "automation-test-inventory.json": (
-        "schemas/automation-test-inventory.v2.schema.json",
-        "assets/check-automation-test-inventory.py",
-        2,
-    ),
-    "gitlab-pipeline-guard.json": (
-        "schemas/gitlab-pipeline-guard.v1.schema.json",
-        "assets/check-gitlab-pipeline.py",
-        1,
-    ),
-    "test-suites.json": (
-        "schemas/test-suites.v1.schema.json",
-        "assets/run-tests.py",
-        1,
-    ),
+    "automation-provenance.json": {
+        "schema": "schemas/automation-provenance.v1.schema.json",
+        "ref": "./schemas/automation-provenance.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/check-automation-provenance.py",),
+    },
+    "automation-test-inventory.json": {
+        "schema": "schemas/automation-test-inventory.v2.schema.json",
+        "ref": "./schemas/automation-test-inventory.v2.schema.json",
+        "version": 2,
+        "consumers": ("assets/check-automation-test-inventory.py",),
+    },
+    "gitlab-pipeline-guard.json": {
+        "schema": "schemas/gitlab-pipeline-guard.v1.schema.json",
+        "ref": "./schemas/gitlab-pipeline-guard.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/check-gitlab-pipeline.py",),
+    },
+    "test-suites.json": {
+        "schema": "schemas/test-suites.v1.schema.json",
+        "ref": "./schemas/test-suites.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/run-tests.py",),
+    },
+    "ai-tooling-support.json": {
+        "schema": "schemas/ai-tooling-support.v1.schema.json",
+        "ref": "./schemas/ai-tooling-support.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/check-ai-tooling.py",),
+    },
+    "claude-mcp.json": {
+        "schema": "schemas/claude-mcp.v1.schema.json",
+        "ref": "./schemas/claude-mcp.v1.schema.json",
+        "version": 1,
+        "consumers": (
+            "assets/check-ai-tooling.py",
+            "assets/claude-mcp-apply.py",
+            ".chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl",
+        ),
+    },
+    "devcontainer-sync.jsonc": {
+        "schema": "schemas/devcontainer-sync.v1.schema.json",
+        "ref": "./schemas/devcontainer-sync.v1.schema.json",
+        "version": 1,
+        "jsonc": True,
+        "consumers": (
+            "assets/check-automation-provenance.py",
+            "assets/sync-devcontainer-assets.sh",
+            "bin/executable_devcontainer-launch.tmpl",
+        ),
+    },
+    "host-ai-plugin-refresh.jsonc": {
+        "schema": "schemas/host-ai-plugin-refresh.v1.schema.json",
+        "ref": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+        "version": 1,
+        "jsonc": True,
+        "consumers": (
+            ".chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.sh.tmpl",
+            ".chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.ps1.tmpl",
+        ),
+    },
+    "browser-policies/justthebrowser/manifest.json": {
+        "schema": "schemas/justthebrowser-manifest.v1.schema.json",
+        "ref": "../../schemas/justthebrowser-manifest.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/sync-browser-policies.py",),
+    },
+    "plannotator-assets.json": {
+        "schema": "schemas/plannotator-assets.v1.schema.json",
+        "ref": "./schemas/plannotator-assets.v1.schema.json",
+        "version": 1,
+        "consumers": ("assets/sync-plannotator-assets.py",),
+    },
+}
+YAML_CONTRACTS = {
+    "packages.yaml": {
+        "schema": "schemas/packages.v1.schema.json",
+        "ref": "./schemas/packages.v1.schema.json",
+        "consumers": ("ansible/wsl-playbook.yml",),
+    }
 }
 RETAINED_SCHEMAS = {"schemas/automation-test-inventory.v1.schema.json"}
 
 
 class ConfigContractTests(unittest.TestCase):
     def test_instances_link_to_immutable_draft_2020_12_schemas(self) -> None:
-        for instance_name, (schema_name, _, version) in CONTRACTS.items():
+        for instance_name, contract in CONTRACTS.items():
             with self.subTest(instance=instance_name):
-                instance = json.loads((CONFIGS / instance_name).read_text(encoding="utf-8"))
-                schema = json.loads((CONFIGS / schema_name).read_text(encoding="utf-8"))
-                expected_ref = "./" + schema_name
-                self.assertEqual(instance["$schema"], expected_ref)
-                self.assertEqual(instance["schema_version"], version)
-                self.assertEqual(
-                    schema["$schema"], "https://json-schema.org/draft/2020-12/schema"
+                instance = LOAD_JSON(
+                    CONFIGS / instance_name, jsonc=contract.get("jsonc", False)
                 )
-                self.assertTrue(schema["$id"].endswith(f":v{version}"))
-                self.assertEqual(schema["type"], "object")
-                self.assertFalse(schema["additionalProperties"])
-                self.assertEqual(schema["properties"]["$schema"]["const"], expected_ref)
-                self.assertEqual(schema["properties"]["schema_version"]["const"], version)
+                schema = json.loads(
+                    (CONFIGS / contract["schema"]).read_text(encoding="utf-8")
+                )
+                self.assertEqual(instance["$schema"], contract["ref"])
+                self.assertEqual(instance["schema_version"], contract["version"])
+                self.assert_schema_metadata(schema, contract["version"])
+                self.assertEqual(
+                    schema["properties"]["$schema"]["const"], contract["ref"]
+                )
+                self.assertEqual(
+                    schema["properties"]["schema_version"]["const"],
+                    contract["version"],
+                )
+
+    def test_yaml_contract_uses_editor_association_without_ansible_variables(self) -> None:
+        for instance_name, contract in YAML_CONTRACTS.items():
+            with self.subTest(instance=instance_name):
+                text = (CONFIGS / instance_name).read_text(encoding="utf-8")
+                schema = json.loads(
+                    (CONFIGS / contract["schema"]).read_text(encoding="utf-8")
+                )
+                self.assertEqual(
+                    text.splitlines()[0],
+                    f"# yaml-language-server: $schema={contract['ref']}",
+                )
+                self.assertNotRegex(text, r"(?m)^schema_version:")
+                self.assert_schema_metadata(schema, 1)
+
+    def assert_schema_metadata(self, schema: dict, version: int) -> None:
+        self.assertEqual(
+            schema["$schema"], "https://json-schema.org/draft/2020-12/schema"
+        )
+        self.assertTrue(schema["$id"].endswith(f":v{version}"))
+        self.assertEqual(schema["type"], "object")
+        self.assertFalse(schema["additionalProperties"])
 
     def test_runtime_consumers_pin_the_same_schema_reference(self) -> None:
-        for instance_name, (schema_name, consumer_name, _) in CONTRACTS.items():
-            with self.subTest(instance=instance_name):
-                consumer = (REPO_ROOT / consumer_name).read_text(encoding="utf-8")
-                self.assertIn(f'SCHEMA_REF = "./{schema_name}"', consumer)
+        for instance_name, contract in CONTRACTS.items():
+            for consumer_name in contract["consumers"]:
+                with self.subTest(instance=instance_name, consumer=consumer_name):
+                    consumer = (REPO_ROOT / consumer_name).read_text(encoding="utf-8")
+                    self.assertIn(contract["ref"], consumer)
 
-    def test_contract_catalog_lists_every_managed_instance_and_schema(self) -> None:
+    def test_contract_catalog_lists_every_managed_instance_schema_and_consumer(self) -> None:
         catalog = (REPO_ROOT / "docs/tooling/config-contracts.md").read_text(
             encoding="utf-8"
         )
-        for instance_name, (schema_name, consumer_name, _) in CONTRACTS.items():
+        for instance_name, contract in {**CONTRACTS, **YAML_CONTRACTS}.items():
             with self.subTest(instance=instance_name):
                 self.assertIn(f"`configs/{instance_name}`", catalog)
-                self.assertIn(f"`configs/{schema_name}`", catalog)
-                self.assertIn(f"`{consumer_name}`", catalog)
+                self.assertIn(f"`configs/{contract['schema']}`", catalog)
+                for consumer_name in contract["consumers"]:
+                    self.assertIn(f"`{consumer_name}`", catalog)
+
+    def test_catalog_records_migration_and_validator_decisions(self) -> None:
+        catalog = (REPO_ROOT / "docs/tooling/config-contracts.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("first formal version", catalog)
+        self.assertIn("Breaking changes", catalog)
+        self.assertIn("check-jsonschema", catalog)
+        self.assertIn("SourceMeta", catalog)
+        self.assertIn("Structural schemas", catalog)
+
+    def test_derived_manifest_fields_are_not_stored(self) -> None:
+        for instance_name in (
+            "browser-policies/justthebrowser/manifest.json",
+            "plannotator-assets.json",
+        ):
+            with self.subTest(instance=instance_name):
+                instance = json.loads((CONFIGS / instance_name).read_text(encoding="utf-8"))
+                upstream = instance["upstream"]
+                self.assertNotIn("release_url", upstream)
+                self.assertNotIn("source_base_url", upstream)
+        plannotator = json.loads(
+            (CONFIGS / "plannotator-assets.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn("version", plannotator["upstream"])
+
+        renovate = (REPO_ROOT / "renovate.json5").read_text(encoding="utf-8")
+        browser_manager = renovate.split(
+            '"depNameTemplate": "corbindavenport/just-the-browser"', 1
+        )[1].split("    },", 1)[0]
+        self.assertIn("currentValue", browser_manager)
+        self.assertIn("autoReplaceStringTemplate", browser_manager)
+        self.assertNotIn("release_url", browser_manager)
+        self.assertNotIn("source_base_url", browser_manager)
+
+    def test_manifest_source_urls_are_derived_from_the_authoritative_pins(self) -> None:
+        browser = runpy.run_path(str(REPO_ROOT / "assets/sync-browser-policies.py"))
+        browser_manifest = json.loads(
+            (CONFIGS / "browser-policies/justthebrowser/manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        browser_version = browser_manifest["upstream"]["version"]
+        self.assertEqual(
+            browser["expected_source_base_url"](browser_version),
+            f"https://raw.githubusercontent.com/corbindavenport/just-the-browser/{browser_version}/",
+        )
+
+        plannotator_sync = runpy.run_path(
+            str(REPO_ROOT / "assets/sync-plannotator-assets.py")
+        )
+        pinned_version = plannotator_sync["pinned_version"](REPO_ROOT)
+        self.assertEqual(
+            plannotator_sync["expected_source_base_url"](pinned_version),
+            f"https://raw.githubusercontent.com/backnotprop/plannotator/{pinned_version}/",
+        )
 
     def test_schema_directory_contains_only_cataloged_versioned_contracts(self) -> None:
-        expected = {schema for schema, _, _ in CONTRACTS.values()} | RETAINED_SCHEMAS
+        expected = {
+            contract["schema"] for contract in (*CONTRACTS.values(), *YAML_CONTRACTS.values())
+        } | RETAINED_SCHEMAS
         actual = {
             path.relative_to(CONFIGS).as_posix()
             for path in (CONFIGS / "schemas").glob("*.schema.json")

@@ -6,6 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $ConfigPath = Join-Path "{{ .chezmoi.sourceDir }}" "configs\claude-mcp.json"
+$SchemaRef = "./schemas/claude-mcp.v1.schema.json"
 $CurrentPlatform = "windows"
 
 $ClaudeCommand = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue |
@@ -101,6 +102,15 @@ try {
   $config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
 } catch {
   Write-Host "ERROR: Invalid Claude MCP JSON config: $($_.Exception.Message)"
+  exit 1
+}
+
+if ((Get-JsonProperty $config '$schema') -cne $SchemaRef) {
+  Write-Host "ERROR: Claude MCP config `$schema must be '$SchemaRef'."
+  exit 1
+}
+if ((Get-JsonProperty $config "schema_version") -ne 1) {
+  Write-Host "ERROR: Claude MCP config schema_version must be 1."
   exit 1
 }
 

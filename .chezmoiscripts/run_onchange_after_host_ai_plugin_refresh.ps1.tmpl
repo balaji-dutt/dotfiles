@@ -6,6 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $ConfigPath = Join-Path '{{ .chezmoi.sourceDir }}' 'configs\host-ai-plugin-refresh.jsonc'
+$SchemaRef = './schemas/host-ai-plugin-refresh.v1.schema.json'
 # Read at runtime rather than via `include` so this script's text - and therefore
 # the onchange trigger above - stays keyed to the manifest alone. Including
 # settings-base.json here would re-run the whole refresh, package-cache removal
@@ -1160,6 +1161,15 @@ function Invoke-HostAiPluginRefresh {
     $manifest = ConvertFrom-JsoncText -Text (Get-Content -Raw -LiteralPath $ConfigPath)
   } catch {
     Write-Host "ERROR: Invalid host AI plugin refresh JSONC: $($_.Exception.Message)"
+    return 1
+  }
+
+  if ((Get-JsonProperty $manifest '$schema') -cne $SchemaRef) {
+    Write-Host "ERROR: Host AI plugin refresh `$schema must be '$SchemaRef'."
+    return 1
+  }
+  if ((Get-JsonProperty $manifest 'schema_version') -ne 1) {
+    Write-Host "ERROR: Host AI plugin refresh schema_version must be 1."
     return 1
   }
 

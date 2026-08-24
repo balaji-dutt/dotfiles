@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:devcontainer-sync:v1",
+  "title": "Devcontainer synchronization policy v1",
+  "description": "Host-to-container mirrors, derived artifacts, renders, and launch metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "devcontainers", "schema_version", "shared"],
+  "properties": {
+    "$schema": {"const": "./schemas/devcontainer-sync.v1.schema.json"},
+    "schema_version": {"const": 1},
+    "shared": {"$ref": "#/$defs/syncSet"},
+    "devcontainers": {"type": "object", "additionalProperties": {"$ref": "#/$defs/devcontainer"}}
+  },
+  "$defs": {
+    "path": {"type": "string", "minLength": 1},
+    "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+    "mirror": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cleanup_managed", "exclude", "include", "name", "source_root", "target_root"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "source_root": {"$ref": "#/$defs/path"},
+        "target_root": {"$ref": "#/$defs/path"},
+        "cleanup_managed": {"type": "boolean"},
+        "include": {"$ref": "#/$defs/paths"},
+        "exclude": {"$ref": "#/$defs/paths"}
+      }
+    },
+    "render": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1}
+      }
+    },
+    "syncSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["derived", "mirrors", "renders"],
+      "properties": {
+        "mirrors": {"type": "array", "items": {"$ref": "#/$defs/mirror"}},
+        "derived": {"type": "array", "maxItems": 0},
+        "renders": {"type": "array", "items": {"$ref": "#/$defs/render"}}
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "workspace_folder"],
+      "properties": {
+        "workspace_folder": {"type": "string", "minLength": 1},
+        "config": {"type": "string", "minLength": 1}
+      }
+    },
+    "launcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aliases", "display_name", "enabled", "env_prefix", "platforms", "shell"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "display_name": {"type": "string", "minLength": 1},
+        "aliases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "env_prefix": {"type": "string", "minLength": 1},
+        "shell": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "platforms": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/platform"}}
+      }
+    },
+    "devcontainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["derived", "launcher", "mirrors", "overlay_root", "renders"],
+      "properties": {
+        "overlay_root": {"$ref": "#/$defs/path"},
+        "launcher": {"$ref": "#/$defs/launcher"},
+        "mirrors": {"type": "array", "items": {"$ref": "#/$defs/mirror"}},
+        "derived": {"type": "array", "maxItems": 0},
+        "renders": {"type": "array", "items": {"$ref": "#/$defs/render"}}
+      }
+    }
+  }
+}

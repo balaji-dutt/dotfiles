@@ -36,9 +36,9 @@
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "corbindavenport/just-the-browser",
       "matchStrings": [
-        "(?<prefix>^|\\r?\\n)(?<indent>[ \\t]*)\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\",[ \\t]*\\r?\\n[ \\t]*\\\"release_url\\\":[ \\t]*\\\"https://github\\\\.com/corbindavenport/just-the-browser/releases/tag/[^\\\"]+\\\",[ \\t]*\\r?\\n[ \\t]*\\\"source_base_url\\\":[ \\t]*\\\"https://raw\\\\.githubusercontent\\\\.com/corbindavenport/just-the-browser/[^\\\"]+/\\\""
+        "(?<prefix>^|\\r?\\n)(?<indent>[ \\t]*)\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\""
       ],
-      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\\\"version\\\": \\\"{{{newValue}}}\\\",\\n{{{indent}}}\\\"release_url\\\": \\\"https://github.com/corbindavenport/just-the-browser/releases/tag/{{{newValue}}}\\\",\\n{{{indent}}}\\\"source_base_url\\\": \\\"https://raw.githubusercontent.com/corbindavenport/just-the-browser/{{{newValue}}}/\\\""
+      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\\\"version\\\": \\\"{{{newValue}}}\\\""
     },
     {
       "customType": "regex",

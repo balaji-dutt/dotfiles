@@ -7,7 +7,8 @@
   // ~/.cache/opencode/packages when available, not from devcontainer pins.
   // Update this manifest when host Claude/OpenCode plugin entries change; it
   // is the only onchange trigger for host plugin refreshes.
-  "schemaVersion": 1,
+  "$schema": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+  "schema_version": 1,
   "claude": {
     "plugins": [
       {

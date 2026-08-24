@@ -112,6 +112,19 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertEqual(data["DefaultLeaf"], "packages")
         self.assertEqual(Path(str(data["XdgRoot"])), xdg / "opencode")
 
+    def test_manifest_contract_marker_fails_closed(self) -> None:
+        manifest = self.root / "invalid-manifest.jsonc"
+        manifest.write_text(
+            '{"$schema":"./schemas/wrong.schema.json","schema_version":1}\n',
+            encoding="utf-8",
+        )
+        result = self.run_pwsh(
+            f"$ConfigPath = {ps_quote(manifest)}; $code = Invoke-HostAiPluginRefresh; Write-Host \"CODE=$code\""
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("$schema must be", result.stdout)
+        self.assertIn("CODE=1", result.stdout)
+
     def test_unsafe_or_unexpected_cache_roots_are_rejected(self) -> None:
         filesystem_root = Path(self.home.anchor)
         candidates = {

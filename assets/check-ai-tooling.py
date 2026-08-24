@@ -27,6 +27,8 @@ REQUIRED_DEPENDENCIES = frozenset(
 SUPPORTED_SOURCE_FORMATS = frozenset(
     {"claude-agent-frontmatter", "claude-mcp-json", "opencode-jsonc"}
 )
+POLICY_SCHEMA_REF = "./schemas/ai-tooling-support.v1.schema.json"
+CLAUDE_MCP_SCHEMA_REF = "./schemas/claude-mcp.v1.schema.json"
 DECISION_RE = re.compile(
     r"^\*\*(?:Supported|Unsupported)(?:\s+[^*]+)?\*\*\s+—\s+\S"
 )
@@ -210,7 +212,13 @@ def discover_opencode(path: Path) -> list[Declaration]:
 
 def discover_claude_mcp(path: Path) -> list[Declaration]:
     payload = load_json(path)
-    if not isinstance(payload, dict) or not isinstance(payload.get("servers"), dict):
+    if not isinstance(payload, dict):
+        raise CheckFailure("Claude MCP configuration root must be an object")
+    if payload.get("$schema") != CLAUDE_MCP_SCHEMA_REF:
+        raise CheckFailure(f"$schema must be {CLAUDE_MCP_SCHEMA_REF!r}")
+    if payload.get("schema_version") != 1:
+        raise CheckFailure("schema_version must be 1")
+    if not isinstance(payload.get("servers"), dict):
         raise CheckFailure("Claude MCP configuration must contain a servers object")
 
     declarations: list[Declaration] = []
@@ -395,6 +403,8 @@ def check_repository(repo_root: Path, policy_path: Path | None = None) -> CheckR
         return CheckResult((f"{selected_policy}: {error}",), ())
     if not isinstance(policy, dict):
         return CheckResult((f"{selected_policy}: policy root must be an object",), ())
+    if policy.get("$schema") != POLICY_SCHEMA_REF:
+        errors.append(f"{selected_policy}: $schema must be {POLICY_SCHEMA_REF!r}")
     if policy.get("schema_version") != 1:
         errors.append(f"{selected_policy}: schema_version must be 1")
 

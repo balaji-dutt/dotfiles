@@ -48,6 +48,7 @@ class DriftFixture:
 
     def write_policy(self, dependencies: tuple = DEPENDENCIES) -> None:
         payload = {
+            "$schema": "./schemas/ai-tooling-support.v1.schema.json",
             "schema_version": 1,
             "matrix": "docs/inventory/ai-tooling.md",
             "sources": [
@@ -99,6 +100,8 @@ class DriftFixture:
 
     def write_claude(self) -> None:
         payload = {
+            "$schema": "./schemas/claude-mcp.v1.schema.json",
+            "schema_version": 1,
             "servers": {
                 "cbm": {
                     "enabled": True,
@@ -184,6 +187,25 @@ class AiToolingDriftTests(unittest.TestCase):
         result = self.fixture.run()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing required dependency classification 'deepwiki'", result.stderr)
+
+    def test_policy_and_claude_contract_markers_fail_closed(self) -> None:
+        policy = json.loads(self.fixture.policy_path.read_text(encoding="utf-8"))
+        policy["$schema"] = "./schemas/wrong.schema.json"
+        self.fixture.policy_path.write_text(
+            json.dumps(policy, indent=2) + "\n", encoding="utf-8"
+        )
+        result = self.fixture.run()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("$schema must be", result.stderr)
+
+        self.fixture.write_policy()
+        claude_path = self.fixture.root / "sources/claude.json"
+        claude = json.loads(claude_path.read_text(encoding="utf-8"))
+        claude["schema_version"] = 2
+        claude_path.write_text(json.dumps(claude, indent=2) + "\n", encoding="utf-8")
+        result = self.fixture.run()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sources/claude.json: schema_version must be 1", result.stderr)
 
     def test_missing_and_malformed_matrix_rows_fail_closed(self) -> None:
         original = self.fixture.matrix_path.read_text(encoding="utf-8")

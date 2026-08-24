@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 
 REPO = "backnotprop/plannotator"
 MANIFEST_PATH = Path("configs/plannotator-assets.json")
+SCHEMA_REF = "./schemas/plannotator-assets.v1.schema.json"
 CHEZMOIDATA_PATH = Path(".chezmoidata.yaml")
 VERSION_KEY = "plannotator_version"
 ALLOWED_TARGET_PREFIXES = (
@@ -41,13 +42,13 @@ def read_manifest(repo_root: Path) -> dict:
     manifest_file = repo_root / MANIFEST_PATH
     with manifest_file.open("r", encoding="utf-8") as handle:
         manifest = json.load(handle)
-    if not manifest.get("upstream", {}).get("version"):
-        raise ValueError("manifest upstream.version is required")
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest root must be an object")
+    if manifest.get("$schema") != SCHEMA_REF:
+        raise ValueError(f"manifest $schema must be {SCHEMA_REF!r}")
+    if manifest.get("schema_version") != 1:
+        raise ValueError("manifest schema_version must be 1")
     return manifest
-
-
-def expected_release_url(version: str) -> str:
-    return f"https://github.com/{REPO}/releases/tag/{version}"
 
 
 def expected_source_base_url(version: str) -> str:
@@ -108,8 +109,8 @@ def fetch_bytes(url: str) -> bytes:
         raise RuntimeError(f"failed to download {url}: {exc}") from exc
 
 
-def download_artifacts(manifest: dict) -> list[DownloadedArtifact]:
-    base_url = expected_source_base_url(manifest["upstream"]["version"])
+def download_artifacts(manifest: dict, version: str) -> list[DownloadedArtifact]:
+    base_url = expected_source_base_url(version)
     downloads: list[DownloadedArtifact] = []
     for artifact in manifest.get("artifacts", []):
         artifact_path = normalize_artifact_path(artifact["path"])
@@ -137,10 +138,6 @@ def diff_preview(name: str, local_data: bytes, upstream_data: bytes) -> list[str
 
 
 def update_manifest(manifest: dict, downloads: list[DownloadedArtifact]) -> None:
-    upstream = manifest["upstream"]
-    upstream["release_url"] = expected_release_url(upstream["version"])
-    upstream["source_base_url"] = expected_source_base_url(upstream["version"])
-
     data_by_path = {download.path: download.data for download in downloads}
     for artifact in manifest.get("artifacts", []):
         artifact["path"] = normalize_artifact_path(artifact["path"])
@@ -150,13 +147,8 @@ def update_manifest(manifest: dict, downloads: list[DownloadedArtifact]) -> None
 
 def write_synced(repo_root: Path) -> int:
     manifest = read_manifest(repo_root)
-
-    # The Renovate-managed CLI pin is the single source of truth for which tag
-    # to vendor. Without this, a pin bump makes --check fail and --write
-    # re-download the manifest's own stale tag, so the failure never clears.
-    manifest["upstream"]["version"] = pinned_version(repo_root)
-
-    downloads = download_artifacts(manifest)
+    version = pinned_version(repo_root)
+    downloads = download_artifacts(manifest, version)
     for download in downloads:
         target = artifact_repo_path(repo_root, download.path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -176,36 +168,13 @@ def write_synced(repo_root: Path) -> int:
 
 def check_synced(repo_root: Path) -> int:
     manifest = read_manifest(repo_root)
-    upstream = manifest["upstream"]
-    version = upstream["version"]
+    version = pinned_version(repo_root)
 
     problems: list[str] = []
 
-    # The vendored files call `plannotator` subcommands by name, so a CLI bump
-    # that renames one would break them silently. Coupling the vendored tag to
-    # the pin turns that into a --check failure instead.
-    pinned = pinned_version(repo_root)
-    if version != pinned:
-        problems.append(
-            f"upstream.version drift: manifest {version}, but "
-            f"{CHEZMOIDATA_PATH}:{VERSION_KEY} pins {pinned[1:]} "
-            f"(expected tag {pinned})"
-        )
-
-    expected_release = expected_release_url(version)
-    expected_base = expected_source_base_url(version)
-    if upstream.get("release_url") != expected_release:
-        problems.append(
-            "upstream.release_url drift: "
-            f"expected {expected_release}, found {upstream.get('release_url')}"
-        )
-    if upstream.get("source_base_url") != expected_base:
-        problems.append(
-            "upstream.source_base_url drift: "
-            f"expected {expected_base}, found {upstream.get('source_base_url')}"
-        )
-
-    downloads = {download.path: download for download in download_artifacts(manifest)}
+    downloads = {
+        download.path: download for download in download_artifacts(manifest, version)
+    }
 
     for artifact in manifest.get("artifacts", []):
         artifact_path = normalize_artifact_path(artifact["path"])

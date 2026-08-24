@@ -1,11 +1,10 @@
 {
-  "schema": 1,
+  "$schema": "../../schemas/justthebrowser-manifest.v1.schema.json",
+  "schema_version": 1,
   "name": "justthebrowser",
   "upstream": {
     "repo": "corbindavenport/just-the-browser",
-    "version": "v1.6",
-    "release_url": "https://github.com/corbindavenport/just-the-browser/releases/tag/v1.6",
-    "source_base_url": "https://raw.githubusercontent.com/corbindavenport/just-the-browser/v1.6/"
+    "version": "v1.6"
   },
   "scope": {
     "browsers": ["chrome", "firefox"],

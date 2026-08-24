@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:claude-mcp:v1",
+  "title": "Claude MCP server policy v1",
+  "description": "Cross-platform Claude MCP server registrations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "servers"],
+  "properties": {
+    "$schema": {"const": "./schemas/claude-mcp.v1.schema.json"},
+    "schema_version": {"const": 1},
+    "servers": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/server"}
+    }
+  },
+  "$defs": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "scope": {"type": "string", "enum": ["local", "project", "user"]},
+        "transport": {"type": "string", "enum": ["http", "sse", "stdio"]},
+        "command": {"type": "string", "minLength": 1},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "url": {"type": "string", "minLength": 1},
+        "platforms": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["darwin", "linux", "windows", "wsl2"]}},
+        "replace": {"type": "boolean"},
+        "skipDevcontainer": {"type": "boolean"},
+        "executablePaths": {
+          "type": "object",
+          "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    }
+  }
+}
