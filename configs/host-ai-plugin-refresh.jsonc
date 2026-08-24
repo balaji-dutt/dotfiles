@@ -44,7 +44,7 @@
       },
       {
         "package": "@plannotator/opencode",
-        "version": "0.27.3" // renovate: datasource=npm depName=@plannotator/opencode
+        "version": "0.27.4" // renovate: datasource=npm depName=@plannotator/opencode
       },
       {
         "package": "@gotgenes/opencode-agent-identity",
