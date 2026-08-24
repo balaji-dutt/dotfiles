@@ -1458,7 +1458,7 @@ class OperatorCommandTests(unittest.TestCase):
 class DoctorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="ai-wt-doctor-")
-        self.repo = Path(self.temporary.name) / "repo"
+        self.repo = (Path(self.temporary.name) / "repo").resolve()
         self.repo.mkdir()
         self.git("init", "-q")
         self.git("config", "user.name", "AI WT Tests")

@@ -140,7 +140,7 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_notifier_bridge"],
       "covers": ["tests/test_opencode_notifier_bridge.py"],
       "platforms": ["linux", "macos", "wsl2"],
-      "requires": ["bash", "ps"]
+      "requires": ["bash"]
     },
     {
       "id": "opencode-profile-posix",
