@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:justthebrowser-manifest:v1",
+  "title": "Just the Browser artifact manifest v1",
+  "description": "Pinned upstream release and integrity locks for vendored browser policy artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "artifacts", "name", "notes", "schema_version", "scope", "upstream"],
+  "properties": {
+    "$schema": {"const": "../../schemas/justthebrowser-manifest.v1.schema.json"},
+    "schema_version": {"const": 1},
+    "name": {"const": "justthebrowser"},
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "version"],
+      "properties": {
+        "repo": {"const": "corbindavenport/just-the-browser"},
+        "version": {"type": "string", "pattern": "^v[0-9]"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browsers", "platforms", "windows_policy_scope"],
+      "properties": {
+        "browsers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["chrome", "firefox"]}},
+        "platforms": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["darwin", "windows"]}},
+        "windows_policy_scope": {"type": "string", "enum": ["HKCU", "HKLM"]}
+      }
+    },
+    "artifacts": {"$ref": "#/$defs/artifacts"},
+    "notes": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "source_path"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "source_path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

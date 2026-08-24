@@ -21,8 +21,20 @@ class PosixHostAiPluginRefreshTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         config = self.root / "manifest.jsonc"
+        self.config = config
         settings = self.root / "settings.json"
-        config.write_text("{}\n", encoding="utf-8")
+        config.write_text(
+            json.dumps(
+                {
+                    "$schema": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+                    "schema_version": 1,
+                    "claude": {"plugins": []},
+                    "opencode": {"plugins": []},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         settings.write_text("{}\n", encoding="utf-8")
 
         source = TEMPLATE.read_text(encoding="utf-8")
@@ -69,6 +81,18 @@ class PosixHostAiPluginRefreshTests(unittest.TestCase):
             with self.subTest(candidate=candidate):
                 with self.assertRaises(ValueError):
                     self.call("claude_plugin_identity", candidate)
+
+    def test_manifest_contract_marker_fails_closed(self) -> None:
+        manifest = self.call("load_manifest")
+        self.assertEqual(manifest["schema_version"], 1)
+
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["$schema"] = "./schemas/wrong.schema.json"
+        self.config.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit):
+            self.call("load_manifest")
+        self.assertIn("$schema must be", output.getvalue())
 
     def test_claude_preservation_environment_is_child_local(self) -> None:
         observed: list[dict[str, str]] = []

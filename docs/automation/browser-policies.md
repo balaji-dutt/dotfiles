@@ -24,9 +24,9 @@ upstream changes are visible in normal review diffs before any privileged or
 user-approved platform action uses them.
 
 Renovate tracks the upstream Just the Browser GitHub releases by updating the
-manifest version, release URL, and raw source base URL together. CI then runs
-`assets/sync-browser-policies.py` so Renovate branches cannot merge with the
-manifest and vendored artifacts out of sync.
+manifest version. The sync helper derives raw source URLs from that single pin.
+CI then runs `assets/sync-browser-policies.py` so Renovate branches cannot merge
+with the manifest and vendored artifacts out of sync.
 
 ## Windows behavior
 
@@ -96,7 +96,8 @@ Remove that file manually only if it is the old Just the Browser JSON policy.
    when `python` resolves to Python 3. Running the helper with no mode flag is
    also write mode.
 3. Review the actual policy diffs before applying on Windows or macOS.
-4. Validate the pinned version, URLs, vendored bytes, and manifest hashes:
+4. Validate the pinned version, derived source locations, vendored bytes, and
+   manifest hashes:
 
    ```sh
    python3 assets/sync-browser-policies.py --check

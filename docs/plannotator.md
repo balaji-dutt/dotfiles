@@ -195,9 +195,10 @@ Do not give the OpenCode stubs a body: it becomes a preamble message, and
 Do not add `dot_claude/commands/plannotator-*.md` alongside the skills. Upstream
 `install.sh` deletes those whenever the matching skill directory exists.
 
-`configs/plannotator-assets.json` records each file's upstream path and `sha256`,
-pinned to the tag matching `plannotator_version` in `.chezmoidata.yaml`. Check
-and refresh with:
+`configs/plannotator-assets.json` records each file's upstream path and `sha256`.
+It does not duplicate the tag or release URLs: the sync helper reads
+`plannotator_version` from `.chezmoidata.yaml` and derives the source URL from
+that single pin. Check and refresh with:
 
 ```sh
 python3 assets/sync-plannotator-assets.py --check
@@ -210,8 +211,7 @@ subcommands by name, and upstream already spells the same operation two ways
 (`plannotator last` under `apps/skills/core/`, `plannotator annotate-last` under
 `apps/skills/claude/`). Without the coupling, a Renovate CLI bump that renamed a
 subcommand would break the vendored copies silently. With it, the bump fails
-`--check` until someone re-syncs, and `--write` then follows the pin rather than
-the manifest's own stale tag.
+`--check` until someone re-syncs, and `--write` follows the shared pin directly.
 
 Two limits of that coupling, both intentional:
 

@@ -88,7 +88,7 @@
     },
     {
       "id": "config-contracts",
-      "suites": ["provenance"],
+      "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_config_contracts"],
       "covers": ["tests/test_config_contracts.py"]
     },

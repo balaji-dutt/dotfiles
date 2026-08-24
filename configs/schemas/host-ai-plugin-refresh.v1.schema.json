@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:host-ai-plugin-refresh:v1",
+  "title": "Host AI plugin refresh policy v1",
+  "description": "Renovate-managed host refresh sentinels for Claude Code and OpenCode plugins.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "claude", "opencode", "schema_version"],
+  "properties": {
+    "$schema": {"const": "./schemas/host-ai-plugin-refresh.v1.schema.json"},
+    "schema_version": {"const": 1},
+    "claude": {"$ref": "#/$defs/claudePlugins"},
+    "opencode": {"$ref": "#/$defs/opencodePlugins"}
+  },
+  "$defs": {
+    "claudePlugins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugins"],
+      "properties": {"plugins": {"type": "array", "items": {"$ref": "#/$defs/claudePlugin"}}}
+    },
+    "claudePlugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "version"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "enum": ["local", "project", "user"]},
+        "version": {"type": "string", "minLength": 1},
+        "enabled": {"type": "boolean"}
+      }
+    },
+    "opencodePlugins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugins"],
+      "properties": {"plugins": {"type": "array", "items": {"$ref": "#/$defs/opencodePlugin"}}}
+    },
+    "opencodePlugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "version"],
+      "properties": {
+        "package": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "enabled": {"type": "boolean"},
+        "cacheInstall": {"$ref": "#/$defs/cacheInstall"}
+      }
+    },
+    "cacheInstall": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "legacyPeerDeps": {"type": "boolean"},
+        "ignoreScripts": {"type": "boolean"},
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package", "version"],
+            "properties": {
+              "package": {"type": "string", "minLength": 1},
+              "version": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  }
+}

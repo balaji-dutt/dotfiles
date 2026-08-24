@@ -352,6 +352,11 @@ def parse_jsonc(path: Path) -> dict:
 
 
 manifest = parse_jsonc(Path(sys.argv[1]))
+schema_ref = "./schemas/devcontainer-sync.v1.schema.json"
+if manifest.get("$schema") != schema_ref:
+    raise SystemExit(f"Manifest $schema must be {schema_ref!r}")
+if manifest.get("schema_version") != 1:
+    raise SystemExit("Manifest schema_version must be 1")
 platform = sys.argv[2]
 
 found = False
@@ -484,6 +489,11 @@ def shell_array(name: str, values: list[str]) -> str:
 
 
 manifest = parse_jsonc(Path(sys.argv[1]))
+schema_ref = "./schemas/devcontainer-sync.v1.schema.json"
+if manifest.get("$schema") != schema_ref:
+    raise SystemExit(f"Manifest $schema must be {schema_ref!r}")
+if manifest.get("schema_version") != 1:
+    raise SystemExit("Manifest schema_version must be 1")
 platform = sys.argv[2]
 requested = sys.argv[3]
 home = os.path.expanduser("~")

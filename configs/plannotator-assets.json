@@ -1,11 +1,9 @@
 {
-  "schema": 1,
+  "$schema": "./schemas/plannotator-assets.v1.schema.json",
+  "schema_version": 1,
   "name": "plannotator",
   "upstream": {
-    "repo": "backnotprop/plannotator",
-    "version": "v0.27.4",
-    "release_url": "https://github.com/backnotprop/plannotator/releases/tag/v0.27.4",
-    "source_base_url": "https://raw.githubusercontent.com/backnotprop/plannotator/v0.27.4/"
+    "repo": "backnotprop/plannotator"
   },
   "artifacts": [
     {

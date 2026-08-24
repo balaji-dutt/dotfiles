@@ -28,6 +28,7 @@ from pathlib import Path
 
 config_path = Path(sys.argv[1])
 settings_path = Path(sys.argv[2])
+SCHEMA_REF = "./schemas/host-ai-plugin-refresh.v1.schema.json"
 dry_run = bool(os.environ.get("HOST_AI_PLUGIN_REFRESH_DRY_RUN"))
 # Claude plugin problems are reported per plugin and re-raised as a non-zero
 # exit at the end, so one bad plugin does not skip the remaining plugins or the
@@ -148,10 +149,20 @@ def load_manifest():
         sys.exit(1)
 
     try:
-        return json.loads(strip_jsonc(text))
+        manifest = json.loads(strip_jsonc(text))
     except json.JSONDecodeError as exc:
         print(f"ERROR: Invalid host AI plugin refresh JSONC: {exc}")
         sys.exit(1)
+    if not isinstance(manifest, dict):
+        print("ERROR: Host AI plugin refresh config root must be an object.")
+        sys.exit(1)
+    if manifest.get("$schema") != SCHEMA_REF:
+        print(f"ERROR: Host AI plugin refresh $schema must be {SCHEMA_REF!r}.")
+        sys.exit(1)
+    if manifest.get("schema_version") != 1:
+        print("ERROR: Host AI plugin refresh schema_version must be 1.")
+        sys.exit(1)
+    return manifest
 
 
 def claude_plugins(manifest):

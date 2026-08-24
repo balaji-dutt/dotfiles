@@ -58,7 +58,7 @@
         "suite_id": "ai-tooling-policy",
         "status": "partial",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_ai_tooling_drift.py"],
+        "test_paths": ["tests/test_ai_tooling_drift.py", "tests/test_config_contracts.py"],
         "behavior_requirements": []
       },
       "rationale": "The drift checker is covered; MCP registration still needs isolated contract tests."
@@ -193,7 +193,7 @@
       "side_effects": ["filesystem", "host-config"],
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {"suite_id": "browser-policy-sync", "status": "planned", "work_item": "dots-4jy.10.2.3", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Policy rendering and check/write behavior need deterministic fixtures."
+      "rationale": "The manifest has a structural contract; policy rendering and check/write behavior still need deterministic fixtures."
     },
     {
       "id": "ci-automation",
@@ -524,7 +524,7 @@
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {"suite_id": "sync-tooling", "status": "planned", "work_item": "dots-4jy.10.2.4", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Mirror and statusline provenance is covered by provenance entries; render and workspace synchronization behavior remains planned."
+      "rationale": "Configuration contracts and provenance checks are separate; render and workspace synchronization behavior remains planned."
     },
     {
       "id": "test-foundation",

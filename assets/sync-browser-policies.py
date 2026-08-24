@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 REPO = "corbindavenport/just-the-browser"
 POLICY_DIR = Path("configs/browser-policies/justthebrowser")
 MANIFEST_PATH = POLICY_DIR / "manifest.json"
+SCHEMA_REF = "../../schemas/justthebrowser-manifest.v1.schema.json"
 DIFF_LINE_LIMIT = 40
 
 
@@ -37,11 +38,14 @@ def sha256_bytes(data: bytes) -> str:
 def read_manifest(repo_root: Path) -> dict:
     manifest_file = repo_root / MANIFEST_PATH
     with manifest_file.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def expected_release_url(version: str) -> str:
-    return f"https://github.com/{REPO}/releases/tag/{version}"
+        manifest = json.load(handle)
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest root must be an object")
+    if manifest.get("$schema") != SCHEMA_REF:
+        raise ValueError(f"manifest $schema must be {SCHEMA_REF!r}")
+    if manifest.get("schema_version") != 1:
+        raise ValueError("manifest schema_version must be 1")
+    return manifest
 
 
 def expected_source_base_url(version: str) -> str:
@@ -146,12 +150,9 @@ def formatted_manifest(manifest: dict) -> str:
 
 
 def update_manifest(manifest: dict, downloads: list[DownloadedArtifact]) -> None:
-    upstream = manifest.setdefault("upstream", {})
-    version = upstream.get("version")
+    version = manifest.get("upstream", {}).get("version")
     if not version:
         raise ValueError("manifest upstream.version is required")
-    upstream["release_url"] = expected_release_url(version)
-    upstream["source_base_url"] = expected_source_base_url(version)
 
     data_by_path = {download.path: download.data for download in downloads}
     for artifact in manifest.get("artifacts", []):
@@ -188,19 +189,6 @@ def check_synced(repo_root: Path) -> int:
         raise ValueError("manifest upstream.version is required")
 
     problems: list[str] = []
-    expected_release = expected_release_url(version)
-    expected_base = expected_source_base_url(version)
-    if upstream.get("release_url") != expected_release:
-        problems.append(
-            "upstream.release_url drift: "
-            f"expected {expected_release}, found {upstream.get('release_url')}"
-        )
-    if upstream.get("source_base_url") != expected_base:
-        problems.append(
-            "upstream.source_base_url drift: "
-            f"expected {expected_base}, found {upstream.get('source_base_url')}"
-        )
-
     with tempfile.TemporaryDirectory(prefix="browser-policies-") as tmp:
         downloads = download_artifacts(manifest, Path(tmp))
         download_by_path = {download.path: download for download in downloads}

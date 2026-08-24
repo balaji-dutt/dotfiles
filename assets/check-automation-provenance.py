@@ -407,6 +407,11 @@ def check_mirrors(
     require_keys(mirrors_policy, {"manifest"}, "mirrors")
     manifest_path = safe_path(mirrors_policy["manifest"], "mirrors.manifest")
     manifest = object_value(load_jsonc(repo_root / manifest_path), "mirror manifest")
+    schema_ref = "./schemas/devcontainer-sync.v1.schema.json"
+    if manifest.get("$schema") != schema_ref:
+        fail(f"mirror manifest $schema must be {schema_ref!r}")
+    if manifest.get("schema_version") != 1:
+        fail("mirror manifest schema_version must be 1")
     try:
         raw_mirrors = manifest["shared"]["mirrors"]
     except (KeyError, TypeError):

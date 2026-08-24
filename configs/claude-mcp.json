@@ -1,4 +1,6 @@
 {
+  "$schema": "./schemas/claude-mcp.v1.schema.json",
+  "schema_version": 1,
   "servers": {
     "cbm": {
       "enabled": true,

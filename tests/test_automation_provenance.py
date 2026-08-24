@@ -58,6 +58,8 @@ class ProvenanceFixture:
         self.write(
             "configs/devcontainer-sync.jsonc",
             """{
+  "$schema": "./schemas/devcontainer-sync.v1.schema.json",
+  "schema_version": 1,
   // Fixture mirror authority.
   "shared": {"mirrors": [{
     "name": "fixture",
@@ -281,6 +283,16 @@ class AutomationProvenanceTests(unittest.TestCase):
         self.fixture.write("container/tool-stale.sh", "stale\n")
         run_git(self.fixture.root, "add", "container/tool-stale.sh")
         self.assert_failure("stale tracked target")
+
+    def test_mirror_manifest_contract_marker_fails_closed(self) -> None:
+        manifest = self.fixture.root / "configs/devcontainer-sync.jsonc"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                '"schema_version": 1', '"schema_version": 2'
+            ),
+            encoding="utf-8",
+        )
+        self.assert_failure("mirror manifest schema_version must be 1")
 
     def test_promptfoo_pins_are_derived_from_package_manifest(self) -> None:
         dependencies = {"@example/sdk": "2.0.0", "promptfoo": "4.5.6"}

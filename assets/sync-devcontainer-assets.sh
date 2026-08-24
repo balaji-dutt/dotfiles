@@ -48,6 +48,8 @@ import shutil
 import sys
 from pathlib import Path, PurePosixPath
 
+SCHEMA_REF = "./schemas/devcontainer-sync.v1.schema.json"
+
 
 def strip_json_comments(payload: str) -> str:
     out = []
@@ -229,6 +231,10 @@ def main() -> int:
     repo_root = Path(sys.argv[1])
     manifest_path = Path(sys.argv[2])
     manifest = parse_jsonc(manifest_path)
+    if manifest.get("$schema") != SCHEMA_REF:
+        raise SystemExit(f"Manifest $schema must be {SCHEMA_REF!r}")
+    if manifest.get("schema_version") != 1:
+        raise SystemExit("Manifest schema_version must be 1")
 
     mirrors = manifest.get("shared", {}).get("mirrors", [])
     if not mirrors:

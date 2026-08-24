@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+SCHEMA_REF = "./schemas/claude-mcp.v1.schema.json"
+
 if len(sys.argv) != 2:
     print("ERROR: usage: claude-mcp-apply.py <path-to-claude-mcp.json>")
     sys.exit(2)
@@ -43,6 +45,16 @@ except FileNotFoundError:
     sys.exit(1)
 except json.JSONDecodeError as exc:
     print(f"ERROR: Invalid Claude MCP JSON config: {exc}")
+    sys.exit(1)
+
+if not isinstance(config, dict):
+    print("ERROR: Claude MCP config root must be an object.")
+    sys.exit(1)
+if config.get("$schema") != SCHEMA_REF:
+    print(f"ERROR: Claude MCP config $schema must be {SCHEMA_REF!r}.")
+    sys.exit(1)
+if config.get("schema_version") != 1:
+    print("ERROR: Claude MCP config schema_version must be 1.")
     sys.exit(1)
 
 servers = config.get("servers", {})
