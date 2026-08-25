@@ -198,6 +198,12 @@
       "Bash(ai-wt cleanup:*)",
       "Bash(git worktree remove:*)",
       "Bash(git branch -d:*)",
+      "Bash(*/dotfiles/assets/agent-wt-merge prepare-ci:*)",
+      "Bash(\"*/dotfiles/assets/agent-wt-merge\" prepare-ci:*)",
+      "Bash('*/dotfiles/assets/agent-wt-merge' prepare-ci:*)",
+      "Bash(*/dotfiles/.opencode/bin/agent-wt-merge prepare-ci:*)",
+      "Bash(\"*/dotfiles/.opencode/bin/agent-wt-merge\" prepare-ci:*)",
+      "Bash('*/dotfiles/.opencode/bin/agent-wt-merge' prepare-ci:*)",
       "Bash(cc-commit:*)"
     ],
     "defaultMode": "plan"
@@ -210,6 +216,40 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/gate-bd-destructive.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" pre",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" post",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" failure",
+            "timeout": 5
           }
         ]
       }

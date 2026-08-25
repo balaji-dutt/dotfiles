@@ -50,6 +50,7 @@ class GitFixture:
         self.git(self.main, "config", "user.name", "Test User")
         self.git(self.main, "config", "user.email", "test@example.com")
         self.install_helper(self.main)
+        self.install_pipeline_files(self.main)
         (self.main / "base.txt").write_text("base\n", encoding="utf-8")
         self.commit_all(self.main, "initial")
 
@@ -61,6 +62,9 @@ class GitFixture:
         self.git(self.feature, "config", "user.email", "test@example.com")
         if feature_commit:
             self.commit_feature("feature.txt", "feature\n", "feature")
+        else:
+            self.publish_feature()
+        self.set_override(True)
 
         self.fake_bin.mkdir()
         write_executable(
@@ -108,6 +112,74 @@ if os.environ.get("FAKE_BD_FAIL"):
             write_executable(helper, text)
         return helper
 
+    def install_pipeline_files(self, worktree: Path) -> None:
+        write_json(
+            worktree / "configs" / "gitlab-pipeline-guard.json",
+            {
+                "$schema": "./schemas/gitlab-pipeline-guard.v1.schema.json",
+                "schema_version": 1,
+                "api_url": "http://127.0.0.1:1/api/v4",
+                "project_id": 44618209,
+                "guarded_remote": "origin",
+                "guarded_ref": "refs/heads/main",
+                "required_job": "linux-fast",
+                "timeout_seconds": 1,
+            },
+        )
+        write_executable(
+            worktree / "assets" / "check-gitlab-pipeline.py",
+            """#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+if "--check-sha" not in sys.argv:
+    raise SystemExit(0)
+sha = sys.argv[sys.argv.index("--check-sha") + 1]
+repo = Path(sys.argv[sys.argv.index("--repo-root") + 1])
+common = subprocess.run(
+    ["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    check=True,
+    text=True,
+    stdout=subprocess.PIPE,
+).stdout.strip()
+if (Path(common) / "pipeline-guard.override").is_file():
+    outcome = "bypass"
+else:
+    sequence = [item for item in os.environ.get("FAKE_PIPELINE_SEQUENCE", "").split(",") if item]
+    if sequence:
+        counter_path = Path(os.environ["FAKE_PIPELINE_COUNTER"])
+        try:
+            index = int(counter_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            index = 0
+        counter_path.write_text(str(index + 1), encoding="utf-8")
+        outcome = sequence[min(index, len(sequence) - 1)]
+    else:
+        outcome = os.environ.get("FAKE_PIPELINE_OUTCOME", "success")
+move_to = os.environ.get("FAKE_PIPELINE_MOVE_FEATURE_TO")
+if move_to:
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "--force", "origin", f"{move_to}:refs/heads/feature"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+payload = {
+    "schema_version": 1,
+    "outcome": outcome,
+    "sha": sha,
+    "required_job": None if outcome in {"bypass", "error"} else "linux-fast",
+    "detail": f"fake {outcome}",
+    "pipeline_url": "https://gitlab.example/pipeline/1" if outcome == "success" else None,
+}
+print(json.dumps(payload, sort_keys=True))
+raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
+""",
+        )
+
     def commit_all(self, cwd: Path, message: str) -> str:
         self.git(cwd, "add", "-A")
         self.git(cwd, "commit", "-m", message)
@@ -115,7 +187,39 @@ if os.environ.get("FAKE_BD_FAIL"):
 
     def commit_feature(self, name: str, content: str, message: str) -> str:
         (self.feature / name).write_text(content, encoding="utf-8")
-        return self.commit_all(self.feature, message)
+        sha = self.commit_all(self.feature, message)
+        self.publish_feature()
+        return sha
+
+    def publish_feature(self) -> None:
+        self.git(self.feature, "push", "origin", "HEAD:refs/heads/feature")
+
+    def remote_feature_sha(self) -> str | None:
+        result = self.git(
+            self.feature,
+            "ls-remote",
+            "--heads",
+            "origin",
+            "refs/heads/feature",
+        )
+        line = result.stdout.strip()
+        return line.split()[0] if line else None
+
+    def set_override(self, enabled: bool) -> Path:
+        common_dir = Path(
+            self.output(
+                self.feature,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            )
+        )
+        override = common_dir / "pipeline-guard.override"
+        if enabled:
+            override.touch()
+        else:
+            override.unlink(missing_ok=True)
+        return override
 
     def run_helper(
         self,
@@ -188,6 +292,11 @@ class AgentWtMergeTests(unittest.TestCase):
             0,
             msg=f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
         )
+
+    def test_feature_remote_ref_rejects_unsafe_branch(self) -> None:
+        helper = load_helper_module()
+        with self.assertRaisesRegex(helper.AgentWtMergeError, "unsafe for publication"):
+            helper.feature_remote_ref("feature;ignore")
 
     def test_main_helper_uses_feature_cwd_with_spaces(self) -> None:
         fixture = self.fixture()
@@ -358,6 +467,220 @@ class AgentWtMergeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("delegation loop", result.stderr)
 
+    def test_prepare_ci_publishes_exact_tip_and_polls_until_success(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        fixture.git(fixture.feature, "push", "origin", ":refs/heads/feature")
+        feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+        main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+        counter = fixture.root / "pipeline counter"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "prepare-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "3",
+            extra_env={
+                "FAKE_PIPELINE_SEQUENCE": "retryable,success",
+                "FAKE_PIPELINE_COUNTER": str(counter),
+            },
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.remote_feature_sha(), feature_sha)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+        self.assertEqual(counter.read_text(encoding="utf-8"), "2")
+        self.assertIn("Waiting for linux-fast", result.stdout)
+        self.assertIn(f"PASS feature CI: linux-fast succeeded for {feature_sha}", result.stdout)
+
+    def test_prepare_ci_terminal_and_timeout_leave_main_untouched(self) -> None:
+        for outcome, timeout, expected in (
+            ("terminal", "3", "feature CI blocked"),
+            ("error", "3", "fake error"),
+            ("retryable", "1", "timed out after 1s"),
+        ):
+            with self.subTest(outcome=outcome):
+                fixture = self.fixture()
+                fixture.set_override(False)
+                fixture.git(fixture.feature, "push", "origin", ":refs/heads/feature")
+                feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+                main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+                result = fixture.run_helper(
+                    fixture.main_helper,
+                    fixture.feature,
+                    "prepare-ci",
+                    "--poll-interval",
+                    "1",
+                    "--poll-timeout",
+                    timeout,
+                    extra_env={"FAKE_PIPELINE_OUTCOME": outcome},
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+                self.assertEqual(fixture.remote_feature_sha(), feature_sha)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_prepare_ci_rejects_more_than_sixty_checks_before_publication(self) -> None:
+        fixture = self.fixture()
+        fixture.git(fixture.feature, "push", "origin", ":refs/heads/feature")
+        main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "prepare-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "61",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("more than 60 checks", result.stderr)
+        self.assertIsNone(fixture.remote_feature_sha())
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_merge_requires_exact_remote_feature_before_main_mutation(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        fixture.git(fixture.feature, "push", "origin", ":refs/heads/feature")
+        main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "ff",
+            "--actor",
+            "opencode",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("origin/feature is absent", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_successful_ff_deletes_exact_remote_feature(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "ff",
+            "--actor",
+            "opencode",
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), feature_sha)
+        self.assertIsNone(fixture.remote_feature_sha())
+        self.assertIn("Feature CI: success", result.stdout)
+        self.assertIn("Remote feature cleanup: deleted", result.stdout)
+        self.assertIn("Main/tags pushed: no", result.stdout)
+
+    def test_bypass_merge_retains_remote_feature(self) -> None:
+        fixture = self.fixture()
+        feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "ff",
+            "--actor",
+            "opencode",
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.remote_feature_sha(), feature_sha)
+        self.assertIn("Feature CI: bypass", result.stdout)
+        self.assertIn("Remote feature cleanup: retained", result.stdout)
+
+    def test_remote_feature_move_is_post_merge_partial_failure(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+        main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "ff",
+            "--actor",
+            "opencode",
+            extra_env={"FAKE_PIPELINE_MOVE_FEATURE_TO": main_sha},
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), feature_sha)
+        self.assertEqual(fixture.remote_feature_sha(), main_sha)
+        self.assertIn("exact-lease deletion was not attempted", result.stdout)
+        self.assertIn("lease-protected remote feature cleanup did not complete", result.stdout)
+
+    def test_no_ff_rejects_local_main_ahead_of_advertised_main(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        (fixture.main / "main-only.txt").write_text("main only\n", encoding="utf-8")
+        main_sha = fixture.commit_all(fixture.main, "main only")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "no-ff",
+            "--actor",
+            "opencode",
+            "-m",
+            "must not merge",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no-ff merge requires local main at advertised origin/main", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_ff_allows_local_main_ahead_when_feature_contains_it(self) -> None:
+        fixture = self.fixture(feature_commit=False)
+        fixture.set_override(False)
+        (fixture.main / "main-only.txt").write_text("main only\n", encoding="utf-8")
+        fixture.commit_all(fixture.main, "main only")
+        fixture.git(fixture.feature, "merge", "--ff-only", "main")
+        feature_sha = fixture.commit_feature("feature.txt", "feature\n", "feature")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "ff",
+            "--actor",
+            "opencode",
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), feature_sha)
+        self.assertIsNone(fixture.remote_feature_sha())
+
+    def test_successful_no_ff_deletes_remote_feature(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        (fixture.main / "main-only.txt").write_text("main only\n", encoding="utf-8")
+        fixture.commit_all(fixture.main, "main only")
+        fixture.git(fixture.main, "push", "origin", "main")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "no-ff",
+            "--actor",
+            "opencode",
+            "-m",
+            "merge feature",
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%s"), "merge feature")
+        self.assertIsNone(fixture.remote_feature_sha())
+        self.assertIn("Merge type: no-ff", result.stdout)
+
     def test_update_main_reexecutes_updated_helper_before_merge(self) -> None:
         fixture = self.fixture()
         upstream = fixture.upstream_clone()
@@ -437,6 +760,7 @@ class AgentWtMergeTests(unittest.TestCase):
         feature_sha = fixture.commit_feature("during.txt", "during\n", "during session")
         (fixture.main / "main-only.txt").write_text("main only\n", encoding="utf-8")
         main_only_sha = fixture.commit_all(fixture.main, "main only")
+        fixture.git(fixture.main, "push", "origin", "main")
         fixture.write_state(started_sha=pre_session_sha)
 
         before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")

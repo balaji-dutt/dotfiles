@@ -156,6 +156,30 @@ class PipelineGuardTests(unittest.TestCase):
             env=env,
         )
 
+    def run_direct(
+        self,
+        sha: str,
+        policy: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--repo-root",
+                str(self.root),
+                "--policy",
+                str(policy),
+                "--check-sha",
+                sha,
+                "--json",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return result, json.loads(result.stdout)
+
     @staticmethod
     def record(local_sha: str, remote_sha: str, remote_ref: str = "refs/heads/main") -> str:
         return f"refs/heads/main {local_sha} {remote_ref} {remote_sha}\n"
@@ -233,6 +257,53 @@ class PipelineGuardTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(expected, result.stderr)
                 self.assertIn("documented override", result.stderr)
+
+    def test_direct_mode_classifies_exact_sha_job_states(self) -> None:
+        tip = self.commit("feature\n", "feature")
+        cases = (
+            ("normal", "success", "success", 0),
+            ("empty", "success", "retryable", 1),
+            ("normal", "pending", "retryable", 1),
+            ("normal", "failed", "terminal", 1),
+        )
+        for mode, status, outcome, returncode in cases:
+            with self.subTest(mode=mode, status=status):
+                state = ApiState(job_status=status)
+                state.pipeline_mode = mode
+                with gitlab_api(state) as api_url:
+                    result, payload = self.run_direct(tip, self.policy(api_url))
+                self.assertEqual(result.returncode, returncode, result.stderr)
+                self.assertEqual(payload["schema_version"], 1)
+                self.assertEqual(payload["outcome"], outcome)
+                self.assertEqual(payload["sha"], tip)
+                self.assertEqual(payload["required_job"], "linux-fast")
+
+    def test_direct_mode_reports_errors_and_override_bypass_as_json(self) -> None:
+        tip = self.commit("feature\n", "feature")
+        state = ApiState()
+        state.pipeline_mode = "malformed"
+        with gitlab_api(state) as api_url:
+            error, error_payload = self.run_direct(tip, self.policy(api_url))
+        self.assertEqual(error.returncode, 1)
+        self.assertEqual(error_payload["outcome"], "error")
+        self.assertIn("malformed JSON", str(error_payload["detail"]))
+
+        common_dir = Path(
+            run_git(
+                self.root,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ).stdout.strip()
+        )
+        (common_dir / "pipeline-guard.override").touch()
+        bypass, bypass_payload = self.run_direct(
+            tip, self.policy("http://127.0.0.1:1/api/v4")
+        )
+        self.assertEqual(bypass.returncode, 0, bypass.stderr)
+        self.assertEqual(bypass_payload["outcome"], "bypass")
+        self.assertIsNone(bypass_payload["required_job"])
+        self.assertIn("WARNING: bypassing", bypass.stderr)
 
     def test_api_and_policy_errors_block(self) -> None:
         tip = self.commit("feature\n", "feature")

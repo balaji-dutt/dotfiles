@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 
 OVERRIDE_NAME = "pipeline-guard.override"
@@ -22,6 +22,9 @@ SCHEMA_REF = "./schemas/gitlab-pipeline-guard.v1.schema.json"
 ZERO_SHAS = frozenset({"0" * 40, "0" * 64})
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+ACTIVE_JOB_STATUSES = frozenset(
+    {"created", "waiting_for_resource", "preparing", "pending", "running", "scheduled"}
+)
 
 
 class GuardError(RuntimeError):
@@ -44,6 +47,25 @@ class PushRecord:
     local_sha: str
     remote_ref: str
     remote_sha: str
+
+
+@dataclass(frozen=True)
+class JobCheck:
+    outcome: str
+    sha: str
+    required_job: str
+    detail: str
+    pipeline_url: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "outcome": self.outcome,
+            "sha": self.sha,
+            "required_job": self.required_job,
+            "detail": self.detail,
+            "pipeline_url": self.pipeline_url or None,
+        }
 
 
 def fail(message: str) -> NoReturn:
@@ -200,7 +222,7 @@ def _request_json(url: str, timeout: int) -> object:
         fail(f"GitLab API returned malformed JSON for {url}: {error}")
 
 
-def require_successful_job(policy: Policy, sha: str) -> str:
+def check_job(policy: Policy, sha: str) -> JobCheck:
     query = urllib.parse.urlencode(
         {"sha": sha, "per_page": 100, "order_by": "id", "sort": "desc"}
     )
@@ -210,7 +232,7 @@ def require_successful_job(policy: Policy, sha: str) -> str:
     pipelines = _request_json(pipelines_url, policy.timeout_seconds)
     if not isinstance(pipelines, list):
         fail("GitLab pipelines response must be an array")
-    observations: list[str] = []
+    observations: list[tuple[int, str]] = []
     pipeline_urls: list[str] = []
     for pipeline in pipelines:
         if not isinstance(pipeline, dict):
@@ -237,32 +259,116 @@ def require_successful_job(policy: Policy, sha: str) -> str:
             status = job.get("status")
             if not isinstance(status, str) or not status:
                 fail(f"GitLab job {policy.required_job!r} has an invalid status")
-            observations.append(f"pipeline {pipeline_id}: {status}")
+            observations.append((pipeline_id, status))
             if status == "success":
-                return web_url if isinstance(web_url, str) else ""
-    detail = "; ".join(observations) if observations else "job not found"
-    url_hint = f" Latest pipeline: {pipeline_urls[0]}" if pipeline_urls else ""
+                return JobCheck(
+                    outcome="success",
+                    sha=sha,
+                    required_job=policy.required_job,
+                    detail=f"pipeline {pipeline_id}: success",
+                    pipeline_url=web_url if isinstance(web_url, str) else "",
+                )
+    detail = (
+        "; ".join(f"pipeline {pipeline_id}: {status}" for pipeline_id, status in observations)
+        if observations
+        else "job not found"
+    )
+    latest_url = pipeline_urls[0] if pipeline_urls else ""
+    if not observations or any(status in ACTIVE_JOB_STATUSES for _, status in observations):
+        outcome = "retryable"
+    else:
+        outcome = "terminal"
+    return JobCheck(
+        outcome=outcome,
+        sha=sha,
+        required_job=policy.required_job,
+        detail=detail,
+        pipeline_url=latest_url,
+    )
+
+
+def require_successful_job(policy: Policy, sha: str) -> str:
+    check = check_job(policy, sha)
+    if check.outcome == "success":
+        return check.pipeline_url
+    url_hint = f" Latest pipeline: {check.pipeline_url}" if check.pipeline_url else ""
     fail(
         f"required GitLab job {policy.required_job!r} has not succeeded for {sha}: "
-        f"{detail}.{url_hint} Retry after the pipeline passes or use the documented override."
+        f"{check.detail}.{url_hint} Retry after the pipeline passes or use the documented override."
     )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("remote_name")
-    parser.add_argument("remote_url")
+    parser.add_argument("remote_name", nargs="?")
+    parser.add_argument("remote_url", nargs="?")
     parser.add_argument(
         "--repo-root", type=Path, default=Path.cwd(), help=argparse.SUPPRESS
     )
     parser.add_argument("--policy", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--check-sha", help=argparse.SUPPRESS)
+    parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
+
+
+def policy_path_for(args: argparse.Namespace, repo_root: Path) -> Path:
+    policy_path = args.policy or repo_root / "configs" / "gitlab-pipeline-guard.json"
+    if not policy_path.is_absolute():
+        policy_path = repo_root / policy_path
+    return policy_path
+
+
+def direct_check(args: argparse.Namespace, repo_root: Path) -> int:
+    sha = str(args.check_sha or "")
+    try:
+        if args.remote_name is not None or args.remote_url is not None:
+            fail("direct SHA mode does not accept pre-push remote arguments")
+        if not args.json:
+            fail("direct SHA mode requires --json")
+        if not SHA_PATTERN.fullmatch(sha):
+            fail(f"invalid commit SHA for direct check: {sha!r}")
+        _require_commit(repo_root, sha)
+        bypass = override_path(repo_root)
+        if bypass.is_file():
+            result = {
+                "schema_version": 1,
+                "outcome": "bypass",
+                "sha": sha,
+                "required_job": None,
+                "detail": f"pipeline guard override exists at {bypass}",
+                "pipeline_url": None,
+            }
+            print(json.dumps(result, sort_keys=True))
+            print(
+                f"WARNING: bypassing GitLab pipeline guard because {bypass} exists",
+                file=sys.stderr,
+            )
+            return 0
+        policy = load_policy(policy_path_for(args, repo_root))
+        check = check_job(policy, sha)
+        print(json.dumps(check.as_dict(), sort_keys=True))
+        return 0 if check.outcome == "success" else 1
+    except GuardError as error:
+        result = {
+            "schema_version": 1,
+            "outcome": "error",
+            "sha": sha or None,
+            "required_job": None,
+            "detail": str(error),
+            "pipeline_url": None,
+        }
+        print(json.dumps(result, sort_keys=True))
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     repo_root = args.repo_root.resolve()
+    if args.check_sha is not None:
+        return direct_check(args, repo_root)
     try:
+        if args.remote_name is None or args.remote_url is None:
+            fail("pre-push mode requires remote_name and remote_url")
         bypass = override_path(repo_root)
         if bypass.is_file():
             print(
@@ -270,10 +376,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 0
-        policy_path = args.policy or repo_root / "configs" / "gitlab-pipeline-guard.json"
-        if not policy_path.is_absolute():
-            policy_path = repo_root / policy_path
-        policy = load_policy(policy_path)
+        policy = load_policy(policy_path_for(args, repo_root))
         if args.remote_name != policy.guarded_remote:
             return 0
         records = parse_push_records(sys.stdin.read())

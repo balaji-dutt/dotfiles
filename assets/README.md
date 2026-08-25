@@ -208,7 +208,10 @@ This repository also opts into a managed `pre-push` check that requires a
 successful GitLab `linux-fast` job before `origin/main` is pushed. The hook is a
 no-op in repositories without `configs/gitlab-pipeline-guard.json`; see
 `docs/tooling/continuous-integration.md` for normal use and the explicit
-common-directory override.
+common-directory override. Agent worktree sessions use `agent-wt-merge
+prepare-ci` to publish and monitor the exact feature SHA before merging; a
+successful local merge lease-deletes that remote feature while leaving main and
+tags unpushed.
 
 For a targeted reconciliation, pass the template directory and one or more
 roots explicitly:

@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import re
 import shlex
 import subprocess
 import sys
+import time
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,12 @@ HELPER_RELATIVE_PATHS = (
     Path("assets/agent-wt-merge"),
     Path(".opencode/bin/agent-wt-merge"),
 )
+PIPELINE_POLICY_RELATIVE_PATH = Path("configs/gitlab-pipeline-guard.json")
+PIPELINE_CHECKER_RELATIVE_PATH = Path("assets/check-gitlab-pipeline.py")
+PIPELINE_POLICY_SCHEMA = "./schemas/gitlab-pipeline-guard.v1.schema.json"
+SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+FEATURE_BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 ACTORS = {
     "opencode": {
@@ -63,6 +73,15 @@ class HelperProvenance:
     reexecuted_after_main_update: bool
 
 
+@dataclass(frozen=True)
+class PipelineRuntime:
+    policy_path: Path
+    checker_path: Path
+    remote_name: str
+    guarded_ref: str
+    required_job: str
+
+
 @dataclass
 class MergeContext:
     original_worktree: Path
@@ -76,7 +95,9 @@ class MergeContext:
     fast_forward_possible: bool
     main_dirty_paths: list[str]
     origin_ref: str | None
+    origin_sha: str | None
     origin_behind_count: int | None
+    origin_ahead_count: int | None
     fetch_attempted: bool
     fetch_ok: bool | None
     fetch_message: str | None
@@ -343,6 +364,68 @@ def prepare_helper_execution(argv: list[str]) -> HelperProvenance:
     )
 
 
+def helper_source_root(helper_path: Path) -> Path:
+    resolved = helper_path.resolve()
+    if resolved.parent.name == "assets":
+        return resolved.parent.parent
+    if resolved.parent.name == "bin" and resolved.parent.parent.name == ".opencode":
+        return resolved.parent.parent.parent
+    die(f"cannot resolve source root for helper: {resolved}")
+
+
+def load_pipeline_runtime(helper: HelperProvenance, main_branch: str) -> PipelineRuntime:
+    source_root = helper_source_root(helper.path)
+    policy_path = source_root / PIPELINE_POLICY_RELATIVE_PATH
+    checker_path = source_root / PIPELINE_CHECKER_RELATIVE_PATH
+    try:
+        payload = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        die(f"cannot read pipeline guard policy {policy_path}: {exc}")
+    if not isinstance(payload, dict):
+        die("pipeline guard policy root must be an object")
+    if payload.get("$schema") != PIPELINE_POLICY_SCHEMA:
+        die(f"pipeline guard policy $schema must be {PIPELINE_POLICY_SCHEMA!r}")
+    if payload.get("schema_version") != 1:
+        die("pipeline guard policy schema_version must be 1")
+
+    def required_string(name: str) -> str:
+        value = payload.get(name)
+        if not isinstance(value, str) or not value.strip():
+            die(f"pipeline guard policy {name} must be a non-empty string")
+        return value.strip()
+
+    api_url = required_string("api_url").rstrip("/")
+    parsed_url = urllib.parse.urlparse(api_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        die("pipeline guard policy api_url must be an absolute HTTP(S) URL")
+    project_id = payload.get("project_id")
+    if not isinstance(project_id, int) or isinstance(project_id, bool) or project_id <= 0:
+        die("pipeline guard policy project_id must be a positive integer")
+    timeout_seconds = payload.get("timeout_seconds", 5)
+    if (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or not 1 <= timeout_seconds <= 30
+    ):
+        die("pipeline guard policy timeout_seconds must be between 1 and 30")
+    remote_name = required_string("guarded_remote")
+    if not REMOTE_NAME_PATTERN.fullmatch(remote_name):
+        die("pipeline guard policy guarded_remote must be a local remote name")
+    guarded_ref = required_string("guarded_ref")
+    expected_ref = f"refs/heads/{main_branch}"
+    if guarded_ref != expected_ref:
+        die(f"pipeline guard policy guarded_ref must be {expected_ref!r}")
+    if not checker_path.is_file():
+        die(f"pipeline checker is missing: {checker_path}")
+    return PipelineRuntime(
+        policy_path=policy_path,
+        checker_path=checker_path,
+        remote_name=remote_name,
+        guarded_ref=guarded_ref,
+        required_job=required_string("required_job"),
+    )
+
+
 def commit_exists(repo_root: Path, ref: str) -> bool:
     return git_returncode(
         repo_root, ["cat-file", "-e", f"{ref}^{{commit}}"]
@@ -381,16 +464,23 @@ def dirty_paths(worktree: Path) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def origin_status(main_worktree: Path, main_branch: str) -> tuple[str | None, int | None]:
-    origin_ref = f"origin/{main_branch}"
-    if git_returncode(main_worktree, ["show-ref", "--verify", "--quiet", f"refs/remotes/{origin_ref}"]) != 0:
-        return None, None
-    behind_count = count_range(main_worktree, f"{main_branch}..{origin_ref}")
-    return origin_ref, behind_count
+def origin_status(
+    main_worktree: Path,
+    main_branch: str,
+    remote_name: str,
+) -> tuple[str | None, str | None, int | None, int | None]:
+    origin_ref = f"{remote_name}/{main_branch}"
+    tracking_ref = f"refs/remotes/{origin_ref}"
+    if git_returncode(main_worktree, ["show-ref", "--verify", "--quiet", tracking_ref]) != 0:
+        return None, None, None, None
+    origin_sha = git_output(main_worktree, ["rev-parse", tracking_ref])
+    behind_count = count_range(main_worktree, f"{main_branch}..{tracking_ref}")
+    ahead_count = count_range(main_worktree, f"{tracking_ref}..{main_branch}")
+    return origin_ref, origin_sha, behind_count, ahead_count
 
 
-def maybe_fetch(main_worktree: Path) -> tuple[bool, str | None]:
-    result = run_git(main_worktree, ["fetch"], check=False)
+def maybe_fetch(main_worktree: Path, remote_name: str = "origin") -> tuple[bool, str | None]:
+    result = run_git(main_worktree, ["fetch", "--", remote_name], check=False)
     message = (result.stderr or result.stdout).strip() or None
     return result.returncode == 0, message
 
@@ -583,7 +673,12 @@ def cleanup_policy(
     }
 
 
-def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
+def build_context(
+    *,
+    fetch: bool,
+    helper: HelperProvenance,
+    remote_name: str = "origin",
+) -> MergeContext:
     original_worktree = resolve_repo_root()
     worktrees = parse_worktrees(original_worktree)
     feature_worktree = resolve_worktree_entry(worktrees, original_worktree)
@@ -598,14 +693,16 @@ def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
     fetch_message: str | None = None
     if fetch:
         fetch_attempted = True
-        fetch_ok, fetch_message = maybe_fetch(main_worktree)
+        fetch_ok, fetch_message = maybe_fetch(main_worktree, remote_name)
 
     main_sha = git_output(main_worktree, ["rev-parse", "HEAD"])
     feature_sha = git_output(original_worktree, ["rev-parse", feature_branch])
     commits_ahead = count_range(original_worktree, f"{main_branch}..{feature_branch}")
     fast_forward_possible = is_ancestor(original_worktree, main_branch, feature_branch)
     dirty = dirty_paths(main_worktree)
-    origin_ref, behind_count = origin_status(main_worktree, main_branch)
+    origin_ref, origin_sha, behind_count, ahead_count = origin_status(
+        main_worktree, main_branch, remote_name
+    )
     ai_wt_session = find_ai_wt_session(main_worktree, original_worktree)
     cleanup = cleanup_policy(
         main_worktree=main_worktree,
@@ -632,7 +729,9 @@ def build_context(*, fetch: bool, helper: HelperProvenance) -> MergeContext:
         fast_forward_possible=fast_forward_possible,
         main_dirty_paths=dirty,
         origin_ref=origin_ref,
+        origin_sha=origin_sha,
         origin_behind_count=behind_count,
+        origin_ahead_count=ahead_count,
         fetch_attempted=fetch_attempted,
         fetch_ok=fetch_ok,
         fetch_message=fetch_message,
@@ -674,7 +773,9 @@ def context_dict(ctx: MergeContext) -> dict[str, Any]:
         "main_dirty_paths": ctx.main_dirty_paths,
         "origin": {
             "ref": ctx.origin_ref,
+            "sha": ctx.origin_sha,
             "behind_count": ctx.origin_behind_count,
+            "ahead_count": ctx.origin_ahead_count,
         },
         "fetch": {
             "attempted": ctx.fetch_attempted,
@@ -715,7 +816,10 @@ def print_context_text(ctx: MergeContext) -> None:
     if ctx.origin_ref is None:
         print("- Origin status: no origin/<main> ref")
     else:
-        print(f"- Origin status: {ctx.origin_ref} is {ctx.origin_behind_count} commit(s) ahead of local {ctx.main_branch}")
+        print(
+            f"- Origin status: local {ctx.main_branch} is {ctx.origin_ahead_count} commit(s) ahead "
+            f"and {ctx.origin_behind_count} commit(s) behind {ctx.origin_ref}"
+        )
     if ctx.fetch_attempted and not ctx.fetch_ok:
         print(f"- Fetch warning: {ctx.fetch_message or 'git fetch failed'}")
     if ctx.ai_wt_session:
@@ -732,10 +836,219 @@ def print_context_text(ctx: MergeContext) -> None:
     print_cleanup(ctx.cleanup, after_merge=False)
 
 
-def update_main_from_origin(ctx: MergeContext) -> None:
+def remote_ref_sha(
+    repo_root: Path,
+    remote_name: str,
+    remote_ref: str,
+) -> str | None:
+    result = run_git(
+        repo_root,
+        ["ls-remote", "--heads", "--", remote_name, remote_ref],
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git ls-remote failed").strip()
+        die(f"could not read {remote_name} {remote_ref}: {detail}")
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    if len(lines) != 1:
+        die(f"remote advertised multiple values for {remote_ref}")
+    fields = lines[0].split()
+    if len(fields) != 2 or fields[1] != remote_ref or not SHA_PATTERN.fullmatch(fields[0]):
+        die(f"remote advertised a malformed value for {remote_ref}: {lines[0]!r}")
+    return fields[0]
+
+
+def feature_remote_ref(feature_branch: str) -> str:
+    if FEATURE_BRANCH_PATTERN.fullmatch(feature_branch) is None:
+        die(f"feature branch name is unsafe for publication: {feature_branch!r}")
+    return f"refs/heads/{feature_branch}"
+
+
+def require_remote_feature(
+    ctx: MergeContext,
+    runtime: PipelineRuntime,
+    expected_sha: str,
+) -> None:
+    remote_ref = feature_remote_ref(ctx.feature_branch)
+    advertised_sha = remote_ref_sha(ctx.original_worktree, runtime.remote_name, remote_ref)
+    if advertised_sha is None:
+        die(
+            f"{runtime.remote_name}/{ctx.feature_branch} is absent; run prepare-ci with user approval"
+        )
+    if advertised_sha != expected_sha:
+        die(
+            f"{runtime.remote_name}/{ctx.feature_branch} advertises {advertised_sha}, "
+            f"expected pinned feature SHA {expected_sha}"
+        )
+
+
+def check_pipeline(
+    ctx: MergeContext,
+    runtime: PipelineRuntime,
+    sha: str,
+) -> dict[str, Any]:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(runtime.checker_path),
+            "--repo-root",
+            str(ctx.original_worktree),
+            "--policy",
+            str(runtime.policy_path),
+            "--check-sha",
+            sha,
+            "--json",
+        ],
+        cwd=str(ctx.original_worktree),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        detail = (result.stderr or result.stdout or "pipeline checker returned no JSON").strip()
+        die(f"pipeline checker failed for {sha}: {detail}")
+    if not isinstance(payload, dict):
+        die("pipeline checker JSON root is not an object")
+    outcome = payload.get("outcome")
+    if payload.get("schema_version") != 1 or outcome not in {
+        "success",
+        "retryable",
+        "terminal",
+        "error",
+        "bypass",
+    }:
+        die("pipeline checker returned an invalid outcome")
+    if payload.get("sha") != sha:
+        die("pipeline checker returned a mismatched SHA")
+    if outcome not in {"bypass", "error"} and payload.get("required_job") != runtime.required_job:
+        die("pipeline checker returned a mismatched required job")
+    if outcome in {"success", "bypass"} and result.returncode != 0:
+        die("pipeline checker returned a passing outcome with a failing exit status")
+    if outcome not in {"success", "bypass"} and result.returncode == 0:
+        die("pipeline checker returned a blocking outcome with a passing exit status")
+    return payload
+
+
+def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: str) -> None:
+    remote_ref = feature_remote_ref(ctx.feature_branch)
+    remote_check = run_git(
+        ctx.original_worktree,
+        ["remote", "get-url", runtime.remote_name],
+        check=False,
+    )
+    if remote_check.returncode != 0:
+        detail = (remote_check.stderr or remote_check.stdout or "remote not found").strip()
+        die(f"cannot publish through remote {runtime.remote_name!r}: {detail}")
+    result = run_git(
+        ctx.original_worktree,
+        [
+            "push",
+            "--porcelain",
+            "--",
+            runtime.remote_name,
+            f"{feature_sha}:{remote_ref}",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git push failed").strip()
+        die(
+            f"could not publish pinned feature SHA {feature_sha} to "
+            f"{runtime.remote_name}/{ctx.feature_branch}: {detail}"
+        )
+    advertised_sha = remote_ref_sha(ctx.original_worktree, runtime.remote_name, remote_ref)
+    if advertised_sha != feature_sha:
+        die(
+            f"published feature verification failed: {runtime.remote_name}/{ctx.feature_branch} "
+            f"advertises {advertised_sha or 'nothing'}, expected {feature_sha}"
+        )
+
+
+def positive_seconds(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be an integer number of seconds") from None
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} prepare-ci")
+    parser.add_argument("--poll-interval", type=positive_seconds, default=15)
+    parser.add_argument("--poll-timeout", type=positive_seconds, default=900)
+    add_local_helper_argument(parser)
+    parsed = parser.parse_args(raw_args)
+    maximum_checks = max(1, math.ceil(parsed.poll_timeout / parsed.poll_interval))
+    if maximum_checks > 60:
+        die(
+            "poll settings would require more than 60 checks; increase "
+            "--poll-interval or reduce --poll-timeout"
+        )
+    ctx = build_context(fetch=False, helper=helper)
+    runtime = load_pipeline_runtime(helper, ctx.main_branch)
+    feature_sha = ctx.feature_sha
+    publish_feature(ctx, runtime, feature_sha)
+    print(
+        f"Published {ctx.feature_branch} at {feature_sha} to "
+        f"{runtime.remote_name}/{ctx.feature_branch}"
+    )
+
+    deadline = time.monotonic() + parsed.poll_timeout
+    latest: dict[str, Any] | None = None
+    for attempt in range(1, maximum_checks + 1):
+        if attempt > 1 and time.monotonic() >= deadline:
+            break
+        latest = check_pipeline(ctx, runtime, feature_sha)
+        outcome = latest["outcome"]
+        detail = str(latest.get("detail") or "no detail")
+        if outcome == "success":
+            pipeline_url = latest.get("pipeline_url")
+            suffix = f" ({pipeline_url})" if pipeline_url else ""
+            print(
+                f"PASS feature CI: {runtime.required_job} succeeded for {feature_sha}{suffix}"
+            )
+            return 0
+        if outcome == "bypass":
+            print(
+                f"BYPASS feature CI: {detail}. The remote feature branch must be retained."
+            )
+            return 0
+        if outcome in {"terminal", "error"}:
+            die(f"feature CI blocked for {feature_sha}: {detail}")
+        print(
+            f"Waiting for {runtime.required_job} on {feature_sha} "
+            f"({attempt}/{maximum_checks}): {detail}"
+        )
+        if attempt < maximum_checks:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(parsed.poll_interval, remaining))
+
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        time.sleep(remaining)
+    detail = str((latest or {}).get("detail") or "no successful job observed")
+    die(
+        f"timed out after {parsed.poll_timeout}s waiting for {runtime.required_job} "
+        f"on {feature_sha}: {detail}; feature remains published and main was not changed"
+    )
+
+
+def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
     if ctx.origin_ref is None:
-        die(f"cannot update {ctx.main_branch}: origin/{ctx.main_branch} does not exist")
-    fetch_ok, fetch_message = maybe_fetch(ctx.main_worktree)
+        die(
+            f"cannot update {ctx.main_branch}: "
+            f"{remote_name}/{ctx.main_branch} does not exist"
+        )
+    fetch_ok, fetch_message = maybe_fetch(ctx.main_worktree, remote_name)
     if not fetch_ok:
         die(f"git fetch failed before updating {ctx.main_branch}: {fetch_message or 'unknown error'}")
     result = run_git(ctx.main_worktree, ["merge", "--ff-only", ctx.origin_ref], check=False)
@@ -767,9 +1080,15 @@ def reexec_after_main_update(ctx: MergeContext, argv: list[str]) -> None:
 def ensure_merge_preconditions(
     ctx: MergeContext,
     *,
+    merge_type: str,
+    remote_name: str,
     update_main: bool,
-    argv: list[str],
 ) -> MergeContext:
+    if not ctx.fetch_attempted or not ctx.fetch_ok:
+        die(
+            f"git fetch from {remote_name} failed before merge: "
+            f"{ctx.fetch_message or 'unknown error'}"
+        )
     if ctx.main_dirty_paths:
         paths = "\n".join(ctx.main_dirty_paths)
         die(f"main worktree is dirty; refusing to merge:\n{paths}")
@@ -779,10 +1098,19 @@ def ensure_merge_preconditions(
                 f"{ctx.main_branch} is behind {ctx.origin_ref} by {ctx.origin_behind_count} commit(s); "
                 "rerun with --update-main only after user approval"
             )
-        update_main_from_origin(ctx)
-        reexec_after_main_update(ctx, argv)
     if ctx.commits_ahead == 0:
         die(f"{ctx.feature_branch} has no commits ahead of {ctx.main_branch}")
+    if ctx.origin_sha is None:
+        die(f"cannot verify advertised {remote_name}/{ctx.main_branch}")
+    if (
+        merge_type == "no-ff"
+        and ctx.main_sha != ctx.origin_sha
+        and not (update_main and bool(ctx.origin_behind_count))
+    ):
+        die(
+            f"no-ff merge requires local {ctx.main_branch} at advertised "
+            f"{remote_name}/{ctx.main_branch} {ctx.origin_sha}; local SHA is {ctx.main_sha}"
+        )
     return ctx
 
 
@@ -897,6 +1225,100 @@ def beads_partial_failure(beads: dict[str, Any]) -> bool:
     )
 
 
+def cleanup_remote_feature(
+    ctx: MergeContext,
+    runtime: PipelineRuntime,
+    feature_sha: str,
+    pipeline_outcome: str,
+) -> dict[str, Any]:
+    remote_ref = feature_remote_ref(ctx.feature_branch)
+    if pipeline_outcome != "success":
+        return {
+            "requested": False,
+            "cleaned": False,
+            "retained": True,
+            "remote_ref": remote_ref,
+            "reason": "pipeline guard was bypassed; remote evidence retained",
+        }
+
+    result: dict[str, Any] = {
+        "requested": True,
+        "cleaned": False,
+        "retained": True,
+        "remote_ref": remote_ref,
+        "expected_sha": feature_sha,
+    }
+    try:
+        advertised_sha = remote_ref_sha(ctx.original_worktree, runtime.remote_name, remote_ref)
+    except (AgentWtMergeError, OSError) as exc:
+        result["reason"] = str(exc)
+        return result
+    result["advertised_sha"] = advertised_sha
+    if advertised_sha is None:
+        result.update(
+            {
+                "cleaned": True,
+                "retained": False,
+                "already_absent": True,
+                "reason": "remote feature branch was already absent",
+            }
+        )
+        return result
+    if advertised_sha != feature_sha:
+        result["reason"] = (
+            f"remote feature moved to {advertised_sha}; exact-lease deletion was not attempted"
+        )
+        return result
+
+    try:
+        deletion = run_git(
+            ctx.original_worktree,
+            [
+                "push",
+                "--porcelain",
+                f"--force-with-lease={remote_ref}:{feature_sha}",
+                "--",
+                runtime.remote_name,
+                f":{remote_ref}",
+            ],
+            check=False,
+        )
+    except OSError as exc:
+        result["reason"] = f"lease-protected remote deletion failed: {exc}"
+        return result
+    if deletion.returncode != 0:
+        result["reason"] = (
+            deletion.stderr or deletion.stdout or "lease-protected remote deletion failed"
+        ).strip()
+        return result
+    try:
+        remaining_sha = remote_ref_sha(ctx.original_worktree, runtime.remote_name, remote_ref)
+    except (AgentWtMergeError, OSError) as exc:
+        result["reason"] = f"deletion ran but verification failed: {exc}"
+        return result
+    if remaining_sha is not None:
+        result["advertised_sha"] = remaining_sha
+        result["reason"] = (
+            f"deletion verification found {remote_ref} at {remaining_sha}; no second deletion attempted"
+        )
+        return result
+    result.update(
+        {
+            "cleaned": True,
+            "retained": False,
+            "advertised_sha": None,
+            "reason": "exact-lease deletion succeeded",
+        }
+    )
+    return result
+
+
+def remote_cleanup_partial_failure(remote_cleanup: dict[str, Any]) -> bool:
+    return bool(remote_cleanup.get("requested")) and not bool(
+        remote_cleanup.get("cleaned")
+    )
+
+
 def print_cleanup(cleanup: dict[str, Any], *, after_merge: bool) -> None:
     if cleanup["action"] == "defer":
         print(f"- Cleanup deferred to {cleanup['manager']}: {cleanup['note']}")
@@ -922,6 +1344,22 @@ def print_merge_report(report: dict[str, Any]) -> None:
     print(f"- Commits merged: {report['commits_merged']}")
     if report.get("merge_commit_author"):
         print(f"- Merge commit author: {report['merge_commit_author']}")
+    pipeline = report["pipeline"]
+    print(
+        f"- Feature CI: {pipeline['outcome']} "
+        f"({pipeline.get('detail') or 'no detail'})"
+    )
+    remote_cleanup = report["remote_cleanup"]
+    if remote_cleanup.get("cleaned"):
+        qualifier = "already absent" if remote_cleanup.get("already_absent") else "deleted"
+        print(
+            f"- Remote feature cleanup: {qualifier} "
+            f"({report['remote_name']}/{report['feature_branch']})"
+        )
+    elif remote_cleanup.get("retained"):
+        print(f"- Remote feature cleanup: retained ({remote_cleanup.get('reason', 'unknown reason')})")
+    else:
+        print(f"- Remote feature cleanup: not completed ({remote_cleanup.get('reason', 'unknown reason')})")
     beads = report["beads"]
     if beads.get("closed"):
         print(f"- Beads issue closed: yes ({report['close_beads']})")
@@ -939,7 +1377,11 @@ def print_merge_report(report: dict[str, Any]) -> None:
     else:
         print("- Beads issue closed: no (not requested)")
     print_cleanup(report["cleanup"], after_merge=True)
-    print("- Pushed: no")
+    print("- Main/tags pushed: no")
+    if remote_cleanup_partial_failure(remote_cleanup):
+        print(
+            "Partial failure: Git merge succeeded, but lease-protected remote feature cleanup did not complete."
+        )
     if beads_partial_failure(beads):
         if beads.get("closed"):
             print(
@@ -973,23 +1415,53 @@ def perform_merge(
     parsed = parser.parse_args(raw_args)
 
     full_argv = [merge_type, *raw_args]
+    repo_root = resolve_repo_root()
+    runtime = load_pipeline_runtime(helper, resolve_main_branch(repo_root))
     ctx = ensure_merge_preconditions(
-        build_context(fetch=False, helper=helper),
+        build_context(fetch=True, helper=helper, remote_name=runtime.remote_name),
+        merge_type=merge_type,
+        remote_name=runtime.remote_name,
         update_main=parsed.update_main,
-        argv=full_argv,
     )
     before_sha = ctx.main_sha
+    feature_sha = ctx.feature_sha
+    updating_main = bool(ctx.origin_behind_count and parsed.update_main)
+    if not updating_main:
+        if merge_type == "ff":
+            if not ctx.fast_forward_possible:
+                die("fast-forward is not possible; use the no-ff command after drafting a merge message")
+        else:
+            if ctx.fast_forward_possible:
+                die("fast-forward is possible; use the ff command instead of creating a no-ff merge commit")
+
+    require_remote_feature(ctx, runtime, feature_sha)
+    pipeline_result = check_pipeline(ctx, runtime, feature_sha)
+    pipeline_outcome = str(pipeline_result["outcome"])
+    if pipeline_outcome not in {"success", "bypass"}:
+        detail = str(pipeline_result.get("detail") or "no detail")
+        die(f"feature CI blocked for {feature_sha}: {detail}; run prepare-ci and retry")
+
+    advertised_main_sha = remote_ref_sha(
+        ctx.original_worktree,
+        runtime.remote_name,
+        runtime.guarded_ref,
+    )
+    if advertised_main_sha != ctx.origin_sha:
+        die(
+            f"{runtime.remote_name}/{ctx.main_branch} moved after fetch: advertised "
+            f"{advertised_main_sha or 'nothing'}, expected {ctx.origin_sha}; rerun the command"
+        )
+    if ctx.origin_behind_count and parsed.update_main:
+        update_main_from_origin(ctx, runtime.remote_name)
+        reexec_after_main_update(ctx, full_argv)
+
     if merge_type == "ff":
-        if not ctx.fast_forward_possible:
-            die("fast-forward is not possible; use the no-ff command after drafting a merge message")
-        result = run_git(ctx.main_worktree, ["merge", "--ff-only", ctx.feature_branch], check=False)
+        result = run_git(ctx.main_worktree, ["merge", "--ff-only", feature_sha], check=False)
     else:
-        if ctx.fast_forward_possible:
-            die("fast-forward is possible; use the ff command instead of creating a no-ff merge commit")
         merge_args = ["merge", "--no-ff"]
         for paragraph in parsed.message:
             merge_args.extend(["-m", paragraph])
-        merge_args.append(ctx.feature_branch)
+        merge_args.append(feature_sha)
         result = run_git(ctx.main_worktree, merge_args, check=False, env=actor_env(parsed.actor))
     if result.returncode != 0:
         die(merge_failure_message(ctx, result))
@@ -1000,14 +1472,26 @@ def perform_merge(
     if merge_type == "no-ff":
         merge_commit_author = git_output(ctx.main_worktree, ["log", "-1", "--format=%an <%ae>"])
 
-    post_ctx = build_context(fetch=False, helper=helper)
-    beads_result = close_beads_issue(
-        ctx=post_ctx,
-        actor=parsed.actor,
-        issue_id=parsed.close_beads,
-        before_sha=before_sha,
-        after_sha=after_sha,
+    remote_cleanup = cleanup_remote_feature(
+        ctx,
+        runtime,
+        feature_sha,
+        pipeline_outcome,
     )
+    try:
+        beads_result = close_beads_issue(
+            ctx=ctx,
+            actor=parsed.actor,
+            issue_id=parsed.close_beads,
+            before_sha=before_sha,
+            after_sha=after_sha,
+        )
+    except (AgentWtMergeError, OSError) as exc:
+        beads_result = {
+            "requested": parsed.close_beads is not None,
+            "closed": False,
+            "reason": f"Beads closure could not be evaluated: {exc}",
+        }
     report = {
         "merge_type": merge_type,
         "main_branch": ctx.main_branch,
@@ -1016,13 +1500,19 @@ def perform_merge(
         "main_sha_after": after_sha,
         "commits_merged": commits_merged,
         "merge_commit_author": merge_commit_author,
+        "pipeline": pipeline_result,
+        "remote_name": runtime.remote_name,
+        "remote_cleanup": remote_cleanup,
         "close_beads": parsed.close_beads,
         "beads": beads_result,
-        "cleanup": post_ctx.cleanup,
+        "cleanup": ctx.cleanup,
         "helper": helper_provenance_dict(helper),
     }
     print_merge_report(report)
-    return 1 if beads_partial_failure(beads_result) else 0
+    return 1 if (
+        remote_cleanup_partial_failure(remote_cleanup)
+        or beads_partial_failure(beads_result)
+    ) else 0
 
 
 def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
@@ -1042,11 +1532,13 @@ def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
 def usage() -> str:
     return f"""Usage:
   ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [{LOCAL_HELPER_FLAG}]
+  ./assets/{SCRIPT_NAME} prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
 
 Commands:
   inspect  Report merge target facts and cleanup suggestions.
+  prepare-ci  Publish the exact feature tip and wait for required CI.
   ff       Fast-forward main/master to the current feature branch.
   no-ff    Create a no-ff merge commit on main/master.
 """
@@ -1061,6 +1553,8 @@ def main(argv: list[str]) -> int:
         helper = prepare_helper_execution(argv)
         if command == "inspect":
             return cmd_inspect(raw_args, helper=helper)
+        if command == "prepare-ci":
+            return cmd_prepare_ci(raw_args, helper=helper)
         if command == "ff":
             return perform_merge(raw_args, merge_type="ff", helper=helper)
         if command == "no-ff":

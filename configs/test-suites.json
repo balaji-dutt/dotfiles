@@ -4,6 +4,7 @@
   "capabilities": {
     "bash": {"command": "bash"},
     "git": {"command": "git"},
+    "node": {"command": "node"},
     "ps": {"command": "ps"},
     "pwsh": {"command": "pwsh"},
     "sh": {"command": "sh"},
@@ -98,6 +99,13 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_envrc"],
       "covers": ["tests/test_envrc.py"],
       "requires": ["bash"]
+    },
+    {
+      "id": "feature-ci-reminders",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_feature_ci_reminders"],
+      "covers": ["tests/test_feature_ci_reminders.py"],
+      "requires": ["git", "node"]
     },
     {
       "id": "git-template-hook-sync",
