@@ -37,8 +37,7 @@
       "depNameTemplate": "corbindavenport/just-the-browser",
       "matchStrings": [
         "(?<prefix>^|\\r?\\n)(?<indent>[ \\t]*)\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\""
-      ],
-      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\"version\": \"{{{newValue}}}\""
+      ]
     },
     {
       "customType": "regex",
