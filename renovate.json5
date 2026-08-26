@@ -38,7 +38,7 @@
       "matchStrings": [
         "(?<prefix>^|\\r?\\n)(?<indent>[ \\t]*)\\\"version\\\":[ \\t]*\\\"(?<currentValue>v?[^\\\"]+)\\\""
       ],
-      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\\\"version\\\": \\\"{{{newValue}}}\\\""
+      "autoReplaceStringTemplate": "{{{prefix}}}{{{indent}}}\"version\": \"{{{newValue}}}\""
     },
     {
       "customType": "regex",
