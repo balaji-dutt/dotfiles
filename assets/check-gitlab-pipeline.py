@@ -21,6 +21,8 @@ OVERRIDE_NAME = "pipeline-guard.override"
 SCHEMA_REF = "./schemas/gitlab-pipeline-guard.v1.schema.json"
 ZERO_SHAS = frozenset({"0" * 40, "0" * 64})
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+BRANCH_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 ACTIVE_JOB_STATUSES = frozenset(
     {"created", "waiting_for_resource", "preparing", "pending", "running", "scheduled"}
@@ -298,6 +300,93 @@ def require_successful_job(policy: Policy, sha: str) -> str:
     )
 
 
+def guarded_branch_name(policy: Policy) -> str:
+    prefix = "refs/heads/"
+    if not policy.guarded_ref.startswith(prefix):
+        fail("pipeline guard policy guarded_ref must name a local branch")
+    branch = policy.guarded_ref.removeprefix(prefix)
+    if BRANCH_NAME_PATTERN.fullmatch(branch) is None:
+        fail("pipeline guard policy guarded_ref contains an unsafe branch name")
+    if REMOTE_NAME_PATTERN.fullmatch(policy.guarded_remote) is None:
+        fail("pipeline guard policy guarded_remote contains an unsafe remote name")
+    return branch
+
+
+def local_rebase_branch(repo_root: Path, raw_branch: str | None) -> str | None:
+    if raw_branch:
+        branch = raw_branch.removeprefix("refs/heads/")
+        if BRANCH_NAME_PATTERN.fullmatch(branch) is None:
+            return None
+        exists = run_git(
+            repo_root,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}",
+            check=False,
+        )
+        return branch if exists.returncode == 0 else None
+    result = run_git(
+        repo_root,
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+        check=False,
+    )
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        fail(f"cannot resolve the branch being rebased: {detail}")
+    branch = result.stdout.strip()
+    if BRANCH_NAME_PATTERN.fullmatch(branch) is None:
+        fail("the branch being rebased has an unsafe name")
+    return branch
+
+
+def check_rebase(args: argparse.Namespace, repo_root: Path) -> int:
+    if args.remote_name is not None or args.remote_url is not None:
+        fail("pre-rebase mode does not accept pre-push remote arguments")
+    if args.check_sha is not None or args.json:
+        fail("pre-rebase mode does not accept direct SHA options")
+    policy = load_policy(policy_path_for(args, repo_root))
+    guarded_branch = guarded_branch_name(policy)
+    branch = local_rebase_branch(repo_root, args.rebase_branch)
+    if branch != guarded_branch:
+        return 0
+
+    local_ref = f"refs/heads/{guarded_branch}"
+    remote_ref = f"refs/remotes/{policy.guarded_remote}/{guarded_branch}"
+    remote_exists = run_git(
+        repo_root,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        remote_ref,
+        check=False,
+    )
+    if remote_exists.returncode != 0:
+        fail(
+            f"cannot verify whether {guarded_branch} has unpushed commits because "
+            f"{remote_ref} is unavailable"
+        )
+    raw_count = run_git(repo_root, "rev-list", "--count", f"{remote_ref}..{local_ref}").stdout.strip()
+    try:
+        ahead_count = int(raw_count)
+    except ValueError:
+        fail(f"Git returned an invalid local-ahead count: {raw_count!r}")
+    if ahead_count > 0:
+        fail(
+            f"refusing to rebase guarded {guarded_branch}: {ahead_count} local commit(s) "
+            f"are absent from {policy.guarded_remote}/{guarded_branch}; rebasing would "
+            "invalidate exact-SHA CI evidence. Push the guarded main tip first, or use "
+            "the documented recovery workflow. Use Git's explicit --no-verify only for "
+            "a reviewed exception."
+        )
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("remote_name", nargs="?")
@@ -307,6 +396,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--policy", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--check-sha", help=argparse.SUPPRESS)
+    parser.add_argument("--check-rebase", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--rebase-branch", help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -364,6 +455,12 @@ def direct_check(args: argparse.Namespace, repo_root: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     repo_root = args.repo_root.resolve()
+    if args.check_rebase:
+        try:
+            return check_rebase(args, repo_root)
+        except GuardError as error:
+            print(f"ERROR: pipeline guard blocked rebase: {error}", file=sys.stderr)
+            return 1
     if args.check_sha is not None:
         return direct_check(args, repo_root)
     try:

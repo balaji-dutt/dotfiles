@@ -312,11 +312,15 @@ def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = Fals
         die(f"could not execute helper {target}: {exc}")
 
 
-def prepare_helper_execution(argv: list[str]) -> HelperProvenance:
+def prepare_helper_execution(
+    argv: list[str],
+    *,
+    allow_main: bool = False,
+) -> HelperProvenance:
     original_worktree = resolve_repo_root()
     main_branch = resolve_main_branch(original_worktree)
     feature_branch = current_branch(original_worktree)
-    if feature_branch in MAIN_BRANCH_CANDIDATES:
+    if feature_branch in MAIN_BRANCH_CANDIDATES and not allow_main:
         die(f"already on {feature_branch}; there is nothing to merge")
     main_worktree = resolve_main_worktree(original_worktree, main_branch)
     current = running_helper_path()
@@ -885,7 +889,7 @@ def require_remote_feature(
 
 
 def check_pipeline(
-    ctx: MergeContext,
+    repo_root: Path,
     runtime: PipelineRuntime,
     sha: str,
 ) -> dict[str, Any]:
@@ -894,14 +898,14 @@ def check_pipeline(
             sys.executable,
             str(runtime.checker_path),
             "--repo-root",
-            str(ctx.original_worktree),
+            str(repo_root),
             "--policy",
             str(runtime.policy_path),
             "--check-sha",
             sha,
             "--json",
         ],
-        cwd=str(ctx.original_worktree),
+        cwd=str(repo_root),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1005,7 +1009,7 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
     for attempt in range(1, maximum_checks + 1):
         if attempt > 1 and time.monotonic() >= deadline:
             break
-        latest = check_pipeline(ctx, runtime, feature_sha)
+        latest = check_pipeline(ctx.original_worktree, runtime, feature_sha)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
         if outcome == "success":
@@ -1040,6 +1044,292 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
         f"timed out after {parsed.poll_timeout}s waiting for {runtime.required_job} "
         f"on {feature_sha}: {detail}; feature remains published and main was not changed"
     )
+
+
+def main_ci_remote_ref(main_branch: str, main_sha: str) -> str:
+    if FEATURE_BRANCH_PATTERN.fullmatch(main_branch) is None:
+        die(f"main branch name is unsafe for CI publication: {main_branch!r}")
+    if SHA_PATTERN.fullmatch(main_sha) is None:
+        die(f"main SHA is invalid for CI publication: {main_sha!r}")
+    return f"refs/heads/ci/{main_branch}/{main_sha}"
+
+
+def publish_main_ci_ref(
+    repo_root: Path,
+    runtime: PipelineRuntime,
+    main_branch: str,
+    main_sha: str,
+) -> tuple[str, bool]:
+    remote_ref = main_ci_remote_ref(main_branch, main_sha)
+    advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
+    if advertised_sha is not None:
+        if advertised_sha != main_sha:
+            die(
+                f"reserved CI ref {remote_ref} advertises {advertised_sha}, expected {main_sha}; "
+                "refusing to update it"
+            )
+        return remote_ref, False
+
+    remote_check = run_git(repo_root, ["remote", "get-url", runtime.remote_name], check=False)
+    if remote_check.returncode != 0:
+        detail = (remote_check.stderr or remote_check.stdout or "remote not found").strip()
+        die(f"cannot publish through remote {runtime.remote_name!r}: {detail}")
+    result = run_git(
+        repo_root,
+        [
+            "push",
+            "--porcelain",
+            "--",
+            runtime.remote_name,
+            f"{main_sha}:{remote_ref}",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git push failed").strip()
+        die(
+            f"could not publish rewritten main SHA {main_sha} to "
+            f"{runtime.remote_name}/{remote_ref.removeprefix('refs/heads/')}: {detail}"
+        )
+    advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
+    if advertised_sha != main_sha:
+        die(
+            f"published main CI verification failed: {remote_ref} advertises "
+            f"{advertised_sha or 'nothing'}, expected {main_sha}"
+        )
+    return remote_ref, True
+
+
+def cleanup_main_ci_ref(
+    repo_root: Path,
+    runtime: PipelineRuntime,
+    remote_ref: str,
+    main_sha: str,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "requested": True,
+        "cleaned": False,
+        "retained": True,
+        "remote_ref": remote_ref,
+        "expected_sha": main_sha,
+    }
+    try:
+        advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
+    except (AgentWtMergeError, OSError) as exc:
+        result["reason"] = str(exc)
+        return result
+    if advertised_sha is None:
+        result.update({"cleaned": True, "retained": False, "already_absent": True})
+        return result
+    if advertised_sha != main_sha:
+        result["reason"] = (
+            f"temporary CI ref moved to {advertised_sha}; exact-lease deletion was not attempted"
+        )
+        return result
+    try:
+        deletion = run_git(
+            repo_root,
+            [
+                "push",
+                "--porcelain",
+                f"--force-with-lease={remote_ref}:{main_sha}",
+                "--",
+                runtime.remote_name,
+                f":{remote_ref}",
+            ],
+            check=False,
+        )
+    except OSError as exc:
+        result["reason"] = f"lease-protected CI ref deletion failed: {exc}"
+        return result
+    if deletion.returncode != 0:
+        result["reason"] = (
+            deletion.stderr or deletion.stdout or "lease-protected CI ref deletion failed"
+        ).strip()
+        return result
+    try:
+        remaining_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
+    except (AgentWtMergeError, OSError) as exc:
+        result["reason"] = f"deletion ran but verification failed: {exc}"
+        return result
+    if remaining_sha is not None:
+        result["reason"] = (
+            f"deletion verification found {remote_ref} at {remaining_sha}; "
+            "no second deletion attempted"
+        )
+        return result
+    result.update({"cleaned": True, "retained": False})
+    return result
+
+
+def ensure_main_ci_state_unchanged(
+    repo_root: Path,
+    runtime: PipelineRuntime,
+    main_branch: str,
+    main_sha: str,
+    origin_sha: str,
+    remote_ref: str | None,
+) -> None:
+    evidence = (
+        f"; temporary CI ref {remote_ref} was retained"
+        if remote_ref is not None
+        else "; no temporary CI ref was published"
+    )
+    if current_branch(repo_root) != main_branch or git_output(repo_root, ["rev-parse", "HEAD"]) != main_sha:
+        die(f"local {main_branch} moved while CI was checked{evidence}")
+    if dirty_paths(repo_root):
+        die(f"main worktree became dirty while CI was checked{evidence}")
+    current_remote_main = remote_ref_sha(repo_root, runtime.remote_name, runtime.guarded_ref)
+    if current_remote_main != origin_sha:
+        die(f"{runtime.remote_name}/{main_branch} moved while CI was checked{evidence}")
+
+
+def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} prepare-main-ci")
+    parser.add_argument("--poll-interval", type=positive_seconds, default=15)
+    parser.add_argument("--poll-timeout", type=positive_seconds, default=900)
+    add_local_helper_argument(parser)
+    parsed = parser.parse_args(raw_args)
+    maximum_checks = max(1, math.ceil(parsed.poll_timeout / parsed.poll_interval))
+    if maximum_checks > 60:
+        die(
+            "poll settings would require more than 60 checks; increase "
+            "--poll-interval or reduce --poll-timeout"
+        )
+
+    repo_root = resolve_repo_root()
+    main_branch = resolve_main_branch(repo_root)
+    branch = current_branch(repo_root)
+    if branch != main_branch:
+        die(f"prepare-main-ci must run from attached {main_branch}; current branch is {branch}")
+    main_worktree = resolve_main_worktree(repo_root, main_branch)
+    if main_worktree != repo_root:
+        die(f"prepare-main-ci must run from the {main_branch} worktree: {main_worktree}")
+    runtime = load_pipeline_runtime(helper, main_branch)
+    dirty = dirty_paths(repo_root)
+    if dirty:
+        die("main worktree is dirty; refusing to publish CI evidence:\n" + "\n".join(dirty))
+    fetch_ok, fetch_message = maybe_fetch(repo_root, runtime.remote_name)
+    if not fetch_ok:
+        die(
+            f"git fetch from {runtime.remote_name} failed before main CI publication: "
+            f"{fetch_message or 'unknown error'}"
+        )
+    origin_ref, origin_sha, behind_count, ahead_count = origin_status(
+        repo_root, main_branch, runtime.remote_name
+    )
+    if origin_ref is None or origin_sha is None:
+        die(f"cannot verify advertised {runtime.remote_name}/{main_branch}")
+    if behind_count:
+        die(
+            f"local {main_branch} is {behind_count} commit(s) behind {origin_ref}; "
+            "refusing rewritten-main CI recovery"
+        )
+    if not ahead_count:
+        die(f"local {main_branch} has no unpushed commits ahead of {origin_ref}")
+    main_sha = git_output(repo_root, ["rev-parse", "HEAD"])
+    if not is_ancestor(repo_root, origin_sha, main_sha):
+        die(f"local {main_branch} has diverged from {origin_ref}; refusing CI publication")
+    advertised_main_sha = remote_ref_sha(
+        repo_root, runtime.remote_name, runtime.guarded_ref
+    )
+    if advertised_main_sha != origin_sha:
+        die(
+            f"{runtime.remote_name}/{main_branch} moved after fetch: advertised "
+            f"{advertised_main_sha or 'nothing'}, expected {origin_sha}; rerun the command"
+        )
+
+    initial = check_pipeline(repo_root, runtime, main_sha)
+    if initial["outcome"] == "success":
+        ensure_main_ci_state_unchanged(
+            repo_root,
+            runtime,
+            main_branch,
+            main_sha,
+            origin_sha,
+            None,
+        )
+        print(
+            f"PASS main CI: {runtime.required_job} already succeeded for {main_sha}; "
+            "no temporary ref was published"
+        )
+        return 0
+
+    remote_ref, published = publish_main_ci_ref(repo_root, runtime, main_branch, main_sha)
+    action = "Published" if published else "Reusing"
+    print(
+        f"{action} rewritten main at {main_sha} through "
+        f"{runtime.remote_name}/{remote_ref.removeprefix('refs/heads/')}"
+    )
+    if initial["outcome"] == "bypass":
+        print(
+            "BYPASS main CI: override is active. The temporary CI ref is retained, "
+            "and main/tags were not pushed."
+        )
+        return 0
+
+    deadline = time.monotonic() + parsed.poll_timeout
+    latest = initial
+    for attempt in range(1, maximum_checks + 1):
+        if attempt > 1 and time.monotonic() >= deadline:
+            break
+        latest = check_pipeline(repo_root, runtime, main_sha)
+        outcome = latest["outcome"]
+        detail = str(latest.get("detail") or "no detail")
+        if outcome == "success":
+            break
+        if outcome == "bypass":
+            print(
+                "BYPASS main CI: override became active while polling. The temporary "
+                "CI ref is retained, and main/tags were not pushed."
+            )
+            return 0
+        if outcome in {"terminal", "error"}:
+            die(
+                f"main CI blocked for {main_sha}: {detail}; temporary CI ref "
+                f"{remote_ref} was retained and main/tags were not pushed"
+            )
+        print(
+            f"Waiting for {runtime.required_job} on rewritten main {main_sha} "
+            f"({attempt}/{maximum_checks}): {detail}"
+        )
+        if attempt < maximum_checks:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(parsed.poll_interval, remaining))
+    if latest.get("outcome") != "success":
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+        detail = str(latest.get("detail") or "no successful job observed")
+        die(
+            f"timed out after {parsed.poll_timeout}s waiting for {runtime.required_job} "
+            f"on {main_sha}: {detail}; temporary CI ref {remote_ref} was retained and "
+            "main/tags were not pushed"
+        )
+
+    ensure_main_ci_state_unchanged(
+        repo_root,
+        runtime,
+        main_branch,
+        main_sha,
+        origin_sha,
+        remote_ref,
+    )
+    cleanup = cleanup_main_ci_ref(repo_root, runtime, remote_ref, main_sha)
+    if not cleanup.get("cleaned"):
+        print(
+            f"PARTIAL main CI: {runtime.required_job} succeeded for {main_sha}, but temporary "
+            f"CI ref cleanup failed: {cleanup.get('reason', 'unknown reason')}"
+        )
+        print("- Main/tags pushed: no")
+        return 1
+    qualifier = "already absent" if cleanup.get("already_absent") else "deleted"
+    print(f"PASS main CI: {runtime.required_job} succeeded for {main_sha}")
+    print(f"- Temporary CI ref: {qualifier} ({remote_ref})")
+    print("- Main/tags pushed: no")
+    return 0
 
 
 def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
@@ -1435,7 +1725,7 @@ def perform_merge(
                 die("fast-forward is possible; use the ff command instead of creating a no-ff merge commit")
 
     require_remote_feature(ctx, runtime, feature_sha)
-    pipeline_result = check_pipeline(ctx, runtime, feature_sha)
+    pipeline_result = check_pipeline(ctx.original_worktree, runtime, feature_sha)
     pipeline_outcome = str(pipeline_result["outcome"])
     if pipeline_outcome not in {"success", "bypass"}:
         detail = str(pipeline_result.get("detail") or "no detail")
@@ -1533,12 +1823,14 @@ def usage() -> str:
     return f"""Usage:
   ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
+  ./assets/{SCRIPT_NAME} prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]
 
 Commands:
   inspect  Report merge target facts and cleanup suggestions.
   prepare-ci  Publish the exact feature tip and wait for required CI.
+  prepare-main-ci  Publish an unpushed main tip to a temporary ref and wait for CI.
   ff       Fast-forward main/master to the current feature branch.
   no-ff    Create a no-ff merge commit on main/master.
 """
@@ -1550,11 +1842,16 @@ def main(argv: list[str]) -> int:
         return 0
     command, raw_args = argv[0], argv[1:]
     try:
-        helper = prepare_helper_execution(argv)
+        helper = prepare_helper_execution(
+            argv,
+            allow_main=command == "prepare-main-ci",
+        )
         if command == "inspect":
             return cmd_inspect(raw_args, helper=helper)
         if command == "prepare-ci":
             return cmd_prepare_ci(raw_args, helper=helper)
+        if command == "prepare-main-ci":
+            return cmd_prepare_main_ci(raw_args, helper=helper)
         if command == "ff":
             return perform_merge(raw_args, merge_type="ff", helper=helper)
         if command == "no-ff":

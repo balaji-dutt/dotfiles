@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,7 +19,8 @@ from tests.support.fixtures import init_git_repository, run_git, write_json
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER = REPO_ROOT / "assets" / "check-gitlab-pipeline.py"
-HOOK = REPO_ROOT / "private_dot_config" / "git" / "template" / "hooks" / "executable_pre-push"
+PRE_PUSH_HOOK = REPO_ROOT / "private_dot_config" / "git" / "template" / "hooks" / "executable_pre-push"
+PRE_REBASE_HOOK = REPO_ROOT / "private_dot_config" / "git" / "template" / "hooks" / "executable_pre-rebase"
 ZERO_SHA = "0" * 40
 ZERO_SHA256 = "0" * 64
 
@@ -179,6 +181,31 @@ class PipelineGuardTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         return result, json.loads(result.stdout)
+
+    def run_rebase_check(
+        self,
+        policy: Path,
+        *,
+        branch: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        arguments = [
+            sys.executable,
+            str(HELPER),
+            "--repo-root",
+            str(self.root),
+            "--policy",
+            str(policy),
+            "--check-rebase",
+        ]
+        if branch is not None:
+            arguments.extend(["--rebase-branch", branch])
+        return subprocess.run(
+            arguments,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     @staticmethod
     def record(local_sha: str, remote_sha: str, remote_ref: str = "refs/heads/main") -> str:
@@ -404,6 +431,75 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertIn("WARNING: bypassing", result.stderr)
         self.assertIn(str(override), result.stderr)
 
+    def test_rebase_guard_blocks_only_unpushed_guarded_main(self) -> None:
+        policy = self.policy("http://127.0.0.1:1/api/v4")
+        run_git(
+            self.root,
+            "update-ref",
+            f"refs/remotes/origin/{self.main_branch}",
+            self.base_sha,
+        )
+
+        clean_main = self.run_rebase_check(policy)
+        self.assertEqual(clean_main.returncode, 0, clean_main.stderr)
+
+        run_git(self.root, "branch", "feature", self.base_sha)
+        feature = self.run_rebase_check(policy, branch="feature")
+        self.assertEqual(feature.returncode, 0, feature.stderr)
+
+        self.commit("local main\n", "local main")
+        override = self.root / ".git" / "pipeline-guard.override"
+        override.touch()
+        blocked = self.run_rebase_check(policy)
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("refusing to rebase guarded main", blocked.stderr)
+        self.assertIn("exact-SHA CI evidence", blocked.stderr)
+        self.assertIn("--no-verify", blocked.stderr)
+
+    def test_rebase_guard_fails_closed_when_tracking_ref_is_missing(self) -> None:
+        blocked = self.run_rebase_check(self.policy("http://127.0.0.1:1/api/v4"))
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("refs/remotes/origin/main is unavailable", blocked.stderr)
+
+    def test_pre_rebase_hook_is_opt_in_and_uses_repo_checker(self) -> None:
+        hook = self.root / ".git" / "hooks" / "pre-rebase"
+        hook.write_bytes(PRE_REBASE_HOOK.read_bytes())
+        hook.chmod(0o755)
+        without_policy = subprocess.run(
+            ["sh", str(hook), "origin/main"],
+            cwd=self.root,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(without_policy.returncode, 0, without_policy.stderr)
+
+        helper = self.root / "assets" / "check-gitlab-pipeline.py"
+        helper.parent.mkdir(parents=True)
+        shutil.copy2(HELPER, helper)
+        helper.chmod(0o755)
+        self.policy("http://127.0.0.1:1/api/v4")
+        run_git(
+            self.root,
+            "update-ref",
+            f"refs/remotes/origin/{self.main_branch}",
+            self.base_sha,
+        )
+        self.commit("local main\n", "local main")
+        (self.root / ".git" / "pipeline-guard.override").touch()
+
+        blocked = subprocess.run(
+            ["sh", str(hook), "origin/main"],
+            cwd=self.root,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("refusing to rebase guarded main", blocked.stderr)
+
     def test_override_in_common_dir_applies_to_linked_worktree(self) -> None:
         policy = self.policy("http://127.0.0.1:1/api/v4")
         run_git(self.root, "add", "configs/gitlab-pipeline-guard.json")
@@ -456,7 +552,7 @@ class PipelineGuardTests(unittest.TestCase):
 
     def test_hook_is_opt_in_and_override_precedes_missing_helper(self) -> None:
         hook = self.root / ".git" / "hooks" / "pre-push"
-        hook.write_bytes(HOOK.read_bytes())
+        hook.write_bytes(PRE_PUSH_HOOK.read_bytes())
         hook.chmod(0o755)
         no_policy = subprocess.run(
             ["sh", str(hook), "origin", "unused"],

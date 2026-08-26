@@ -1,10 +1,12 @@
 ---
 name: worktree-merge
-description: Merge the current feature branch worktree into main —
+description: Merge the current feature branch worktree into main or recover
+  exact-SHA CI evidence for a rewritten local main —
   fast-forward when possible, otherwise create a descriptive no-ff merge
   commit attributed to OpenCode, then offer worktree and branch cleanup.
-  Triggered by phrases like "merge this branch into main", "fast-forward
-  into main", or "merge the worktree back to main".
+  Triggered by phrases like "merge this branch into main", "merge the
+  worktree back to main", "recover rewritten main CI", or a guarded main push
+  reporting missing exact-SHA evidence.
 license: MIT
 compatibility: opencode
 metadata:
@@ -24,9 +26,10 @@ only improves cleanup suggestions.
 
 ## Guardrails
 
-- Never run raw `git push`. Only an explicitly approved `prepare-ci` invocation
-  may publish the exact current feature SHA. The merge command may subsequently
-  delete that same remote feature ref with an exact lease.
+- Never run raw `git push`. Only an explicitly approved `prepare-ci` or
+  `prepare-main-ci` invocation may publish the exact captured SHA to its
+  narrowly scoped remote ref. The helper may subsequently delete only that ref
+  with an exact lease.
 - Never push `main`, `master`, another branch, or tags.
 - Never run cleanup automatically.
 - Never use `git branch -D` in this workflow.
@@ -45,8 +48,8 @@ only improves cleanup suggestions.
 ## Branch sanity and helper discovery
 
 Before looking for a helper, read the current branch with Git. If it is
-`main`/`master`, stop: there is no feature branch to merge, so do not invoke any
-helper. If HEAD is detached, stop and report it.
+`main`/`master`, use **Rewritten main recovery** below; do not enter the feature
+merge workflow. If HEAD is detached, stop and report it.
 
 From the feature worktree root, use `git worktree list --porcelain` to resolve
 the worktree that has `refs/heads/main` or `refs/heads/master`. Do not infer it
@@ -76,6 +79,34 @@ Use the manual fallback only when none of these helpers is available and the
 user approves.
 
 In the commands below, replace `<merge-helper>` with the selected helper path.
+
+## Rewritten main recovery
+
+Use this path only when the guarded local `main`/`master` tip was rewritten and
+the main push guard reports missing exact-SHA evidence. Select the executable
+helper from that main worktree, verify its path is clean, and ask permission to
+run:
+
+```bash
+"<merge-helper>" prepare-main-ci
+```
+
+This approval authorizes only the helper's recovery ref. It does not authorize
+pushing main or tags. The command requires a clean attached guarded main that
+is ahead of, not behind, and not diverged from the freshly fetched policy
+remote. It first reuses existing successful exact-SHA evidence when available.
+Otherwise it publishes only the captured tip to
+`refs/heads/ci/<main>/<full-sha>` without forcing, verifies the advertisement,
+and polls every 15 seconds for up to 15 minutes.
+
+After real success, the helper revalidates the local tip and advertised remote
+main, then exact-lease-deletes only the temporary CI ref. Failure, timeout,
+bypass, branch movement, or cleanup failure retains the ref as evidence. An
+explicit bypass is not CI success and does not authorize the guarded main push.
+Report the result and obtain separate approval for any later main/tag push.
+
+Do not use feature `inspect`, `prepare-ci`, `ff`, or `no-ff` from main. Do not
+fall back to a raw temporary-ref push when the guarded helper is unavailable.
 
 ## Primary workflow: helper available
 
@@ -254,5 +285,17 @@ install the helper instead of recreating it inline.
 - Remote feature: <deleted | already absent | retained | partial failure>
 - Beads issue closed: <id and exact reason | no, reason>
 - Cleanup: <offered: commands, not run | deferred: manager and reason>
+- Main/tags pushed: no
+```
+
+For rewritten-main recovery, report instead:
+
+```markdown
+## Prepared exact CI for <main-branch>
+
+- Main SHA: <full SHA>
+- Required job: <job name: success | explicit bypass | failure>
+- Temporary CI ref: <not needed | deleted | retained | partial failure>
+- Remote main revalidated: yes | no, reason
 - Main/tags pushed: no
 ```

@@ -145,6 +145,7 @@ common = subprocess.run(
     text=True,
     stdout=subprocess.PIPE,
 ).stdout.strip()
+index = -1
 if (Path(common) / "pipeline-guard.override").is_file():
     outcome = "bypass"
 else:
@@ -163,6 +164,26 @@ move_to = os.environ.get("FAKE_PIPELINE_MOVE_FEATURE_TO")
 if move_to:
     subprocess.run(
         ["git", "-C", str(repo), "push", "--force", "origin", f"{move_to}:refs/heads/feature"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+move_main_to = os.environ.get("FAKE_PIPELINE_MOVE_MAIN_TO")
+if move_main_to:
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "--force", "origin", f"{move_main_to}:refs/heads/main"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+move_main_ci_to = os.environ.get("FAKE_PIPELINE_MOVE_MAIN_CI_TO")
+move_main_ci_on_index = os.environ.get("FAKE_PIPELINE_MOVE_MAIN_CI_ON_INDEX")
+if move_main_ci_to and (not move_main_ci_on_index or move_main_ci_on_index == str(index)):
+    subprocess.run(
+        [
+            "git", "-C", str(repo), "push", "--force", "origin",
+            f"{move_main_ci_to}:refs/heads/ci/main/{sha}",
+        ],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -191,16 +212,23 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
         self.publish_feature()
         return sha
 
+    def commit_main(self, name: str, content: str, message: str) -> str:
+        (self.main / name).write_text(content, encoding="utf-8")
+        return self.commit_all(self.main, message)
+
     def publish_feature(self) -> None:
         self.git(self.feature, "push", "origin", "HEAD:refs/heads/feature")
 
     def remote_feature_sha(self) -> str | None:
+        return self.remote_ref_sha("refs/heads/feature")
+
+    def remote_ref_sha(self, remote_ref: str) -> str | None:
         result = self.git(
-            self.feature,
+            self.main,
             "ls-remote",
             "--heads",
             "origin",
-            "refs/heads/feature",
+            remote_ref,
         )
         line = result.stdout.strip()
         return line.split()[0] if line else None
@@ -542,6 +570,193 @@ class AgentWtMergeTests(unittest.TestCase):
         self.assertIn("more than 60 checks", result.stderr)
         self.assertIsNone(fixture.remote_feature_sha())
         self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_prepare_main_ci_reuses_existing_success_without_publication(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        main_sha = fixture.commit_main("main.txt", "main\n", "local main")
+        remote_main = fixture.remote_ref_sha("refs/heads/main")
+        remote_ref = f"refs/heads/ci/main/{main_sha}"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.main,
+            "prepare-main-ci",
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+        self.assertIsNone(fixture.remote_ref_sha(remote_ref))
+        self.assertIn("already succeeded", result.stdout)
+        self.assertIn("no temporary ref was published", result.stdout)
+
+    def test_prepare_main_ci_publishes_polls_and_deletes_exact_temp_ref(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        main_sha = fixture.commit_main("main.txt", "main\n", "local main")
+        remote_main = fixture.remote_ref_sha("refs/heads/main")
+        remote_ref = f"refs/heads/ci/main/{main_sha}"
+        counter = fixture.root / "main pipeline counter"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.main,
+            "prepare-main-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "3",
+            extra_env={
+                "FAKE_PIPELINE_SEQUENCE": "retryable,success",
+                "FAKE_PIPELINE_COUNTER": str(counter),
+            },
+        )
+
+        self.assert_ok(result)
+        self.assertEqual(counter.read_text(encoding="utf-8"), "2")
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+        self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+        self.assertIsNone(fixture.remote_ref_sha(remote_ref))
+        self.assertIn("Published rewritten main", result.stdout)
+        self.assertIn("Temporary CI ref: deleted", result.stdout)
+        self.assertIn("Main/tags pushed: no", result.stdout)
+
+    def test_prepare_main_ci_failure_and_bypass_retain_temp_ref(self) -> None:
+        for override, outcome, expected in (
+            (False, "terminal", "main CI blocked"),
+            (False, "error", "fake error"),
+            (False, "retryable", "timed out after 1s"),
+            (True, "success", "BYPASS main CI"),
+        ):
+            with self.subTest(override=override, outcome=outcome):
+                fixture = self.fixture()
+                fixture.set_override(override)
+                main_sha = fixture.commit_main("main.txt", "main\n", "local main")
+                remote_main = fixture.remote_ref_sha("refs/heads/main")
+                remote_ref = f"refs/heads/ci/main/{main_sha}"
+                result = fixture.run_helper(
+                    fixture.main_helper,
+                    fixture.main,
+                    "prepare-main-ci",
+                    "--poll-interval",
+                    "1",
+                    "--poll-timeout",
+                    "1",
+                    extra_env={"FAKE_PIPELINE_OUTCOME": outcome},
+                )
+
+                if override:
+                    self.assert_ok(result)
+                    self.assertIn(expected, result.stdout)
+                else:
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn(expected, result.stderr)
+                self.assertEqual(fixture.remote_ref_sha(remote_ref), main_sha)
+                self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+
+    def test_prepare_main_ci_rejects_invalid_main_history_before_publication(self) -> None:
+        cases = ("no-ahead", "diverged")
+        for case in cases:
+            with self.subTest(case=case):
+                fixture = self.fixture()
+                fixture.set_override(False)
+                if case == "diverged":
+                    main_sha = fixture.commit_main("main.txt", "local\n", "local main")
+                    upstream = fixture.upstream_clone()
+                    (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+                    fixture.commit_all(upstream, "upstream main")
+                    fixture.git(upstream, "push", "origin", "main")
+                    expected = "behind origin/main"
+                else:
+                    main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+                    expected = "no unpushed commits"
+                remote_ref = f"refs/heads/ci/main/{main_sha}"
+
+                result = fixture.run_helper(
+                    fixture.main_helper,
+                    fixture.main,
+                    "prepare-main-ci",
+                )
+
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+                self.assertIsNone(fixture.remote_ref_sha(remote_ref))
+
+    def test_prepare_main_ci_retains_temp_ref_when_remote_main_moves(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        main_sha = fixture.commit_main("main.txt", "local\n", "local main")
+        moved_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+        remote_ref = f"refs/heads/ci/main/{main_sha}"
+        counter = fixture.root / "move pipeline counter"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.main,
+            "prepare-main-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "3",
+            extra_env={
+                "FAKE_PIPELINE_SEQUENCE": "retryable,success",
+                "FAKE_PIPELINE_COUNTER": str(counter),
+                "FAKE_PIPELINE_MOVE_MAIN_TO": moved_sha,
+            },
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("origin/main moved while CI was checked", result.stderr)
+        self.assertEqual(fixture.remote_ref_sha(remote_ref), main_sha)
+        self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), moved_sha)
+
+    def test_prepare_main_ci_does_not_delete_moved_temp_ref_after_success(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        main_sha = fixture.commit_main("main.txt", "local\n", "local main")
+        moved_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+        remote_ref = f"refs/heads/ci/main/{main_sha}"
+        counter = fixture.root / "move temp pipeline counter"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.main,
+            "prepare-main-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "3",
+            extra_env={
+                "FAKE_PIPELINE_SEQUENCE": "retryable,success",
+                "FAKE_PIPELINE_COUNTER": str(counter),
+                "FAKE_PIPELINE_MOVE_MAIN_CI_TO": moved_sha,
+                "FAKE_PIPELINE_MOVE_MAIN_CI_ON_INDEX": "1",
+            },
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("PARTIAL main CI", result.stdout)
+        self.assertIn("temporary CI ref moved", result.stdout)
+        self.assertEqual(fixture.remote_ref_sha(remote_ref), moved_sha)
+
+    def test_prepare_main_ci_rejects_excessive_checks_before_publication(self) -> None:
+        fixture = self.fixture()
+        main_sha = fixture.commit_main("main.txt", "main\n", "local main")
+        remote_ref = f"refs/heads/ci/main/{main_sha}"
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.main,
+            "prepare-main-ci",
+            "--poll-interval",
+            "1",
+            "--poll-timeout",
+            "61",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("more than 60 checks", result.stderr)
+        self.assertIsNone(fixture.remote_ref_sha(remote_ref))
 
     def test_merge_requires_exact_remote_feature_before_main_mutation(self) -> None:
         fixture = self.fixture()

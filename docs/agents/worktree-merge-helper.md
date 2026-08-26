@@ -18,12 +18,14 @@ Python snippets every time they merge a feature worktree.
 
 ## Commands
 
-Run from the feature worktree root. Agent skills resolve and quote the helper
-path from the checked-out main worktree before invoking it:
+Run feature commands from the feature worktree root. Run `prepare-main-ci` from
+the checked-out guarded main worktree. Agent skills resolve and quote the
+authoritative helper path before invoking it:
 
 ```sh
 "<main-worktree>/assets/agent-wt-merge" inspect [--fetch] [--json]
 "<main-worktree>/assets/agent-wt-merge" prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>]
+"<main-worktree>/assets/agent-wt-merge" prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>]
 "<main-worktree>/assets/agent-wt-merge" ff --actor opencode|claude [--update-main] [--close-beads <issue-id>]
 "<main-worktree>/assets/agent-wt-merge" no-ff --actor opencode|claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
 ```
@@ -32,6 +34,9 @@ path from the checked-out main worktree before invoking it:
 - `prepare-ci` normally publishes the exact current feature SHA, verifies the
   advertised remote feature ref, and polls its required CI job. Defaults are a
   15-second interval and a 15-minute timeout.
+- `prepare-main-ci` recovers exact-SHA evidence for a clean, unpushed, linear
+  local main tip through a reserved temporary CI ref with the same polling
+  defaults.
 - `ff` runs only `git merge --ff-only` from the main worktree.
 - `no-ff` runs only `git merge --no-ff` from the main worktree and uses the
   selected actor for merge commit authorship.
@@ -50,16 +55,16 @@ executes the newly checked-out main helper before it starts the feature merge.
 It removes `--update-main` to prevent an update loop and removes
 `--use-local-helper` so the updated main policy becomes authoritative.
 
-Running the helper from `main` or `master` is always an error because there is
-no feature worktree to merge. The helper performs no Git or Beads mutation in
-that case.
+Running feature commands from `main` or `master` is an error because there is no
+feature worktree to merge. `prepare-main-ci` is the only main-worktree command.
 
-The helper never pushes main, another branch, or tags. `prepare-ci` publishes
-only the captured SHA to the same-named remote feature branch without forcing.
-After a merge backed by real CI success, `ff` and `no-ff` delete only that remote
-feature ref with an exact lease. The helper never removes a local worktree,
-force-deletes a local branch, or closes a Beads issue without an explicit issue
-ID.
+The helper never pushes main, another ordinary branch, or tags. `prepare-ci`
+publishes only the captured SHA to the same-named remote feature branch without
+forcing. `prepare-main-ci` may publish only
+`refs/heads/ci/<main>/<full-sha>`. After real CI success, the applicable command
+deletes only its owned remote ref with an exact lease. The helper never removes
+a local worktree, force-deletes a local branch, or closes a Beads issue without
+an explicit issue ID.
 
 ## Inspect output
 
@@ -119,6 +124,33 @@ with an exact expected-SHA lease and verifies its absence. A missing ref is
 already clean. A moved ref is never deleted. Cleanup failure is a post-merge
 partial failure: the merge is not rolled back, and Beads closure is still
 attempted and reported independently.
+
+## Rewritten main recovery
+
+Rebasing or cherry-picking a local guarded main after merge changes commit
+SHAs, so exact feature-tip evidence no longer covers the rewritten main tip.
+Use `prepare-main-ci` rather than weakening the main-push guard. The command:
+
+1. requires a clean, attached guarded main with unpushed commits;
+2. fetches the policy remote and rejects behind or diverged history;
+3. reuses existing exact-SHA success without publishing a ref;
+4. otherwise normally publishes only
+   `<main-sha>:refs/heads/ci/<main>/<full-main-sha>` and verifies it;
+5. polls the same structured checker every 15 seconds for up to 15 minutes;
+6. revalidates the local tip and advertised remote main after success; and
+7. exact-lease-deletes the temporary ref only after real success.
+
+The command never pushes main or tags. Terminal failure, API error, timeout,
+override bypass, local or remote movement, and cleanup failure retain the
+temporary ref for diagnosis. The full SHA in the namespace prevents collisions,
+and an existing reserved ref at a different SHA is never updated.
+
+The managed repository-opt-in `pre-rebase` hook protects this evidence earlier.
+When a valid policy is present, it blocks rebasing guarded main while its local
+commits are absent from the policy remote-tracking ref. It permits non-main
+rebases and guarded main with no local-ahead commits. Invalid guarded state
+fails closed. `pipeline-guard.override` does not bypass this check; Git's
+explicit `--no-verify` remains a reviewed escape hatch, not a security boundary.
 
 ## Beads closure
 
@@ -185,8 +217,9 @@ OpenCode permissions for this helper belong in the project config because the
 helper is repo-local. The allow rules accept quoted or unquoted absolute paths
 anchored under `*/dotfiles/` for the `assets/agent-wt-merge` and
 `.opencode/bin/agent-wt-merge` candidates for `inspect`, `ff`, and `no-ff`.
-Explicit `prepare-ci` patterns remain ask-gated because commit or inspection
-permission does not authorize publication. Invoking `ff` or `no-ff` authorizes
-only the helper's lease-protected remote feature deletion after real CI success;
-it never authorizes pushing main or tags. Local cleanup commands remain
-ask-gated.
+Explicit `prepare-ci` and `prepare-main-ci` patterns remain ask-gated because
+commit or inspection permission does not authorize publication. Invoking `ff`
+or `no-ff` authorizes only the helper's lease-protected remote feature deletion
+after real CI success. `prepare-main-ci` authorizes only its temporary recovery
+ref and eligible exact-lease cleanup. None authorizes pushing main or tags.
+Local cleanup commands remain ask-gated.

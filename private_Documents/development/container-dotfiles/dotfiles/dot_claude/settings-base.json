@@ -204,6 +204,12 @@
       "Bash(*/dotfiles/.opencode/bin/agent-wt-merge prepare-ci:*)",
       "Bash(\"*/dotfiles/.opencode/bin/agent-wt-merge\" prepare-ci:*)",
       "Bash('*/dotfiles/.opencode/bin/agent-wt-merge' prepare-ci:*)",
+      "Bash(*/dotfiles/assets/agent-wt-merge prepare-main-ci:*)",
+      "Bash(\"*/dotfiles/assets/agent-wt-merge\" prepare-main-ci:*)",
+      "Bash('*/dotfiles/assets/agent-wt-merge' prepare-main-ci:*)",
+      "Bash(*/dotfiles/.opencode/bin/agent-wt-merge prepare-main-ci:*)",
+      "Bash(\"*/dotfiles/.opencode/bin/agent-wt-merge\" prepare-main-ci:*)",
+      "Bash('*/dotfiles/.opencode/bin/agent-wt-merge' prepare-main-ci:*)",
       "Bash(cc-commit:*)"
     ],
     "defaultMode": "plan"

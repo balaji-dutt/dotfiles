@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:aac96e6e4ba379cfa884bc7fa53050a4ffb4d27483853af808d21e6777dfc101",
+  "candidate_digest": "sha256:bb8133a8a7f5ca6d40831e4cee6fe3c13c93140e55a0b63fd40e4559805091c4",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -22,21 +22,21 @@
           {
             "id": "failure-merge-preconditions",
             "kind": "failure",
-            "description": "Reject dirty, stale, unpublished, untrusted-CI, invalid-first-parent, or failed merge operations without advancing the target branch.",
+            "description": "Reject dirty, stale, unpublished, untrusted-CI, invalid-first-parent, diverged-main, or unsafe recovery operations without advancing the target branch or publishing a recovery ref.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "safety-beads-and-remote-state",
             "kind": "safety",
-            "description": "Pin the feature SHA, avoid main and tag pushes, and exact-lease-delete only an unchanged remote feature after real CI-backed merge success.",
+            "description": "Pin exact SHAs, avoid main and tag pushes, and exact-lease-delete only unchanged feature or reserved main-CI refs after real CI success.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "success-supported-merge",
             "kind": "success",
-            "description": "Publish and poll the exact feature tip, complete supported fast-forward and no-ff integration, clean remote feature evidence when eligible, and report independent post-merge outcomes.",
+            "description": "Publish and poll exact feature or rewritten-main tips, complete supported merges, clean eligible evidence refs, and report independent merge and cleanup outcomes.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           }
@@ -211,8 +211,8 @@
         "work_item": "dots-4jy.10.1.3",
         "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"],
         "behavior_requirements": [
-          {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, ambiguous-history, and invalid-policy states.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
-          {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select only the exact linear tip or valid no-ff feature parent and preserve the pre-push stdin and remote contract.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, ambiguous-history, invalid-policy, and missing guarded tracking states.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select only the exact linear tip or valid no-ff feature parent, preserve the pre-push contract, and block rebasing guarded local-ahead main even when the pipeline override exists.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
           {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
           {"id": "success-structured-job-state", "kind": "success", "description": "Report exact-SHA success, retryable, terminal, error, and explicit bypass outcomes for guarded automation.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]}
         ]
@@ -344,11 +344,21 @@
       "owner": {"kind": "repository", "name": "Git template hooks and synchronizer"},
       "languages": ["python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
-      "risk": "high",
+      "risk": "critical",
       "side_effects": ["filesystem", "git", "process"],
       "test_layers": ["integration", "platform-smoke", "unit"],
-      "coverage": {"suite_id": "git-hooks", "status": "covered", "work_item": "dots-4jy.10.3.3", "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"], "behavior_requirements": []},
-      "rationale": "Contract suites cover hook ownership, synchronization, pipeline enforcement, and override behavior."
+      "coverage": {
+        "suite_id": "git-hooks",
+        "status": "covered",
+        "work_item": "dots-4jy.10.3.3",
+        "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"],
+        "behavior_requirements": [
+          {"id": "failure-guarded-main-rebase", "kind": "failure", "description": "Block guarded main rebases when local commits are absent from the policy remote tracking ref and fail closed when that tracking state is unavailable.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-hook-scope-and-bypass", "kind": "safety", "description": "Keep pipeline hooks repository-opt-in, allow non-main and no-ahead rebases, and prevent the pipeline override from silently authorizing a guarded-main rebase.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "success-owned-hook-reconciliation", "kind": "success", "description": "Discover, install, update, and remove owned template hooks while preserving unrelated repository hooks.", "status": "covered", "test_paths": ["tests/test_git_template_hook_sync.py"]}
+        ]
+      },
+      "rationale": "Contract suites cover hook ownership, synchronization, exact-SHA push enforcement, and guarded-main rebase protection."
     },
     {
       "id": "inventory-policy",

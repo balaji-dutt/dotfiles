@@ -185,7 +185,7 @@ class ConfigContractTests(unittest.TestCase):
             '"depNameTemplate": "corbindavenport/just-the-browser"', 1
         )[1].split("    },", 1)[0]
         self.assertIn("currentValue", browser_manager)
-        self.assertIn("autoReplaceStringTemplate", browser_manager)
+        self.assertNotIn("autoReplaceStringTemplate", browser_manager)
         self.assertNotIn("release_url", browser_manager)
         self.assertNotIn("source_base_url", browser_manager)
 
