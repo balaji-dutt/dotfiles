@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Preflight check for whether Anthropic will still accept the local Claude
+# Preflight check for whether Anthropic will still accept the local Claude Code
 # credential, so an expired login surfaces before a session starts rather than
 # as a mid-work `Run /login` prompt.
 #
 # `claude auth status` alone only reads local state and cannot tell whether the
 # server still honours the credential, so this also probes the OAuth usage
-# endpoint. Exit 2 means "could not determine" and is deliberately distinct from
-# exit 1 "credential rejected"; a rate-limited or unreachable endpoint must
-# never be reported as a dead token.
+# endpoint.
+#
+# Every credential found is probed and reported, but the exit status tracks the
+# Claude Code credential alone. OpenCode keeps its own OAuth token in its own
+# auth.json; Claude Code never reads it, so a stale OpenCode login is context
+# rather than a reason to re-authenticate Claude Code.
+#
+# Exit 2 means "could not determine" and is deliberately distinct from exit 1
+# "credential rejected"; a rate-limited or unreachable endpoint must never be
+# reported as a dead token.
 #
 # The usage endpoint is undocumented and discovered from @slkiser/opencode-quota.
 # If it changes shape or disappears, degrade to exit 2, never to exit 1.
@@ -39,15 +46,20 @@ usage() {
   cat <<'EOF'
 usage: claude-token-check [--debug] [--help]
 
-Reports whether the local Claude credential is still accepted by Anthropic.
+Reports whether the local Claude Code credential is still accepted by Anthropic.
 
-  --debug   Print the credential source and a truncated fingerprint. Never
+Every OAuth credential found on this machine is probed and printed on its own
+line. An OpenCode credential is reported for context only; the exit status
+describes the Claude Code credential, because that is the one a `claude`
+session uses.
+
+  --debug   Print each credential source and a truncated fingerprint. Never
             prints token material.
 
 Exit codes:
-  0  Valid; the usage endpoint accepted the credential.
+  0  Valid; the usage endpoint accepted the Claude Code credential.
   1  Invalid; run `claude auth login`.
-  2  Indeterminate; no credential found, or the endpoint could not be reached.
+  2  Indeterminate; no Claude Code credential found, or it could not be checked.
 EOF
 }
 
@@ -103,10 +115,15 @@ print("unknown")
 ' 2>/dev/null || printf 'unknown\n'
 }
 
-# Echoes "<source>\t<fingerprint>\t<token>", or "none\t\t" when nothing usable
-# is found. Discovery order matches the upstream plugin: OpenCode's own
-# auth.json, then the macOS Keychain, then the Claude credentials file.
-discover_credential() {
+# Echoes one row per credential as "<classes>\t<label>\t<fingerprint>\t<token>".
+#
+# The Claude Code row is always present; an empty token there means no
+# credential was found, which is a distinct outcome from one that was rejected.
+# Claude Code reads the macOS Keychain, falling back to the credentials file
+# elsewhere, so those two are one credential class and the first hit wins.
+# OpenCode's auth.json is a separate class and gets its own row. When both hold
+# the same token the row is merged so the endpoint is only asked once.
+discover_credentials() {
   local python_bin=$1
 
   "$python_bin" - "$KEYCHAIN_SERVICE" "$CREDENTIAL_TIMEOUT_SECONDS" <<'PY'
@@ -125,11 +142,6 @@ home = Path(os.path.expanduser("~"))
 
 def fingerprint(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
-
-
-def emit(source, token):
-    sys.stdout.write("{}\t{}\t{}\n".format(source, fingerprint(token), token))
-    sys.exit(0)
 
 
 def token_from_object(value):
@@ -157,7 +169,7 @@ def opencode_data_dirs():
     return dirs
 
 
-def try_opencode():
+def find_opencode():
     for directory in opencode_data_dirs():
         try:
             payload = json.loads((directory / "auth.json").read_text("utf-8"))
@@ -172,12 +184,13 @@ def try_opencode():
         expires = entry.get("expires")
         if isinstance(expires, (int, float)) and expires <= time.time() * 1000:
             continue
-        emit("opencode", token.strip())
+        return token.strip()
+    return None
 
 
-def try_keychain():
+def find_keychain():
     if sys.platform != "darwin":
-        return
+        return None
     try:
         result = subprocess.run(
             ["security", "find-generic-password", "-s", keychain_service, "-w"],
@@ -186,38 +199,76 @@ def try_keychain():
             timeout=timeout_seconds,
         )
     except Exception:
-        return
+        return None
     if result.returncode != 0:
-        return
+        return None
     payload = result.stdout.strip()
     if not payload:
-        return
+        return None
     try:
         parsed = json.loads(payload)
     except ValueError:
-        emit("keychain", payload)
-        return
+        return payload
     if isinstance(parsed, str) and parsed.strip():
-        emit("keychain", parsed.strip())
-    token = token_from_object(parsed)
-    if token:
-        emit("keychain", token)
+        return parsed.strip()
+    return token_from_object(parsed)
 
 
-def try_credentials_file():
+def find_credentials_file():
     try:
         parsed = json.loads((home / ".claude" / ".credentials.json").read_text("utf-8"))
     except Exception:
-        return
-    token = token_from_object(parsed)
-    if token:
-        emit("credentials-file", token)
+        return None
+    return token_from_object(parsed)
 
 
-try_opencode()
-try_keychain()
-try_credentials_file()
-sys.stdout.write("none\t\t\n")
+def usable(token):
+    """Reject anything that would break the one-row-per-credential TSV."""
+    return bool(token) and not any(char in token for char in "\t\r\n")
+
+
+claude_detail = "keychain"
+claude_token = find_keychain()
+if not usable(claude_token):
+    claude_detail = "credentials-file"
+    claude_token = find_credentials_file()
+
+opencode_token = find_opencode()
+
+if not usable(claude_token):
+    claude_token = None
+if not usable(opencode_token):
+    opencode_token = None
+
+rows = []
+if claude_token and claude_token == opencode_token:
+    rows.append(
+        (
+            "claude-code,opencode",
+            "claude-code ({}) + opencode".format(claude_detail),
+            fingerprint(claude_token),
+            claude_token,
+        )
+    )
+else:
+    if claude_token:
+        rows.append(
+            (
+                "claude-code",
+                "claude-code ({})".format(claude_detail),
+                fingerprint(claude_token),
+                claude_token,
+            )
+        )
+    else:
+        rows.append(("claude-code", "claude-code", "", ""))
+    if opencode_token:
+        rows.append(
+            ("opencode", "opencode", fingerprint(opencode_token), opencode_token)
+        )
+
+for row in rows:
+    sys.stdout.write("\t".join(row) + "\n")
 PY
 }
 
@@ -246,8 +297,48 @@ probe_usage_endpoint() {
   printf '%s\n' "${response:-000}"
 }
 
+# Echoes "<verdict>\t<message>" for one probed credential. The remediation
+# command differs per class because re-authenticating one does not touch the
+# other.
+verdict_for() {
+  local classes=$1 status=$2 login_command
+
+  case ",${classes}," in
+    *,claude-code,*) login_command='claude auth login' ;;
+    *) login_command='opencode auth login' ;;
+  esac
+
+  case $status in
+    absent)
+      printf 'INDETERMINATE:\tno credential found.\n'
+      ;;
+    200)
+      printf 'VALID:\taccepted by Anthropic.\n'
+      ;;
+    401 | 403)
+      printf 'INVALID:\trejected (HTTP %s). Run `%s`.\n' "$status" "$login_command"
+      ;;
+    000)
+      printf 'INDETERMINATE:\tno response from the usage endpoint.\n'
+      ;;
+    *)
+      printf 'INDETERMINATE:\tusage endpoint returned HTTP %s.\n' "$status"
+      ;;
+  esac
+}
+
+# Where a missing Claude Code credential would have been found. Keychain
+# discovery is macOS-only, so the hint has to match the platform.
+claude_code_search_hint() {
+  if [[ ${OSTYPE:-} == darwin* ]]; then
+    printf "the Keychain service '%s' or ~/.claude/.credentials.json\n" "$KEYCHAIN_SERVICE"
+  else
+    printf '~/.claude/.credentials.json\n'
+  fi
+}
+
 main() {
-  local python_bin auth_state discovery source fingerprint token status
+  local python_bin auth_state discovery
 
   while (($#)); do
     case $1 in
@@ -278,43 +369,75 @@ main() {
     return "$EXIT_INVALID"
   fi
 
-  discovery=$(discover_credential "$python_bin") || discovery=""
-  source=""
-  fingerprint=""
-  token=""
-  IFS=$'\t' read -r source fingerprint token <<<"$discovery" || true
+  discovery=$(discover_credentials "$python_bin") || discovery=""
 
-  if [[ -z ${source:-} || $source == none || -z ${token:-} ]]; then
-    note 'no usable OAuth credential found in OpenCode, Keychain, or the credentials file'
+  local classes label fingerprint token http_status
+  local -a row_classes=() row_labels=() row_status=()
+  while IFS=$'\t' read -r classes label fingerprint token; do
+    [[ -n ${classes:-} ]] || continue
+    row_classes+=("$classes")
+    row_labels+=("$label")
+    if [[ -z ${token:-} ]]; then
+      row_status+=(absent)
+      continue
+    fi
+    debug "credential: $label (fingerprint ${fingerprint})"
+    http_status=$(probe_usage_endpoint "$token")
+    debug "usage endpoint status for $label: $http_status"
+    row_status+=("$http_status")
+  done <<<"$discovery"
+
+  local total=${#row_classes[@]}
+  if ((total == 0)); then
+    note 'no usable OAuth credential found in OpenCode, the Keychain, or the credentials file'
     printf 'INDETERMINATE: no credential available to verify.\n'
     return "$EXIT_INDETERMINATE"
   fi
 
-  debug "credential source: $source (fingerprint ${fingerprint})"
+  local index verdict word message
+  local -a row_words=() row_messages=()
+  local word_width=0 label_width=0
+  for ((index = 0; index < total; index++)); do
+    verdict=$(verdict_for "${row_classes[$index]}" "${row_status[$index]}")
+    word=${verdict%%$'\t'*}
+    message=${verdict#*$'\t'}
+    row_words+=("$word")
+    row_messages+=("$message")
+    # Only the Claude Code row can be absent; discovery omits the OpenCode row
+    # entirely rather than emitting one with no token.
+    case ${row_status[$index]} in
+      absent) note "no Claude Code credential in $(claude_code_search_hint)" ;;
+      200 | 401 | 403) ;;
+      000) note "the usage endpoint could not be reached for ${row_labels[$index]}" ;;
+      *) note "unexpected status for ${row_labels[$index]}: ${row_status[$index]}" ;;
+    esac
+    if ((${#word} > word_width)); then
+      word_width=${#word}
+    fi
+    if ((${#row_labels[$index]} > label_width)); then
+      label_width=${#row_labels[$index]}
+    fi
+  done
 
-  status=$(probe_usage_endpoint "$token")
-  debug "usage endpoint status: $status"
+  local exit_code="$EXIT_INDETERMINATE"
+  for ((index = 0; index < total; index++)); do
+    printf '%-*s %-*s  %s\n' \
+      "$word_width" "${row_words[$index]}" \
+      "$label_width" "${row_labels[$index]}" \
+      "${row_messages[$index]}"
 
-  case $status in
-    200)
-      printf 'VALID: credential accepted by Anthropic (source: %s).\n' "$source"
-      return "$EXIT_VALID"
-      ;;
-    401 | 403)
-      printf 'INVALID: Anthropic rejected the credential (HTTP %s). Run `claude auth login`.\n' "$status"
-      return "$EXIT_INVALID"
-      ;;
-    000)
-      note 'the usage endpoint could not be reached'
-      printf 'INDETERMINATE: no response from the usage endpoint.\n'
-      return "$EXIT_INDETERMINATE"
-      ;;
-    *)
-      note "unexpected status from the usage endpoint: $status"
-      printf 'INDETERMINATE: usage endpoint returned HTTP %s.\n' "$status"
-      return "$EXIT_INDETERMINATE"
-      ;;
-  esac
+    case ",${row_classes[$index]}," in
+      *,claude-code,*)
+        case ${row_status[$index]} in
+          200) exit_code="$EXIT_VALID" ;;
+          401 | 403) exit_code="$EXIT_INVALID" ;;
+          *) exit_code="$EXIT_INDETERMINATE" ;;
+        esac
+        ;;
+    esac
+  done
+
+  return "$exit_code"
 }
 
 main "$@"

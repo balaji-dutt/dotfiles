@@ -26,6 +26,8 @@ EXIT_INVALID = 1
 EXIT_INDETERMINATE = 2
 
 FAKE_TOKEN = "sk-ant-oat-FAKETOKENFORTESTSONLY-0123456789"
+CLAUDE_TOKEN = "sk-ant-oat-CLAUDECODEFAKETOKEN-0123456789"
+OPENCODE_TOKEN = "sk-ant-oat-OPENCODEFAKETOKEN-0123456789"
 
 
 def stub_claude(environment: IsolatedEnvironment, payload: object | None) -> None:
@@ -51,8 +53,14 @@ def stub_curl(
     *,
     status: str = "200",
     exit_code: int = 0,
+    statuses: dict[str, str] | None = None,
 ) -> Path:
-    """Stub curl so no test reaches the network. Returns the call-log path."""
+    """Stub curl so no test reaches the network. Returns the call-log path.
+
+    `statuses` maps a token substring to the status returned when that token is
+    the one being probed, which is how a divergence between sources is
+    expressed. `status` is the fallback for anything unmatched.
+    """
     log_path = environment.root / "curl-calls.jsonl"
     body = (
         f"#!{sys.executable}\n"
@@ -61,7 +69,13 @@ def stub_curl(
         f"log = pathlib.Path({str(log_path)!r})\n"
         "with log.open('a', encoding='utf-8') as handle:\n"
         "    handle.write(json.dumps({'argv': sys.argv[1:], 'stdin': stdin}) + '\\n')\n"
-        f"sys.stdout.write({status!r})\n"
+        f"mapped = {dict(statuses or {})!r}\n"
+        f"status = {status!r}\n"
+        "for needle, value in mapped.items():\n"
+        "    if needle in stdin:\n"
+        "        status = value\n"
+        "        break\n"
+        "sys.stdout.write(status)\n"
         f"raise SystemExit({exit_code})\n"
     )
     write_executable(environment.fake_bin / "curl", body)
@@ -89,6 +103,20 @@ def write_opencode_auth(
     )
 
 
+def write_claude_credentials(
+    environment: IsolatedEnvironment, *, token: str = FAKE_TOKEN
+) -> None:
+    """Write the credentials-file credential.
+
+    With `security` stubbed to fail, this is the Claude Code source on macOS as
+    well as everywhere else, so tests built on it run identically on both.
+    """
+    write_json(
+        environment.home / ".claude/.credentials.json",
+        {"claudeAiOauth": {"accessToken": token}},
+    )
+
+
 def run_script(
     environment: IsolatedEnvironment, *args: str
 ) -> subprocess.CompletedProcess[str]:
@@ -101,6 +129,12 @@ def run_script(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def line_for(stdout: str, source: str) -> str:
+    """Return the single reported line naming `source`, or '' when absent."""
+    matches = [line for line in stdout.splitlines() if source in line]
+    return matches[0] if len(matches) == 1 else ""
 
 
 class ClaudeTokenCheckTests(unittest.TestCase):
@@ -152,6 +186,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, EXIT_INDETERMINATE)
             self.assertIn("INDETERMINATE", result.stdout)
+            self.assertIn("claude-code", result.stdout)
             self.assertEqual(curl_calls(log_path), [])
 
     def test_accepted_credential_is_valid(self) -> None:
@@ -159,7 +194,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
             stub_claude(environment, {"loggedIn": True})
             stub_security(environment)
             stub_curl(environment, status="200")
-            write_opencode_auth(environment)
+            write_claude_credentials(environment)
 
             result = run_script(environment)
 
@@ -173,7 +208,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
                     stub_claude(environment, {"loggedIn": True})
                     stub_security(environment)
                     stub_curl(environment, status=status)
-                    write_opencode_auth(environment)
+                    write_claude_credentials(environment)
 
                     result = run_script(environment)
 
@@ -188,7 +223,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
                     stub_claude(environment, {"loggedIn": True})
                     stub_security(environment)
                     stub_curl(environment, status=status)
-                    write_opencode_auth(environment)
+                    write_claude_credentials(environment)
 
                     result = run_script(environment)
 
@@ -200,7 +235,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
             stub_claude(environment, {"loggedIn": True})
             stub_security(environment)
             stub_curl(environment, status="", exit_code=7)
-            write_opencode_auth(environment)
+            write_claude_credentials(environment)
 
             result = run_script(environment)
 
@@ -213,7 +248,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
             stub_claude(environment, None)
             stub_security(environment)
             stub_curl(environment, status="200")
-            write_opencode_auth(environment)
+            write_claude_credentials(environment)
 
             result = run_script(environment)
 
@@ -230,6 +265,7 @@ class ClaudeTokenCheckTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, EXIT_INDETERMINATE)
             self.assertEqual(curl_calls(log_path), [])
+            self.assertNotIn("opencode", result.stdout)
 
     def test_credentials_file_shapes_are_accepted(self) -> None:
         shapes: tuple[dict, ...] = (
@@ -253,65 +289,181 @@ class ClaudeTokenCheckTests(unittest.TestCase):
                     self.assertEqual(len(calls), 1)
                     self.assertIn(FAKE_TOKEN, calls[0]["stdin"])
 
-    def test_opencode_credential_takes_precedence(self) -> None:
+    def test_claude_code_credential_decides_exit_code(self) -> None:
+        """Discovery must not answer with OpenCode's token when Claude Code has
+        one of its own; they are separate credentials."""
         with isolated_environment() as environment:
             stub_claude(environment, {"loggedIn": True})
             stub_security(environment)
-            log_path = stub_curl(environment, status="200")
-            write_opencode_auth(environment, token="opencode-token")
-            write_json(
-                environment.home / ".claude/.credentials.json",
-                {"claudeAiOauth": {"accessToken": "credentials-file-token"}},
+            log_path = stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "200"},
             )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
 
             result = run_script(environment)
 
             self.assertEqual(result.returncode, EXIT_VALID)
-            self.assertIn("opencode-token", curl_calls(log_path)[0]["stdin"])
+            probed = " ".join(call["stdin"] for call in curl_calls(log_path))
+            self.assertIn(CLAUDE_TOKEN, probed)
+            self.assertIn(OPENCODE_TOKEN, probed)
+
+    def test_both_sources_are_reported_on_their_own_lines(self) -> None:
+        with isolated_environment() as environment:
+            stub_claude(environment, {"loggedIn": True})
+            stub_security(environment)
+            stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "200"},
+            )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
+
+            result = run_script(environment)
+
+            self.assertEqual(result.returncode, EXIT_VALID)
+            self.assertTrue(line_for(result.stdout, "claude-code").startswith("VALID:"))
+            self.assertTrue(line_for(result.stdout, "opencode").startswith("VALID:"))
+
+    def test_rejected_claude_code_credential_beats_healthy_opencode(self) -> None:
+        """A live OpenCode token must not mask a Claude Code credential the
+        server has stopped accepting."""
+        with isolated_environment() as environment:
+            stub_claude(environment, {"loggedIn": True})
+            stub_security(environment)
+            stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "401", OPENCODE_TOKEN: "200"},
+            )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
+
+            result = run_script(environment)
+
+            self.assertEqual(result.returncode, EXIT_INVALID)
+            self.assertTrue(
+                line_for(result.stdout, "claude-code").startswith("INVALID:")
+            )
+            self.assertIn("claude auth login", line_for(result.stdout, "claude-code"))
+            self.assertTrue(line_for(result.stdout, "opencode").startswith("VALID:"))
+
+    def test_rejected_opencode_does_not_fail_the_preflight(self) -> None:
+        with isolated_environment() as environment:
+            stub_claude(environment, {"loggedIn": True})
+            stub_security(environment)
+            stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "401"},
+            )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
+
+            result = run_script(environment)
+
+            self.assertEqual(result.returncode, EXIT_VALID)
+            self.assertTrue(line_for(result.stdout, "opencode").startswith("INVALID:"))
+            self.assertIn("opencode auth login", line_for(result.stdout, "opencode"))
+
+    def test_missing_claude_code_credential_is_indeterminate_despite_opencode(
+        self,
+    ) -> None:
+        with isolated_environment() as environment:
+            stub_claude(environment, {"loggedIn": True})
+            stub_security(environment)
+            log_path = stub_curl(environment, status="200")
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
+
+            result = run_script(environment)
+
+            self.assertEqual(result.returncode, EXIT_INDETERMINATE)
+            self.assertTrue(
+                line_for(result.stdout, "claude-code").startswith("INDETERMINATE:")
+            )
+            self.assertTrue(line_for(result.stdout, "opencode").startswith("VALID:"))
+            calls = curl_calls(log_path)
+            self.assertEqual(len(calls), 1)
+            self.assertIn(OPENCODE_TOKEN, calls[0]["stdin"])
+
+    def test_shared_token_is_probed_once_and_reported_once(self) -> None:
+        with isolated_environment() as environment:
+            stub_claude(environment, {"loggedIn": True})
+            stub_security(environment)
+            log_path = stub_curl(environment, status="200")
+            write_claude_credentials(environment, token=FAKE_TOKEN)
+            write_opencode_auth(environment, token=FAKE_TOKEN)
+
+            result = run_script(environment)
+
+            self.assertEqual(result.returncode, EXIT_VALID)
+            self.assertEqual(len(curl_calls(log_path)), 1)
+            self.assertEqual(len(result.stdout.splitlines()), 1)
+            self.assertIn("+ opencode", result.stdout)
 
     def test_token_is_never_exposed_in_output_or_argv(self) -> None:
         with isolated_environment() as environment:
             stub_claude(environment, {"loggedIn": True})
             stub_security(environment)
-            log_path = stub_curl(environment, status="200")
-            write_opencode_auth(environment)
+            log_path = stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "200"},
+            )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
 
             result = run_script(environment, "--debug")
 
             self.assertEqual(result.returncode, EXIT_VALID)
-            self.assertNotIn(FAKE_TOKEN, result.stdout)
-            self.assertNotIn(FAKE_TOKEN, result.stderr)
+            for token in (CLAUDE_TOKEN, OPENCODE_TOKEN):
+                self.assertNotIn(token, result.stdout)
+                self.assertNotIn(token, result.stderr)
 
-            call = curl_calls(log_path)[0]
-            self.assertNotIn(FAKE_TOKEN, " ".join(call["argv"]))
-            self.assertIn(FAKE_TOKEN, call["stdin"])
+            calls = curl_calls(log_path)
+            self.assertEqual(len(calls), 2)
+            for call in calls:
+                self.assertNotIn(CLAUDE_TOKEN, " ".join(call["argv"]))
+                self.assertNotIn(OPENCODE_TOKEN, " ".join(call["argv"]))
 
-    def test_debug_reports_source_without_token(self) -> None:
+    def test_debug_reports_each_source_without_token(self) -> None:
         with isolated_environment() as environment:
             stub_claude(environment, {"loggedIn": True})
             stub_security(environment)
-            stub_curl(environment, status="200")
-            write_opencode_auth(environment)
+            stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "200"},
+            )
+            write_claude_credentials(environment, token=CLAUDE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
 
             result = run_script(environment, "--debug")
 
-            self.assertIn("credential source: opencode", result.stderr)
-            self.assertNotIn(FAKE_TOKEN, result.stderr)
+            self.assertIn("credential: claude-code", result.stderr)
+            self.assertIn("credential: opencode", result.stderr)
+            self.assertNotIn(CLAUDE_TOKEN, result.stderr)
+            self.assertNotIn(OPENCODE_TOKEN, result.stderr)
 
     @unittest.skipUnless(sys.platform == "darwin", "Keychain discovery is macOS-only")
-    def test_keychain_is_used_when_opencode_has_no_credential(self) -> None:
+    def test_keychain_is_the_claude_code_source_on_macos(self) -> None:
         with isolated_environment() as environment:
             stub_claude(environment, {"loggedIn": True})
             stub_security(
                 environment,
-                json.dumps({"claudeAiOauth": {"accessToken": FAKE_TOKEN}}),
+                json.dumps({"claudeAiOauth": {"accessToken": CLAUDE_TOKEN}}),
             )
-            log_path = stub_curl(environment, status="200")
+            log_path = stub_curl(
+                environment,
+                statuses={CLAUDE_TOKEN: "200", OPENCODE_TOKEN: "200"},
+            )
+            write_claude_credentials(environment, token=FAKE_TOKEN)
+            write_opencode_auth(environment, token=OPENCODE_TOKEN)
 
             result = run_script(environment)
 
             self.assertEqual(result.returncode, EXIT_VALID)
-            self.assertIn(FAKE_TOKEN, curl_calls(log_path)[0]["stdin"])
+            self.assertIn("keychain", line_for(result.stdout, "claude-code"))
+            probed = " ".join(call["stdin"] for call in curl_calls(log_path))
+            self.assertIn(CLAUDE_TOKEN, probed)
+            self.assertNotIn(FAKE_TOKEN, probed)
 
     def test_container_mirror_is_byte_identical(self) -> None:
         self.assertTrue(MIRROR.exists(), f"missing container mirror: {MIRROR}")

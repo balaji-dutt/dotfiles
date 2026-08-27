@@ -243,7 +243,7 @@
       "side_effects": ["network", "process", "secrets"],
       "test_layers": ["contract", "unit"],
       "coverage": {"suite_id": "claude-token-check", "status": "covered", "work_item": "dots-9hoc", "test_paths": ["tests/test_claude_token_check.py"], "behavior_requirements": []},
-      "rationale": "The suite stubs the CLI, Keychain, and network to cover exit-code mapping, discovery precedence, and token non-disclosure. Keychain discovery is macOS-gated and skips elsewhere."
+      "rationale": "The suite stubs the CLI, Keychain, and network to cover exit-code mapping, per-source reporting, and token non-disclosure. Divergence cases assert that the Claude Code credential alone drives the exit code and that a healthy OpenCode token cannot mask a rejected one. Keychain discovery is macOS-gated and skips elsewhere, where the credentials file is the Claude Code source."
     },
     {
       "id": "devcontainer-runtime",
