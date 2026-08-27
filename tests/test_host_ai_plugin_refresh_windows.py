@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +21,10 @@ PWSH = shutil.which("pwsh")
 
 def ps_quote(value: str | Path) -> str:
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def ps_encoded(script: str) -> str:
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
 @unittest.skipUnless(PWSH, "native pwsh is not installed")
@@ -316,9 +322,11 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
     def test_claude_preservation_environment_is_scoped_and_restored(self) -> None:
         body = """
           $script:Observed = @()
-          function Invoke-External {
-            param([string] $Command, [string[]] $Arguments)
-            $script:Observed += $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+          $script:Timeouts = @()
+          function Invoke-JobContainedExternal {
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
+            $script:Observed += $EnvironmentVariables['CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE']
+            $script:Timeouts += $TimeoutSeconds
             [pscustomobject]@{ ExitCode = 0; Output = '' }
           }
           Remove-Item Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE -ErrorAction SilentlyContinue
@@ -328,14 +336,170 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           Invoke-ClaudeExternal -Arguments @('plugin', 'update', 'one@one') | Out-Null
           [pscustomobject]@{
             Observed = @($script:Observed)
+            Timeouts = @($script:Timeouts)
             AbsentRestored = $absentRestored
             ExistingRestored = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
           } | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["Observed"], ["1", "1"])
+        self.assertEqual(data["Timeouts"], [120, 120])
         self.assertTrue(data["AbsentRestored"])
         self.assertEqual(data["ExistingRestored"], "caller-value")
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_contained_runner_preserves_fast_output_exit_and_environment(self) -> None:
+        target_script = "[Console]::Out.Write($env:DOTFILES_TEST_VALUE); exit 0"
+        body = f"""
+          $env:DOTFILES_TEST_VALUE = 'caller'
+          $result = Invoke-JobContainedExternal `
+            -Command {ps_quote(PWSH)} `
+            -Arguments @('-NoProfile', '-EncodedCommand', {ps_quote(ps_encoded(target_script))}) `
+            -TimeoutSeconds 5 `
+            -EnvironmentVariables @{{ DOTFILES_TEST_VALUE = 'child' }}
+          [pscustomobject]@{{
+            ExitCode = $result.ExitCode
+            Output = $result.Output
+            ParentValue = $env:DOTFILES_TEST_VALUE
+          }} | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 0)
+        self.assertEqual(data["Output"], "child")
+        self.assertEqual(data["ParentValue"], "caller")
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_contained_runner_preserves_native_failure_output_and_exit(self) -> None:
+        target_script = (
+            '[Console]::Out.WriteLine("stdout-marker"); '
+            '[Console]::Error.WriteLine("stderr-marker"); exit 3'
+        )
+        body = f"""
+          $result = Invoke-JobContainedExternal `
+            -Command {ps_quote(PWSH)} `
+            -Arguments @('-NoProfile', '-EncodedCommand', {ps_quote(ps_encoded(target_script))}) `
+            -TimeoutSeconds 5 `
+            -EnvironmentVariables @{{}}
+          $result | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 3)
+        self.assertIn("stdout-marker", data["Output"])
+        self.assertIn("stderr-marker", data["Output"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_contained_runner_reaps_descendant_without_touching_sentinel(self) -> None:
+        sleeper = ps_encoded("Start-Sleep -Seconds 60")
+        parent = ps_encoded(
+            "$child = Start-Process -FilePath "
+            f"{ps_quote(PWSH)} "
+            "-ArgumentList @('-NoProfile', '-EncodedCommand', "
+            f"{ps_quote(sleeper)}) -PassThru; "
+            "[pscustomobject]@{ Pid = $child.Id; Started = $child.StartTime.ToUniversalTime().Ticks } "
+            "| ConvertTo-Json -Compress | Write-Output"
+        )
+        body = f"""
+          $sentinel = Start-Process -FilePath {ps_quote(PWSH)} -ArgumentList @('-NoProfile', '-EncodedCommand', {ps_quote(sleeper)}) -PassThru
+          $childId = $null
+          try {{
+            $result = Invoke-JobContainedExternal `
+              -Command {ps_quote(PWSH)} `
+              -Arguments @('-NoProfile', '-EncodedCommand', {ps_quote(parent)}) `
+              -TimeoutSeconds 5 `
+              -EnvironmentVariables @{{}}
+            $identity = ConvertFrom-Json -InputObject $result.Output
+            $childId = [int] $identity.Pid
+            $candidate = Get-Process -Id $childId -ErrorAction SilentlyContinue
+            $childIdentityAlive = $null -ne $candidate -and $candidate.StartTime.ToUniversalTime().Ticks -eq [long] $identity.Started
+            $sentinelAlive = -not $sentinel.HasExited
+            $data = [pscustomobject]@{{
+              ExitCode = $result.ExitCode
+              ChildIdentityAlive = $childIdentityAlive
+              SentinelAlive = $sentinelAlive
+            }}
+          }} finally {{
+            if ($null -ne $childId) {{ Stop-Process -Id $childId -Force -ErrorAction SilentlyContinue }}
+            if (-not $sentinel.HasExited) {{ $sentinel.Kill($true); $sentinel.WaitForExit() }}
+            $sentinel.Dispose()
+          }}
+          $data | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 0)
+        self.assertFalse(data["ChildIdentityAlive"])
+        self.assertTrue(data["SentinelAlive"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_contained_runner_times_out_and_reaps_command_tree(self) -> None:
+        pid_file = self.root / "timeout-processes.json"
+        marker = f"dots-vin4-{self.root.name}"
+        target = (
+            "import json, os, subprocess, sys, time; "
+            f"marker={marker!r}; "
+            "child=subprocess.Popen([sys.executable, '-c', "
+            "f'import time; marker={marker!r}; time.sleep(60)']); "
+            "json.dump({'Parent': os.getpid(), 'Child': child.pid, 'Marker': marker}, "
+            "open(os.environ['DOTFILES_TEST_PID_FILE'], 'w')); "
+            "time.sleep(60)"
+        )
+        body = f"""
+          $ids = @()
+          try {{
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            $result = Invoke-JobContainedExternal `
+              -Command {ps_quote(sys.executable)} `
+              -Arguments @('-c', {ps_quote(target)}) `
+              -TimeoutSeconds 1 `
+              -EnvironmentVariables @{{ DOTFILES_TEST_PID_FILE = {ps_quote(pid_file)} }}
+            $stopwatch.Stop()
+            $identity = Get-Content -Raw -LiteralPath {ps_quote(pid_file)} | ConvertFrom-Json
+            $ids = @([int] $identity.Parent, [int] $identity.Child)
+            $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($identity.Parent)" -ErrorAction SilentlyContinue
+            $child = Get-CimInstance Win32_Process -Filter "ProcessId = $($identity.Child)" -ErrorAction SilentlyContinue
+            $parentIdentityAlive = $null -ne $parent -and $parent.ExecutablePath -eq {ps_quote(sys.executable)} -and $parent.CommandLine -like "*$($identity.Marker)*"
+            $childIdentityAlive = $null -ne $child -and $child.ExecutablePath -eq {ps_quote(sys.executable)} -and $child.CommandLine -like "*$($identity.Marker)*"
+            $data = [pscustomobject]@{{
+              ExitCode = $result.ExitCode
+              Output = $result.Output
+              ElapsedSeconds = $stopwatch.Elapsed.TotalSeconds
+              ParentIdentityAlive = $parentIdentityAlive
+              ChildIdentityAlive = $childIdentityAlive
+            }}
+          }} finally {{
+            foreach ($processId in $ids) {{ Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue }}
+          }}
+          $data | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 124)
+        self.assertIn("timed out after 1 seconds", data["Output"])
+        self.assertLess(data["ElapsedSeconds"], 10)
+        self.assertFalse(data["ParentIdentityAlive"])
+        self.assertFalse(data["ChildIdentityAlive"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_containment_failure_does_not_release_target(self) -> None:
+        marker = self.root / "must-not-exist.marker"
+        target = ps_encoded(
+            f"Set-Content -LiteralPath {ps_quote(marker)} -Value 'launched'"
+        )
+        body = f"""
+          function Add-ClaudeWorkerToJob {{ throw 'forced assignment failure' }}
+          $result = Invoke-JobContainedExternal `
+            -Command {ps_quote(PWSH)} `
+            -Arguments @('-NoProfile', '-EncodedCommand', {ps_quote(target)}) `
+            -TimeoutSeconds 5 `
+            -EnvironmentVariables @{{}}
+          [pscustomobject]@{{
+            ExitCode = $result.ExitCode
+            Output = $result.Output
+            TargetLaunched = Test-Path -LiteralPath {ps_quote(marker)}
+          }} | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 125)
+        self.assertIn("forced assignment failure", data["Output"])
+        self.assertFalse(data["TargetLaunched"])
 
     def test_marketplace_catalog_requires_expected_plugin_and_unique_record(self) -> None:
         marketplace = self.root / "marketplace"
@@ -385,8 +549,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $script:ClaudeFailures = @()
           $script:Commands = @()
           $script:Synced = @()
-          function Invoke-External {{
-            param([string] $Command, [string[]] $Arguments)
+          function Invoke-JobContainedExternal {{
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $script:Commands += ,@($Arguments)
             [pscustomobject]@{{ ExitCode = 0; Output = '' }}
           }}
@@ -430,6 +594,84 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("catalog is missing", result.stdout)
         self.assertIn("Skipping Claude Code plugin 'broken-plugin@broken'", result.stdout)
 
+    def test_marketplace_timeout_records_failure_and_continues(self) -> None:
+        first = self.root / "first-marketplace"
+        second = self.root / "second-marketplace"
+        manifest = self.root / "timeout-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "$schema": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+                    "schema_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        for path, plugin in ((first, "first-plugin"), (second, "second-plugin")):
+            catalog = path / ".claude-plugin" / "marketplace.json"
+            catalog.parent.mkdir(parents=True)
+            catalog.write_text(json.dumps({"plugins": [{"name": plugin}]}), encoding="utf-8")
+        body = f"""
+          $plugins = @(
+            [pscustomobject]@{{ Id = 'first-plugin@first'; Name = 'first-plugin'; Marketplace = 'first'; Scope = 'user' }},
+            [pscustomobject]@{{ Id = 'second-plugin@second'; Name = 'second-plugin'; Marketplace = 'second'; Scope = 'user' }}
+          )
+          $script:ClaudeFailures = @()
+          $script:TestPlugins = $plugins
+          $script:Commands = @()
+          $script:Synced = @()
+          function Invoke-JobContainedExternal {{
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
+            $script:Commands += ,@($Arguments)
+            if ($Arguments[-1] -eq 'first') {{
+              return [pscustomobject]@{{ ExitCode = 124; Output = 'Claude command timed out after 120 seconds.' }}
+            }}
+            [pscustomobject]@{{ ExitCode = 0; Output = '' }}
+          }}
+          function Get-ClaudeMarketplaceInventory {{
+            [pscustomobject]@{{
+              Ok = $true
+              Error = $null
+              Records = @(
+                [pscustomobject]@{{ name = 'first'; installLocation = {ps_quote(first)} }},
+                [pscustomobject]@{{ name = 'second'; installLocation = {ps_quote(second)} }}
+              )
+            }}
+          }}
+          function Get-InstalledClaudePluginIds {{
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            return ,$ids
+          }}
+          function Sync-ClaudePlugin {{
+            param($Plugin, [string[]] $Actions)
+            $script:Synced += $Plugin.Id
+            return $true
+          }}
+          function Get-ClaudePlugins {{ return $script:TestPlugins }}
+          function Test-ClaudeEnablement {{}}
+          function Get-OpenCodePlugins {{ return @() }}
+          function Update-OpenCodeCache {{ return $true }}
+          $ConfigPath = {ps_quote(manifest)}
+          $code = Invoke-HostAiPluginRefresh
+          [pscustomobject]@{{
+            Code = $code
+            Commands = @($script:Commands | ForEach-Object {{ $_ -join ' ' }})
+            Synced = @($script:Synced)
+            Failures = @($script:ClaudeFailures)
+          }} | ConvertTo-Json -Depth 5 -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(
+            data["Commands"],
+            ["plugin marketplace update first", "plugin marketplace update second"],
+        )
+        self.assertEqual(data["Synced"], ["first-plugin@first", "second-plugin@second"])
+        self.assertEqual(data["Failures"], ["marketplace:first"])
+        self.assertEqual(data["Code"], 1)
+        self.assertIn("timed out after 120 seconds", result.stdout)
+        self.assertIn("One or more Claude Code plugin refreshes failed", result.stdout)
+
     def test_failed_named_update_uses_valid_preserved_catalog(self) -> None:
         marketplace = self.root / "preserved-marketplace"
         catalog = marketplace / ".claude-plugin" / "marketplace.json"
@@ -442,8 +684,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $plugin = [pscustomobject]@{{ Id = 'preserved-plugin@preserved'; Name = 'preserved-plugin'; Marketplace = 'preserved'; Scope = 'user' }}
           $script:ClaudeFailures = @()
           $script:Synced = $false
-          function Invoke-External {{
-            param([string] $Command, [string[]] $Arguments)
+          function Invoke-JobContainedExternal {{
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             [pscustomobject]@{{ ExitCode = 1; Output = 'network unavailable' }}
           }}
           function Get-ClaudeMarketplaceInventory {{
@@ -480,7 +722,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           )
           $script:ClaudeFailures = @()
           $script:Synced = @()
-          function Invoke-External {{ [pscustomobject]@{{ ExitCode = 0; Output = '' }} }}
+          function Invoke-JobContainedExternal {{ [pscustomobject]@{{ ExitCode = 0; Output = '' }} }}
           function Get-ClaudeMarketplaceInventory {{
             [pscustomobject]@{{
               Ok = $true
@@ -511,7 +753,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             [pscustomobject]@{ Id = 'two@shared'; Name = 'two'; Marketplace = 'shared'; Scope = 'user' }
           )
           $script:Called = $false
-          function Invoke-External { $script:Called = $true; throw 'must not run' }
+          function Invoke-JobContainedExternal { $script:Called = $true; throw 'must not run' }
           function Get-InstalledClaudePluginIds {
             $ids = [System.Collections.Generic.HashSet[string]]::new()
             return ,$ids
@@ -545,8 +787,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [void] $installed.Add($plugin.Id)
           $actions = @(Get-ClaudePluginActions -Plugin $plugin -InstalledIds $installed)
           $script:Attempts = @()
-          function Invoke-External {
-            param([string] $Command, [string[]] $Arguments)
+          function Invoke-JobContainedExternal {
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $action = $Arguments[1]
             $script:Attempts += $action
             if ($action -eq 'update') {
@@ -575,8 +817,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [void] $installed.Add($plugin.Id)
           $actions = @(Get-ClaudePluginActions -Plugin $plugin -InstalledIds $installed)
           $script:Attempts = @()
-          function Invoke-External {
-            param([string] $Command, [string[]] $Arguments)
+          function Invoke-JobContainedExternal {
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $script:Attempts += $Arguments[1]
             return [pscustomobject]@{ ExitCode = 1; Output = 'network unavailable' }
           }

@@ -247,6 +247,15 @@ configured plugins before their update/install commands run. A failed update
 may use a valid preserved catalog but still leaves the onchange retry pending;
 an empty, malformed, or ambiguous marketplace skips only its own plugins.
 
+Each Windows Claude mutation has a 120-second deadline. A gated PowerShell
+worker is assigned to a per-command kill-on-close Job Object before Claude can
+start. On normal return or timeout, the hook terminates any remaining descendants
+and waits for the Job to empty. If containment cannot be established, Claude is
+not launched and that operation fails. A timeout records the marketplace or
+plugin failure, later independent refresh work continues, and the hook exits
+nonzero so chezmoi retries. This cleanup is limited to the Job and never searches
+for or kills `git.exe` processes by name.
+
 The hook never kills OpenCode. It checks process state before
 cache work, again before removing `packages`, and again before publishing a
 staged compatibility install. A process whose CIM command line has `serve` as
@@ -319,7 +328,9 @@ returned success; it does not prove which Claude bug erased the catalogs.
    select **CPU** → **Associated Handles**, and search for the exact marketplace
    path. After confirming that no legitimate Git operation is active, terminate
    only stale `git.exe` or `plink.exe` processes holding that path. Do not kill
-   every Git process, because unrelated repositories may have active work.
+   every Git process, because unrelated repositories may have active work. This
+   is only for stale handles left by older automation or other tools; the managed
+   refresh hook contains and reaps its own mutation process trees.
 
 4. From the same standalone PowerShell session, preserve marketplace state and
    refresh each required catalog explicitly:
@@ -350,7 +361,9 @@ returned success; it does not prove which Claude bug erased the catalogs.
    plugin update/install recovery, validates OpenCode, and must exit zero before
    later hooks continue. Keep the empty backups until this succeeds; remove them
    only as a separate, reviewed cleanup. The first successful recovery can be
-   slow because the named marketplaces and their plugins refresh sequentially.
+   slow because the named marketplaces and their plugins refresh sequentially;
+   any single mutation that exceeds 120 seconds fails and remains pending for a
+   later retry.
 
 ## Claude Code `jq` Runtime Dependency
 

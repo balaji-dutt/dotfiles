@@ -412,8 +412,11 @@
         "work_item": "dots-4jy.10.5.4",
         "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"],
         "behavior_requirements": [
+          {"id": "failure-claude-mutation-timeout-retry", "kind": "failure", "description": "Bound timed-out Claude marketplace and plugin mutations, report actionable failures, continue independent refresh work, and request a later retry.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "failure-selected-installer-errors", "kind": "failure", "description": "Propagate selected installer, parser, and refresh failures without reporting success.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"]},
+          {"id": "safety-claude-process-tree-containment", "kind": "safety", "description": "Contain each Claude mutation, reap descendants after normal exit or timeout, fail closed before an uncontained launch, and preserve unrelated processes.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Keep broad lifecycle tests from mutating the real Windows profile, installers, or production secrets.", "status": "planned", "test_paths": []},
+          {"id": "success-bounded-claude-mutations", "kind": "success", "description": "Complete bounded Claude mutation commands with compatible output, exit status, and child-local environment behavior.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected Windows installer and refresh paths idempotently in synthetic state.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"]}
         ]
       },

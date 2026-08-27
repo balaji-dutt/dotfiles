@@ -78,6 +78,10 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   sets `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` only for Claude
   mutation commands. It then requires the CLI-reported marketplace catalog to
   exist and publish the configured plugin before update/install.
+- On Windows, each Claude mutation has a 120-second deadline and runs in its own
+  kill-on-close Job Object. The hook reaps that command's descendants on normal
+  return or timeout, and fails before launch if containment cannot be
+  established. It never scans for or kills unrelated Git processes.
 - A failed named marketplace update is non-fatal when its preserved catalog is
   still valid, but the hook exits nonzero at the end so chezmoi retries. An
   unavailable or malformed catalog skips only its own plugins; healthy

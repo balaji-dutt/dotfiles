@@ -13,10 +13,190 @@ $SchemaRef = './schemas/host-ai-plugin-refresh.v1.schema.json'
 # included, on every unrelated settings edit.
 $SettingsBasePath = Join-Path '{{ .chezmoi.sourceDir }}' 'dot_claude\settings-base.json'
 $DryRun = -not [string]::IsNullOrWhiteSpace($env:HOST_AI_PLUGIN_REFRESH_DRY_RUN)
+$ClaudeMutationTimeoutSeconds = 120
+$ClaudeProcessCleanupTimeoutMilliseconds = 5000
 # Claude plugin problems are reported per plugin and re-raised as a non-zero
 # exit at the end, so one bad plugin does not skip the remaining plugins or the
 # OpenCode cache refresh.
 $script:ClaudeFailures = @()
+
+if (-not ("Dotfiles.ClaudeRefreshJob" -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+namespace Dotfiles
+{
+    public sealed class ClaudeRefreshJob : IDisposable
+    {
+        private const uint JobObjectExtendedLimitInformation = 9;
+        private const uint JobObjectBasicAccountingInformation = 1;
+        private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+        private IntPtr handle;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BasicLimitInformation
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ExtendedLimitInformation
+        {
+            public BasicLimitInformation BasicLimitInformation;
+            public IoCounters IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BasicAccountingInformation
+        {
+            public long TotalUserTime;
+            public long TotalKernelTime;
+            public long ThisPeriodTotalUserTime;
+            public long ThisPeriodTotalKernelTime;
+            public uint TotalPageFaultCount;
+            public uint TotalProcesses;
+            public uint ActiveProcesses;
+            public uint TotalTerminatedProcesses;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetInformationJobObject(
+            IntPtr job,
+            uint informationClass,
+            IntPtr information,
+            uint informationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool QueryInformationJobObject(
+            IntPtr job,
+            uint informationClass,
+            out BasicAccountingInformation information,
+            uint informationLength,
+            IntPtr returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        public ClaudeRefreshJob()
+        {
+            handle = CreateJobObject(IntPtr.Zero, null);
+            if (handle == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the Claude refresh Job Object.");
+            }
+
+            ExtendedLimitInformation limits = new ExtendedLimitInformation();
+            limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
+            int size = Marshal.SizeOf(typeof(ExtendedLimitInformation));
+            IntPtr buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(limits, buffer, false);
+                if (!SetInformationJobObject(handle, JobObjectExtendedLimitInformation, buffer, (uint)size))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not configure the Claude refresh Job Object.");
+                }
+            }
+            catch
+            {
+                CloseHandle(handle);
+                handle = IntPtr.Zero;
+                throw;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        public void Assign(Process process)
+        {
+            if (!AssignProcessToJobObject(handle, process.Handle))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not contain the gated Claude refresh worker.");
+            }
+        }
+
+        public uint ActiveProcessCount
+        {
+            get
+            {
+                BasicAccountingInformation accounting;
+                int size = Marshal.SizeOf(typeof(BasicAccountingInformation));
+                if (!QueryInformationJobObject(
+                    handle,
+                    JobObjectBasicAccountingInformation,
+                    out accounting,
+                    (uint)size,
+                    IntPtr.Zero))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not query the Claude refresh Job Object.");
+                }
+                return accounting.ActiveProcesses;
+            }
+        }
+
+        public void Terminate(uint exitCode)
+        {
+            if (!TerminateJobObject(handle, exitCode))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not terminate the Claude refresh Job Object.");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (handle != IntPtr.Zero)
+            {
+                CloseHandle(handle);
+                handle = IntPtr.Zero;
+            }
+            GC.SuppressFinalize(this);
+        }
+
+        ~ClaudeRefreshJob()
+        {
+            Dispose();
+        }
+    }
+}
+'@
+}
 
 function ConvertFrom-JsoncText {
   param([Parameter(Mandatory=$true)] [string] $Text)
@@ -84,22 +264,187 @@ function Invoke-ExternalJson {
   }
 }
 
-function Invoke-ClaudeExternal {
-  param([Parameter(Mandatory=$true)] [string[]] $Arguments)
+function New-ClaudeProcessJob {
+  return [Dotfiles.ClaudeRefreshJob]::new()
+}
 
-  $variableName = "CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE"
-  $hadPrevious = Test-Path -LiteralPath "Env:$variableName"
-  $previous = if ($hadPrevious) { [Environment]::GetEnvironmentVariable($variableName, "Process") } else { $null }
-  try {
-    [Environment]::SetEnvironmentVariable($variableName, "1", "Process")
-    return Invoke-External -Command "claude" -Arguments $Arguments
-  } finally {
-    if ($hadPrevious) {
-      [Environment]::SetEnvironmentVariable($variableName, $previous, "Process")
-    } else {
-      Remove-Item -LiteralPath "Env:$variableName" -ErrorAction SilentlyContinue
-    }
+function Add-ClaudeWorkerToJob {
+  param(
+    [Parameter(Mandatory=$true)] [Dotfiles.ClaudeRefreshJob] $Job,
+    [Parameter(Mandatory=$true)] [System.Diagnostics.Process] $Process
+  )
+
+  $Job.Assign($Process)
+}
+
+function Stop-ClaudeProcessJob {
+  param(
+    [Parameter(Mandatory=$true)] [Dotfiles.ClaudeRefreshJob] $Job,
+    [Parameter(Mandatory=$true)] [int] $TimeoutMilliseconds
+  )
+
+  $Job.Terminate(124)
+  $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  while ($Job.ActiveProcessCount -ne 0) {
+    if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMilliseconds) { return $false }
+    Start-Sleep -Milliseconds 25
   }
+  return $true
+}
+
+function Invoke-JobContainedExternal {
+  param(
+    [Parameter(Mandatory=$true)] [string] $Command,
+    [Parameter(Mandatory=$true)] [string[]] $Arguments,
+    [Parameter(Mandatory=$true)] [ValidateRange(1, 3600)] [int] $TimeoutSeconds,
+    [Parameter(Mandatory=$true)] [hashtable] $EnvironmentVariables
+  )
+
+$workerScript = @'
+$ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
+$gate = [Console]::In.ReadLine()
+if ($gate -cne "GO") { exit 125 }
+$targetArguments = @(ConvertFrom-Json -InputObject $env:DOTFILES_CLAUDE_REFRESH_ARGUMENTS)
+try {
+  $output = & $env:DOTFILES_CLAUDE_REFRESH_COMMAND @targetArguments 2>&1
+  $exitCode = $LASTEXITCODE
+  if ($null -eq $exitCode) { $exitCode = 0 }
+  if ($null -ne $output) { [Console]::Out.Write((($output | Out-String).TrimEnd())) }
+  exit [int] $exitCode
+} catch {
+  [Console]::Error.Write((($_ | Out-String).TrimEnd()))
+  exit 1
+}
+'@
+
+  $encodedWorker = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerScript))
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = (Join-Path $PSHOME "pwsh.exe")
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardInput = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  [void] $startInfo.ArgumentList.Add("-NoProfile")
+  [void] $startInfo.ArgumentList.Add("-NonInteractive")
+  [void] $startInfo.ArgumentList.Add("-EncodedCommand")
+  [void] $startInfo.ArgumentList.Add($encodedWorker)
+  foreach ($entry in $EnvironmentVariables.GetEnumerator()) {
+    $startInfo.Environment[[string] $entry.Key] = [string] $entry.Value
+  }
+  $startInfo.Environment["DOTFILES_CLAUDE_REFRESH_COMMAND"] = $Command
+  $startInfo.Environment["DOTFILES_CLAUDE_REFRESH_ARGUMENTS"] = ConvertTo-Json -Compress -InputObject @($Arguments)
+
+  $job = $null
+  $process = $null
+  $processStarted = $false
+  $stdoutTask = $null
+  $stderrTask = $null
+  try {
+    try {
+      $job = New-ClaudeProcessJob
+      $process = [System.Diagnostics.Process]::new()
+      $process.StartInfo = $startInfo
+      if (-not $process.Start()) { throw "PowerShell worker did not start." }
+      $processStarted = $true
+      $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+      $stderrTask = $process.StandardError.ReadToEndAsync()
+      Add-ClaudeWorkerToJob -Job $job -Process $process
+    } catch {
+      if ($processStarted -and -not $process.HasExited) {
+        $process.StandardInput.Close()
+        $process.Kill($true)
+        [void] $process.WaitForExit($ClaudeProcessCleanupTimeoutMilliseconds)
+      }
+      return [pscustomobject]@{
+        ExitCode = 125
+        Output = "Claude process containment failed before launch: $($_.Exception.Message)"
+      }
+    }
+
+    $timedOut = $false
+    $operationError = $null
+    $exitCode = 125
+    try {
+      $process.StandardInput.WriteLine("GO")
+      $process.StandardInput.Close()
+      if ($process.WaitForExit($TimeoutSeconds * 1000)) {
+        $exitCode = $process.ExitCode
+      } else {
+        $timedOut = $true
+        $exitCode = 124
+      }
+    } catch {
+      $operationError = $_.Exception.Message
+    }
+
+    $cleanupError = $null
+    try {
+      if (-not (Stop-ClaudeProcessJob -Job $job -TimeoutMilliseconds $ClaudeProcessCleanupTimeoutMilliseconds)) {
+        $cleanupError = "contained processes remained after the cleanup deadline"
+      }
+    } catch {
+      $cleanupError = $_.Exception.Message
+    }
+
+    if (-not $process.HasExited -and -not $process.WaitForExit($ClaudeProcessCleanupTimeoutMilliseconds)) {
+      $cleanupError = "gated worker remained after the cleanup deadline"
+    }
+
+    $drainSucceeded = $false
+    try {
+      $drainSucceeded = $stdoutTask.Wait($ClaudeProcessCleanupTimeoutMilliseconds) -and $stderrTask.Wait($ClaudeProcessCleanupTimeoutMilliseconds)
+    } catch {
+      if ($null -eq $cleanupError) { $cleanupError = "process output failed to close: $($_.Exception.Message)" }
+    }
+    $outputParts = @()
+    if ($stdoutTask.IsCompletedSuccessfully -and -not [string]::IsNullOrWhiteSpace($stdoutTask.Result)) {
+      $outputParts += $stdoutTask.Result.TrimEnd()
+    }
+    if ($stderrTask.IsCompletedSuccessfully -and -not [string]::IsNullOrWhiteSpace($stderrTask.Result)) {
+      $outputParts += $stderrTask.Result.TrimEnd()
+    }
+    if ($timedOut) {
+      $outputParts += "Claude command timed out after $TimeoutSeconds seconds."
+    }
+    if ($null -ne $operationError) {
+      $outputParts += "Claude contained command failed: $operationError"
+    }
+    if ($null -ne $cleanupError) {
+      $exitCode = 125
+      $outputParts += "Claude process cleanup failed: $cleanupError"
+    } elseif (-not $drainSucceeded) {
+      $exitCode = 125
+      $outputParts += "Claude process output did not close after cleanup."
+    }
+
+    return [pscustomobject]@{
+      ExitCode = $exitCode
+      Output = (($outputParts -join [Environment]::NewLine).TrimEnd())
+    }
+  } finally {
+    if ($null -ne $process) {
+      if ($processStarted -and -not $process.HasExited) {
+        try { $process.Kill($true) } catch {}
+      }
+      $process.Dispose()
+    }
+    if ($null -ne $job) { $job.Dispose() }
+  }
+}
+
+function Invoke-ClaudeExternal {
+  param(
+    [Parameter(Mandatory=$true)] [string[]] $Arguments,
+    [ValidateRange(1, 3600)] [int] $TimeoutSeconds = $ClaudeMutationTimeoutSeconds
+  )
+
+  return Invoke-JobContainedExternal `
+    -Command "claude" `
+    -Arguments $Arguments `
+    -TimeoutSeconds $TimeoutSeconds `
+    -EnvironmentVariables @{ CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = "1" }
 }
 
 function ConvertTo-ClaudePluginIdentity {
