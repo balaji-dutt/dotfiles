@@ -100,6 +100,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "repo"
         init_git_repository(self.root)
+        run_git(self.root, "symbolic-ref", "HEAD", "refs/heads/main")
         (self.root / "tracked").write_text("base\n", encoding="utf-8")
         run_git(self.root, "add", "tracked")
         run_git(self.root, "commit", "--quiet", "-m", "base")
