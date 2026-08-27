@@ -1,6 +1,6 @@
 # Merge commit message templates
 
-Two worked examples for the `--no-ff` merge commit message in step 6 of
+Two worked examples for the `no-ff` merge commit message in step 5 of
 `worktree-merge`. Describe **what the branch did**, not "Merge branch X"
 boilerplate.
 
@@ -54,29 +54,23 @@ Drafted message:
 Full invocation under Claude Code:
 
 ```bash
-GIT_AUTHOR_NAME="Claude" GIT_AUTHOR_EMAIL="noreply@anthropic.com" \
-GIT_COMMITTER_NAME="Claude" GIT_COMMITTER_EMAIL="noreply@anthropic.com" \
-  git merge --no-ff \
+"<merge-helper>" no-ff --actor claude \
   -m "Add beads-work skill for dots-* issue loop" \
   -m "- Encode claim/plan/implement/commit/close loop using bd CLI
 - Add resume path via .beads/in-progress-<harness>.json state file
 - Gitignore in-progress-*.json so state files do not commit
-- 3 commits, 281 insertions across 2 files" \
-  "feat/beads-skill"
+- 3 commits, 281 insertions across 2 files"
 ```
 
 Same message under OpenCode (only the identity env vars change):
 
 ```bash
-GIT_AUTHOR_NAME="OpenCode" GIT_AUTHOR_EMAIL="noreply@opencode.ai" \
-GIT_COMMITTER_NAME="OpenCode" GIT_COMMITTER_EMAIL="noreply@opencode.ai" \
-  git merge --no-ff \
+"<merge-helper>" no-ff --actor opencode \
   -m "Add beads-work skill for dots-* issue loop" \
   -m "- Encode claim/plan/implement/commit/close loop using bd CLI
 - Add resume path via .beads/in-progress-<harness>.json state file
 - Gitignore in-progress-*.json so state files do not commit
-- 3 commits, 281 insertions across 2 files" \
-  "feat/beads-skill"
+- 3 commits, 281 insertions across 2 files"
 ```
 
 ## Example 2: homelab-IaC-style repo (50/72 body, Conventional Commits subject)
@@ -113,33 +107,27 @@ Drafted message:
 Full invocation under Claude Code:
 
 ```bash
-GIT_AUTHOR_NAME="Claude" GIT_AUTHOR_EMAIL="noreply@anthropic.com" \
-GIT_COMMITTER_NAME="Claude" GIT_COMMITTER_EMAIL="noreply@anthropic.com" \
-  git merge --no-ff \
+"<merge-helper>" no-ff --actor claude \
   -m "fix(audit): honor CZ_AUDIT_STRICT for ansible-lint runs" \
   -m "- Treat ansible-lint findings as errors when CZ_AUDIT_STRICT=1
 - Add fixture covering the strict-mode failure path
-- 2 commits, 14 insertions, 3 deletions across 3 files" \
-  "fix/audit-script-strict-mode"
+- 2 commits, 14 insertions, 3 deletions across 3 files"
 ```
 
 Same message under OpenCode (only the identity env vars change):
 
 ```bash
-GIT_AUTHOR_NAME="OpenCode" GIT_AUTHOR_EMAIL="noreply@opencode.ai" \
-GIT_COMMITTER_NAME="OpenCode" GIT_COMMITTER_EMAIL="noreply@opencode.ai" \
-  git merge --no-ff \
+"<merge-helper>" no-ff --actor opencode \
   -m "fix(audit): honor CZ_AUDIT_STRICT for ansible-lint runs" \
   -m "- Treat ansible-lint findings as errors when CZ_AUDIT_STRICT=1
 - Add fixture covering the strict-mode failure path
-- 2 commits, 14 insertions, 3 deletions across 3 files" \
-  "fix/audit-script-strict-mode"
+- 2 commits, 14 insertions, 3 deletions across 3 files"
 ```
 
 ## What to extract from the branch
 
 For either convention, build the body from these commands run inside the
-main worktree after step 3's `cd`:
+main worktree before step 5's helper invocation:
 
 ```bash
 git log "${MAIN_BRANCH}..${FEATURE_BRANCH}" --oneline

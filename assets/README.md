@@ -204,11 +204,16 @@ Repositories rejected by Git's `safe.directory` ownership check are skipped
 with an informational message. Trust must be granted deliberately through Git
 configuration; the helper never weakens or bypasses that check.
 
-This repository also opts into a managed `pre-push` check that requires a
-successful GitLab `linux-fast` job before `origin/main` is pushed. The hook is a
-no-op in repositories without `configs/gitlab-pipeline-guard.json`; see
-`docs/tooling/continuous-integration.md` for normal use and the explicit
-common-directory override.
+This repository also opts into managed `pre-push` and `pre-rebase` checks. The
+first requires a successful GitLab `linux-fast` job before `origin/main` is
+pushed; the second blocks rewriting guarded local main while it has unpushed
+commits. Both are no-ops in repositories without
+`configs/gitlab-pipeline-guard.json`; see
+`docs/tooling/continuous-integration.md` for normal use and explicit escape
+hatches. Agent worktree sessions use `agent-wt-merge prepare-ci` before merging.
+If local main was already rewritten, `agent-wt-merge prepare-main-ci` publishes
+and monitors only its exact tip on a reserved temporary ref. Neither command
+pushes main or tags.
 
 For a targeted reconciliation, pass the template directory and one or more
 roots explicitly:

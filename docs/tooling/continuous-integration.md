@@ -17,30 +17,94 @@ The policy favors useful feedback within the GitLab Free compute allowance.
 Only the `fast` Linux suite is automatic. Full Linux and Windows runs are manual,
 and superseded automatic jobs are interruptible.
 
-## Local feature workflow
+## Agent worktree workflow
 
-1. Develop and commit on a short-lived local feature branch.
-2. Push that branch, even when no merge request is needed:
+OpenCode and Claude use global post-commit adapters that remain inactive unless
+the current non-main repository has an executable `agent-wt-merge` helper and a
+valid pipeline policy. A successful `oc-commit` or `cc-commit` that changes HEAD
+injects guidance for the active agent; it does not publish anything.
+
+1. Develop and commit on a short-lived feature branch.
+2. Separately approve publication and monitoring:
 
    ```sh
-   git push -u origin HEAD
+   "<main-worktree>/assets/agent-wt-merge" prepare-ci
    ```
 
-3. Wait for the exact commit's `linux-fast` job to pass.
-4. Merge the branch into local `main`.
-5. Push `main`. The managed `pre-push` hook verifies the feature-tip pipeline
-   before Git sends the update.
+   The helper captures the feature tip, performs a normal exact-SHA push to the
+   same-named remote feature branch, verifies the advertisement, and polls
+   `linux-fast` every 15 seconds for up to 15 minutes. It never pushes main,
+   another branch, or tags.
+3. After exact-SHA success, use `agent-wt-merge inspect` and the selected `ff`
+   or `no-ff` command. The merge command fetches and rechecks publication and CI
+   before changing local main.
+4. After a real CI-backed merge, the helper exact-lease-deletes the remote
+   feature branch before Beads closure. A bypass retains it. Local worktree and
+   feature-branch cleanup remains separately permissioned.
+5. Push main. The managed `pre-push` hook independently verifies the same
+   feature-tip evidence before Git sends the update.
+
+Do not rebase or pull with rebase after the local merge and before the guarded
+main push. Replaying the commit changes its SHA and invalidates exact-SHA
+evidence. The managed repository-opt-in `pre-rebase` hook blocks this operation
+when guarded main has commits that are absent from its policy remote-tracking
+ref. It does not block non-main rebases or a main branch with no local-ahead
+commits.
+
+The OpenCode plugin and Claude hook are global adapters with repository-scoped
+activation. They validate the local policy and derive the required job and
+helper path from the current repository. They inspect local Git and inject
+context only; they never call GitLab, push, merge, or delete refs. Restart
+OpenCode after installing or changing its plugin because plugins are loaded at
+session startup.
+
+## Manual feature workflow
+
+For a non-agent session, the equivalent publication step is:
+
+```sh
+git push -u origin HEAD
+```
+
+Wait for the exact commit's `linux-fast` job before using the merge helper. Do
+not use a manual merge when the repository policy exists but the authoritative
+helper is unavailable; that would omit the fresh CI, publication, first-parent,
+and lease-cleanup checks.
+
+## Rewritten main recovery
+
+If guarded local main was rebased or otherwise rewritten after a local merge,
+its new SHA has no right to reuse the original feature-tip evidence. Do not use
+the pipeline override merely because the patch content is unchanged. From the
+clean, attached guarded main worktree, separately approve:
+
+```sh
+./assets/agent-wt-merge prepare-main-ci
+```
+
+The helper fetches the policy remote and requires local main to be ahead, not
+behind or diverged, with the advertised remote main as an ancestor. It first
+checks the exact local tip for existing success. If evidence is absent, it
+normally publishes only `<sha>:refs/heads/ci/main/<full-sha>`, verifies the
+advertisement, and polls with the same 15-second, 15-minute bound used for a
+feature tip.
+
+After real CI success, the helper revalidates local HEAD and advertised remote
+main, then exact-lease-deletes only its reserved temporary ref. Bypass, terminal
+failure, timeout, API error, local or remote movement, and cleanup failure retain
+the evidence ref for diagnosis. The command never pushes main or tags. Push main
+separately after success; the managed `pre-push` hook remains authoritative.
 
 When a branch has an open merge request, its MR pipeline owns `linux-fast`; the
 parallel branch-push pipeline does not run a duplicate job. A `main` push also
 does not automatically rerun `linux-fast`. Existing sync jobs continue to run on
 `main` under their original rules.
 
-The first merge that introduces the hook is a bootstrap exception: the managed
-copy is not installed into existing repositories until the Git-template hook
-sync runs during a later `chezmoi apply`. Push this feature branch, wait for its
-`linux-fast` job, and verify that result manually before the first local merge
-and `main` push. Do not apply dotfiles merely to make a source change testable.
+The first merge that introduces a managed hook is a bootstrap exception: its
+source copy is not installed into existing repositories until the Git-template
+hook sync runs during a later `chezmoi apply`. Use the existing feature
+publication and exact-SHA merge gate for that change; do not apply dotfiles
+merely to make a source change testable.
 
 ## Pipeline rule table
 
@@ -127,6 +191,12 @@ unreachable. Wait for GitLab and retry the push. The helper uses no token becaus
 the project is public; making it private requires a separate authentication
 design rather than silently weakening the guard.
 
+The same checker exposes a machine-readable exact-SHA mode to
+`agent-wt-merge`. Its outcomes are `success`, `retryable`, `terminal`, `error`,
+and `bypass`. Only a missing or active required job is retryable. The existing
+pre-push arguments, stdin protocol, history selection, and fail-closed behavior
+remain unchanged.
+
 For a deliberate temporary bypass, create the fixed override in the Git common
 directory. It applies to all linked worktrees and remains active until removed:
 
@@ -147,6 +217,16 @@ Remove-Item -Force $override
 
 Every bypassed guarded push prints a warning. `git push --no-verify` is Git's
 own broader escape hatch; neither mechanism is a security boundary.
+
+The common-directory pipeline override does not authorize rebasing guarded
+local main. Git's explicit `git rebase --no-verify` remains a reviewed escape
+hatch because hooks are not a security boundary. A resulting rewritten main
+must use `prepare-main-ci`; patch equivalence does not preserve exact-SHA
+evidence.
+
+For worktree merges, bypass does not count as CI success. The feature must still
+be published at the exact SHA, and the remote feature ref is retained after the
+local merge.
 
 ## Platform matrix and gaps
 

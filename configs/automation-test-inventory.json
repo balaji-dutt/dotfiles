@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:a0607e979d9190cddb0a75f421cae2babf2a896b8f56ed9e50bda76514b3ab0a",
+  "candidate_digest": "sha256:bb8133a8a7f5ca6d40831e4cee6fe3c13c93140e55a0b63fd40e4559805091c4",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -11,7 +11,7 @@
       "languages": ["python"],
       "platforms": ["linux", "macos", "wsl2"],
       "risk": "critical",
-      "side_effects": ["beads", "filesystem", "git", "process"],
+      "side_effects": ["beads", "filesystem", "git", "network", "process"],
       "test_layers": ["integration", "unit"],
       "coverage": {
         "suite_id": "agent-worktree-merge",
@@ -22,21 +22,21 @@
           {
             "id": "failure-merge-preconditions",
             "kind": "failure",
-            "description": "Reject dirty, divergent, or failed merge operations without advancing the target branch.",
+            "description": "Reject dirty, stale, unpublished, untrusted-CI, invalid-first-parent, diverged-main, or unsafe recovery operations without advancing the target branch or publishing a recovery ref.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "safety-beads-and-remote-state",
             "kind": "safety",
-            "description": "Keep Beads closure and destructive remote or state changes behind verified merge success.",
+            "description": "Pin exact SHAs, avoid main and tag pushes, and exact-lease-delete only unchanged feature or reserved main-CI refs after real CI success.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "success-supported-merge",
             "kind": "success",
-            "description": "Complete supported fast-forward and no-ff worktree integration with the expected commits.",
+            "description": "Publish and poll exact feature or rewritten-main tips, complete supported merges, clean eligible evidence refs, and report independent merge and cleanup outcomes.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           }
@@ -202,11 +202,22 @@
       "owner": {"kind": "repository", "name": "GitLab CI automation"},
       "languages": ["python", "yaml"],
       "platforms": ["ci", "linux", "macos", "windows", "wsl2"],
-      "risk": "high",
+      "risk": "critical",
       "side_effects": ["filesystem", "network", "process"],
-      "test_layers": ["contract", "platform-smoke", "static"],
-      "coverage": {"suite_id": "portable-ci", "status": "covered", "work_item": "dots-4jy.10.1.3", "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"], "behavior_requirements": []},
-      "rationale": "Offline contract suites cover job dispatch, reports, and the fail-closed feature-pipeline guard."
+      "test_layers": ["contract", "integration", "platform-smoke", "static"],
+      "coverage": {
+        "suite_id": "portable-ci",
+        "status": "covered",
+        "work_item": "dots-4jy.10.1.3",
+        "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"],
+        "behavior_requirements": [
+          {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, ambiguous-history, invalid-policy, and missing guarded tracking states.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select only the exact linear tip or valid no-ff feature parent, preserve the pre-push contract, and block rebasing guarded local-ahead main even when the pipeline override exists.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
+          {"id": "success-structured-job-state", "kind": "success", "description": "Report exact-SHA success, retryable, terminal, error, and explicit bypass outcomes for guarded automation.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]}
+        ]
+      },
+      "rationale": "Offline contract suites cover job dispatch, exact-SHA status reporting, and the fail-closed feature-pipeline guard."
     },
     {
       "id": "claude-review-hooks",
@@ -333,11 +344,21 @@
       "owner": {"kind": "repository", "name": "Git template hooks and synchronizer"},
       "languages": ["python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
-      "risk": "high",
+      "risk": "critical",
       "side_effects": ["filesystem", "git", "process"],
       "test_layers": ["integration", "platform-smoke", "unit"],
-      "coverage": {"suite_id": "git-hooks", "status": "covered", "work_item": "dots-4jy.10.3.3", "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"], "behavior_requirements": []},
-      "rationale": "Contract suites cover hook ownership, synchronization, pipeline enforcement, and override behavior."
+      "coverage": {
+        "suite_id": "git-hooks",
+        "status": "covered",
+        "work_item": "dots-4jy.10.3.3",
+        "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"],
+        "behavior_requirements": [
+          {"id": "failure-guarded-main-rebase", "kind": "failure", "description": "Block guarded main rebases when local commits are absent from the policy remote tracking ref and fail closed when that tracking state is unavailable.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-hook-scope-and-bypass", "kind": "safety", "description": "Keep pipeline hooks repository-opt-in, allow non-main and no-ahead rebases, and prevent the pipeline override from silently authorizing a guarded-main rebase.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "success-owned-hook-reconciliation", "kind": "success", "description": "Discover, install, update, and remove owned template hooks while preserving unrelated repository hooks.", "status": "covered", "test_paths": ["tests/test_git_template_hook_sync.py"]}
+        ]
+      },
+      "rationale": "Contract suites cover hook ownership, synchronization, exact-SHA push enforcement, and guarded-main rebase protection."
     },
     {
       "id": "inventory-policy",
@@ -404,12 +425,13 @@
       "paths": [
         "bin/executable_ccr_launcher.sh.tmpl",
         "dot_claude-code-router/plugins/*.js",
+        "dot_claude/hooks/executable_feature-ci-reminder.py",
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
         "private_dot_config/opencode/opencode-profile.sh",
         "private_dot_config/opencode/plugins/*.js"
       ],
       "owner": {"kind": "repository", "name": "managed AI adapters and destructive guards"},
-      "languages": ["bash", "javascript", "shell"],
+      "languages": ["bash", "javascript", "python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "critical",
       "side_effects": ["beads", "filesystem", "network", "process", "secrets"],
@@ -418,14 +440,17 @@
         "suite_id": "managed-ai-adapters",
         "status": "partial",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"],
+        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"],
         "behavior_requirements": [
+          {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Block destructive Beads operations and prevent adapters from exposing or using production secrets in tests.", "status": "planned", "test_paths": []},
+          {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
         ]
       },
-      "rationale": "Profile and dependency guards have coverage; remaining adapters need contract fixtures."
+      "rationale": "Feature-CI reminders, profiles, and dependency guards have coverage; remaining adapters need contract fixtures."
     },
     {
       "id": "mirrored-container-assets",

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+policy="$repo_root/configs/gitlab-pipeline-guard.json"
+helper="$repo_root/assets/check-gitlab-pipeline.py"
+rebase_branch=${2:-}
+
+if [ ! -f "$policy" ]; then
+  exit 0
+fi
+
+if [ ! -f "$helper" ]; then
+  echo "ERROR: pipeline guard helper is missing: $helper" >&2
+  exit 1
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$helper" --repo-root "$repo_root" --policy "$policy" \
+    --check-rebase --rebase-branch "$rebase_branch"
+fi
+if command -v py >/dev/null 2>&1; then
+  exec py -3 "$helper" --repo-root "$repo_root" --policy "$policy" \
+    --check-rebase --rebase-branch "$rebase_branch"
+fi
+if command -v python >/dev/null 2>&1 &&
+   python -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+  exec python "$helper" --repo-root "$repo_root" --policy "$policy" \
+    --check-rebase --rebase-branch "$rebase_branch"
+fi
+
+echo "ERROR: guarded main rebase check requires Python 3." >&2
+exit 1
