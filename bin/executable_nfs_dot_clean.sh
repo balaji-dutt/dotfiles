@@ -8,8 +8,8 @@ LOCK_DIR="$STATE_DIR/lock"
 PID_FILE="$STATE_DIR/dot-clean.pid"
 TIMEOUT_SECONDS="${NFS_DOT_CLEAN_TIMEOUT_SECONDS:-120}"
 
-MOUNT_BIN="/sbin/mount"
-DOT_CLEAN_BIN="/usr/sbin/dot_clean"
+MOUNT_BIN="${NFS_DOT_CLEAN_MOUNT_BIN:-/sbin/mount}"
+DOT_CLEAN_BIN="${NFS_DOT_CLEAN_BIN:-/usr/sbin/dot_clean}"
 
 log_warn() {
     printf 'nfs-dot-clean: %s\n' "$*" >&2

@@ -225,6 +225,14 @@
       "requires": ["pwsh"]
     },
     {
+      "id": "macos-maintenance",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_macos_maintenance"],
+      "covers": ["tests/test_macos_maintenance.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "notifier-bridge",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_notifier_bridge"],

@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:39f5e1be0c42c4da45e386cdbf1f4e4e4a6fca8b8074c58356993d428d07fa47",
+  "candidate_digest": "sha256:705bfd8f1fa282417ddeb844ebc0a67e628b3b5c2ebc0fce116ecb1e95aa4406",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -636,11 +636,11 @@
       "coverage": {
         "suite_id": "user-utilities",
         "status": "partial",
-        "work_item": "dots-4jy.10.3.2",
-        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_opencode_notifier_bridge.py", "tests/test_opencode_profile_refresh.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
+        "work_item": "dots-4jy.10.3",
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_opencode_profile_refresh.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, profile refresh, and sync-wrapper dispatch. The broad row remains partial because macOS maintenance utilities and some standalone user tools retain separate work items."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, profile refresh, sync-wrapper dispatch, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because some standalone user tools retain separate work items."
     },
     {
       "id": "vendored-upstream",

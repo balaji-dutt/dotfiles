@@ -1,14 +1,16 @@
 #!/bin/bash
 
 # --- CONFIGURATION ---
-RESTORE_TIMEOUT=600
-CHECK_INTERVAL=60
+RESTORE_TIMEOUT="${VNC_MONITOR_RESTORE_TIMEOUT:-600}"
+CHECK_INTERVAL="${VNC_MONITOR_CHECK_INTERVAL:-60}"
+MAX_CHECKS="${VNC_MONITOR_MAX_CHECKS:-0}"
 # ---------------------
 
 STATE="disconnected"
 CAFFEINATE_PID=""
-CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
+CAFFEINATE_PID_FILE="${VNC_MONITOR_PID_FILE:-/tmp/com.user.vncmonitor.caffeinate.pid}"
 CLEANUP_DONE=""
+CHECK_COUNT=0
 
 read_idle_time() {
     defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null
@@ -73,8 +75,6 @@ ensure_disconnected_dock_autohide() {
 }
 
 if [ "$1" == "--cleanup" ]; then
-    CAFFEINATE_PID_FILE="/tmp/com.user.vncmonitor.caffeinate.pid"
-
     if [ -f "$CAFFEINATE_PID_FILE" ]; then
         EXISTING_PID="$(cat "$CAFFEINATE_PID_FILE" 2>/dev/null)"
         if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
@@ -161,5 +161,10 @@ while true; do
         fi
     fi
 
-    sleep $CHECK_INTERVAL
+    CHECK_COUNT=$((CHECK_COUNT + 1))
+    if [ "$MAX_CHECKS" -gt 0 ] && [ "$CHECK_COUNT" -ge "$MAX_CHECKS" ]; then
+        break
+    fi
+
+    sleep "$CHECK_INTERVAL"
 done
