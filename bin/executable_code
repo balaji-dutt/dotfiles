@@ -10,4 +10,5 @@ if [[ -n "${VSCODE_IPC_HOOK_CLI:-}" ]]; then
 fi
 
 # Fallback: use Windows VS Code CLI
-exec "/mnt/c/Program Files/Microsoft VS Code/bin/code" "$@"
+windows_code_cli="${CODE_WINDOWS_CLI:-/mnt/c/Program Files/Microsoft VS Code/bin/code}"
+exec "$windows_code_cli" "$@"

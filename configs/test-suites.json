@@ -33,6 +33,14 @@
       "requires": ["git"]
     },
     {
+      "id": "aoe-notify",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_aoe_notify"],
+      "covers": ["tests/test_aoe_notify.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "audit-tools",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_cz_audit.CzAuditPosixTests"],
@@ -127,6 +135,14 @@
       "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_config_contracts"],
       "covers": ["tests/test_config_contracts.py"]
+    },
+    {
+      "id": "devcontainer-launch",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_launch"],
+      "covers": ["tests/test_devcontainer_launch.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
     },
     {
       "id": "envrc-render",
@@ -270,6 +286,14 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_test_runner"],
       "covers": ["tests/test_test_runner.py"],
       "requires": ["git"]
+    },
+    {
+      "id": "user-command-wrappers",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_user_command_wrappers"],
+      "covers": ["tests/test_user_command_wrappers.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
     }
   ]
 }

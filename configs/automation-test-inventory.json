@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:44cdcc9938daa1c5143b613267829861cbaee2ee31115060ef3ca089ac1446e5",
+  "candidate_digest": "sha256:3ba678227a1e74bcd85870916ff1f693af96525ac6f1be146bdbdc8eb5a7496f",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -78,12 +78,7 @@
         "status": "covered",
         "work_item": "dots-4jy.10.3.1",
         "test_paths": ["tests/test_ai_wt.py"],
-        "behavior_requirements": [
-          "Creates and cleans real temporary Git worktrees without affecting unrelated branches or paths",
-          "Refuses unsafe dirty or pre-existing branch cleanup unless force is explicit",
-          "Serializes repository mutations under lock contention on supported platforms",
-          "Rolls back partial worktree creation so a failed setup can be retried safely"
-        ]
+        "behavior_requirements": []
       },
       "rationale": "The suite covers launch contracts plus real Git lifecycle, path, lock, cleanup, and partial-failure recovery behavior."
     },
@@ -480,17 +475,18 @@
         "suite_id": "managed-ai-adapters",
         "status": "partial",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"],
+        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": [
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Block destructive Beads operations and prevent adapters from exposing or using production secrets in tests.", "status": "planned", "test_paths": []},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "success-ccr-launch-idempotency", "kind": "success", "description": "Start the Claude Code Router once, skip an already-listening port, and record launch failures without affecting the real router.", "status": "covered", "test_paths": ["tests/test_user_command_wrappers.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
         ]
       },
-      "rationale": "Feature-CI reminders, profiles, and dependency guards have coverage; remaining adapters need contract fixtures."
+      "rationale": "Feature-CI reminders, profiles, dependency guards, and CCR launch idempotency have coverage; remaining adapters still need contract fixtures."
     },
     {
       "id": "mirrored-container-assets",
@@ -634,8 +630,14 @@
       "risk": "medium",
       "side_effects": ["filesystem", "gui", "network", "process"],
       "test_layers": ["contract", "integration", "platform-smoke", "unit"],
-      "coverage": {"suite_id": "user-utilities", "status": "partial", "work_item": "dots-4jy.10.3.2", "test_paths": ["tests/test_opencode_notifier_bridge.py"], "behavior_requirements": []},
-      "rationale": "Notifier behavior has registered tests; Promptfoo provenance and the remaining thin wrappers need separate behavioral contract checks."
+      "coverage": {
+        "suite_id": "user-utilities",
+        "status": "partial",
+        "work_item": "dots-4jy.10.3.2",
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_opencode_notifier_bridge.py", "tests/test_opencode_profile_refresh.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, profile refresh, and sync-wrapper dispatch. The broad row remains partial because macOS maintenance utilities and some standalone user tools retain separate work items."
     },
     {
       "id": "vendored-upstream",
