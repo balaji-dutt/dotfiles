@@ -5,8 +5,8 @@ git:
   parseEmoji: true
   truncateCopiedCommitHashesTo: 8
   ignoreWhitespaceInDiffView: true
-  pagers:
-    - pager: diff-so-fancy
+  diffRenderers:
+    - command: diff-so-fancy
 os:
   editPreset: 'vscode'
   #editCommand: 'code -rg {{filename}}'
