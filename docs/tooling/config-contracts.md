@@ -22,7 +22,7 @@ tracked paths, cross-file references, and runtime capability rules.
 | `configs/ai-tooling-support.json` | `configs/schemas/ai-tooling-support.v1.schema.json` | `assets/check-ai-tooling.py` |
 | `configs/claude-mcp.json` | `configs/schemas/claude-mcp.v1.schema.json` | `assets/check-ai-tooling.py`; `assets/claude-mcp-apply.py`; `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl` |
 | `configs/devcontainer-sync.jsonc` | `configs/schemas/devcontainer-sync.v1.schema.json` | `assets/check-automation-provenance.py`; `assets/sync-devcontainer-assets.sh`; `bin/executable_devcontainer-launch.tmpl` |
-| `configs/gitlab-pipeline-guard.json` | `configs/schemas/gitlab-pipeline-guard.v1.schema.json` | `assets/check-gitlab-pipeline.py` |
+| `configs/gitlab-pipeline-guard.json` | `configs/schemas/gitlab-pipeline-guard.v1.schema.json` | `assets/check-gitlab-pipeline.py`; `assets/gitlab_pipeline_runtime.py` |
 | `configs/host-ai-plugin-refresh.jsonc` | `configs/schemas/host-ai-plugin-refresh.v1.schema.json` | `.chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.sh.tmpl`; `.chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` |
 | `configs/browser-policies/justthebrowser/manifest.json` | `configs/schemas/justthebrowser-manifest.v1.schema.json` | `assets/sync-browser-policies.py` |
 | `configs/packages.yaml` | `configs/schemas/packages.v1.schema.json` | `ansible/wsl-playbook.yml` |

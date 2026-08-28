@@ -36,6 +36,9 @@ git_pull_rebase_then_apply_stash() {
     local preflight_log=""
     local repo_root=""
     local git_common_dir=""
+    local guarded_sync=false
+    local guarded_sync_helper=""
+    local pull_exit=0
 
 
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -49,6 +52,48 @@ git_pull_rebase_then_apply_stash() {
     fi
 
     git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    guarded_sync_helper="$repo_root/assets/guarded-main-sync"
+
+    _gpls_pull_rebase() {
+        local stash_oid="${1:-}"
+        local sync_exit
+        local -a sync_args
+
+        guarded_sync=false
+        if [[ ! -x "$guarded_sync_helper" ]]; then
+            git pull --rebase
+            return $?
+        fi
+
+        sync_args=(sync)
+        if [[ -n "$stash_oid" ]]; then
+            sync_args+=(--stash-oid "$stash_oid")
+        fi
+        "$guarded_sync_helper" "${sync_args[@]}"
+        sync_exit=$?
+        if [[ $sync_exit -eq 20 ]]; then
+            git pull --rebase
+            return $?
+        fi
+        if [[ $sync_exit -ne 0 ]]; then
+            return $sync_exit
+        fi
+        guarded_sync=true
+        return 0
+    }
+
+    _gpls_finalize_guarded_sync() {
+        if [[ $guarded_sync != true ]]; then
+            return 0
+        fi
+        "$guarded_sync_helper" finalize
+    }
+
+    _gpls_stash_ref_for_oid() {
+        local stash_oid="$1"
+        git stash list --format='%gd %H' |
+            awk -v oid="$stash_oid" '$2 == oid { print $1; exit }'
+    }
 
     _gpls_temp_git() {
         if [[ -n "$git_common_dir" ]]; then
@@ -60,7 +105,12 @@ git_pull_rebase_then_apply_stash() {
 
     # If clean, just pull.
     if [[ -z "$(git status --porcelain)" ]]; then
-        git pull --rebase
+        _gpls_pull_rebase
+        pull_exit=$?
+        if [[ $pull_exit -ne 0 ]]; then
+            return $pull_exit
+        fi
+        _gpls_finalize_guarded_sync
         return $?
     fi
 
@@ -87,14 +137,22 @@ git_pull_rebase_then_apply_stash() {
     after=$(git rev-parse -q --verify stash@{0} 2>/dev/null || true)
     if [[ -z "$after" || "$after" == "$before" ]]; then
         # Unexpected, but safe: proceed without stash logic.
-        git pull --rebase
+        _gpls_pull_rebase
+        pull_exit=$?
+        if [[ $pull_exit -ne 0 ]]; then
+            return $pull_exit
+        fi
+        _gpls_finalize_guarded_sync
         return $?
     fi
+    stash_ref="$after"
 
     print -r -- "[gpls $(date '+%H:%M:%S')] git pull --rebase" >&2
-    if ! git pull --rebase; then
-        echo "git pull --rebase failed; stash left intact: $stash_ref"
-        return 1
+    _gpls_pull_rebase "$after"
+    pull_exit=$?
+    if [[ $pull_exit -ne 0 ]]; then
+        echo "pull/reconciliation failed; stash left intact: $stash_ref"
+        return $pull_exit
     fi
 
     tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t gpls)
@@ -212,12 +270,22 @@ git_pull_rebase_then_apply_stash() {
     if [[ $debug == true ]]; then
         print -r -- "[gpls $(date '+%H:%M:%S')] dropping stash" >&2
     fi
+    stash_ref="$(_gpls_stash_ref_for_oid "$after")"
+    if [[ -z "$stash_ref" ]]; then
+        echo "Applied stash but could not locate it for exact drop: $after"
+        return 1
+    fi
     git stash drop "$stash_ref" >/dev/null 2>&1
     local drop_exit=$?
 
     if [[ $drop_exit -ne 0 ]]; then
         echo "Applied stash but failed to drop it: $stash_ref"
         return $drop_exit
+    fi
+
+    if ! _gpls_finalize_guarded_sync; then
+        echo "Stash restored, but guarded main sync finalization failed; recovery state was retained."
+        return 1
     fi
 
     print -r -- "[gpls $(date '+%H:%M:%S')] done" >&2

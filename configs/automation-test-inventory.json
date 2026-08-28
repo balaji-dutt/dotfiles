@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:bb8133a8a7f5ca6d40831e4cee6fe3c13c93140e55a0b63fd40e4559805091c4",
+  "candidate_digest": "sha256:fe95c94fa80e3e072c7ec7bc7d8a918e455aec58f7563b1d55dabcda80d246f1",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -340,7 +340,7 @@
     {
       "id": "git-hooks",
       "classification": "owned",
-      "paths": ["assets/git-template-hook-sync.py", "private_dot_config/git/template/hooks/**"],
+      "paths": ["assets/git-template-hook-sync.py", "assets/resolve-python3", "private_dot_config/git/template/hooks/**"],
       "owner": {"kind": "repository", "name": "Git template hooks and synchronizer"},
       "languages": ["python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -351,14 +351,38 @@
         "suite_id": "git-hooks",
         "status": "covered",
         "work_item": "dots-4jy.10.3.3",
-        "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py"],
+        "test_paths": ["tests/test_git_template_hook_sync.py", "tests/test_gitlab_pipeline_guard.py", "tests/test_guarded_main_sync.py"],
         "behavior_requirements": [
           {"id": "failure-guarded-main-rebase", "kind": "failure", "description": "Block guarded main rebases when local commits are absent from the policy remote tracking ref and fail closed when that tracking state is unavailable.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
           {"id": "safety-hook-scope-and-bypass", "kind": "safety", "description": "Keep pipeline hooks repository-opt-in, allow non-main and no-ahead rebases, and prevent the pipeline override from silently authorizing a guarded-main rebase.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
-          {"id": "success-owned-hook-reconciliation", "kind": "success", "description": "Discover, install, update, and remove owned template hooks while preserving unrelated repository hooks.", "status": "covered", "test_paths": ["tests/test_git_template_hook_sync.py"]}
+          {"id": "success-owned-hook-reconciliation", "kind": "success", "description": "Discover, install, update, and remove owned template hooks while preserving unrelated repository hooks.", "status": "covered", "test_paths": ["tests/test_git_template_hook_sync.py"]},
+          {"id": "success-working-python-resolution", "kind": "success", "description": "Execute-probe Python candidates for guarded hooks, reject broken command shims, fall through to a working launcher, and fail closed when none works.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py", "tests/test_guarded_main_sync.py"]}
         ]
       },
       "rationale": "Contract suites cover hook ownership, synchronization, exact-SHA push enforcement, and guarded-main rebase protection."
+    },
+    {
+      "id": "guarded-main-sync",
+      "classification": "owned",
+      "paths": ["assets/gitlab_pipeline_runtime.py", "assets/guarded-main-sync"],
+      "owner": {"kind": "repository", "name": "human-facing guarded main reconciliation"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "platform-smoke", "unit"],
+      "coverage": {
+        "suite_id": "guarded-main-sync",
+        "status": "covered",
+        "work_item": "dots-4db9",
+        "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_guarded_main_sync.py"],
+        "behavior_requirements": [
+          {"id": "failure-actionable-recovery", "kind": "failure", "description": "Retain collision-safe recovery state, the exact gpls stash, and any owned CI evidence ref across rebase, CI, remote-movement, cleanup, and finalization failures.", "status": "covered", "test_paths": ["tests/test_guarded_main_sync.py"]},
+          {"id": "safety-no-main-or-tag-push", "kind": "safety", "description": "Publish only the SHA-derived reserved CI ref, lease-delete only unchanged evidence, and never push guarded main or tags.", "status": "covered", "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_guarded_main_sync.py"]},
+          {"id": "success-reconcile-and-validate", "kind": "success", "description": "Rebase a clean ahead-and-behind guarded main onto a pinned remote tip, obtain exact-SHA CI, restore any exact stash, and leave main ahead and ready for a separate push.", "status": "covered", "test_paths": ["tests/test_guarded_main_sync.py"]}
+        ]
+      },
+      "rationale": "Core integration tests and platform adapters cover the guarded sync state machine while agent-helper regressions preserve its shared runtime contract."
     },
     {
       "id": "inventory-policy",
@@ -530,8 +554,8 @@
       "risk": "high",
       "side_effects": ["host-config", "process", "secrets"],
       "test_layers": ["contract", "platform-smoke", "render", "unit"],
-      "coverage": {"suite_id": "shell-startup", "status": "partial", "work_item": "dots-4jy.10.5.3", "test_paths": ["tests/test_envrc.py"], "behavior_requirements": []},
-      "rationale": "Environment loading has coverage; startup ordering and helper behavior remain planned."
+      "coverage": {"suite_id": "shell-startup", "status": "partial", "work_item": "dots-4jy.10.5.3", "test_paths": ["tests/test_envrc.py", "tests/test_guarded_main_sync.py"], "behavior_requirements": []},
+      "rationale": "Environment loading and guarded gpls dispatch/stash behavior have coverage; broader startup ordering and remaining helpers are still planned."
     },
     {
       "id": "sync-tooling",
@@ -635,8 +659,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "host-config", "network", "process", "secrets"],
       "test_layers": ["contract", "integration", "platform-smoke", "render", "unit"],
-      "coverage": {"suite_id": "windows-shell", "status": "planned", "work_item": "dots-4jy.10.5.5", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Profiles, drive mapping, Pageant, environment fragments, and commit wrappers need Pester coverage."
+      "coverage": {"suite_id": "windows-shell", "status": "partial", "work_item": "dots-4jy.10.5.5", "test_paths": ["tests/test_guarded_main_sync.py"], "behavior_requirements": []},
+      "rationale": "Native-Windows guarded gpls dispatch has a registered platform test; profiles, drive mapping, Pageant, environment fragments, and commit wrappers still need broader coverage."
     },
     {
       "id": "wsl-provisioning",

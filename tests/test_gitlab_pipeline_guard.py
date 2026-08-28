@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -14,13 +15,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterator
 
-from tests.support.fixtures import init_git_repository, run_git, write_json
+from tests.support.fixtures import init_git_repository, run_git, write_executable, write_json
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER = REPO_ROOT / "assets" / "check-gitlab-pipeline.py"
 PRE_PUSH_HOOK = REPO_ROOT / "private_dot_config" / "git" / "template" / "hooks" / "executable_pre-push"
 PRE_REBASE_HOOK = REPO_ROOT / "private_dot_config" / "git" / "template" / "hooks" / "executable_pre-rebase"
+PYTHON_RESOLVER = REPO_ROOT / "assets" / "resolve-python3"
 ZERO_SHA = "0" * 40
 ZERO_SHA256 = "0" * 64
 
@@ -480,6 +482,9 @@ class PipelineGuardTests(unittest.TestCase):
         helper.parent.mkdir(parents=True)
         shutil.copy2(HELPER, helper)
         helper.chmod(0o755)
+        resolver = self.root / "assets" / "resolve-python3"
+        shutil.copy2(PYTHON_RESOLVER, resolver)
+        resolver.chmod(0o755)
         self.policy("http://127.0.0.1:1/api/v4")
         run_git(
             self.root,
@@ -591,6 +596,54 @@ class PipelineGuardTests(unittest.TestCase):
         )
         self.assertEqual(bypassed.returncode, 0, bypassed.stderr)
         self.assertIn("WARNING: bypassing", bypassed.stderr)
+
+    def test_pre_push_hook_rejects_broken_python3_and_uses_py(self) -> None:
+        hook = self.root / ".git" / "hooks" / "pre-push"
+        hook.write_bytes(PRE_PUSH_HOOK.read_bytes())
+        hook.chmod(0o755)
+        self.policy("http://127.0.0.1:1/api/v4")
+        assets = self.root / "assets"
+        assets.mkdir(exist_ok=True)
+        write_executable(
+            assets / "check-gitlab-pipeline.py",
+            "#!/usr/bin/env python3\nraise SystemExit(0)\n",
+        )
+        resolver = assets / "resolve-python3"
+        shutil.copy2(PYTHON_RESOLVER, resolver)
+        resolver.chmod(0o755)
+
+        fake_bin = self.root.parent / "fake-bin"
+        fake_bin.mkdir()
+        log = self.root.parent / "py.log"
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        write_executable(fake_bin / "git", f'#!/bin/sh\nexec "{real_git}" "$@"\n')
+        write_executable(fake_bin / "python3", "#!/bin/sh\nexit 49\n")
+        write_executable(
+            fake_bin / "py",
+            """#!/bin/sh
+if [ "$1" = -3 ] && [ "$2" = -c ]; then exit 0; fi
+printf '%s\n' "$*" > "$PIPELINE_GUARD_PY_LOG"
+exit 0
+""",
+        )
+        env = os.environ.copy()
+        env["PATH"] = str(fake_bin)
+        env["PIPELINE_GUARD_PY_LOG"] = str(log)
+        result = subprocess.run(
+            [shutil.which("sh") or "/bin/sh", str(hook), "origin", "unused"],
+            cwd=self.root,
+            input="",
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        invocation = log.read_text(encoding="utf-8")
+        self.assertTrue(invocation.startswith("-3 "), invocation)
+        self.assertIn("check-gitlab-pipeline.py", invocation)
 
 
 if __name__ == "__main__":

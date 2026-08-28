@@ -16,6 +16,11 @@ feature worktree.
 It exists so OpenCode and Claude skills do not need to rebuild the same shell or
 Python snippets every time they merge a feature worktree.
 
+The helper shares policy parsing, exact-SHA checking, and reserved-ref safety
+with `assets/guarded-main-sync` through `assets/gitlab_pipeline_runtime.py`.
+Humans use `gpls` for an ahead-and-behind guarded main; the agent helper remains
+the interface for feature-worktree merges and agent recovery compatibility.
+
 ## Commands
 
 Run feature commands from the feature worktree root. Run `prepare-main-ci` from
@@ -129,7 +134,10 @@ attempted and reported independently.
 
 Rebasing or cherry-picking a local guarded main after merge changes commit
 SHAs, so exact feature-tip evidence no longer covers the rewritten main tip.
-Use `prepare-main-ci` rather than weakening the main-push guard. The command:
+For human ahead-and-behind synchronization, use `gpls`; it records and performs
+the rebase before obtaining new evidence and delays finalization until an exact
+stash is restored. `prepare-main-ci` remains the agent compatibility command
+for a clean rewritten main that is already ahead and not diverged. It:
 
 1. requires a clean, attached guarded main with unpushed commits;
 2. fetches the policy remote and rejects behind or diverged history;

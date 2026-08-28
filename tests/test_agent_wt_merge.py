@@ -16,6 +16,7 @@ from tests.support.fixtures import read_json, run_git, write_executable, write_j
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_HELPER = REPO_ROOT / "assets" / "agent-wt-merge"
+SOURCE_RUNTIME = REPO_ROOT / "assets" / "gitlab_pipeline_runtime.py"
 EXEC_ENV_KEYS = (
     "AGENT_WT_MERGE_EXEC_CHAIN",
     "AGENT_WT_MERGE_DELEGATED_FROM",
@@ -31,7 +32,11 @@ def load_helper_module():
         raise RuntimeError("could not create helper module spec")
     module = module_from_spec(spec)
     sys.modules[name] = module
-    loader.exec_module(module)
+    sys.path.insert(0, str(SOURCE_HELPER.parent))
+    try:
+        loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
     return module
 
 
@@ -108,6 +113,7 @@ if os.environ.get("FAKE_BD_FAIL"):
         helper.parent.mkdir(parents=True, exist_ok=True)
         if text is None:
             shutil.copy2(SOURCE_HELPER, helper)
+            shutil.copy2(SOURCE_RUNTIME, helper.parent / SOURCE_RUNTIME.name)
         else:
             write_executable(helper, text)
         return helper

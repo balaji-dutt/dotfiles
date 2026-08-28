@@ -12,10 +12,31 @@ import shlex
 import subprocess
 import sys
 import time
-import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+sys.dont_write_bytecode = True
+_SCRIPT_PATH = Path(__file__).resolve()
+if _SCRIPT_PATH.parent.name == "assets":
+    _RUNTIME_DIR = _SCRIPT_PATH.parent
+elif _SCRIPT_PATH.parent.name == "bin" and _SCRIPT_PATH.parent.parent.name == ".opencode":
+    _RUNTIME_DIR = _SCRIPT_PATH.parent.parent.parent / "assets"
+else:
+    _RUNTIME_DIR = _SCRIPT_PATH.parent
+if str(_RUNTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(_RUNTIME_DIR))
+
+from gitlab_pipeline_runtime import (
+    PipelineRuntime,
+    PipelineRuntimeError,
+    check_pipeline as shared_check_pipeline,
+    cleanup_main_ci_ref as shared_cleanup_main_ci_ref,
+    load_pipeline_runtime as shared_load_pipeline_runtime,
+    main_ci_remote_ref as shared_main_ci_remote_ref,
+    publish_main_ci_ref as shared_publish_main_ci_ref,
+    remote_ref_sha as shared_remote_ref_sha,
+)
 
 
 SCRIPT_NAME = Path(sys.argv[0]).name
@@ -28,11 +49,6 @@ HELPER_RELATIVE_PATHS = (
     Path("assets/agent-wt-merge"),
     Path(".opencode/bin/agent-wt-merge"),
 )
-PIPELINE_POLICY_RELATIVE_PATH = Path("configs/gitlab-pipeline-guard.json")
-PIPELINE_CHECKER_RELATIVE_PATH = Path("assets/check-gitlab-pipeline.py")
-PIPELINE_POLICY_SCHEMA = "./schemas/gitlab-pipeline-guard.v1.schema.json"
-SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
-REMOTE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 FEATURE_BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 ACTORS = {
@@ -71,15 +87,6 @@ class HelperProvenance:
     canonical_path: Path | None
     delegated_from: Path | None
     reexecuted_after_main_update: bool
-
-
-@dataclass(frozen=True)
-class PipelineRuntime:
-    policy_path: Path
-    checker_path: Path
-    remote_name: str
-    guarded_ref: str
-    required_job: str
 
 
 @dataclass
@@ -379,55 +386,10 @@ def helper_source_root(helper_path: Path) -> Path:
 
 def load_pipeline_runtime(helper: HelperProvenance, main_branch: str) -> PipelineRuntime:
     source_root = helper_source_root(helper.path)
-    policy_path = source_root / PIPELINE_POLICY_RELATIVE_PATH
-    checker_path = source_root / PIPELINE_CHECKER_RELATIVE_PATH
     try:
-        payload = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        die(f"cannot read pipeline guard policy {policy_path}: {exc}")
-    if not isinstance(payload, dict):
-        die("pipeline guard policy root must be an object")
-    if payload.get("$schema") != PIPELINE_POLICY_SCHEMA:
-        die(f"pipeline guard policy $schema must be {PIPELINE_POLICY_SCHEMA!r}")
-    if payload.get("schema_version") != 1:
-        die("pipeline guard policy schema_version must be 1")
-
-    def required_string(name: str) -> str:
-        value = payload.get(name)
-        if not isinstance(value, str) or not value.strip():
-            die(f"pipeline guard policy {name} must be a non-empty string")
-        return value.strip()
-
-    api_url = required_string("api_url").rstrip("/")
-    parsed_url = urllib.parse.urlparse(api_url)
-    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-        die("pipeline guard policy api_url must be an absolute HTTP(S) URL")
-    project_id = payload.get("project_id")
-    if not isinstance(project_id, int) or isinstance(project_id, bool) or project_id <= 0:
-        die("pipeline guard policy project_id must be a positive integer")
-    timeout_seconds = payload.get("timeout_seconds", 5)
-    if (
-        not isinstance(timeout_seconds, int)
-        or isinstance(timeout_seconds, bool)
-        or not 1 <= timeout_seconds <= 30
-    ):
-        die("pipeline guard policy timeout_seconds must be between 1 and 30")
-    remote_name = required_string("guarded_remote")
-    if not REMOTE_NAME_PATTERN.fullmatch(remote_name):
-        die("pipeline guard policy guarded_remote must be a local remote name")
-    guarded_ref = required_string("guarded_ref")
-    expected_ref = f"refs/heads/{main_branch}"
-    if guarded_ref != expected_ref:
-        die(f"pipeline guard policy guarded_ref must be {expected_ref!r}")
-    if not checker_path.is_file():
-        die(f"pipeline checker is missing: {checker_path}")
-    return PipelineRuntime(
-        policy_path=policy_path,
-        checker_path=checker_path,
-        remote_name=remote_name,
-        guarded_ref=guarded_ref,
-        required_job=required_string("required_job"),
-    )
+        return shared_load_pipeline_runtime(source_root, main_branch)
+    except PipelineRuntimeError as exc:
+        die(str(exc))
 
 
 def commit_exists(repo_root: Path, ref: str) -> bool:
@@ -845,23 +807,10 @@ def remote_ref_sha(
     remote_name: str,
     remote_ref: str,
 ) -> str | None:
-    result = run_git(
-        repo_root,
-        ["ls-remote", "--heads", "--", remote_name, remote_ref],
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "git ls-remote failed").strip()
-        die(f"could not read {remote_name} {remote_ref}: {detail}")
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    if not lines:
-        return None
-    if len(lines) != 1:
-        die(f"remote advertised multiple values for {remote_ref}")
-    fields = lines[0].split()
-    if len(fields) != 2 or fields[1] != remote_ref or not SHA_PATTERN.fullmatch(fields[0]):
-        die(f"remote advertised a malformed value for {remote_ref}: {lines[0]!r}")
-    return fields[0]
+    try:
+        return shared_remote_ref_sha(repo_root, remote_name, remote_ref)
+    except PipelineRuntimeError as exc:
+        die(str(exc))
 
 
 def feature_remote_ref(feature_branch: str) -> str:
@@ -893,49 +842,10 @@ def check_pipeline(
     runtime: PipelineRuntime,
     sha: str,
 ) -> dict[str, Any]:
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(runtime.checker_path),
-            "--repo-root",
-            str(repo_root),
-            "--policy",
-            str(runtime.policy_path),
-            "--check-sha",
-            sha,
-            "--json",
-        ],
-        cwd=str(repo_root),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
     try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        detail = (result.stderr or result.stdout or "pipeline checker returned no JSON").strip()
-        die(f"pipeline checker failed for {sha}: {detail}")
-    if not isinstance(payload, dict):
-        die("pipeline checker JSON root is not an object")
-    outcome = payload.get("outcome")
-    if payload.get("schema_version") != 1 or outcome not in {
-        "success",
-        "retryable",
-        "terminal",
-        "error",
-        "bypass",
-    }:
-        die("pipeline checker returned an invalid outcome")
-    if payload.get("sha") != sha:
-        die("pipeline checker returned a mismatched SHA")
-    if outcome not in {"bypass", "error"} and payload.get("required_job") != runtime.required_job:
-        die("pipeline checker returned a mismatched required job")
-    if outcome in {"success", "bypass"} and result.returncode != 0:
-        die("pipeline checker returned a passing outcome with a failing exit status")
-    if outcome not in {"success", "bypass"} and result.returncode == 0:
-        die("pipeline checker returned a blocking outcome with a passing exit status")
-    return payload
+        return shared_check_pipeline(repo_root, runtime, sha)
+    except PipelineRuntimeError as exc:
+        die(str(exc))
 
 
 def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: str) -> None:
@@ -1047,11 +957,10 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
 
 
 def main_ci_remote_ref(main_branch: str, main_sha: str) -> str:
-    if FEATURE_BRANCH_PATTERN.fullmatch(main_branch) is None:
-        die(f"main branch name is unsafe for CI publication: {main_branch!r}")
-    if SHA_PATTERN.fullmatch(main_sha) is None:
-        die(f"main SHA is invalid for CI publication: {main_sha!r}")
-    return f"refs/heads/ci/{main_branch}/{main_sha}"
+    try:
+        return shared_main_ci_remote_ref(main_branch, main_sha)
+    except PipelineRuntimeError as exc:
+        die(str(exc))
 
 
 def publish_main_ci_ref(
@@ -1060,44 +969,10 @@ def publish_main_ci_ref(
     main_branch: str,
     main_sha: str,
 ) -> tuple[str, bool]:
-    remote_ref = main_ci_remote_ref(main_branch, main_sha)
-    advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
-    if advertised_sha is not None:
-        if advertised_sha != main_sha:
-            die(
-                f"reserved CI ref {remote_ref} advertises {advertised_sha}, expected {main_sha}; "
-                "refusing to update it"
-            )
-        return remote_ref, False
-
-    remote_check = run_git(repo_root, ["remote", "get-url", runtime.remote_name], check=False)
-    if remote_check.returncode != 0:
-        detail = (remote_check.stderr or remote_check.stdout or "remote not found").strip()
-        die(f"cannot publish through remote {runtime.remote_name!r}: {detail}")
-    result = run_git(
-        repo_root,
-        [
-            "push",
-            "--porcelain",
-            "--",
-            runtime.remote_name,
-            f"{main_sha}:{remote_ref}",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "git push failed").strip()
-        die(
-            f"could not publish rewritten main SHA {main_sha} to "
-            f"{runtime.remote_name}/{remote_ref.removeprefix('refs/heads/')}: {detail}"
-        )
-    advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
-    if advertised_sha != main_sha:
-        die(
-            f"published main CI verification failed: {remote_ref} advertises "
-            f"{advertised_sha or 'nothing'}, expected {main_sha}"
-        )
-    return remote_ref, True
+    try:
+        return shared_publish_main_ci_ref(repo_root, runtime, main_branch, main_sha)
+    except PipelineRuntimeError as exc:
+        die(str(exc))
 
 
 def cleanup_main_ci_ref(
@@ -1106,60 +981,7 @@ def cleanup_main_ci_ref(
     remote_ref: str,
     main_sha: str,
 ) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "requested": True,
-        "cleaned": False,
-        "retained": True,
-        "remote_ref": remote_ref,
-        "expected_sha": main_sha,
-    }
-    try:
-        advertised_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
-    except (AgentWtMergeError, OSError) as exc:
-        result["reason"] = str(exc)
-        return result
-    if advertised_sha is None:
-        result.update({"cleaned": True, "retained": False, "already_absent": True})
-        return result
-    if advertised_sha != main_sha:
-        result["reason"] = (
-            f"temporary CI ref moved to {advertised_sha}; exact-lease deletion was not attempted"
-        )
-        return result
-    try:
-        deletion = run_git(
-            repo_root,
-            [
-                "push",
-                "--porcelain",
-                f"--force-with-lease={remote_ref}:{main_sha}",
-                "--",
-                runtime.remote_name,
-                f":{remote_ref}",
-            ],
-            check=False,
-        )
-    except OSError as exc:
-        result["reason"] = f"lease-protected CI ref deletion failed: {exc}"
-        return result
-    if deletion.returncode != 0:
-        result["reason"] = (
-            deletion.stderr or deletion.stdout or "lease-protected CI ref deletion failed"
-        ).strip()
-        return result
-    try:
-        remaining_sha = remote_ref_sha(repo_root, runtime.remote_name, remote_ref)
-    except (AgentWtMergeError, OSError) as exc:
-        result["reason"] = f"deletion ran but verification failed: {exc}"
-        return result
-    if remaining_sha is not None:
-        result["reason"] = (
-            f"deletion verification found {remote_ref} at {remaining_sha}; "
-            "no second deletion attempted"
-        )
-        return result
-    result.update({"cleaned": True, "retained": False})
-    return result
+    return shared_cleanup_main_ci_ref(repo_root, runtime, remote_ref, main_sha)
 
 
 def ensure_main_ci_state_unchanged(
