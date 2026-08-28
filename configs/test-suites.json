@@ -33,6 +33,20 @@
       "requires": ["git"]
     },
     {
+      "id": "audit-tools",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_cz_audit.CzAuditPosixTests"],
+      "covers": ["tests/test_cz_audit.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
+      "id": "audit-tools-powershell",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_cz_audit.CzAuditPowerShellTests"],
+      "covers": ["tests/test_cz_audit.py"]
+    },
+    {
       "id": "automation-provenance",
       "suites": ["fast", "provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.AutomationProvenanceTests"],
@@ -66,6 +80,27 @@
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_check_beads_release_notes"],
       "covers": ["tests/test_check_beads_release_notes.py"]
+    },
+    {
+      "id": "beads-sync",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPosixTests"],
+      "covers": ["tests/test_beads_sync.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
+      "id": "beads-sync-powershell",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPowerShellTests"],
+      "covers": ["tests/test_beads_sync.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "browser-policy-sync",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_sync_browser_policies"],
+      "covers": ["tests/test_sync_browser_policies.py"]
     },
     {
       "id": "claude-token-check",
@@ -212,6 +247,14 @@
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],
       "covers": ["tests/test_automation_provenance.py"],
+      "requires": ["bash"]
+    },
+    {
+      "id": "sync-tooling",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_sync_tooling"],
+      "covers": ["tests/test_sync_tooling.py"],
+      "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash"]
     },
     {

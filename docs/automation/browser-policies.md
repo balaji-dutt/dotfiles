@@ -102,3 +102,14 @@ Remove that file manually only if it is the old Just the Browser JSON policy.
    ```sh
    python3 assets/sync-browser-policies.py --check
    ```
+
+## Offline test contract
+
+The browser-policy sync tests copy the helper into a disposable repository and
+replace its downloader with fixture bytes. They exercise manifest validation,
+path containment, hashes, diff diagnostics, and both CLI modes without network
+access or writes to the real vendored policies.
+
+Write-mode tests also enforce the download-before-write boundary: if any
+artifact download fails, neither existing policy files nor the manifest may
+change. Successful repeated writes must produce byte-identical output.
