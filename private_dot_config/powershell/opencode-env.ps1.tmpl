@@ -80,6 +80,18 @@ function Update-OpenCodeProfileEnvironment {
 
   $profilesValue = ($normalizedProfiles -join ' ')
   $profileName = $normalizedProfiles[0]
+  if ($profilesValue -eq "defaults") {
+    $nativeSignature = "native|defaults"
+    $env:OPENCODE_PROFILES = $profilesValue
+    $env:OPENCODE_PROFILE = $profileName
+    Remove-Item -Path Env:OPENCODE_CONFIG_DIR -ErrorAction SilentlyContinue
+    if ($global:_OpenCodeProfileContextSignature -eq $nativeSignature) {
+      return
+    }
+    $global:_OpenCodeProfileContextSignature = $nativeSignature
+    return
+  }
+
   $profileDir = Join-Path (Join-Path (Join-Path $configHome "opencode") "profiles") $profileName
   $overlayOnlyProfiles = @("anthropic-api", "api-fallback")
   $requiresRuntimeMerge = ($normalizedProfiles.Count -gt 1) -or ($overlayOnlyProfiles -contains $profileName)

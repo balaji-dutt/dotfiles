@@ -400,19 +400,30 @@ OpenCode profile switching is also supported in the `homelab-IaC` devcontainer:
   (for example `defaults`, `anthropic-api`, `api-fallback`).
 - `dot_zshrc` loads `~/.config/opencode/opencode-profile.sh`, which provides
   `opencode-profile {show|set <profiles...>|defaults|anthropic-api|api-fallback}`
-  and exports `OPENCODE_CONFIG_DIR` based on `OPENCODE_PROFILES` (legacy
-  `OPENCODE_PROFILE` remains supported for compatibility).
+  based on `OPENCODE_PROFILES` (legacy `OPENCODE_PROFILE` remains supported for
+  compatibility). An exact `defaults` stack, including the normalized `chatgpt`
+  alias, leaves `OPENCODE_CONFIG_DIR` unset so OpenCode uses its native global
+  and project config precedence.
+- Non-default and multi-profile stacks temporarily retain the generated runtime
+  directory path used for profile transforms and workspace agent overrides.
 - `postStart.sh`, `postCreate.sh`, and the profile switch hook run
   `opencode-sync-workspace-overrides` to regenerate profile-specific and
   workspace agent overrides (model, prompt, and other agent fields) from
-  workspace `.opencode/opencode.json|jsonc` when possible.
-- The zsh prompt hook revalidates the memoized runtime profile, so managed
-  config changes are picked up in an existing shell without rewriting an
-  unchanged runtime snapshot.
+  workspace `.opencode/opencode.json|jsonc` when possible. The direct lifecycle
+  calls can still create an unused defaults snapshot; native mode does not load
+  or clean that directory.
+- The zsh prompt hook memoizes native defaults mode separately from generated
+  profile contexts. It revalidates non-default runtime profiles without
+  rewriting an unchanged snapshot.
 - Lifecycle scripts install that helper at
   `~/.local/bin/opencode-sync-workspace-overrides`. The profile script prefers a
   config-root compatibility copy when present, then falls back to the lifecycle
   location.
+
+Host, container, and PowerShell environment behavior is covered by shared
+contract tests. That coverage is not a claim of live Windows or container
+runtime verification. Replacing non-default snapshots with sparse profile
+deltas, and cleaning stale runtime directories, is a separate follow-up phase.
 
 Workspace `.opencode` sync is template-whitelist based:
 

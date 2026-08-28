@@ -88,6 +88,9 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
         (self.profile_dir / "opencode.jsonc").write_text(
             "{}\n", encoding="utf-8"
         )
+        (self.overlay_dir / "opencode.jsonc").write_text(
+            "{}\n", encoding="utf-8"
+        )
         self.write_canonical("3.1.13")
 
     def write_canonical(self, version: str) -> None:
@@ -115,6 +118,32 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
         shutil.copy2(SYNC_HELPER, destination)
         destination.chmod(0o755)
         return destination
+
+    def install_counting_sync_helper(
+        self, *, container_fallback: bool
+    ) -> tuple[Path, Path]:
+        destination = self.install_sync_helper(
+            container_fallback=container_fallback
+        )
+        marker = self.root / (
+            "container-sync-called" if container_fallback else "host-sync-called"
+        )
+        runtime = self.root / (
+            "container-generated" if container_fallback else "host-generated"
+        )
+        destination.write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                printf 'called\n' >> {shell_quote(marker)}
+                mkdir -p {shell_quote(runtime)}
+                printf '%s\n' {shell_quote(runtime)}
+                """
+            ),
+            encoding="utf-8",
+        )
+        destination.chmod(0o755)
+        return destination, marker
 
     def shell_env(self, profiles: str = "defaults") -> dict[str, str]:
         env = os.environ.copy()
@@ -173,7 +202,9 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
                     RUNTIME="$runtime" BEFORE="$before_mtime" REFRESHED="$refreshed_mtime" NOOP="$noop_mtime" SYNC={shell_quote(sync_helper)} python3 -c 'import json, os; data=json.load(open(os.environ["RUNTIME"])); print(json.dumps({{"plugin": data["plugin"], "before": int(os.environ["BEFORE"]), "refreshed": int(os.environ["REFRESHED"]), "noop": int(os.environ["NOOP"]), "sync": os.environ["SYNC"]}}))'
                     """
                 )
-                result = self.run_shell("bash", script)
+                result = self.run_shell(
+                    "bash", script, profiles="defaults review"
+                )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 data = json.loads(result.stdout.splitlines()[-1])
                 self.assertEqual(
@@ -181,6 +212,103 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
                 )
                 self.assertNotEqual(data["before"], data["refreshed"])
                 self.assertEqual(data["refreshed"], data["noop"])
+
+    def test_exact_defaults_and_chatgpt_use_native_mode(self) -> None:
+        for helper, container_fallback in (
+            (HOST_HELPER, False),
+            (CONTAINER_HELPER, True),
+        ):
+            for profiles in ("defaults", "chatgpt"):
+                with self.subTest(helper=helper, profiles=profiles):
+                    _, marker = self.install_counting_sync_helper(
+                        container_fallback=container_fallback
+                    )
+                    script = textwrap.dedent(
+                        f"""
+                        export OPENCODE_CONFIG_DIR={shell_quote(self.root / "stale")}
+                        export ANTHROPIC_API_KEY=synthetic-managed-key
+                        export _OPENCODE_ANTHROPIC_API_MANAGED=1
+                        source {shell_quote(helper)}
+                        _opencode_refresh_profile
+                        CONFIG_SET="${{OPENCODE_CONFIG_DIR+x}}" \
+                          PROFILES="$OPENCODE_PROFILES" \
+                          PROFILE="$OPENCODE_PROFILE" \
+                          SIGNATURE="${{_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}}" \
+                          KEY_SET="${{ANTHROPIC_API_KEY+x}}" \
+                          MANAGED_SET="${{_OPENCODE_ANTHROPIC_API_MANAGED+x}}" \
+                          python3 -c 'import json, os; print(json.dumps({{key: os.environ.get(key, "") for key in ("CONFIG_SET", "PROFILES", "PROFILE", "SIGNATURE", "KEY_SET", "MANAGED_SET")}}))'
+                        """
+                    )
+                    result = self.run_shell(
+                        "bash", script, profiles=profiles
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    data = json.loads(result.stdout.splitlines()[-1])
+                    self.assertEqual(data["CONFIG_SET"], "")
+                    self.assertEqual(data["PROFILES"], "defaults")
+                    self.assertEqual(data["PROFILE"], "defaults")
+                    self.assertEqual(data["SIGNATURE"], "native|defaults")
+                    self.assertEqual(data["KEY_SET"], "")
+                    self.assertEqual(data["MANAGED_SET"], "")
+                    self.assertFalse(marker.exists())
+
+    def test_switching_back_to_defaults_clears_generated_state(self) -> None:
+        for helper, container_fallback in (
+            (HOST_HELPER, False),
+            (CONTAINER_HELPER, True),
+        ):
+            with self.subTest(helper=helper):
+                self.install_sync_helper(
+                    container_fallback=container_fallback
+                )
+                script = textwrap.dedent(
+                    f"""
+                    source {shell_quote(helper)}
+                    previous="$OPENCODE_CONFIG_DIR"
+                    export OPENCODE_PROFILES=defaults
+                    export OPENCODE_PROFILE=defaults
+                    _opencode_refresh_profile
+                    PREVIOUS="$previous" \
+                      CONFIG_SET="${{OPENCODE_CONFIG_DIR+x}}" \
+                      PROFILES="$OPENCODE_PROFILES" \
+                      PROFILE="$OPENCODE_PROFILE" \
+                      SIGNATURE="${{_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}}" \
+                      python3 -c 'import json, os; print(json.dumps({{key: os.environ.get(key, "") for key in ("PREVIOUS", "CONFIG_SET", "PROFILES", "PROFILE", "SIGNATURE")}}))'
+                    """
+                )
+                result = self.run_shell(
+                    "bash", script, profiles="defaults review"
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(result.stdout.splitlines()[-1])
+                self.assertTrue(data["PREVIOUS"])
+                self.assertEqual(data["CONFIG_SET"], "")
+                self.assertEqual(data["PROFILES"], "defaults")
+                self.assertEqual(data["PROFILE"], "defaults")
+                self.assertEqual(data["SIGNATURE"], "native|defaults")
+
+    def test_single_nondefault_profile_retains_runtime_generation(self) -> None:
+        for helper, container_fallback in (
+            (HOST_HELPER, False),
+            (CONTAINER_HELPER, True),
+        ):
+            with self.subTest(helper=helper):
+                self.install_sync_helper(
+                    container_fallback=container_fallback
+                )
+                script = textwrap.dedent(
+                    f"""
+                    source {shell_quote(helper)}
+                    test -n "$OPENCODE_CONFIG_DIR"
+                    test -f "$OPENCODE_CONFIG_DIR/opencode.jsonc"
+                    printf '%s\n' "$OPENCODE_PROFILE"
+                    """
+                )
+                result = self.run_shell(
+                    "bash", script, profiles="anthropic-api"
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines()[-1], "anthropic-api")
 
     def test_stacked_profile_and_workspace_agent_override_survive(self) -> None:
         self.install_sync_helper(container_fallback=False)
@@ -288,6 +416,44 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
             omit_starship_init=True,
         )
 
+    def test_exact_defaults_and_chatgpt_remove_config_dir(self) -> None:
+        for profiles in ("defaults", "chatgpt"):
+            with self.subTest(profiles=profiles):
+                _, marker = self.install_counting_sync_helper(
+                    container_fallback=False
+                )
+                body = textwrap.dedent(
+                    f"""
+                    $ErrorActionPreference = 'Stop'
+                    . {ps_quote(self.rendered_env)}
+                    Update-OpenCodeProfileEnvironment
+                    [pscustomobject]@{{
+                      ConfigSet = [bool](Test-Path Env:OPENCODE_CONFIG_DIR)
+                      Profiles = $env:OPENCODE_PROFILES
+                      Profile = $env:OPENCODE_PROFILE
+                      Signature = $global:_OpenCodeProfileContextSignature
+                    }} | ConvertTo-Json -Compress
+                    """
+                )
+                env = self.shell_env(profiles)
+                env["OPENCODE_CONFIG_DIR"] = str(self.root / "stale")
+                result = subprocess.run(
+                    [PWSH, "-NoProfile", "-Command", body],
+                    cwd=self.workspace,
+                    env=env,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = json.loads(result.stdout.splitlines()[-1])
+                self.assertFalse(data["ConfigSet"])
+                self.assertEqual(data["Profiles"], "defaults")
+                self.assertEqual(data["Profile"], "defaults")
+                self.assertEqual(data["Signature"], "native|defaults")
+                self.assertFalse(marker.exists())
+
     def test_prompt_refresh_is_memoized_idempotent_and_preserves_exit_code(
         self,
     ) -> None:
@@ -331,7 +497,7 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
         result = subprocess.run(
             [PWSH, "-NoProfile", "-Command", body],
             cwd=self.workspace,
-            env=self.shell_env(),
+            env=self.shell_env("defaults review"),
             check=False,
             text=True,
             stdout=subprocess.PIPE,
