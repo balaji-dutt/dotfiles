@@ -152,6 +152,12 @@
       "requires": ["bash"]
     },
     {
+      "id": "espanso-scripts",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_espanso_utilities"],
+      "covers": ["tests/test_espanso_utilities.py"]
+    },
+    {
       "id": "feature-ci-reminders",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_feature_ci_reminders"],

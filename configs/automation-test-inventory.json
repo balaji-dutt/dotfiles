@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:705bfd8f1fa282417ddeb844ebc0a67e628b3b5c2ebc0fce116ecb1e95aa4406",
+  "candidate_digest": "sha256:cf0004d0daaccf167956aa4e1a00462f2cfdc2594fdbf6d03f4aee2093c51682",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -293,8 +293,8 @@
       "risk": "medium",
       "side_effects": ["filesystem", "gui", "process"],
       "test_layers": ["contract", "unit"],
-      "coverage": {"suite_id": "espanso-scripts", "status": "planned", "work_item": "dots-4jy.10.3.5", "test_paths": [], "behavior_requirements": []},
-      "rationale": "The canonical scripts need deterministic subprocess and clipboard fixtures."
+      "coverage": {"suite_id": "espanso-scripts", "status": "covered", "work_item": "dots-4jy.10.3.5", "test_paths": ["tests/test_espanso_utilities.py"], "behavior_requirements": []},
+      "rationale": "Registered standard-library tests cover session-name normalization and ref safety plus synthetic receipt parsing, formatting, CopyQ fallback, and secret-safe failures without accessing a real clipboard."
     },
     {
       "id": "excluded-data",

@@ -58,7 +58,7 @@ def normalize_amount(raw_value: str) -> str:
     try:
         amount = Decimal(cleaned)
     except InvalidOperation as exc:
-        raise ValueError(f"Could not parse amount value: {raw_value!r}") from exc
+        raise ValueError("Could not parse amount value.") from exc
     return f"{amount:.2f}"
 
 
@@ -70,7 +70,7 @@ def normalize_date(raw_value: str) -> str:
             return parsed.strftime("%d/%m/%Y")
         except ValueError:
             continue
-    raise ValueError(f"Could not parse date value: {raw_value!r}")
+    raise ValueError("Could not parse date value.")
 
 
 def run_command(command: list[str]) -> tuple[int, str, str]:
@@ -140,8 +140,8 @@ def read_copyq_item(tab_name: str) -> str:
             stderr = fallback_stderr or stderr
 
     if stderr:
-        raise RuntimeError(f"Could not read CopyQ tab '{tab_name}' item 0: {stderr}")
-    raise RuntimeError(f"Could not read CopyQ tab '{tab_name}' item 0.")
+        raise RuntimeError("CopyQ failed while reading the selected item.")
+    raise RuntimeError("CopyQ returned no text for the selected item.")
 
 
 def parse_stanchart(text: str, bank_portal: str) -> Payment:
@@ -224,10 +224,10 @@ def parse_cardup(text: str) -> CardUpPayment:
         line = line.strip()
         if "SGD" not in line.upper() or not re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", line):
             continue
-        offer_match = re.match(r"(?P<value>(?!SGD\b)[A-Z][A-Z0-9-]*)\s+SGD\b", line, flags=re.IGNORECASE)
+        offer_match = re.match(r"(?P<value>(?!SGD\b)[A-Z][A-Z0-9-]*)\s+SGD\b", line)
         if offer_match:
             offer_code = offer_match.group("value")
-        break
+            break
 
     return CardUpPayment(
         amount=amount,
