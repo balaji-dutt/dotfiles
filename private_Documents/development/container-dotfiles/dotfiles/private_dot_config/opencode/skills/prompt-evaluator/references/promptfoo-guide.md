@@ -32,6 +32,210 @@ Choose the provider that exercises the behavior under test:
 - `echo` only previews rendered prompts. It does not prove a provider SDK can
   load or authenticate.
 
+Use a repository-targeted live OpenCode server only when the test must exercise
+OpenCode authentication, model routing, or runtime discovery. Prompt text and
+rendering contracts should normally use deterministic assertions plus
+LLM-as-judge. Claude Agent SDK and direct Anthropic API behavior should use their
+matching providers.
+
+## Repository-targeted OpenCode evaluation
+
+### Decide what the candidate is
+
+| Candidate | How to evaluate it |
+| --- | --- |
+| Prompt text | Point Promptfoo at the candidate prompt file. Prompt edits are direct inputs and do not require an OpenCode restart. |
+| Agent, skill, plugin, or other startup-loaded configuration | Stage or generate the candidate into an isolated fixture rooted at the intended repository/worktree before server startup. Restart after every candidate configuration change. |
+
+Starting OpenCode from a source repository does not by itself prove that it
+loaded ungenerated source files. Confirm that the candidate artifact is in a
+location OpenCode discovers at startup rather than silently evaluating an older
+installed copy.
+
+### Start a fresh owned server
+
+Run the server from the exact repository or linked worktree under evaluation:
+
+```bash
+TARGET_DIR="$(git -C "/absolute/path/to/target-worktree" rev-parse --show-toplevel)"
+SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/promptfoo-opencode.XXXXXX.log")"
+SERVER_PID=""
+
+cleanup_opencode_eval() {
+  if [ -n "${SERVER_PID:-}" ]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  command rm -f -- "$SERVER_LOG"
+}
+trap cleanup_opencode_eval EXIT INT TERM
+
+(
+  cd "$TARGET_DIR"
+  exec opencode serve --hostname 127.0.0.1 --port 0
+) >"$SERVER_LOG" 2>&1 &
+SERVER_PID="$!"
+
+BASE_URL="$(
+  python3 - "$SERVER_LOG" <<'PY'
+import pathlib
+import re
+import sys
+import time
+
+log_path = pathlib.Path(sys.argv[1])
+for _ in range(100):
+    text = log_path.read_text(errors="replace") if log_path.exists() else ""
+    match = re.search(r"http://127\.0\.0\.1:\d+", text)
+    if match:
+        print(match.group(0))
+        break
+    time.sleep(0.1)
+else:
+    raise SystemExit("OpenCode did not advertise a loopback endpoint")
+PY
+)"
+```
+
+Port `0` asks the operating system to select one currently available loopback
+port. It does not expose every port. The polling block captures the
+`http://127.0.0.1:<port>` endpoint that OpenCode advertises in `SERVER_LOG`; do
+not guess a port or reuse an unverified server discovered elsewhere.
+
+Do not add `--pure` automatically. It can be useful when external plugins are
+explicitly outside the test, but it invalidates a test whose candidate or
+behavior depends on plugin loading.
+
+### Verify health, version, and repository identity
+
+Before Promptfoo sends a test, verify the server against the intended target.
+The following check uses only Python's standard library after `BASE_URL` is
+captured:
+
+```bash
+EXPECTED_VERSION="$(opencode --version)"
+
+python3 - "$BASE_URL" "$TARGET_DIR" "$EXPECTED_VERSION" <<'PY'
+import json
+import pathlib
+import sys
+import urllib.parse
+import urllib.request
+
+base_url, target_dir, expected_version = sys.argv[1:]
+target = str(pathlib.Path(target_dir).resolve())
+parsed_url = urllib.parse.urlparse(base_url)
+if parsed_url.scheme != "http" or parsed_url.hostname != "127.0.0.1":
+    raise SystemExit("OpenCode endpoint is not loopback HTTP")
+if parsed_url.port is None:
+    raise SystemExit("OpenCode endpoint does not advertise a port")
+
+
+def get_json(route):
+    with urllib.request.urlopen(f"{base_url}{route}", timeout=5) as response:
+        return json.load(response)
+
+
+def resolved(value):
+    if not value:
+        return None
+    return str(pathlib.Path(value).resolve())
+
+
+health = get_json("/global/health")
+if health.get("healthy") is not True or health.get("version") != expected_version:
+    raise SystemExit("OpenCode health/version check failed")
+
+path_info = get_json("/path")
+if resolved(path_info.get("directory", "")) != target:
+    raise SystemExit("OpenCode directory does not match target")
+if resolved(path_info.get("worktree", "")) != target:
+    raise SystemExit("OpenCode worktree does not match target")
+
+project = get_json("/project/current")
+project_paths = [project.get("worktree", ""), *(project.get("sandboxes") or [])]
+if target not in {resolved(value) for value in project_paths if value}:
+    raise SystemExit("OpenCode project does not contain target worktree")
+PY
+```
+
+For a normal checkout, `/project/current.worktree` usually matches the target.
+For a linked worktree, it may name the common/main project root while the exact
+target appears in `sandboxes`. `/path.directory` and `/path.worktree` must still
+match the requested target. These checks prevent a healthy server for another
+repository or concurrent worktree from producing misleading results.
+
+### Configure Promptfoo explicitly
+
+Substitute the captured endpoint and exact target path into a task-local config:
+
+```yaml
+providers:
+  - id: opencode:sdk
+    config:
+      baseUrl: http://127.0.0.1:<advertised-port>
+      working_dir: /absolute/path/to/target-worktree
+      provider_id: anthropic
+      model: claude-sonnet-4-20250514
+      tools:
+        bash: false
+        edit: false
+        write: false
+        read: false
+        grep: false
+        glob: false
+        list: false
+        patch: false
+        todowrite: false
+        todoread: false
+        webfetch: false
+        question: false
+        skill: false
+        lsp: false
+```
+
+When `working_dir` is set, Promptfoo otherwise enables several read-oriented
+tools by default. Prompt-only tests must set every supported tool to `false` as
+shown. Tool-behavior tests should run in an isolated fixture and change only the
+minimum keys needed to `true`.
+
+Supplying `baseUrl` makes Promptfoo connect to that server; do not mix in
+Promptfoo server-spawn options and assume they affect an already running
+server. Run the live evaluation manually, capture its result, and let the trap
+terminate the owned process and remove the temporary log.
+
+### Reuse a caller-owned server only by explicit handoff
+
+If a caller already owns the desired server, pass its URL only for the current
+command:
+
+```bash
+PROMPTFOO_OPENCODE_BASE_URL="$VERIFIED_BASE_URL" \
+  promptfoo eval -c /tmp/task-promptfooconfig.yaml
+```
+
+Reference it from YAML as:
+
+```yaml
+baseUrl: "{{env.PROMPTFOO_OPENCODE_BASE_URL}}"
+```
+
+Run the same health, version, `/path`, and `/project/current` checks before use.
+Do not terminate the caller-owned process. Never use fixed ports or create
+repository-specific environment variable names.
+
+### Classify failures and retain only useful assets
+
+Failure to start the server, load the SDK, authenticate, pass health checks, or
+match repository identity is an infrastructure failure. Record it separately
+from prompt behavior and fall back to LLM-as-judge; do not claim that a live
+provider passed or that the prompt failed.
+
+Keep one-off configs, logs, and result files in task-local temporary storage and
+remove them after reporting. Commit a config or result only when it represents a
+stable public contract or a deliberate regression gate. Credentialed live
+provider runs stay manual and opt-in rather than becoming required CI.
+
 ## Basic Configuration
 
 ```yaml

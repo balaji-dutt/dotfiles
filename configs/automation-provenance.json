@@ -6,7 +6,7 @@
     "accepted_divergences": [
       {
         "path": "dot_claude/agents/agent-engineer.md",
-        "accepted_digest": "sha256:2858fb06c9748b9700f94695612bb8bdd7e510a2dd35f1a39928b2c91b2bc143",
+        "accepted_digest": "sha256:db2d32d95ccf60cba0aefe73653512ec4c43718b4df64facf520d737f641bc21",
         "required_markers": ["mcpServers:", "model: fable"],
         "rationale": "Claude-specific model, tool, skill, and MCP frontmatter is maintained after generation."
       },
