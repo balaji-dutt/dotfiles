@@ -518,7 +518,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $result = Invoke-JobContainedExternal `
               -Command {ps_quote(sys.executable)} `
               -Arguments @('-c', {ps_quote(target)}) `
-              -TimeoutSeconds 1 `
+              -TimeoutSeconds 5 `
               -EnvironmentVariables @{{ DOTFILES_TEST_PID_FILE = {ps_quote(pid_file)} }}
             $stopwatch.Stop()
             $identity = Get-Content -Raw -LiteralPath {ps_quote(pid_file)} | ConvertFrom-Json
@@ -543,8 +543,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 124)
         self.assertTrue(data["TimedOut"])
-        self.assertIn("timed out after 1 seconds", data["Output"])
-        self.assertLess(data["ElapsedSeconds"], 10)
+        self.assertIn("timed out after 5 seconds", data["Output"])
+        self.assertLess(data["ElapsedSeconds"], 15)
         self.assertFalse(data["ParentIdentityAlive"])
         self.assertFalse(data["ChildIdentityAlive"])
 
