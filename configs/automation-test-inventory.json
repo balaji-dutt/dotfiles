@@ -294,7 +294,7 @@
       "side_effects": ["filesystem", "gui", "process"],
       "test_layers": ["contract", "unit"],
       "coverage": {"suite_id": "espanso-scripts", "status": "covered", "work_item": "dots-4jy.10.3.5", "test_paths": ["tests/test_espanso_utilities.py"], "behavior_requirements": []},
-      "rationale": "Registered standard-library tests cover session-name normalization and ref safety plus synthetic receipt parsing, formatting, CopyQ fallback, and secret-safe failures without accessing a real clipboard."
+      "rationale": "Registered standard-library tests cover session-name normalization and ref safety plus synthetic receipt parsing, formatting, mixed-case offer-code selection, CopyQ fallback, and secret-safe failures without accessing a real clipboard."
     },
     {
       "id": "excluded-data",
@@ -637,10 +637,10 @@
         "suite_id": "user-utilities",
         "status": "partial",
         "work_item": "dots-4jy.10.3",
-        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_opencode_profile_refresh.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, profile refresh, sync-wrapper dispatch, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because some standalone user tools retain separate work items."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
     },
     {
       "id": "vendored-upstream",

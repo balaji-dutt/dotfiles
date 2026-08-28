@@ -48,7 +48,7 @@ txn_SAFE789
 Paid SGD 100.00 on 27/08/2026
 Fee SGD 5.00
 Total SGD 105.00 on 28/08/2026
-SAFE-OFFER SGD 5.00 on 28/08/2026
+safe-offer SGD 5.00 on 28/08/2026
 """
 
 
@@ -146,7 +146,7 @@ class PaymentParsingTests(unittest.TestCase):
         self.assertEqual(parsed.reference, "txn_SAFE789")
         self.assertEqual(parsed.transaction_date, "27/08/2026")
         self.assertEqual(parsed.payment_date, "28/08/2026")
-        self.assertEqual(parsed.offer_code, "SAFE-OFFER")
+        self.assertEqual(parsed.offer_code, "safe-offer")
 
         bad_total = CARDUP_RECEIPT.replace("Total SGD 105.00", "Total SGD 106.00")
         with self.assertRaisesRegex(ValueError, "did not match the total"):
@@ -160,7 +160,7 @@ class PaymentParsingTests(unittest.TestCase):
 
     def test_cardup_without_offer_code_is_supported(self) -> None:
         parsed = payment.parse_cardup(
-            CARDUP_RECEIPT.replace("SAFE-OFFER SGD 5.00 on 28/08/2026\n", "")
+            CARDUP_RECEIPT.replace("safe-offer SGD 5.00 on 28/08/2026\n", "")
         )
         self.assertIsNone(parsed.offer_code)
 
@@ -204,7 +204,7 @@ class PaymentParsingTests(unittest.TestCase):
                         "Paid $100.00 vide CardUp Portal\n"
                         "Tx Ref: txn_SAFE789 on 28/08/2026 "
                         "(Tx Date: 27/08/2026)\n"
-                        "CardUp Payment Fees: $5.00 (used Offer Code SAFE-OFFER)"
+                        "CardUp Payment Fees: $5.00 (used Offer Code safe-offer)"
                         f"{suffix}",
                     )
 

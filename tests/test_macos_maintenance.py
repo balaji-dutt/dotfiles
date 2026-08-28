@@ -310,7 +310,13 @@ class VncMonitorTests(unittest.TestCase):
             pid_file = Path(env["VNC_MONITOR_PID_FILE"])
             pid_file.parent.mkdir(parents=True)
             sleeper = subprocess.Popen(["/bin/sleep", "30"])
-            self.addCleanup(lambda: sleeper.poll() is None and sleeper.terminate())
+
+            def stop_sleeper() -> None:
+                if sleeper.poll() is None:
+                    sleeper.terminate()
+                sleeper.wait(timeout=2)
+
+            self.addCleanup(stop_sleeper)
             pid_file.write_text(f"{sleeper.pid}\n", encoding="utf-8")
 
             result = run_script(script, "--cleanup", env=env)

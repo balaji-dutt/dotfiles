@@ -224,9 +224,16 @@ def parse_cardup(text: str) -> CardUpPayment:
         line = line.strip()
         if "SGD" not in line.upper() or not re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", line):
             continue
-        offer_match = re.match(r"(?P<value>(?!SGD\b)[A-Z][A-Z0-9-]*)\s+SGD\b", line)
+        offer_match = re.match(
+            r"(?P<value>(?!SGD\b)[A-Z][A-Z0-9-]*)\s+SGD\b",
+            line,
+            flags=re.IGNORECASE,
+        )
         if offer_match:
-            offer_code = offer_match.group("value")
+            candidate = offer_match.group("value")
+            if candidate.casefold() in {"amount", "fee", "paid", "payment", "total"}:
+                continue
+            offer_code = candidate
             break
 
     return CardUpPayment(

@@ -687,8 +687,8 @@ def branch_exists(repo_root: Path, branch: str) -> bool:
 def create_worktree(config: Config, branch: str, worktree_path: Path) -> bool:
     if worktree_path.exists():
         die(f"worktree path already exists: {worktree_path}")
-    existed = branch_exists(config.repo_root, branch)
-    if existed:
+    branch_existed = branch_exists(config.repo_root, branch)
+    if branch_existed:
         args = ["worktree", "add", str(worktree_path), branch]
     else:
         args = ["worktree", "add", "-b", branch, str(worktree_path), config.base_ref]
@@ -713,7 +713,7 @@ def create_worktree(config: Config, branch: str, worktree_path: Path) -> bool:
                     "warning: could not roll back failed worktree "
                     f"{worktree_path}: git exited {rollback_exc.returncode}"
                 )
-            if not existed and rollback_ok and branch_exists(config.repo_root, branch):
+            if not branch_existed and rollback_ok and branch_exists(config.repo_root, branch):
                 try:
                     run_git(config.repo_root, ["branch", "-D", branch], capture=False)
                 except subprocess.CalledProcessError as rollback_exc:
@@ -722,7 +722,7 @@ def create_worktree(config: Config, branch: str, worktree_path: Path) -> bool:
                         f"{branch}: git exited {rollback_exc.returncode}"
                     )
             die(f"git submodule update failed with exit {exc.returncode}")
-    return not existed
+    return not branch_existed
 
 
 def metadata_path(config: Config, session_id: str) -> Path:
