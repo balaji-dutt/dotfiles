@@ -97,6 +97,12 @@
       "requires": ["git"]
     },
     {
+      "id": "browser-policy-sync",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_sync_browser_policies"],
+      "covers": ["tests/test_sync_browser_policies.py"]
+    },
+    {
       "id": "claude-token-check",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_claude_token_check"],
