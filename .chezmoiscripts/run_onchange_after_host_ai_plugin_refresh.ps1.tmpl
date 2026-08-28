@@ -360,6 +360,7 @@ try {
       return [pscustomobject]@{
         ExitCode = 125
         Output = "Claude process containment failed before launch: $($_.Exception.Message)"
+        TimedOut = $false
       }
     }
 
@@ -422,6 +423,7 @@ try {
     return [pscustomobject]@{
       ExitCode = $exitCode
       Output = (($outputParts -join [Environment]::NewLine).TrimEnd())
+      TimedOut = $timedOut
     }
   } finally {
     if ($null -ne $process) {
@@ -434,17 +436,67 @@ try {
   }
 }
 
+function Get-ClaudeOpenSshApplication {
+  $applications = @(Get-Command ssh -CommandType Application -ErrorAction SilentlyContinue)
+  if ($applications.Count -eq 0) { return $null }
+  return $applications[0]
+}
+
+function Get-ClaudeGitHostKeyRemediation {
+  return "Fetch candidate GitHub keys with 'ssh-keyscan github.com', verify their fingerprints against https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints, then add only verified keys to OpenSSH's known_hosts. PuTTY/Plink uses a separate host-key cache."
+}
+
+function New-ClaudeMutationEnvironment {
+  if ($null -eq (Get-ClaudeOpenSshApplication)) {
+    $remediation = Get-ClaudeGitHostKeyRemediation
+    throw "Claude Git transport requires an OpenSSH 'ssh' Application on PATH; refusing to inherit interactive PuTTY/Plink. Install or enable the Windows OpenSSH Client. $remediation"
+  }
+
+  return @{
+    CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = "1"
+    GIT_TERMINAL_PROMPT = "0"
+    GIT_SSH_COMMAND = "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=1"
+  }
+}
+
 function Invoke-ClaudeExternal {
   param(
     [Parameter(Mandatory=$true)] [string[]] $Arguments,
-    [ValidateRange(1, 3600)] [int] $TimeoutSeconds = $ClaudeMutationTimeoutSeconds
+    [ValidateRange(1, 3600)] [int] $TimeoutSeconds = $ClaudeMutationTimeoutSeconds,
+    [hashtable] $EnvironmentVariables = $null
   )
 
-  return Invoke-JobContainedExternal `
+  if ($null -eq $EnvironmentVariables) {
+    try {
+      $EnvironmentVariables = New-ClaudeMutationEnvironment
+    } catch {
+      return [pscustomobject]@{
+        ExitCode = 125
+        Output = $_.Exception.Message
+        TimedOut = $false
+      }
+    }
+  }
+
+  $result = Invoke-JobContainedExternal `
     -Command "claude" `
     -Arguments $Arguments `
     -TimeoutSeconds $TimeoutSeconds `
-    -EnvironmentVariables @{ CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = "1" }
+    -EnvironmentVariables $EnvironmentVariables
+
+  $timedOut = $false
+  if ($null -ne $result.PSObject.Properties["TimedOut"]) {
+    $timedOut = [bool] $result.TimedOut
+  }
+  $output = [string] $result.Output
+  if (-not [string]::IsNullOrWhiteSpace($output) -and $output -match '(?i)host key verification failed|remote host identification has changed|no .* host key is known') {
+    $output = "$($output.TrimEnd())$([Environment]::NewLine)$(Get-ClaudeGitHostKeyRemediation)"
+  }
+  return [pscustomobject]@{
+    ExitCode = $result.ExitCode
+    Output = $output
+    TimedOut = $timedOut
+  }
 }
 
 function ConvertTo-ClaudePluginIdentity {
@@ -796,7 +848,8 @@ function Test-ClaudeMarketplaceCatalog {
 function Sync-ClaudePlugin {
   param(
     [Parameter(Mandatory=$true)] $Plugin,
-    [Parameter(Mandatory=$true)] [string[]] $Actions
+    [Parameter(Mandatory=$true)] [string[]] $Actions,
+    [hashtable] $EnvironmentVariables = $null
   )
 
   $verb = "Refreshing"
@@ -808,9 +861,12 @@ function Sync-ClaudePlugin {
   $attempts = @()
   foreach ($action in $Actions) {
     $arguments = @("plugin", $action, "--scope", $Plugin.Scope, $Plugin.Id)
-    $result = Invoke-ClaudeExternal -Arguments $arguments
-    if ($result.ExitCode -eq 0) { return $true }
+    $result = Invoke-ClaudeExternal -Arguments $arguments -EnvironmentVariables $EnvironmentVariables
+    if ($result.ExitCode -eq 0) {
+      return [pscustomobject]@{ Succeeded = $true; TimedOut = $false }
+    }
     $attempts += [pscustomobject]@{ Action = $action; Result = $result }
+    if ($result.TimedOut) { break }
     if ($action -eq "update" -and $Actions -contains "install" -and -not (Test-ClaudePluginUpdateMissing -Result $result)) {
       break
     }
@@ -822,7 +878,12 @@ function Sync-ClaudePlugin {
     Write-Host "ERROR: Failed to $($attempt.Action) Claude Code plugin '$($Plugin.Id)'."
     if ($attempt.Result.Output) { Write-Host $attempt.Result.Output }
   }
-  return $false
+  $timedOut = @($attempts | Where-Object { $_.Result.TimedOut }).Count -gt 0
+  return [pscustomobject]@{ Succeeded = $false; TimedOut = $timedOut }
+}
+
+function Test-ClaudeCommandAvailable {
+  return $null -ne (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue)
 }
 
 function Update-ClaudePlugins {
@@ -832,12 +893,22 @@ function Update-ClaudePlugins {
     Write-Host "INFO: No Claude Code plugins configured for refresh."
     return
   }
-  if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+  if (-not (Test-ClaudeCommandAvailable)) {
     Write-Host "INFO: claude command not found; skipping Claude Code plugin refresh."
     return
   }
 
   $marketplaceNames = @(Get-ClaudeMarketplaceNames -Plugins $Plugins)
+  $claudeEnvironment = $null
+  if (-not $DryRun) {
+    try {
+      $claudeEnvironment = New-ClaudeMutationEnvironment
+    } catch {
+      Write-Host "ERROR: $($_.Exception.Message)"
+      Add-ClaudeFailure -Failure "transport:openssh"
+      return
+    }
+  }
   if ($DryRun) {
     foreach ($marketplaceName in $marketplaceNames) {
       Write-Host "INFO: Would run: claude plugin marketplace update $marketplaceName"
@@ -845,13 +916,17 @@ function Update-ClaudePlugins {
   } else {
     foreach ($marketplaceName in $marketplaceNames) {
       Write-Host "INFO: Updating Claude Code plugin marketplace '$marketplaceName'."
-      $result = Invoke-ClaudeExternal -Arguments @("plugin", "marketplace", "update", $marketplaceName)
+      $result = Invoke-ClaudeExternal -Arguments @("plugin", "marketplace", "update", $marketplaceName) -EnvironmentVariables $claudeEnvironment
       if ($result.ExitCode -ne 0) {
         Write-Host "ERROR: Failed to update Claude Code plugin marketplace '$marketplaceName'."
         if ($result.Output) { Write-Host $result.Output }
         # A preserved catalog may still satisfy plugin operations, but retry the
         # onchange hook because this refresh did not reach the remote source.
         Add-ClaudeFailure -Failure "marketplace:$marketplaceName"
+        if ($result.TimedOut) {
+          Write-Host "ERROR: Stopping remaining Claude Code mutations after the first marketplace timeout; chezmoi will retry this onchange hook on the next apply."
+          return
+        }
       }
     }
   }
@@ -900,8 +975,13 @@ function Update-ClaudePlugins {
       continue
     }
 
-    if (-not (Sync-ClaudePlugin -Plugin $plugin -Actions $actions)) {
+    $syncResult = Sync-ClaudePlugin -Plugin $plugin -Actions $actions -EnvironmentVariables $claudeEnvironment
+    if (-not $syncResult.Succeeded) {
       Add-ClaudeFailure -Failure $plugin.Id
+    }
+    if ($syncResult.TimedOut) {
+      Write-Host "ERROR: Stopping remaining Claude Code plugin mutations after the first timeout; chezmoi will retry this onchange hook on the next apply."
+      return
     }
   }
 
@@ -1525,7 +1605,7 @@ function Invoke-HostAiPluginRefresh {
 
   if ($script:ClaudeFailures.Count -gt 0) {
     $failed = ($script:ClaudeFailures | Sort-Object) -join ", "
-    Write-Host "ERROR: One or more Claude Code plugin refreshes failed: $failed"
+    Write-Host "ERROR: One or more Claude Code plugin refreshes failed: $failed; chezmoi will retry this onchange hook on the next apply."
   }
   if (-not $openCodeSucceeded) {
     Write-Host "ERROR: OpenCode cache refresh did not complete; chezmoi will retry this onchange hook on the next apply."

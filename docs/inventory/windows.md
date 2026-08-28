@@ -240,11 +240,17 @@ destination without downloading or publishing the Plannotator binary. See
 
 The plugin-refresh hook updates each marketplace named by the configured
 `<plugin>@<marketplace>` ids instead of trusting the aggregate marketplace
-command. Claude mutation commands inherit
-`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`, and each CLI-reported
-`installLocation/.claude-plugin/marketplace.json` must exist and publish its
-configured plugins before their update/install commands run. A failed update
-may use a valid preserved catalog but still leaves the onchange retry pending;
+command. Claude mutation children receive
+`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`, `GIT_TERMINAL_PROMPT=0`,
+and `GIT_SSH_COMMAND` selecting noninteractive OpenSSH with strict host-key
+checking. The parent environment, Git configuration, and marketplace remotes
+are unchanged. If `ssh` is unavailable the hook fails before launching Claude.
+Because PuTTY/Plink's host-key cache is separate, an OpenSSH host-key failure
+reports how to verify GitHub's published fingerprints before adding the key to
+OpenSSH `known_hosts`. Each CLI-reported
+`installLocation/.claude-plugin/marketplace.json` must still exist and publish
+its configured plugins before their update/install commands run. A failed
+update may use a valid preserved catalog but leaves the onchange retry pending;
 an empty, malformed, or ambiguous marketplace skips only its own plugins.
 
 Each Windows Claude mutation has a 120-second deadline. A gated PowerShell
@@ -252,9 +258,11 @@ worker is assigned to a per-command kill-on-close Job Object before Claude can
 start. On normal return or timeout, the hook terminates any remaining descendants
 and waits for the Job to empty. If containment cannot be established, Claude is
 not launched and that operation fails. A timeout records the marketplace or
-plugin failure, later independent refresh work continues, and the hook exits
-nonzero so chezmoi retries. This cleanup is limited to the Job and never searches
-for or kills `git.exe` processes by name.
+plugin failure and stops later Claude mutations. The OpenCode cache phase still
+runs, and the hook exits nonzero so chezmoi retries the unchanged onchange
+input. Cleanup or output-drain failure remains a strict error even when it
+follows a timeout. This cleanup is limited to the Job and never searches for or
+kills `git.exe` processes by name.
 
 The hook never kills OpenCode. It checks process state before
 cache work, again before removing `packages`, and again before publishing a
@@ -332,22 +340,36 @@ returned success; it does not prove which Claude bug erased the catalogs.
    is only for stale handles left by older automation or other tools; the managed
    refresh hook contains and reaps its own mutation process trees.
 
-4. From the same standalone PowerShell session, preserve marketplace state and
-   refresh each required catalog explicitly:
+4. Before refreshing, fetch candidate keys with `ssh-keyscan github.com` and
+   verify their fingerprints against GitHub's published SSH host-key
+   fingerprints at
+   <https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints>.
+   Add only verified keys to OpenSSH `known_hosts`; a PuTTY/Plink cache entry
+   does not satisfy OpenSSH. From the same standalone PowerShell session,
+   preserve marketplace state, disable prompts, select OpenSSH, and refresh each
+   required catalog explicitly:
 
    ```powershell
-   $oldKeep = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+   $oldEnvironment = @{
+     CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+     GIT_TERMINAL_PROMPT = $env:GIT_TERMINAL_PROMPT
+     GIT_SSH_COMMAND = $env:GIT_SSH_COMMAND
+   }
    try {
      $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = '1'
+     $env:GIT_TERMINAL_PROMPT = '0'
+     $env:GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=1'
      foreach ($name in @('claude-pace-marketplace', 'plannotator', 'cc-marketplace')) {
        claude plugin marketplace update $name
        if ($LASTEXITCODE -ne 0) { throw "Marketplace update failed: $name" }
      }
    } finally {
-     if ($null -eq $oldKeep) {
-       Remove-Item Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE -ErrorAction SilentlyContinue
-     } else {
-       $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = $oldKeep
+     foreach ($name in $oldEnvironment.Keys) {
+       if ($null -eq $oldEnvironment[$name]) {
+         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+       } else {
+         Set-Item "Env:$name" $oldEnvironment[$name]
+       }
      }
    }
    ```

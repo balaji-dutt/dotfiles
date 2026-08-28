@@ -75,9 +75,13 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   onchange trigger; see `docs/devcontainers.md`.
 - The host plugin hook derives required marketplace names from canonical
   `<plugin>@<marketplace>` ids, updates each required marketplace by name, and
-  sets `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` only for Claude
-  mutation commands. It then requires the CLI-reported marketplace catalog to
-  exist and publish the configured plugin before update/install.
+  gives only Claude mutation children
+  `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`,
+  `GIT_TERMINAL_PROMPT=0`, and a strict, noninteractive OpenSSH command. It then
+  requires the CLI-reported marketplace catalog to exist and publish the
+  configured plugin before update/install. Missing OpenSSH fails before launch;
+  host-key failures point to fingerprint verification and OpenSSH `known_hosts`
+  recovery instead of using PuTTY/Plink's separate cache.
 - On Windows, each Claude mutation has a 120-second deadline and runs in its own
   kill-on-close Job Object. The hook reaps that command's descendants on normal
   return or timeout, and fails before launch if containment cannot be
@@ -85,9 +89,11 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - A failed named marketplace update is non-fatal when its preserved catalog is
   still valid, but the hook exits nonzero at the end so chezmoi retries. An
   unavailable or malformed catalog skips only its own plugins; healthy
-  marketplaces and the OpenCode cache step continue. A listed plugin whose
-  update hits a stale install record falls back to installation, while other
-  update failures do not trigger reinstall.
+  marketplaces continue after non-timeout failures. The first marketplace or
+  plugin timeout stops later Claude mutations, while the OpenCode cache step
+  still runs and the hook exits nonzero for retry. A listed plugin whose update
+  hits a stale install record falls back to installation, while other update
+  failures do not trigger reinstall.
 - On Windows, Claude refresh commands run before OpenCode process gating. An
   interactive, ambiguous, or uninspectable OpenCode process defers only cache
   mutation and exits nonzero so the onchange hook retries after OpenCode closes.

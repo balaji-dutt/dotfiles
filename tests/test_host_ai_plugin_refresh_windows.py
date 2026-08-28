@@ -323,29 +323,93 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         body = """
           $script:Observed = @()
           $script:Timeouts = @()
+          function Get-ClaudeOpenSshApplication { [pscustomobject]@{ Source = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe' } }
           function Invoke-JobContainedExternal {
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
-            $script:Observed += $EnvironmentVariables['CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE']
+            $script:Observed += [pscustomobject]@{
+              Preserve = $EnvironmentVariables['CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE']
+              Prompt = $EnvironmentVariables['GIT_TERMINAL_PROMPT']
+              SshCommand = $EnvironmentVariables['GIT_SSH_COMMAND']
+            }
             $script:Timeouts += $TimeoutSeconds
-            [pscustomobject]@{ ExitCode = 0; Output = '' }
+            [pscustomobject]@{ ExitCode = 0; Output = ''; TimedOut = $false }
           }
           Remove-Item Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE -ErrorAction SilentlyContinue
+          Remove-Item Env:GIT_SSH_COMMAND -ErrorAction SilentlyContinue
+          $env:GIT_SSH = 'C:\\Program Files\\PuTTY\\PLINK.EXE'
           Invoke-ClaudeExternal -Arguments @('plugin', 'marketplace', 'update', 'one') | Out-Null
           $absentRestored = -not (Test-Path Env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE)
+          $sshCommandAbsent = -not (Test-Path Env:GIT_SSH_COMMAND)
           $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE = 'caller-value'
+          $env:GIT_SSH_COMMAND = 'caller-ssh-command'
           Invoke-ClaudeExternal -Arguments @('plugin', 'update', 'one@one') | Out-Null
           [pscustomobject]@{
             Observed = @($script:Observed)
             Timeouts = @($script:Timeouts)
             AbsentRestored = $absentRestored
+            SshCommandAbsent = $sshCommandAbsent
             ExistingRestored = $env:CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE
+            ParentSshCommand = $env:GIT_SSH_COMMAND
+            ParentGitSsh = $env:GIT_SSH
           } | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
-        self.assertEqual(data["Observed"], ["1", "1"])
+        self.assertEqual(
+            [entry["Preserve"] for entry in data["Observed"]], ["1", "1"]
+        )
+        self.assertEqual(
+            [entry["Prompt"] for entry in data["Observed"]], ["0", "0"]
+        )
+        self.assertEqual(
+            [entry["SshCommand"] for entry in data["Observed"]],
+            [
+                "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "
+                "-o ConnectTimeout=15 -o ConnectionAttempts=1"
+            ]
+            * 2,
+        )
         self.assertEqual(data["Timeouts"], [120, 120])
         self.assertTrue(data["AbsentRestored"])
+        self.assertTrue(data["SshCommandAbsent"])
         self.assertEqual(data["ExistingRestored"], "caller-value")
+        self.assertEqual(data["ParentSshCommand"], "caller-ssh-command")
+        self.assertEqual(data["ParentGitSsh"], r"C:\Program Files\PuTTY\PLINK.EXE")
+
+    def test_missing_openssh_fails_before_claude_launch(self) -> None:
+        body = """
+          $script:Called = $false
+          function Get-ClaudeOpenSshApplication { return $null }
+          function Invoke-JobContainedExternal { $script:Called = $true; throw 'must not launch' }
+          $result = Invoke-ClaudeExternal -Arguments @('plugin', 'marketplace', 'update', 'one')
+          [pscustomobject]@{
+            ExitCode = $result.ExitCode
+            TimedOut = $result.TimedOut
+            Output = $result.Output
+            Called = $script:Called
+          } | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 125)
+        self.assertFalse(data["TimedOut"])
+        self.assertFalse(data["Called"])
+        self.assertIn("OpenSSH 'ssh' Application", data["Output"])
+        self.assertIn("refusing to inherit interactive PuTTY/Plink", data["Output"])
+
+    def test_host_key_failure_includes_verified_known_hosts_remediation(self) -> None:
+        body = """
+          function Get-ClaudeOpenSshApplication { [pscustomobject]@{ Source = 'ssh.exe' } }
+          function Invoke-JobContainedExternal {
+            [pscustomobject]@{ ExitCode = 255; Output = 'Host key verification failed.'; TimedOut = $false }
+          }
+          Invoke-ClaudeExternal -Arguments @('plugin', 'marketplace', 'update', 'one') | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 255)
+        self.assertFalse(data["TimedOut"])
+        self.assertIn("ssh-keyscan github.com", data["Output"])
+        self.assertIn("githubs-ssh-key-fingerprints", data["Output"])
+        self.assertIn("only verified keys", data["Output"])
+        self.assertIn("PuTTY/Plink uses a separate host-key cache", data["Output"])
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
     def test_contained_runner_preserves_fast_output_exit_and_environment(self) -> None:
@@ -360,12 +424,14 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [pscustomobject]@{{
             ExitCode = $result.ExitCode
             Output = $result.Output
+            TimedOut = $result.TimedOut
             ParentValue = $env:DOTFILES_TEST_VALUE
           }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 0)
         self.assertEqual(data["Output"], "child")
+        self.assertFalse(data["TimedOut"])
         self.assertEqual(data["ParentValue"], "caller")
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
@@ -384,6 +450,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 3)
+        self.assertFalse(data["TimedOut"])
         self.assertIn("stdout-marker", data["Output"])
         self.assertIn("stderr-marker", data["Output"])
 
@@ -414,6 +481,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $sentinelAlive = -not $sentinel.HasExited
             $data = [pscustomobject]@{{
               ExitCode = $result.ExitCode
+              TimedOut = $result.TimedOut
               ChildIdentityAlive = $childIdentityAlive
               SentinelAlive = $sentinelAlive
             }}
@@ -426,6 +494,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 0)
+        self.assertFalse(data["TimedOut"])
         self.assertFalse(data["ChildIdentityAlive"])
         self.assertTrue(data["SentinelAlive"])
 
@@ -461,6 +530,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $data = [pscustomobject]@{{
               ExitCode = $result.ExitCode
               Output = $result.Output
+              TimedOut = $result.TimedOut
               ElapsedSeconds = $stopwatch.Elapsed.TotalSeconds
               ParentIdentityAlive = $parentIdentityAlive
               ChildIdentityAlive = $childIdentityAlive
@@ -472,10 +542,33 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 124)
+        self.assertTrue(data["TimedOut"])
         self.assertIn("timed out after 1 seconds", data["Output"])
         self.assertLess(data["ElapsedSeconds"], 10)
         self.assertFalse(data["ParentIdentityAlive"])
         self.assertFalse(data["ChildIdentityAlive"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
+    def test_timeout_metadata_survives_cleanup_failure(self) -> None:
+        target = ps_encoded("Start-Sleep -Seconds 60")
+        body = f"""
+          function Stop-ClaudeProcessJob {{
+            param($Job, [int] $TimeoutMilliseconds)
+            $Job.Terminate(124)
+            return $false
+          }}
+          $result = Invoke-JobContainedExternal `
+            -Command {ps_quote(PWSH)} `
+            -Arguments @('-NoProfile', '-EncodedCommand', {ps_quote(target)}) `
+            -TimeoutSeconds 1 `
+            -EnvironmentVariables @{{}}
+          $result | ConvertTo-Json -Compress
+        """
+        data = self.read_json(self.run_pwsh(body))
+        self.assertEqual(data["ExitCode"], 125)
+        self.assertTrue(data["TimedOut"])
+        self.assertIn("timed out after 1 seconds", data["Output"])
+        self.assertIn("process cleanup failed", data["Output"])
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Objects require native Windows")
     def test_containment_failure_does_not_release_target(self) -> None:
@@ -493,11 +586,13 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [pscustomobject]@{{
             ExitCode = $result.ExitCode
             Output = $result.Output
+            TimedOut = $result.TimedOut
             TargetLaunched = Test-Path -LiteralPath {ps_quote(marker)}
           }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["ExitCode"], 125)
+        self.assertFalse(data["TimedOut"])
         self.assertIn("forced assignment failure", data["Output"])
         self.assertFalse(data["TargetLaunched"])
 
@@ -549,10 +644,12 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $script:ClaudeFailures = @()
           $script:Commands = @()
           $script:Synced = @()
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
           function Invoke-JobContainedExternal {{
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $script:Commands += ,@($Arguments)
-            [pscustomobject]@{{ ExitCode = 0; Output = '' }}
+            [pscustomobject]@{{ ExitCode = 0; Output = ''; TimedOut = $false }}
           }}
           function Get-ClaudeMarketplaceInventory {{
             [pscustomobject]@{{
@@ -569,9 +666,9 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             return ,$ids
           }}
           function Sync-ClaudePlugin {{
-            param($Plugin, [string[]] $Actions)
+            param($Plugin, [string[]] $Actions, [hashtable] $EnvironmentVariables)
             $script:Synced += $Plugin.Id
-            return $true
+            return [pscustomobject]@{{ Succeeded = $true; TimedOut = $false }}
           }}
           Update-ClaudePlugins -Plugins $plugins
           [pscustomobject]@{{
@@ -594,10 +691,114 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("catalog is missing", result.stdout)
         self.assertIn("Skipping Claude Code plugin 'broken-plugin@broken'", result.stdout)
 
-    def test_marketplace_timeout_records_failure_and_continues(self) -> None:
-        first = self.root / "first-marketplace"
-        second = self.root / "second-marketplace"
+    def test_missing_openssh_stops_claude_and_continues_opencode(self) -> None:
+        manifest = self.root / "missing-openssh-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "$schema": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+                    "schema_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        body = f"""
+          $plugins = @(
+            [pscustomobject]@{{ Id = 'one@marketplace'; Name = 'one'; Marketplace = 'marketplace'; Scope = 'user' }}
+          )
+          $script:TestPlugins = $plugins
+          $script:Commands = @()
+          $script:OpenCodeCalled = $false
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ return $null }}
+          function Invoke-JobContainedExternal {{
+            $script:Commands += 'unexpected'
+            throw 'Claude must not launch without OpenSSH'
+          }}
+          function Get-ClaudeMarketplaceInventory {{ throw 'inventory must not run without OpenSSH' }}
+          function Get-InstalledClaudePluginIds {{ throw 'plugin list must not run without OpenSSH' }}
+          function Sync-ClaudePlugin {{ throw 'plugin mutation must not run without OpenSSH' }}
+          function Get-ClaudePlugins {{ return $script:TestPlugins }}
+          function Test-ClaudeEnablement {{}}
+          function Get-OpenCodePlugins {{ return @() }}
+          function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
+          $ConfigPath = {ps_quote(manifest)}
+          $code = Invoke-HostAiPluginRefresh
+          [pscustomobject]@{{
+            Code = $code
+            Commands = @($script:Commands)
+            OpenCodeCalled = $script:OpenCodeCalled
+            Failures = @($script:ClaudeFailures)
+          }} | ConvertTo-Json -Depth 5 -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(data["Commands"], [])
+        self.assertTrue(data["OpenCodeCalled"])
+        self.assertEqual(data["Failures"], ["transport:openssh"])
+        self.assertEqual(data["Code"], 1)
+        self.assertIn("OpenSSH 'ssh' Application", result.stdout)
+        self.assertIn("refusing to inherit interactive PuTTY/Plink", result.stdout)
+        self.assertIn("chezmoi will retry", result.stdout)
+
+    def test_marketplace_timeout_stops_claude_and_continues_opencode(self) -> None:
         manifest = self.root / "timeout-manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "$schema": "./schemas/host-ai-plugin-refresh.v1.schema.json",
+                    "schema_version": 1,
+                }
+            ),
+            encoding="utf-8",
+        )
+        body = f"""
+          $plugins = @(
+            [pscustomobject]@{{ Id = 'first-plugin@first'; Name = 'first-plugin'; Marketplace = 'first'; Scope = 'user' }},
+            [pscustomobject]@{{ Id = 'second-plugin@second'; Name = 'second-plugin'; Marketplace = 'second'; Scope = 'user' }}
+          )
+          $script:ClaudeFailures = @()
+          $script:TestPlugins = $plugins
+          $script:Commands = @()
+          $script:OpenCodeCalled = $false
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
+          function Invoke-JobContainedExternal {{
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
+            $script:Commands += ,@($Arguments)
+            return [pscustomobject]@{{ ExitCode = 124; Output = 'Claude command timed out after 120 seconds.'; TimedOut = $true }}
+          }}
+          function Get-ClaudeMarketplaceInventory {{ throw 'inventory must not run after timeout' }}
+          function Get-InstalledClaudePluginIds {{ throw 'plugin list must not run after timeout' }}
+          function Sync-ClaudePlugin {{ throw 'plugin mutation must not run after timeout' }}
+          function Get-ClaudePlugins {{ return $script:TestPlugins }}
+          function Test-ClaudeEnablement {{}}
+          function Get-OpenCodePlugins {{ return @() }}
+          function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
+          $ConfigPath = {ps_quote(manifest)}
+          $code = Invoke-HostAiPluginRefresh
+          [pscustomobject]@{{
+            Code = $code
+            Commands = @($script:Commands | ForEach-Object {{ $_ -join ' ' }})
+            OpenCodeCalled = $script:OpenCodeCalled
+            Failures = @($script:ClaudeFailures)
+          }} | ConvertTo-Json -Depth 5 -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(data["Commands"], ["plugin marketplace update first"])
+        self.assertTrue(data["OpenCodeCalled"])
+        self.assertEqual(data["Failures"], ["marketplace:first"])
+        self.assertEqual(data["Code"], 1)
+        self.assertIn("timed out after 120 seconds", result.stdout)
+        self.assertIn("Stopping remaining Claude Code mutations", result.stdout)
+        self.assertIn("chezmoi will retry", result.stdout)
+        self.assertIn("One or more Claude Code plugin refreshes failed", result.stdout)
+
+    def test_plugin_timeout_stops_later_plugins_and_continues_opencode(self) -> None:
+        first = self.root / "first-plugin-marketplace"
+        second = self.root / "second-plugin-marketplace"
+        manifest = self.root / "plugin-timeout-manifest.json"
         manifest.write_text(
             json.dumps(
                 {
@@ -610,23 +811,26 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         for path, plugin in ((first, "first-plugin"), (second, "second-plugin")):
             catalog = path / ".claude-plugin" / "marketplace.json"
             catalog.parent.mkdir(parents=True)
-            catalog.write_text(json.dumps({"plugins": [{"name": plugin}]}), encoding="utf-8")
+            catalog.write_text(
+                json.dumps({"plugins": [{"name": plugin}]}), encoding="utf-8"
+            )
         body = f"""
           $plugins = @(
             [pscustomobject]@{{ Id = 'first-plugin@first'; Name = 'first-plugin'; Marketplace = 'first'; Scope = 'user' }},
             [pscustomobject]@{{ Id = 'second-plugin@second'; Name = 'second-plugin'; Marketplace = 'second'; Scope = 'user' }}
           )
-          $script:ClaudeFailures = @()
           $script:TestPlugins = $plugins
           $script:Commands = @()
-          $script:Synced = @()
+          $script:OpenCodeCalled = $false
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
           function Invoke-JobContainedExternal {{
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $script:Commands += ,@($Arguments)
-            if ($Arguments[-1] -eq 'first') {{
-              return [pscustomobject]@{{ ExitCode = 124; Output = 'Claude command timed out after 120 seconds.' }}
+            if ($Arguments[-1] -eq 'first-plugin@first') {{
+              return [pscustomobject]@{{ ExitCode = 124; Output = 'Claude command timed out after 120 seconds.'; TimedOut = $true }}
             }}
-            [pscustomobject]@{{ ExitCode = 0; Output = '' }}
+            return [pscustomobject]@{{ ExitCode = 0; Output = ''; TimedOut = $false }}
           }}
           function Get-ClaudeMarketplaceInventory {{
             [pscustomobject]@{{
@@ -642,21 +846,16 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $ids = [System.Collections.Generic.HashSet[string]]::new()
             return ,$ids
           }}
-          function Sync-ClaudePlugin {{
-            param($Plugin, [string[]] $Actions)
-            $script:Synced += $Plugin.Id
-            return $true
-          }}
           function Get-ClaudePlugins {{ return $script:TestPlugins }}
           function Test-ClaudeEnablement {{}}
           function Get-OpenCodePlugins {{ return @() }}
-          function Update-OpenCodeCache {{ return $true }}
+          function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
           $ConfigPath = {ps_quote(manifest)}
           $code = Invoke-HostAiPluginRefresh
           [pscustomobject]@{{
             Code = $code
             Commands = @($script:Commands | ForEach-Object {{ $_ -join ' ' }})
-            Synced = @($script:Synced)
+            OpenCodeCalled = $script:OpenCodeCalled
             Failures = @($script:ClaudeFailures)
           }} | ConvertTo-Json -Depth 5 -Compress
         """
@@ -664,13 +863,17 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         data = self.read_json(result)
         self.assertEqual(
             data["Commands"],
-            ["plugin marketplace update first", "plugin marketplace update second"],
+            [
+                "plugin marketplace update first",
+                "plugin marketplace update second",
+                "plugin install --scope user first-plugin@first",
+            ],
         )
-        self.assertEqual(data["Synced"], ["first-plugin@first", "second-plugin@second"])
-        self.assertEqual(data["Failures"], ["marketplace:first"])
+        self.assertTrue(data["OpenCodeCalled"])
+        self.assertEqual(data["Failures"], ["first-plugin@first"])
         self.assertEqual(data["Code"], 1)
-        self.assertIn("timed out after 120 seconds", result.stdout)
-        self.assertIn("One or more Claude Code plugin refreshes failed", result.stdout)
+        self.assertIn("Stopping remaining Claude Code plugin mutations", result.stdout)
+        self.assertIn("chezmoi will retry", result.stdout)
 
     def test_failed_named_update_uses_valid_preserved_catalog(self) -> None:
         marketplace = self.root / "preserved-marketplace"
@@ -684,9 +887,11 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $plugin = [pscustomobject]@{{ Id = 'preserved-plugin@preserved'; Name = 'preserved-plugin'; Marketplace = 'preserved'; Scope = 'user' }}
           $script:ClaudeFailures = @()
           $script:Synced = $false
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
           function Invoke-JobContainedExternal {{
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
-            [pscustomobject]@{{ ExitCode = 1; Output = 'network unavailable' }}
+            [pscustomobject]@{{ ExitCode = 1; Output = 'network unavailable'; TimedOut = $false }}
           }}
           function Get-ClaudeMarketplaceInventory {{
             [pscustomobject]@{{ Ok = $true; Error = $null; Records = @([pscustomobject]@{{ name = 'preserved'; installLocation = {ps_quote(marketplace)} }}) }}
@@ -695,7 +900,11 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $ids = [System.Collections.Generic.HashSet[string]]::new()
             return ,$ids
           }}
-          function Sync-ClaudePlugin {{ param($Plugin, [string[]] $Actions); $script:Synced = $true; return $true }}
+          function Sync-ClaudePlugin {{
+            param($Plugin, [string[]] $Actions, [hashtable] $EnvironmentVariables)
+            $script:Synced = $true
+            return [pscustomobject]@{{ Succeeded = $true; TimedOut = $false }}
+          }}
           Update-ClaudePlugins -Plugins @($plugin)
           [pscustomobject]@{{ Synced = $script:Synced; Failures = @($script:ClaudeFailures) }} | ConvertTo-Json -Compress
         """
@@ -722,7 +931,9 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           )
           $script:ClaudeFailures = @()
           $script:Synced = @()
-          function Invoke-JobContainedExternal {{ [pscustomobject]@{{ ExitCode = 0; Output = '' }} }}
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
+          function Invoke-JobContainedExternal {{ [pscustomobject]@{{ ExitCode = 0; Output = ''; TimedOut = $false }} }}
           function Get-ClaudeMarketplaceInventory {{
             [pscustomobject]@{{
               Ok = $true
@@ -737,7 +948,11 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             $ids = [System.Collections.Generic.HashSet[string]]::new()
             return ,$ids
           }}
-          function Sync-ClaudePlugin {{ param($Plugin, [string[]] $Actions); $script:Synced += $Plugin.Id; return $true }}
+          function Sync-ClaudePlugin {{
+            param($Plugin, [string[]] $Actions, [hashtable] $EnvironmentVariables)
+            $script:Synced += $Plugin.Id
+            return [pscustomobject]@{{ Succeeded = $true; TimedOut = $false }}
+          }}
           Update-ClaudePlugins -Plugins $plugins
           [pscustomobject]@{{ Synced = @($script:Synced); Failures = @($script:ClaudeFailures) }} | ConvertTo-Json -Compress
         """
@@ -753,6 +968,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             [pscustomobject]@{ Id = 'two@shared'; Name = 'two'; Marketplace = 'shared'; Scope = 'user' }
           )
           $script:Called = $false
+          function Test-ClaudeCommandAvailable { return $true }
           function Invoke-JobContainedExternal { $script:Called = $true; throw 'must not run' }
           function Get-InstalledClaudePluginIds {
             $ids = [System.Collections.Generic.HashSet[string]]::new()
@@ -787,18 +1003,20 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [void] $installed.Add($plugin.Id)
           $actions = @(Get-ClaudePluginActions -Plugin $plugin -InstalledIds $installed)
           $script:Attempts = @()
+          function Get-ClaudeOpenSshApplication { [pscustomobject]@{ Source = 'ssh.exe' } }
           function Invoke-JobContainedExternal {
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $action = $Arguments[1]
             $script:Attempts += $action
             if ($action -eq 'update') {
-              return [pscustomobject]@{ ExitCode = 1; Output = 'Plugin "plannotator" not found' }
+              return [pscustomobject]@{ ExitCode = 1; Output = 'Plugin "plannotator" not found'; TimedOut = $false }
             }
-            return [pscustomobject]@{ ExitCode = 0; Output = '' }
+            return [pscustomobject]@{ ExitCode = 0; Output = ''; TimedOut = $false }
           }
-          $ok = Sync-ClaudePlugin -Plugin $plugin -Actions $actions
+          $sync = Sync-ClaudePlugin -Plugin $plugin -Actions $actions
           [pscustomobject]@{
-            Ok = $ok
+            Ok = $sync.Succeeded
+            TimedOut = $sync.TimedOut
             Actions = @($actions)
             Attempts = @($script:Attempts)
           } | ConvertTo-Json -Compress
@@ -806,6 +1024,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         result = self.run_pwsh(body)
         data = self.read_json(result)
         self.assertTrue(data["Ok"])
+        self.assertFalse(data["TimedOut"])
         self.assertEqual(data["Actions"], ["update", "install"])
         self.assertEqual(data["Attempts"], ["update", "install"])
         self.assertNotIn("ERROR:", result.stdout)
@@ -817,17 +1036,19 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [void] $installed.Add($plugin.Id)
           $actions = @(Get-ClaudePluginActions -Plugin $plugin -InstalledIds $installed)
           $script:Attempts = @()
+          function Get-ClaudeOpenSshApplication { [pscustomobject]@{ Source = 'ssh.exe' } }
           function Invoke-JobContainedExternal {
             param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
             $script:Attempts += $Arguments[1]
-            return [pscustomobject]@{ ExitCode = 1; Output = 'network unavailable' }
+            return [pscustomobject]@{ ExitCode = 1; Output = 'network unavailable'; TimedOut = $false }
           }
-          $ok = Sync-ClaudePlugin -Plugin $plugin -Actions $actions
-          [pscustomobject]@{ Ok = $ok; Attempts = @($script:Attempts) } | ConvertTo-Json -Compress
+          $sync = Sync-ClaudePlugin -Plugin $plugin -Actions $actions
+          [pscustomobject]@{ Ok = $sync.Succeeded; TimedOut = $sync.TimedOut; Attempts = @($script:Attempts) } | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
         data = self.read_json(result)
         self.assertFalse(data["Ok"])
+        self.assertFalse(data["TimedOut"])
         self.assertEqual(data["Attempts"], ["update"])
         self.assertIn("ERROR: Failed to update Claude Code plugin", result.stdout)
 
