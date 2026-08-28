@@ -76,8 +76,11 @@ function Get-RepoRoot {
 }
 
 # Strip the private remote URL out of anything we echo. The repo is public.
+# The second expression covers scp-style remotes (user@host:path) and follows
+# the scheme expression so ssh:// tokens are consumed before it can match.
 function Redact([string]$Text) {
-  return ($Text -replace '(git\+ssh://|ssh://|https://)[^\s"]*', '$1<REDACTED>')
+  $redacted = $Text -replace '(git\+ssh://|ssh://|https://)[^\s"]*', '$1<REDACTED>'
+  return ($redacted -replace '[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^\s"]+', '<REDACTED>')
 }
 
 function Invoke-SnapshotWorker {

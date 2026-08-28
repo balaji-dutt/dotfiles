@@ -82,6 +82,21 @@
       "covers": ["tests/test_check_beads_release_notes.py"]
     },
     {
+      "id": "beads-sync",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPosixTests"],
+      "covers": ["tests/test_beads_sync.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
+      "id": "beads-sync-powershell",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPowerShellTests"],
+      "covers": ["tests/test_beads_sync.py"],
+      "requires": ["git"]
+    },
+    {
       "id": "claude-token-check",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_claude_token_check"],

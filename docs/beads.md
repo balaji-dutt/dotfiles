@@ -262,6 +262,17 @@ Both accept `-DryRun` / `--dry-run`. On `pull` and `push`, `-Backup` /
 by default; `-IfDue` / `--if-due` applies the automatic throttle. `init`
 rejects backup flags because there is no database to export at that point.
 
+The shell and PowerShell implementations share the same safety boundaries:
+real dirty tables block resets, pull combines reset and merge in one Dolt SQL
+session, failed pushes stay failed, init restores hidden Git/config state on an
+error, and remote URLs are redacted in scheme and `user@host:path` forms. The
+platform-specific edges remain intentional: POSIX checks `ssh-agent`, while
+PowerShell provides native-Windows client-mode delegation; PowerShell parameter
+validation and exit diagnostics also follow PowerShell conventions rather than
+the shell parser's ordering. The registered offline tests copy both scripts to
+a disposable Git repository and substitute `bd` and `dolt`, so no test contacts
+a real remote or mutates the repository's Beads database.
+
 `status`, `clean`, `pull`, and `push` first verify that the configured Dolt
 database is reachable. If it is not, the helper exits before status output,
 snapshots, or server restarts and reports the effective endpoint, for example:
