@@ -106,6 +106,20 @@ _opencode_apply_profile_dir() {
     primary="defaults"
   fi
 
+  if [ "$joined" = "defaults" ]; then
+    signature="native|defaults"
+    export OPENCODE_PROFILES="$joined"
+    export OPENCODE_PROFILE="$primary"
+    unset OPENCODE_CONFIG_DIR
+    if [ "${_OPENCODE_PROFILE_CONTEXT_SIGNATURE:-}" = "$signature" ]; then
+      _opencode_apply_anthropic_api_export
+      return
+    fi
+    export _OPENCODE_PROFILE_CONTEXT_SIGNATURE="$signature"
+    _opencode_apply_anthropic_api_export
+    return
+  fi
+
   workspace_root=""
   if command -v git >/dev/null 2>&1; then
     workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
