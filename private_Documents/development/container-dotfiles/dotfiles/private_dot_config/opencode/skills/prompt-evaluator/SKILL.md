@@ -74,6 +74,57 @@ the host or project's lockfile workflow.
 - `echo`: Preview rendered prompts only. Do not use echo results as evidence
   that a live provider or its SDK works.
 
+#### Provider decision table
+
+| Behavior under test | Provider and execution mode |
+| --- | --- |
+| Prompt text, rendering, or deterministic content contracts | Use static/echo assertions and LLM-as-judge. A live OpenCode server is not required. |
+| OpenCode authentication or model routing | Use `opencode:sdk` with the repository-targeted live OpenCode workflow below. |
+| OpenCode runtime discovery of a candidate agent, skill, or plugin | Stage the candidate in an isolated target fixture before startup, then use `opencode:sdk` with a fresh server. |
+| Claude Agent SDK behavior or direct Anthropic API behavior | Use the matching Anthropic provider; do not route through OpenCode merely because it is installed. |
+
+#### Repository-targeted live OpenCode workflow
+
+Use this workflow only when OpenCode authentication, model routing, or runtime
+discovery is part of the acceptance criteria. Live-provider evaluation is
+manual and opt-in, not a required CI gate.
+
+1. Identify the explicit repository or linked-worktree target. For prompt-text
+   evaluation, pass the candidate prompt directly to Promptfoo. For startup-
+   loaded agent, skill, or plugin evaluation, stage the candidate in an isolated
+   target fixture before launching OpenCode; do not accidentally test the
+   currently installed configuration.
+2. From the explicit target, start a fresh owned server with
+   `opencode serve --hostname 127.0.0.1 --port 0`. Port `0` asks the operating
+   system for one automatically selected available loopback port; it does not
+   expose all ports. Capture the advertised endpoint and supply it as the
+   Promptfoo `opencode:sdk` `baseUrl`. Never hard-code a port or invent a
+   repository-specific environment variable name.
+3. Before evaluation, require `/global/health` to report healthy with the
+   expected OpenCode version. Verify `/path` identifies the exact target. Also
+   verify `/project/current`: for a linked worktree its common project root may
+   differ from the target, so accept the target only when it is the project
+   worktree or appears in `sandboxes`. Reject a healthy server for the wrong
+   repository or concurrent worktree.
+4. A caller may provide a server it owns through the session-scoped
+   `PROMPTFOO_OPENCODE_BASE_URL`. Interpolate it as
+   `baseUrl: '{{env.PROMPTFOO_OPENCODE_BASE_URL}}'`, perform the same health,
+   version, and identity checks, and never terminate a caller-owned process.
+5. OpenCode loads agent, skill, plugin, and other runtime configuration at
+   startup. Restart the owned server after candidate configuration changes.
+   Direct prompt-text changes do not require a configuration restart.
+6. For prompt-only tests, explicitly set all Promptfoo-supported tools to
+   `false`; do not rely on provider defaults. To evaluate tool behavior, use an
+   isolated fixture and enable only the smallest required tool set.
+7. Treat health, identity, SDK loading, authentication, and process-start
+   failures as evaluation-infrastructure failures, not prompt failures. Record
+   the failure and fall back to LLM-as-judge rather than claiming live-provider
+   evidence.
+8. Keep one-off configs, logs, and results task-local and ephemeral. Commit
+   durable Promptfoo assets only for a stable public contract or intentional
+   regression gate. In all cases, terminate only the server process you started
+   and report the provider, target, endpoint validation, cleanup, and results.
+
 **Workflow**:
 1. Select the provider whose runtime behavior the evaluation must cover.
 2. Generate a `promptfooconfig.yaml` from the prompt and test scenarios.
