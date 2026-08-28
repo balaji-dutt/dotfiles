@@ -211,9 +211,13 @@ commits. Both are no-ops in repositories without
 `configs/gitlab-pipeline-guard.json`; see
 `docs/tooling/continuous-integration.md` for normal use and explicit escape
 hatches. Agent worktree sessions use `agent-wt-merge prepare-ci` before merging.
-If local main was already rewritten, `agent-wt-merge prepare-main-ci` publishes
-and monitors only its exact tip on a reserved temporary ref. Neither command
-pushes main or tags.
+For humans, `gpls` delegates to `guarded-main-sync` only when policy-guarded main
+is both ahead and behind its remote. It performs a recorded rebase, publishes
+and monitors only the rewritten exact tip on a reserved temporary ref, restores
+an exact dirty-worktree stash, and reports the separate final `git push`.
+`agent-wt-merge prepare-main-ci` remains the agent-facing compatibility command
+for a clean rewritten main that is already ahead and not diverged. None of these
+commands pushes main or tags.
 
 For a targeted reconciliation, pass the template directory and one or more
 roots explicitly:

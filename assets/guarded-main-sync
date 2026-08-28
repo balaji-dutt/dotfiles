@@ -1,0 +1,776 @@
+#!/usr/bin/env python3
+"""Reconcile diverged guarded main and obtain exact-SHA CI evidence."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import AbstractContextManager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+sys.dont_write_bytecode = True
+SCRIPT_NAME = Path(sys.argv[0]).name
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
+if str(SOURCE_ROOT / "assets") not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT / "assets"))
+
+from gitlab_pipeline_runtime import (  # noqa: E402
+    PIPELINE_POLICY_RELATIVE_PATH,
+    PipelineRuntime,
+    PipelineRuntimeError,
+    check_pipeline,
+    cleanup_main_ci_ref,
+    load_pipeline_runtime,
+    publish_main_ci_ref,
+    remote_ref_sha,
+)
+
+
+STATE_SCHEMA_VERSION = 1
+STATE_DIRECTORY = "guarded-main-sync"
+STATE_FILE = "state.json"
+LOCK_FILE = "command.lock"
+NOT_APPLICABLE = 20
+
+
+class GuardedMainSyncError(Exception):
+    """A user-facing guarded-main synchronization failure."""
+
+
+def fail(message: str) -> None:
+    raise GuardedMainSyncError(message)
+
+
+def now_utc() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def run_git(
+    repo_root: Path,
+    args: list[str],
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(repo_root),
+        check=check,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def git_output(repo_root: Path, args: list[str]) -> str:
+    try:
+        return run_git(repo_root, args).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "git command failed").strip()
+        fail(f"git {' '.join(args)}: {detail}")
+
+
+def git_count(repo_root: Path, revision_range: str) -> int:
+    raw = git_output(repo_root, ["rev-list", "--count", revision_range])
+    try:
+        return int(raw)
+    except ValueError:
+        fail(f"git returned a non-integer count for {revision_range}: {raw!r}")
+
+
+def repo_root() -> Path:
+    return Path(git_output(Path.cwd(), ["rev-parse", "--show-toplevel"])).resolve()
+
+
+def current_branch(root: Path) -> str:
+    branch = git_output(root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    if not branch:
+        fail("detached HEAD; guarded main sync requires an attached branch")
+    return branch
+
+
+def head_sha(root: Path) -> str:
+    return git_output(root, ["rev-parse", "HEAD"])
+
+
+def dirty_paths(root: Path) -> list[str]:
+    result = run_git(
+        root, ["status", "--porcelain", "--untracked-files=all"], check=False
+    )
+    if result.returncode != 0:
+        fail((result.stderr or result.stdout or "git status failed").strip())
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def common_directory(root: Path) -> Path:
+    return Path(
+        git_output(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ).resolve()
+
+
+def state_paths(root: Path) -> tuple[Path, Path, Path]:
+    directory = common_directory(root) / STATE_DIRECTORY
+    return directory, directory / STATE_FILE, directory / LOCK_FILE
+
+
+def rebase_in_progress(root: Path) -> bool:
+    git_dir = Path(
+        git_output(root, ["rev-parse", "--path-format=absolute", "--git-dir"])
+    )
+    return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
+class CommandLock(AbstractContextManager["CommandLock"]):
+    def __init__(self, directory: Path, lock_path: Path) -> None:
+        self.directory = directory
+        self.lock_path = lock_path
+        self.acquired = False
+
+    def __enter__(self) -> "CommandLock":
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for _attempt in range(2):
+            try:
+                descriptor = os.open(
+                    self.lock_path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+            except FileExistsError:
+                try:
+                    owner = int(self.lock_path.read_text(encoding="ascii").strip())
+                except (OSError, ValueError):
+                    owner = -1
+                if _pid_alive(owner):
+                    fail(f"another guarded-main-sync command holds {self.lock_path} (pid {owner})")
+                try:
+                    self.lock_path.unlink()
+                except OSError as exc:
+                    fail(f"cannot remove stale guarded-main-sync lock {self.lock_path}: {exc}")
+                continue
+            with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+                stream.write(f"{os.getpid()}\n")
+            self.acquired = True
+            return self
+        fail(f"cannot acquire guarded-main-sync lock {self.lock_path}")
+
+    def __exit__(self, *_args: object) -> None:
+        if self.acquired:
+            try:
+                self.lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def read_state(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        fail(f"no guarded-main-sync recovery state exists at {path}")
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read guarded-main-sync state {path}: {exc}")
+    if not isinstance(payload, dict) or payload.get("schema_version") != STATE_SCHEMA_VERSION:
+        fail(f"guarded-main-sync state {path} has an unsupported schema")
+    return payload
+
+
+def write_state(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    payload["updated_at"] = now_utc()
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".state.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def set_phase(path: Path, state: dict[str, Any], phase: str, **updates: Any) -> None:
+    state.update(updates)
+    state["phase"] = phase
+    write_state(path, state)
+
+
+def guarded_branch_from_policy(root: Path) -> str | None:
+    policy_path = root / PIPELINE_POLICY_RELATIVE_PATH
+    if not policy_path.is_file():
+        return None
+    try:
+        payload = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read pipeline guard policy {policy_path}: {exc}")
+    if not isinstance(payload, dict):
+        fail("pipeline guard policy root must be an object")
+    guarded_ref = payload.get("guarded_ref")
+    prefix = "refs/heads/"
+    if not isinstance(guarded_ref, str) or not guarded_ref.startswith(prefix):
+        fail("pipeline guard policy guarded_ref must name a branch")
+    branch = guarded_ref.removeprefix(prefix)
+    if not branch or branch.startswith("/") or ".." in branch:
+        fail("pipeline guard policy guarded_ref names an unsafe branch")
+    return branch
+
+
+def tracking_status(
+    root: Path, runtime: PipelineRuntime, branch: str
+) -> tuple[str, str, int, int]:
+    tracking_ref = f"refs/remotes/{runtime.remote_name}/{branch}"
+    exists = run_git(
+        root, ["show-ref", "--verify", "--quiet", tracking_ref], check=False
+    )
+    if exists.returncode != 0:
+        fail(f"guarded main is missing required tracking ref {tracking_ref}")
+    remote_sha = git_output(root, ["rev-parse", tracking_ref])
+    behind = git_count(root, f"{branch}..{tracking_ref}")
+    ahead = git_count(root, f"{tracking_ref}..{branch}")
+    return tracking_ref, remote_sha, behind, ahead
+
+
+def fetch_remote(root: Path, runtime: PipelineRuntime) -> None:
+    result = run_git(root, ["fetch", "--", runtime.remote_name], check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git fetch failed").strip()
+        fail(f"git fetch from {runtime.remote_name} failed: {detail}")
+
+
+def verify_remote(
+    root: Path, runtime: PipelineRuntime, expected_sha: str, *, evidence: str = ""
+) -> None:
+    advertised = remote_ref_sha(root, runtime.remote_name, runtime.guarded_ref)
+    if advertised != expected_sha:
+        suffix = f"; {evidence}" if evidence else ""
+        fail(
+            f"{runtime.remote_name}/{runtime.guarded_ref.removeprefix('refs/heads/')} moved "
+            f"to {advertised or 'nothing'}, expected {expected_sha}{suffix}"
+        )
+
+
+def validate_state_identity(root: Path, state: dict[str, Any]) -> None:
+    if Path(str(state.get("repo_root", ""))).resolve() != root:
+        fail(
+            f"recovery state belongs to {state.get('repo_root')}, not the current worktree {root}"
+        )
+    if rebase_in_progress(root):
+        return
+    branch = current_branch(root)
+    if branch != state.get("branch"):
+        fail(
+            f"recovery state expects attached {state.get('branch')}; current branch is "
+            f"{branch}"
+        )
+
+
+def validate_ready(
+    root: Path,
+    runtime: PipelineRuntime,
+    state: dict[str, Any],
+    *,
+    require_clean: bool,
+) -> None:
+    validate_state_identity(root, state)
+    expected = state.get("rewritten_sha")
+    if not isinstance(expected, str) or head_sha(root) != expected:
+        fail(f"local {state.get('branch')} moved after CI verification")
+    if require_clean and dirty_paths(root):
+        fail("worktree became dirty before guarded-main-sync finalization")
+    verify_remote(root, runtime, str(state["remote_sha"]))
+
+
+def cleanup_recorded_ref(
+    root: Path,
+    runtime: PipelineRuntime,
+    state_path: Path,
+    state: dict[str, Any],
+) -> bool:
+    remote_ref = state.get("ci_ref")
+    rewritten_sha = state.get("rewritten_sha")
+    if not isinstance(remote_ref, str) or not isinstance(rewritten_sha, str):
+        return True
+    cleanup = cleanup_main_ci_ref(root, runtime, remote_ref, rewritten_sha)
+    if not cleanup.get("cleaned"):
+        set_phase(
+            state_path,
+            state,
+            "ci-cleanup-failed",
+            last_error=str(cleanup.get("reason") or "temporary CI ref cleanup failed"),
+        )
+        return False
+    state["ci_ref"] = None
+    state["ci_ref_published"] = False
+    write_state(state_path, state)
+    return True
+
+
+def poll_pipeline(
+    root: Path,
+    runtime: PipelineRuntime,
+    state_path: Path,
+    state: dict[str, Any],
+    *,
+    poll_interval: int,
+    poll_timeout: int,
+) -> None:
+    maximum_checks = max(1, math.ceil(poll_timeout / poll_interval))
+    if maximum_checks > 60:
+        fail(
+            "poll settings would require more than 60 checks; increase "
+            "--poll-interval or reduce --poll-timeout"
+        )
+    rewritten_sha = str(state["rewritten_sha"])
+    initial = check_pipeline(root, runtime, rewritten_sha)
+    if initial["outcome"] == "success":
+        set_phase(state_path, state, "ci-verified", ci_detail=initial.get("detail"))
+        return
+    if initial["outcome"] == "bypass":
+        set_phase(
+            state_path,
+            state,
+            "ci-bypass",
+            last_error=str(initial.get("detail") or "pipeline override is active"),
+        )
+        fail("pipeline override is active; recovery state was retained and main/tags were not pushed")
+    if initial["outcome"] in {"terminal", "error"}:
+        set_phase(
+            state_path,
+            state,
+            f"ci-{initial['outcome']}",
+            last_error=str(initial.get("detail") or initial["outcome"]),
+        )
+        fail(
+            f"main CI blocked for {rewritten_sha}: {initial.get('detail') or initial['outcome']}; "
+            "recovery state was retained and main/tags were not pushed"
+        )
+
+    remote_ref, published = publish_main_ci_ref(
+        root, runtime, str(state["branch"]), rewritten_sha
+    )
+    set_phase(
+        state_path,
+        state,
+        "ci-waiting",
+        ci_ref=remote_ref,
+        ci_ref_published=published,
+    )
+    action = "Published" if published else "Reusing"
+    print(
+        f"{action} rewritten main at {rewritten_sha} through "
+        f"{runtime.remote_name}/{remote_ref.removeprefix('refs/heads/')}"
+    )
+    deadline = time.monotonic() + poll_timeout
+    latest = initial
+    for attempt in range(2, maximum_checks + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(poll_interval, remaining))
+        latest = check_pipeline(root, runtime, rewritten_sha)
+        outcome = latest["outcome"]
+        detail = str(latest.get("detail") or "no detail")
+        if outcome == "success":
+            set_phase(state_path, state, "ci-verified", ci_detail=detail)
+            return
+        if outcome == "bypass":
+            set_phase(state_path, state, "ci-bypass", last_error=detail)
+            fail(
+                f"pipeline override became active while polling; temporary CI ref {remote_ref} "
+                "and recovery state were retained"
+            )
+        if outcome in {"terminal", "error"}:
+            set_phase(state_path, state, f"ci-{outcome}", last_error=detail)
+            fail(
+                f"main CI blocked for {rewritten_sha}: {detail}; temporary CI ref "
+                f"{remote_ref} and recovery state were retained"
+            )
+        print(
+            f"Waiting for {runtime.required_job} on rewritten main {rewritten_sha} "
+            f"({attempt}/{maximum_checks}): {detail}"
+        )
+    remaining = deadline - time.monotonic()
+    if remaining > 0:
+        time.sleep(remaining)
+    detail = str(latest.get("detail") or "no successful job observed")
+    set_phase(state_path, state, "ci-timeout", last_error=detail)
+    fail(
+        f"timed out after {poll_timeout}s waiting for {runtime.required_job} on "
+        f"{rewritten_sha}: {detail}; temporary CI ref {remote_ref} and recovery state were retained"
+    )
+
+
+def reconcile_remote_movement(
+    root: Path,
+    runtime: PipelineRuntime,
+    state_path: Path,
+    state: dict[str, Any],
+) -> None:
+    advertised = remote_ref_sha(root, runtime.remote_name, runtime.guarded_ref)
+    if advertised == state.get("remote_sha"):
+        return
+    if not cleanup_recorded_ref(root, runtime, state_path, state):
+        fail(f"cannot reconcile remote movement while temporary CI ref {state.get('ci_ref')} is retained")
+    if dirty_paths(root):
+        fail("remote moved again, but the worktree is dirty; recovery state was retained")
+    fetch_remote(root, runtime)
+    _tracking, new_remote_sha, _behind, _ahead = tracking_status(
+        root, runtime, str(state["branch"])
+    )
+    advertised = remote_ref_sha(root, runtime.remote_name, runtime.guarded_ref)
+    if advertised != new_remote_sha:
+        fail("guarded remote moved again during recovery fetch; rerun status/resume")
+    state.setdefault("remote_history", []).append(state.get("remote_sha"))
+    state["remote_sha"] = new_remote_sha
+    state["fetched_remote_sha"] = new_remote_sha
+    set_phase(state_path, state, "rebasing-remote-movement")
+    result = run_git(root, ["rebase", "--no-verify", new_remote_sha], check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git rebase failed").strip()
+        set_phase(
+            state_path,
+            state,
+            "rebase-conflict" if rebase_in_progress(root) else "rebase-failed",
+            last_error=detail,
+        )
+        fail(f"controlled recovery rebase failed: {detail}; run {SCRIPT_NAME} status")
+    state["rewritten_sha"] = head_sha(root)
+    set_phase(state_path, state, "rebased")
+
+
+def continue_after_rebase(
+    root: Path,
+    runtime: PipelineRuntime,
+    state_path: Path,
+    state: dict[str, Any],
+    *,
+    poll_interval: int,
+    poll_timeout: int,
+) -> None:
+    if rebase_in_progress(root):
+        set_phase(state_path, state, "rebase-conflict")
+        fail(
+            "a controlled rebase is still in progress; resolve conflicts and run "
+            f"git rebase --continue, or run {SCRIPT_NAME} abort"
+        )
+    validate_state_identity(root, state)
+    if state.get("phase") in {"rebasing", "rebase-conflict", "rebase-failed"}:
+        if head_sha(root) == state.get("original_local_sha"):
+            set_phase(state_path, state, "rebasing")
+            result = run_git(
+                root, ["rebase", "--no-verify", str(state["remote_sha"])], check=False
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "git rebase failed").strip()
+                set_phase(
+                    state_path,
+                    state,
+                    "rebase-conflict" if rebase_in_progress(root) else "rebase-failed",
+                    last_error=detail,
+                )
+                fail(f"controlled rebase failed: {detail}; run {SCRIPT_NAME} status")
+        state["rewritten_sha"] = head_sha(root)
+        set_phase(state_path, state, "rebased")
+    expected_tip = state.get("rewritten_sha")
+    if not isinstance(expected_tip, str) or head_sha(root) != expected_tip:
+        fail("local guarded main changed outside the recorded recovery; refusing to adopt it")
+    if dirty_paths(root):
+        fail("guarded main worktree is dirty before CI validation; recovery state was retained")
+    reconcile_remote_movement(root, runtime, state_path, state)
+    verify_remote(root, runtime, str(state["remote_sha"]))
+    poll_pipeline(
+        root,
+        runtime,
+        state_path,
+        state,
+        poll_interval=poll_interval,
+        poll_timeout=poll_timeout,
+    )
+    validate_ready(root, runtime, state, require_clean=True)
+    if not cleanup_recorded_ref(root, runtime, state_path, state):
+        fail(
+            f"{runtime.required_job} succeeded, but temporary CI ref cleanup failed: "
+            f"{state.get('last_error')}"
+        )
+    set_phase(state_path, state, "ready-to-finalize", last_error=None)
+    print(f"PASS main CI: {runtime.required_job} succeeded for {state['rewritten_sha']}")
+    print("- Main/tags pushed: no")
+
+
+def command_sync(args: argparse.Namespace) -> int:
+    root = repo_root()
+    branch = current_branch(root)
+    guarded_branch = guarded_branch_from_policy(root)
+    if guarded_branch is None or branch != guarded_branch:
+        return NOT_APPLICABLE
+    try:
+        runtime = load_pipeline_runtime(root, guarded_branch)
+    except PipelineRuntimeError as exc:
+        fail(str(exc))
+    directory, state_path, lock_path = state_paths(root)
+    if state_path.exists():
+        existing = read_state(state_path)
+        fail(
+            f"unresolved guarded-main-sync state exists in phase {existing.get('phase')}; "
+            f"run {SCRIPT_NAME} status or {SCRIPT_NAME} resume"
+        )
+    _tracking, _remote_sha, _behind, ahead = tracking_status(root, runtime, branch)
+    if ahead <= 0:
+        return NOT_APPLICABLE
+    fetch_remote(root, runtime)
+    tracking, fetched_remote_sha, behind, ahead = tracking_status(root, runtime, branch)
+    if behind <= 0 or ahead <= 0:
+        return NOT_APPLICABLE
+    if dirty_paths(root):
+        fail("guarded main worktree must be clean after any gpls stash")
+    advertised = remote_ref_sha(root, runtime.remote_name, runtime.guarded_ref)
+    if advertised != fetched_remote_sha:
+        fail(
+            f"{runtime.remote_name}/{branch} moved after fetch: advertised "
+            f"{advertised or 'nothing'}, expected {fetched_remote_sha}"
+        )
+    with CommandLock(directory, lock_path):
+        if state_path.exists():
+            existing = read_state(state_path)
+            fail(
+                f"unresolved guarded-main-sync state exists in phase {existing.get('phase')}; "
+                f"run {SCRIPT_NAME} status or {SCRIPT_NAME} resume"
+            )
+        original_sha = head_sha(root)
+        state: dict[str, Any] = {
+            "schema_version": STATE_SCHEMA_VERSION,
+            "created_at": now_utc(),
+            "repo_root": str(root),
+            "git_common_dir": str(common_directory(root)),
+            "branch": branch,
+            "remote_name": runtime.remote_name,
+            "guarded_ref": runtime.guarded_ref,
+            "tracking_ref": tracking,
+            "original_local_sha": original_sha,
+            "fetched_remote_sha": fetched_remote_sha,
+            "remote_sha": fetched_remote_sha,
+            "rewritten_sha": None,
+            "ci_ref": None,
+            "ci_ref_published": False,
+            "stash_oid": args.stash_oid,
+            "phase": "created",
+            "last_error": None,
+        }
+        write_state(state_path, state)
+        set_phase(state_path, state, "rebasing")
+        result = run_git(
+            root, ["rebase", "--no-verify", fetched_remote_sha], check=False
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "git rebase failed").strip()
+            phase = "rebase-conflict" if rebase_in_progress(root) else "rebase-failed"
+            set_phase(state_path, state, phase, last_error=detail)
+            fail(
+                f"controlled rebase failed: {detail}; recovery state and any gpls stash "
+                f"were retained. Run {SCRIPT_NAME} status"
+            )
+        state["rewritten_sha"] = head_sha(root)
+        set_phase(state_path, state, "rebased")
+        continue_after_rebase(
+            root,
+            runtime,
+            state_path,
+            state,
+            poll_interval=args.poll_interval,
+            poll_timeout=args.poll_timeout,
+        )
+    return 0
+
+
+def command_status(args: argparse.Namespace) -> int:
+    root = repo_root()
+    _directory, state_path, _lock_path = state_paths(root)
+    state = read_state(state_path)
+    if args.json:
+        print(json.dumps(state, indent=2, sort_keys=True))
+        return 0
+    print("Guarded main sync recovery")
+    for key in (
+        "phase",
+        "branch",
+        "original_local_sha",
+        "remote_sha",
+        "rewritten_sha",
+        "ci_ref",
+        "stash_oid",
+        "last_error",
+    ):
+        print(f"- {key.replace('_', ' ').title()}: {state.get(key) or 'none'}")
+    phase = state.get("phase")
+    if phase == "rebase-conflict":
+        print(f"- Next: resolve conflicts and continue the rebase, or run {SCRIPT_NAME} abort")
+    elif phase == "ready-to-finalize":
+        print(f"- Next: restore/drop the recorded stash if present, then run {SCRIPT_NAME} finalize")
+    else:
+        print(f"- Next: run {SCRIPT_NAME} resume")
+    return 0
+
+
+def runtime_from_state(root: Path, state: dict[str, Any]) -> PipelineRuntime:
+    branch = str(state.get("branch") or "")
+    try:
+        runtime = load_pipeline_runtime(root, branch)
+    except PipelineRuntimeError as exc:
+        fail(str(exc))
+    if runtime.remote_name != state.get("remote_name") or runtime.guarded_ref != state.get(
+        "guarded_ref"
+    ):
+        fail("pipeline guard policy changed since recovery state was created")
+    return runtime
+
+
+def command_resume(args: argparse.Namespace) -> int:
+    root = repo_root()
+    directory, state_path, lock_path = state_paths(root)
+    with CommandLock(directory, lock_path):
+        state = read_state(state_path)
+        runtime = runtime_from_state(root, state)
+        if state.get("phase") == "ready-to-finalize":
+            print(f"CI is already verified; run {SCRIPT_NAME} finalize after stash restoration")
+            return 0
+        continue_after_rebase(
+            root,
+            runtime,
+            state_path,
+            state,
+            poll_interval=args.poll_interval,
+            poll_timeout=args.poll_timeout,
+        )
+    return 0
+
+
+def stash_contains(root: Path, oid: str) -> bool:
+    listing = git_output(root, ["stash", "list", "--format=%H"])
+    return oid in listing.splitlines()
+
+
+def command_finalize(_args: argparse.Namespace) -> int:
+    root = repo_root()
+    directory, state_path, lock_path = state_paths(root)
+    with CommandLock(directory, lock_path):
+        state = read_state(state_path)
+        if state.get("phase") != "ready-to-finalize":
+            fail(
+                f"recovery state is in phase {state.get('phase')}; run {SCRIPT_NAME} status"
+            )
+        runtime = runtime_from_state(root, state)
+        stash_oid = state.get("stash_oid")
+        validate_ready(root, runtime, state, require_clean=not bool(stash_oid))
+        if isinstance(stash_oid, str) and stash_contains(root, stash_oid):
+            fail(
+                f"recorded gpls stash {stash_oid} still exists; restore and drop it before finalizing"
+            )
+        try:
+            state_path.unlink()
+        except OSError as exc:
+            fail(f"cannot remove verified recovery state {state_path}: {exc}")
+    print(f"Guarded {state['branch']} is ahead and no longer diverged.")
+    print("- Main/tags pushed: no")
+    print("- Next: git push")
+    return 0
+
+
+def command_abort(_args: argparse.Namespace) -> int:
+    root = repo_root()
+    directory, state_path, lock_path = state_paths(root)
+    with CommandLock(directory, lock_path):
+        state = read_state(state_path)
+        runtime = runtime_from_state(root, state)
+        validate_state_identity(root, state)
+        if rebase_in_progress(root):
+            result = run_git(root, ["rebase", "--abort"], check=False)
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "git rebase --abort failed").strip()
+                fail(f"cannot abort controlled rebase: {detail}")
+        if head_sha(root) != state.get("original_local_sha"):
+            fail(
+                "controlled rebase has completed; refusing rollback because it would require reset. "
+                f"Run {SCRIPT_NAME} resume instead"
+            )
+        if not cleanup_recorded_ref(root, runtime, state_path, state):
+            fail(f"temporary CI ref {state.get('ci_ref')} could not be cleaned safely")
+        try:
+            state_path.unlink()
+        except OSError as exc:
+            fail(f"cannot remove aborted recovery state {state_path}: {exc}")
+    print("Aborted guarded main sync; original local tip restored.")
+    if state.get("stash_oid"):
+        print(f"- Preserved gpls stash: {state['stash_oid']}")
+    return 0
+
+
+def positive_seconds(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be an integer number of seconds") from None
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def add_poll_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--poll-interval", type=positive_seconds, default=15)
+    parser.add_argument("--poll-timeout", type=positive_seconds, default=900)
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    sync_parser = subparsers.add_parser("sync", help="reconcile guarded main when applicable")
+    sync_parser.add_argument("--stash-oid")
+    add_poll_arguments(sync_parser)
+    sync_parser.set_defaults(handler=command_sync)
+    status_parser = subparsers.add_parser("status", help="show retained recovery state")
+    status_parser.add_argument("--json", action="store_true")
+    status_parser.set_defaults(handler=command_status)
+    resume_parser = subparsers.add_parser("resume", help="resume a retained safe phase")
+    add_poll_arguments(resume_parser)
+    resume_parser.set_defaults(handler=command_resume)
+    finalize_parser = subparsers.add_parser(
+        "finalize", help="remove verified state after worktree restoration"
+    )
+    finalize_parser.set_defaults(handler=command_finalize)
+    abort_parser = subparsers.add_parser("abort", help="abort an active controlled rebase")
+    abort_parser.set_defaults(handler=command_abort)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        return int(args.handler(args))
+    except (GuardedMainSyncError, PipelineRuntimeError, OSError) as exc:
+        print(f"{SCRIPT_NAME}: ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

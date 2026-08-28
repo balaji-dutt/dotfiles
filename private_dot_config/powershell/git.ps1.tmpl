@@ -15,9 +15,83 @@ function global:git_pull_rebase_then_apply_stash {
     return
   }
 
+  $repoRoot = & $git.Source rev-parse --show-toplevel 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $repoRoot) {
+    Write-Error "Failed to determine repository root"
+    return
+  }
+  $guardedSyncHelper = Join-Path $repoRoot "assets/guarded-main-sync"
+  $syncState = @{ Guarded = $false; ExitCode = 0; FinalizeOk = $true }
+
+  function Resolve-GplsPython3 {
+    $candidates = @(
+      @{ Name = "python3"; Prefix = @() },
+      @{ Name = "py"; Prefix = @("-3") },
+      @{ Name = "python"; Prefix = @() }
+    )
+    foreach ($candidate in $candidates) {
+      $command = Get-Command $candidate.Name -CommandType Application,ExternalScript -ErrorAction SilentlyContinue
+      if (-not $command) { continue }
+      try {
+        & $command.Source @($candidate.Prefix) -c "import sys; raise SystemExit(sys.version_info[0] != 3)" *> $null
+      } catch {
+        continue
+      }
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Command = $command.Source; Prefix = @($candidate.Prefix) }
+      }
+    }
+    return $null
+  }
+
+  function Invoke-GplsPullRebase([string] $StashOid = "") {
+    $syncState.Guarded = $false
+    if (-not (Test-Path -LiteralPath $guardedSyncHelper -PathType Leaf)) {
+      & $git.Source pull --rebase
+      $syncState.ExitCode = $LASTEXITCODE
+      return
+    }
+    $python = Resolve-GplsPython3
+    if (-not $python) {
+      Write-Error "gpls guarded-main dispatch requires a working Python 3 interpreter"
+      $syncState.ExitCode = 1
+      return
+    }
+    $syncArguments = @($guardedSyncHelper, "sync")
+    if ($StashOid) { $syncArguments += @("--stash-oid", $StashOid) }
+    & $python.Command @($python.Prefix) @syncArguments
+    $syncExit = $LASTEXITCODE
+    if ($syncExit -eq 20) {
+      & $git.Source pull --rebase
+      $syncState.ExitCode = $LASTEXITCODE
+      return
+    }
+    $syncState.ExitCode = $syncExit
+    if ($syncExit -eq 0) { $syncState.Guarded = $true }
+  }
+
+  function Complete-GplsGuardedSync {
+    $syncState.FinalizeOk = $true
+    if (-not $syncState.Guarded) { return }
+    $python = Resolve-GplsPython3
+    if (-not $python) {
+      Write-Error "stash was restored, but guarded-main finalization requires Python 3"
+      $syncState.FinalizeOk = $false
+      return
+    }
+    & $python.Command @($python.Prefix) $guardedSyncHelper finalize
+    $syncState.FinalizeOk = ($LASTEXITCODE -eq 0)
+  }
+
   $status = & $git.Source status --porcelain
   if (-not $status) {
-    & $git.Source pull --rebase
+    Invoke-GplsPullRebase
+    if ($syncState.ExitCode -eq 0) {
+      Complete-GplsGuardedSync
+      if (-not $syncState.FinalizeOk) {
+        Write-Warning "guarded-main finalization failed; recovery state was retained"
+      }
+    }
     return
   }
 
@@ -37,10 +111,15 @@ function global:git_pull_rebase_then_apply_stash {
   }
 
   $stashRef = $stashEntry.Split(":")[0]
+  $stashOid = & $git.Source rev-parse $stashRef
+  if ($LASTEXITCODE -ne 0 -or -not $stashOid) {
+    Write-Error "stash object ID not found"
+    return
+  }
 
-  & $git.Source pull --rebase
-  if ($LASTEXITCODE -ne 0) {
-    Write-Error "git pull --rebase failed"
+  Invoke-GplsPullRebase -StashOid $stashOid
+  if ($syncState.ExitCode -ne 0) {
+    Write-Error "pull/reconciliation failed; stash preserved: $stashOid"
     return
   }
   $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gpls-" + [guid]::NewGuid().ToString("n"))
@@ -50,7 +129,7 @@ function global:git_pull_rebase_then_apply_stash {
   if ($LASTEXITCODE -eq 0) {
     Push-Location $tempDir
     try {
-      & $git.Source stash apply $stashRef | Out-Null
+      & $git.Source stash apply $stashOid | Out-Null
       if ($LASTEXITCODE -eq 0) { $preflightOk = $true }
     } finally {
       Pop-Location
@@ -63,13 +142,29 @@ function global:git_pull_rebase_then_apply_stash {
     return
   }
 
-  & $git.Source stash apply $stashRef
+  & $git.Source stash apply $stashOid
   if ($LASTEXITCODE -ne 0) {
     Write-Warning "stash apply failed; stash preserved"
     return
   }
 
+  $stashRef = & $git.Source stash list --format="%gd %H" |
+    Where-Object { $_ -match "^(\S+)\s+$([regex]::Escape($stashOid))$" } |
+    ForEach-Object { $Matches[1] } |
+    Select-Object -First 1
+  if (-not $stashRef) {
+    Write-Warning "stash applied but exact stash entry could not be located for drop: $stashOid"
+    return
+  }
   & $git.Source stash drop $stashRef | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "stash applied but failed to drop exact entry: $stashRef"
+    return
+  }
+  Complete-GplsGuardedSync
+  if (-not $syncState.FinalizeOk) {
+    Write-Warning "stash restored, but guarded-main finalization failed; recovery state was retained"
+  }
 }
 
 Set-Alias -Name gpls -Value git_pull_rebase_then_apply_stash

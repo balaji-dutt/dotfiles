@@ -7,6 +7,7 @@ remote_url=${2:-}
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 policy="$repo_root/configs/gitlab-pipeline-guard.json"
 helper="$repo_root/assets/check-gitlab-pipeline.py"
+python_resolver="$repo_root/assets/resolve-python3"
 
 if [ ! -f "$policy" ]; then
   exit 0
@@ -27,16 +28,10 @@ if [ ! -f "$helper" ]; then
   exit 1
 fi
 
-if command -v python3 >/dev/null 2>&1; then
-  exec python3 "$helper" --repo-root "$repo_root" --policy "$policy" "$remote_name" "$remote_url"
-fi
-if command -v py >/dev/null 2>&1; then
-  exec py -3 "$helper" --repo-root "$repo_root" --policy "$policy" "$remote_name" "$remote_url"
-fi
-if command -v python >/dev/null 2>&1 &&
-   python -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
-  exec python "$helper" --repo-root "$repo_root" --policy "$policy" "$remote_name" "$remote_url"
+if [ ! -x "$python_resolver" ]; then
+  echo "ERROR: pipeline guard Python resolver is missing: $python_resolver" >&2
+  exit 1
 fi
 
-echo "ERROR: pipeline guard requires Python 3; create $override to bypass temporarily." >&2
-exit 1
+exec "$python_resolver" -- "$helper" --repo-root "$repo_root" --policy "$policy" \
+  "$remote_name" "$remote_url"

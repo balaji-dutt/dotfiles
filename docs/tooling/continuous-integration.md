@@ -73,27 +73,41 @@ and lease-cleanup checks.
 
 ## Rewritten main recovery
 
-If guarded local main was rebased or otherwise rewritten after a local merge,
-its new SHA has no right to reuse the original feature-tip evidence. Do not use
-the pipeline override merely because the patch content is unchanged. From the
-clean, attached guarded main worktree, separately approve:
+When guarded local main has unpushed commits and `origin/main` advances, use the
+normal human pull alias from the main worktree:
 
 ```sh
-./assets/agent-wt-merge prepare-main-ci
+gpls
 ```
 
-The helper fetches the policy remote and requires local main to be ahead, not
-behind or diverged, with the advertised remote main as an ancestor. It first
-checks the exact local tip for existing success. If evidence is absent, it
-normally publishes only `<sha>:refs/heads/ci/main/<full-sha>`, verifies the
-advertisement, and polls with the same 15-second, 15-minute bound used for a
-feature tip.
+`gpls` keeps its existing `git pull --rebase` behavior in generic repositories,
+on non-guarded branches, and when guarded main is not both ahead and behind its
+policy remote. For that exact divergence, it delegates to
+`assets/guarded-main-sync`. Dirty worktrees are stashed first and identified by
+their exact stash object ID.
 
-After real CI success, the helper revalidates local HEAD and advertised remote
-main, then exact-lease-deletes only its reserved temporary ref. Bypass, terminal
-failure, timeout, API error, local or remote movement, and cleanup failure retain
-the evidence ref for diagnosis. The command never pushes main or tags. Push main
-separately after success; the managed `pre-push` hook remains authoritative.
+The helper records the original tips in the Git common directory, rebases onto
+the pinned advertised remote tip, and checks the rewritten SHA. It uses a
+controlled internal `git rebase --no-verify`; this does not weaken the normal
+`pre-rebase` hook or require a manual bypass. If evidence is absent, it publishes
+only `<sha>:refs/heads/ci/main/<full-sha>` and polls for `linux-fast`. After real
+success it revalidates local and remote state and exact-lease-deletes only an
+unchanged temporary ref. Final recovery state is removed only after any `gpls`
+stash is restored and dropped.
+
+Rebase conflict, CI failure, timeout, override, remote movement, stash-restore
+failure, and cleanup failure preserve recovery state and any applicable stash or
+evidence ref. Inspect it with `./assets/guarded-main-sync status`, then use the
+reported `resume`, `finalize`, or `abort` action. The helper never pushes main or
+tags. After success, run the reported command separately:
+
+```sh
+git push
+```
+
+The agent-only `agent-wt-merge prepare-main-ci` command remains available for a
+clean rewritten main that is already ahead and not diverged. Both paths obtain
+fresh exact-SHA evidence; patch equivalence never reuses the original evidence.
 
 When a branch has an open merge request, its MR pipeline owns `linux-fast`; the
 parallel branch-push pipeline does not run a duplicate job. A `main` push also
@@ -191,11 +205,11 @@ unreachable. Wait for GitLab and retry the push. The helper uses no token becaus
 the project is public; making it private requires a separate authentication
 design rather than silently weakening the guard.
 
-The same checker exposes a machine-readable exact-SHA mode to
-`agent-wt-merge`. Its outcomes are `success`, `retryable`, `terminal`, `error`,
-and `bypass`. Only a missing or active required job is retryable. The existing
-pre-push arguments, stdin protocol, history selection, and fail-closed behavior
-remain unchanged.
+The same checker exposes a machine-readable exact-SHA mode to the shared
+pipeline runtime used by `agent-wt-merge` and `guarded-main-sync`. Its outcomes
+are `success`, `retryable`, `terminal`, `error`, and `bypass`. Only a missing or
+active required job is retryable. The existing pre-push arguments, stdin
+protocol, history selection, and fail-closed behavior remain unchanged.
 
 For a deliberate temporary bypass, create the fixed override in the Git common
 directory. It applies to all linked worktrees and remains active until removed:
@@ -221,7 +235,8 @@ own broader escape hatch; neither mechanism is a security boundary.
 The common-directory pipeline override does not authorize rebasing guarded
 local main. Git's explicit `git rebase --no-verify` remains a reviewed escape
 hatch because hooks are not a security boundary. A resulting rewritten main
-must use `prepare-main-ci`; patch equivalence does not preserve exact-SHA
+must obtain fresh evidence through guarded `gpls` reconciliation or the
+agent-only `prepare-main-ci`; patch equivalence does not preserve exact-SHA
 evidence.
 
 For worktree merges, bypass does not count as CI success. The feature must still

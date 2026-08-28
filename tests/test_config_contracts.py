@@ -26,7 +26,10 @@ CONTRACTS = {
         "schema": "schemas/gitlab-pipeline-guard.v1.schema.json",
         "ref": "./schemas/gitlab-pipeline-guard.v1.schema.json",
         "version": 1,
-        "consumers": ("assets/check-gitlab-pipeline.py",),
+        "consumers": (
+            "assets/check-gitlab-pipeline.py",
+            "assets/gitlab_pipeline_runtime.py",
+        ),
     },
     "test-suites.json": {
         "schema": "schemas/test-suites.v1.schema.json",
