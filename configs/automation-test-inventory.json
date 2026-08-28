@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:fe95c94fa80e3e072c7ec7bc7d8a918e455aec58f7563b1d55dabcda80d246f1",
+  "candidate_digest": "sha256:016c6447817d612362f758b02650c86c1ad72106b026edf65ce5954096436298",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -107,16 +107,16 @@
       "test_layers": ["contract", "integration", "platform-smoke", "unit"],
       "coverage": {
         "suite_id": "audit-tools",
-        "status": "planned",
+        "status": "covered",
         "work_item": "dots-4jy.10.2.1",
-        "test_paths": [],
+        "test_paths": ["tests/test_cz_audit.py"],
         "behavior_requirements": [
-          {"id": "failure-blocking-diagnostics", "kind": "failure", "description": "Return nonzero and preserve actionable ERROR diagnostics for required audit failures.", "status": "planned", "test_paths": []},
-          {"id": "safety-dry-run-boundary", "kind": "safety", "description": "Keep managed-target validation dry-run only and avoid applying repository or host changes.", "status": "planned", "test_paths": []},
-          {"id": "success-cross-platform-dispatch", "kind": "success", "description": "Dispatch managed, repository-only, template, shell, PowerShell, and config checks consistently.", "status": "planned", "test_paths": []}
+          {"id": "failure-blocking-diagnostics", "kind": "failure", "description": "Return nonzero and preserve actionable ERROR diagnostics for required audit failures.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
+          {"id": "safety-dry-run-boundary", "kind": "safety", "description": "Keep managed-target validation dry-run only and avoid applying repository or host changes.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
+          {"id": "success-cross-platform-dispatch", "kind": "success", "description": "Dispatch managed, repository-only, template, shell, PowerShell, and config checks consistently.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]}
         ]
       },
-      "rationale": "The POSIX and PowerShell implementations require parity and failure-contract tests."
+      "rationale": "Isolated POSIX and PowerShell fixtures cover classification, worktree routing, template and parser failures, advisory controls, and the managed-target dry-run boundary."
     },
     {
       "id": "beads-release-notes",

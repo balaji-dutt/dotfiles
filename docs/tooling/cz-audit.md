@@ -33,7 +33,7 @@ pwsh ./assets/cz-audit.ps1 check <repo-relative-path>
 
 - `chezmoi-config`: `.chezmoi*` special/config files
 - `managed`: source path that maps to a managed target on this machine
-- `script`: `.chezmoiscripts/**`
+- `chezmoiscript`: `.chezmoiscripts/**`
 - `ansible`: `ansible/**`
 - `assets`: `assets/**`
 - `configs`: `configs/**`
@@ -106,6 +106,27 @@ include the repo-relative source path and fail the audit.
 The Windows wrapper uses `Parser.ParseInput` in its current PowerShell process
 and explicitly checks the returned parse-error collection. PowerShell's parser
 reports errors through that collection rather than by throwing automatically.
+
+## Cross-platform contract
+
+Both entrypoints use the same classification precedence, worktree source
+override, managed-target dry-run boundary, and strict/advisory controls. A few
+dispatch details intentionally follow the host platform:
+
+- The POSIX entrypoint resolves a PowerShell parser through the selection above;
+  the PowerShell entrypoint parses in its current process.
+- For otherwise repo-only paths, the POSIX entrypoint syntax-checks PowerShell
+  files. The PowerShell entrypoint also syntax-checks shell files because it is
+  the native-Windows audit path.
+- Missing required parsers fail in both entrypoints. Missing advisory validators
+  emit `INFO:` and write details beneath `CZ_AUDIT_LOGDIR` unless strict mode is
+  enabled.
+
+The contract tests run against temporary repositories and fake `chezmoi`
+commands. They assert command arguments and diagnostics without applying a real
+target. PowerShell tests prefer local `pwsh`; when it is absent they may use the
+pre-existing `local/powershell-audit:lts` image with networking disabled and
+only the temporary fixture mounted.
 
 ## Container Images
 
