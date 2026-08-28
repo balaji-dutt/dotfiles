@@ -280,6 +280,13 @@ On WSL2, this workflow is intended for Debian only. Ubuntu WSL2 is the utility
 instance: Dev Container reminders and the sync/render wrapper are suppressed
 there. macOS keeps the full sync/render workflow.
 
+The sync-tooling tests run these contracts only in disposable repositories.
+They force the supported-host branch with a fake platform command, use fake
+`chezmoi` and `op` commands with synthetic values, and never read the real
+1Password account or write to the real container-dotfiles tree. The suite
+checks mirror cleanup and idempotency, sync-before-render ordering, wrapper
+argument forwarding, and statusline mismatch failures.
+
 ## Claude Code in Devcontainers
 
 The `homelab-IaC` devcontainer keeps Claude runtime state under

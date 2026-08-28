@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:3a511018209a0d71bfd96688deccbd4411ebe8f26266783a5e83fbc39d189c65",
+  "candidate_digest": "sha256:44cdcc9938daa1c5143b613267829861cbaee2ee31115060ef3ca089ac1446e5",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -583,8 +583,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "sync-tooling", "status": "planned", "work_item": "dots-4jy.10.2.4", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Configuration contracts and provenance checks are separate; render and workspace synchronization behavior remains planned."
+      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
+      "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, and statusline drift. Behavioral coverage for sync-plannotator-assets.py and opencode-sync-workspace-overrides.sh remains planned."
     },
     {
       "id": "test-foundation",

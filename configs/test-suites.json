@@ -250,6 +250,14 @@
       "requires": ["bash"]
     },
     {
+      "id": "sync-tooling",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_sync_tooling"],
+      "covers": ["tests/test_sync_tooling.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "test-fixtures",
       "suites": ["fast"],
       "argv": ["{python}", "-m", "unittest", "tests.test_test_fixtures"],
