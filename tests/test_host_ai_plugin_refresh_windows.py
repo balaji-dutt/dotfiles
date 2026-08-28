@@ -32,7 +32,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.home = self.root / "home"
         self.home.mkdir()
         self.rendered = self.root / "host-ai-plugin-refresh.ps1"
