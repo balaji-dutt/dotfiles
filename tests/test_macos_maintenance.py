@@ -253,7 +253,24 @@ class VncMonitorTests(unittest.TestCase):
             "    wait_forever()\n",
         )
         write_executable(fixture.fake_bin / "ps", "#!/bin/sh\nexit 1\n")
-        write_executable(fixture.fake_bin / "sleep", "#!/bin/sh\n/bin/sleep 0.05\n")
+        write_executable(
+            fixture.fake_bin / "sleep",
+            f"#!{sys.executable}\n"
+            "import json, pathlib, time\n"
+            f"log = pathlib.Path({str(command_log)!r})\n"
+            f"netstat_count = pathlib.Path({str(netstat_count)!r})\n"
+            "expected_activity = min(int(netstat_count.read_text()), 2)\n"
+            "deadline = time.monotonic() + 5\n"
+            "while time.monotonic() < deadline:\n"
+            "    calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []\n"
+            "    persistent = calls.count(['caffeinate', '-d', '-i'])\n"
+            "    activity = calls.count(['caffeinate', '-u', '-t', '5'])\n"
+            "    if persistent == 1 and activity >= expected_activity:\n"
+            "        break\n"
+            "    time.sleep(0.01)\n"
+            "else:\n"
+            "    raise SystemExit('timed out waiting for fake caffeinate calls')\n",
+        )
 
         env = fixture.env | {
             "VNC_MONITOR_RESTORE_TIMEOUT": "600",
