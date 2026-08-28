@@ -68,7 +68,7 @@ class GuardedMainSyncFixture(GitFixture):
         *args: str,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
+        env = self.env.copy()
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -242,6 +242,10 @@ class GuardedMainSyncZshTests(unittest.TestCase):
         run_git(self.repo, "add", "base.txt")
         run_git(self.repo, "commit", "-m", "initial")
         run_git(self.repo, "push", "-u", "origin", "main")
+        self.upstream = self.root / "upstream clone"
+        run_git(self.root, "clone", str(self.remote), str(self.upstream))
+        run_git(self.upstream, "config", "user.name", "Upstream User")
+        run_git(self.upstream, "config", "user.email", "upstream@example.com")
         (self.repo / "assets").mkdir()
         self.log = self.root / "helper.log"
 
@@ -261,14 +265,16 @@ exit 0
         run_git(self.repo, "commit", "-m", "install test helper")
         run_git(self.repo, "push", "origin", "main")
 
-    def run_gpls(self) -> subprocess.CompletedProcess[str]:
+    def run_gpls(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["GPLS_TEST_LOG"] = str(self.log)
+        quoted_args = " ".join(repr(arg) for arg in args)
         return subprocess.run(
             [
                 shutil.which("zsh") or "zsh",
                 "-c",
-                f"source {str(SOURCE_ZSH_HELPERS)!r}; git_pull_rebase_then_apply_stash",
+                f"source {str(SOURCE_ZSH_HELPERS)!r}; "
+                f"git_pull_rebase_then_apply_stash {quoted_args}",
             ],
             cwd=self.repo,
             env=env,
@@ -277,6 +283,19 @@ exit 0
             stderr=subprocess.PIPE,
             check=False,
         )
+
+    def commit_upstream(self, relative_path: str, content: str, message: str) -> str:
+        path = self.upstream / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        run_git(self.upstream, "add", "--", relative_path)
+        run_git(self.upstream, "commit", "-m", message)
+        run_git(self.upstream, "push", "origin", "main")
+        return run_git(self.upstream, "rev-parse", "HEAD").stdout.strip()
+
+    def worktree_paths(self) -> list[str]:
+        output = run_git(self.repo, "worktree", "list", "--porcelain").stdout
+        return [line.removeprefix("worktree ") for line in output.splitlines() if line.startswith("worktree ")]
 
     def test_dirty_success_passes_exact_stash_and_finalizes(self) -> None:
         self.install_fake_helper(0)
@@ -303,6 +322,82 @@ exit 0
         result = self.run_gpls()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(encoding="utf-8").strip(), "sync")
+
+    def test_clean_worktree_pulls_remote_commit(self) -> None:
+        remote_sha = self.commit_upstream("remote file.txt", "remote\n", "remote update")
+
+        result = self.run_gpls()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(run_git(self.repo, "rev-parse", "HEAD").stdout.strip(), remote_sha)
+        self.assertEqual((self.repo / "remote file.txt").read_text(encoding="utf-8"), "remote\n")
+
+    def test_dirty_state_is_restored_and_only_exact_stash_is_dropped(self) -> None:
+        self.commit_upstream("remote file.txt", "remote\n", "remote update")
+        (self.repo / "older stash.txt").write_text("keep me\n", encoding="utf-8")
+        run_git(self.repo, "stash", "push", "-u", "-m", "unrelated stash")
+        unrelated_oid = run_git(self.repo, "rev-parse", "stash@{0}").stdout.strip()
+        (self.repo / "base.txt").write_text("local dirty\n", encoding="utf-8")
+        (self.repo / "untracked file.txt").write_text("untracked\n", encoding="utf-8")
+        worktrees_before = self.worktree_paths()
+
+        result = self.run_gpls()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.repo / "base.txt").read_text(encoding="utf-8"), "local dirty\n")
+        self.assertEqual(
+            (self.repo / "untracked file.txt").read_text(encoding="utf-8"),
+            "untracked\n",
+        )
+        stash_list = run_git(self.repo, "stash", "list", "--format=%H %s").stdout
+        self.assertIn(unrelated_oid, stash_list)
+        self.assertIn("unrelated stash", stash_list)
+        self.assertNotIn("autostash-before-pull", stash_list)
+        self.assertEqual(self.worktree_paths(), worktrees_before)
+
+    def test_preflight_conflict_keeps_stash_and_removes_temp_worktree(self) -> None:
+        self.commit_upstream("base.txt", "upstream version\n", "change base upstream")
+        (self.repo / "base.txt").write_text("local dirty version\n", encoding="utf-8")
+        worktrees_before = self.worktree_paths()
+
+        result = self.run_gpls()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Stash apply would conflict", result.stdout)
+        self.assertEqual((self.repo / "base.txt").read_text(encoding="utf-8"), "upstream version\n")
+        self.assertEqual(run_git(self.repo, "status", "--porcelain").stdout, "")
+        self.assertIn("autostash-before-pull", run_git(self.repo, "stash", "list").stdout)
+        self.assertEqual(self.worktree_paths(), worktrees_before)
+
+    def test_rebase_conflict_preserves_stash_for_recovery(self) -> None:
+        (self.repo / "base.txt").write_text("local commit\n", encoding="utf-8")
+        run_git(self.repo, "add", "base.txt")
+        run_git(self.repo, "commit", "-m", "local change")
+        self.commit_upstream("base.txt", "upstream commit\n", "upstream change")
+        (self.repo / "untracked recovery.txt").write_text("recover me\n", encoding="utf-8")
+
+        result = self.run_gpls()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pull/reconciliation failed", result.stdout)
+        self.assertIn("autostash-before-pull", run_git(self.repo, "stash", "list").stdout)
+        git_dir = Path(run_git(self.repo, "rev-parse", "--git-dir").stdout.strip())
+        if not git_dir.is_absolute():
+            git_dir = self.repo / git_dir
+        self.assertTrue((git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists())
+        run_git(self.repo, "rebase", "--abort")
+
+    def test_invalid_arguments_refuse_without_changing_repository(self) -> None:
+        before = run_git(self.repo, "status", "--porcelain=v1").stdout
+
+        option = self.run_gpls("--unknown")
+        argument = self.run_gpls("unexpected value")
+
+        self.assertEqual(option.returncode, 1)
+        self.assertIn("unknown option", option.stderr)
+        self.assertEqual(argument.returncode, 1)
+        self.assertIn("unexpected argument", argument.stderr)
+        self.assertEqual(run_git(self.repo, "status", "--porcelain=v1").stdout, before)
 
 
 @unittest.skipUnless(shutil.which("pwsh"), "pwsh is required")

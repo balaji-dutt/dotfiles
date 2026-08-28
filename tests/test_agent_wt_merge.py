@@ -49,6 +49,12 @@ class GitFixture:
         self.remote = self.root / "origin remote.git"
         self.fake_bin = self.root / "fake bin"
         self.bd_log = self.root / "bd log.json"
+        self.git_config = self.root / "isolated gitconfig"
+        self.git_config.write_text("", encoding="utf-8")
+        self.env = os.environ.copy()
+        self.env["GIT_CONFIG_GLOBAL"] = str(self.git_config)
+        self.env["GIT_CONFIG_SYSTEM"] = os.devnull
+        self.env["GIT_TERMINAL_PROMPT"] = "0"
 
         self.main.mkdir()
         self.git(self.main, "init", "-b", "main")
@@ -103,7 +109,7 @@ if os.environ.get("FAKE_BD_FAIL"):
         self._temporary.cleanup()
 
     def git(self, cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        return run_git(cwd, *args, check=check)
+        return run_git(cwd, *args, env=self.env, check=check)
 
     def output(self, cwd: Path, *args: str) -> str:
         return self.git(cwd, *args).stdout.strip()
@@ -262,7 +268,7 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
         *args: str,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
+        env = self.env.copy()
         for key in EXEC_ENV_KEYS:
             env.pop(key, None)
         env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")

@@ -166,6 +166,14 @@
       "requires": ["git"]
     },
     {
+      "id": "git-user-hooks",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_git_user_hooks"],
+      "covers": ["tests/test_git_user_hooks.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["git", "sh"]
+    },
+    {
       "id": "gitlab-ci",
       "suites": ["fast"],
       "argv": ["{python}", "-m", "unittest", "tests.test_gitlab_ci"],

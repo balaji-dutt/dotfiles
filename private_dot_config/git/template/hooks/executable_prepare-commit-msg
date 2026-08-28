@@ -10,6 +10,11 @@ armed="$(git config --global --bool --get coauthor.gptNext 2>/dev/null || true)"
 # Disarm immediately (one-shot)
 git config --global --unset-all coauthor.gptNext 2>/dev/null || true
 
+if [ ! -f "$msgfile" ]; then
+  echo "ERROR: commit message file does not exist: $msgfile" >&2
+  exit 1
+fi
+
 # Local trailer overrides global trailer
 co="$(git config --local --get coauthor.gptTrailer 2>/dev/null || true)"
 if [ -z "$co" ]; then

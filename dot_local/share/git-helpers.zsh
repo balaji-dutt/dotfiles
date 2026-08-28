@@ -178,6 +178,8 @@ git_pull_rebase_then_apply_stash() {
     fi
     if [[ $? -ne 0 ]]; then
         echo "Failed to create temporary worktree for preflight."
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return 1
     fi
 
@@ -229,6 +231,8 @@ git_pull_rebase_then_apply_stash() {
                 sed -n '1,120p' "$preflight_log"
             fi
         fi
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return 1
     fi
 
@@ -262,6 +266,8 @@ git_pull_rebase_then_apply_stash() {
         fi
 
         rm -f "$apply_log" >/dev/null 2>&1 || true
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return $apply_exit
     fi
 
@@ -273,6 +279,8 @@ git_pull_rebase_then_apply_stash() {
     stash_ref="$(_gpls_stash_ref_for_oid "$after")"
     if [[ -z "$stash_ref" ]]; then
         echo "Applied stash but could not locate it for exact drop: $after"
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return 1
     fi
     git stash drop "$stash_ref" >/dev/null 2>&1
@@ -280,14 +288,20 @@ git_pull_rebase_then_apply_stash() {
 
     if [[ $drop_exit -ne 0 ]]; then
         echo "Applied stash but failed to drop it: $stash_ref"
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return $drop_exit
     fi
 
     if ! _gpls_finalize_guarded_sync; then
         echo "Stash restored, but guarded main sync finalization failed; recovery state was retained."
+        _gpls_cleanup
+        trap - EXIT INT TERM
         return 1
     fi
 
+    _gpls_cleanup
+    trap - EXIT INT TERM
     print -r -- "[gpls $(date '+%H:%M:%S')] done" >&2
     return 0
 }
