@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
+import dataclasses
 import errno
 import importlib.machinery
 import importlib.util
@@ -13,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -794,6 +796,241 @@ class RepoLockTests(unittest.TestCase):
                 lock.__enter__()
             self.assertIsNone(lock.handle)
         sleep.assert_not_called()
+
+    @unittest.skipIf(ai_wt.IS_WINDOWS, "POSIX flock contract")
+    def test_posix_lock_waits_for_another_process_and_then_releases(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ai-wt lock ") as temp_dir:
+            lock_path = Path(temp_dir) / "repo.lock"
+            holder = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import fcntl, pathlib, sys, time; "
+                        "p=pathlib.Path(sys.argv[1]); p.parent.mkdir(parents=True, exist_ok=True); "
+                        "h=p.open('a+'); fcntl.flock(h.fileno(), fcntl.LOCK_EX); "
+                        "print('ready', flush=True); time.sleep(0.35)"
+                    ),
+                    str(lock_path),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                assert holder.stdout is not None
+                self.assertEqual(holder.stdout.readline().strip(), "ready")
+                started = time.monotonic()
+                with ai_wt.RepoLock(lock_path):
+                    elapsed = time.monotonic() - started
+                stdout, stderr = holder.communicate(timeout=2)
+            finally:
+                if holder.poll() is None:
+                    holder.kill()
+                    holder.communicate()
+
+            self.assertEqual(holder.returncode, 0, stderr)
+            self.assertEqual(stdout, "")
+            self.assertGreaterEqual(elapsed, 0.15)
+
+
+class WorktreeLifecycleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="ai-wt lifecycle ")
+        root = Path(self.temporary.name)
+        self.repo = root / "source repo"
+        self.worktrees = root / "managed worktrees"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.name", "AI WT Tests")
+        self.git("config", "user.email", "ai-wt@example.invalid")
+        (self.repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
+        self.git("add", "tracked.txt")
+        self.git("commit", "-qm", "initial")
+        common_dir = Path(
+            self.git("rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
+        ).resolve()
+        self.config = ai_wt.Config(
+            repo_root=self.repo,
+            git_common_dir=common_dir,
+            worktree_parent=self.worktrees,
+            path_template="{worktree_parent}/{slug}-{session}",
+            state_dir=self.repo / ".ai-wt",
+            base_ref="HEAD",
+            delete_branch_on_cleanup=False,
+            cleanup_dirty="keep",
+            update_exclude=False,
+            opencode_command=sys.executable,
+            opencode_profile=None,
+            claude_command=sys.executable,
+            submodule_init=False,
+        )
+
+    def tearDown(self) -> None:
+        subprocess.run(
+            ["git", "-C", str(self.repo), "worktree", "prune"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.temporary.cleanup()
+
+    def git(self, *args: str, capture: bool = False) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        return result.stdout.strip() if capture else ""
+
+    def metadata(
+        self,
+        session_id: str,
+        branch: str,
+        worktree_path: Path,
+        *,
+        created: bool,
+    ) -> dict[str, object]:
+        item: dict[str, object] = {
+            "version": ai_wt.VERSION,
+            "session_id": session_id,
+            "repo_root": str(self.repo),
+            "branch": branch,
+            "branch_created": created,
+            "worktree_path": str(worktree_path),
+            "cleanup_status": "created",
+        }
+        ai_wt.write_metadata(self.config, item)
+        return item
+
+    def branch_names(self) -> list[str]:
+        return self.git("branch", "--format=%(refname:short)", capture=True).splitlines()
+
+    def test_new_branch_lifecycle_removes_only_managed_state(self) -> None:
+        branch = "feat/path-with-spaces"
+        worktree_path = self.worktrees / "session with spaces"
+        self.git("branch", "unrelated")
+
+        created = ai_wt.create_worktree(self.config, branch, worktree_path)
+        metadata = self.metadata("new-branch", branch, worktree_path, created=created)
+
+        self.assertTrue(created)
+        self.assertTrue(worktree_path.is_dir())
+        self.assertTrue(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=False,
+                dry_run=False,
+                auto=False,
+            )
+        )
+        self.assertFalse(worktree_path.exists())
+        self.assertFalse(ai_wt.metadata_path(self.config, "new-branch").exists())
+        self.assertNotIn(branch, self.branch_names())
+        self.assertIn("unrelated", self.branch_names())
+
+    def test_dirty_cleanup_refuses_and_force_retry_is_idempotent(self) -> None:
+        branch = "fix/dirty-retry"
+        worktree_path = self.worktrees / "dirty session"
+        created = ai_wt.create_worktree(self.config, branch, worktree_path)
+        metadata = self.metadata("dirty-retry", branch, worktree_path, created=created)
+        (worktree_path / "untracked.txt").write_text("keep me\n", encoding="utf-8")
+
+        self.assertFalse(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=False,
+                dry_run=False,
+                auto=False,
+            )
+        )
+        self.assertTrue(worktree_path.exists())
+        self.assertTrue(ai_wt.metadata_path(self.config, "dirty-retry").exists())
+
+        self.assertTrue(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=True,
+                dry_run=False,
+                auto=False,
+            )
+        )
+        self.assertFalse(worktree_path.exists())
+        self.assertFalse(ai_wt.metadata_path(self.config, "dirty-retry").exists())
+        self.assertTrue(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=True,
+                dry_run=False,
+                auto=False,
+            )
+        )
+
+    def test_preexisting_branch_requires_force_before_deletion(self) -> None:
+        branch = "feat/preexisting"
+        worktree_path = self.worktrees / "existing branch"
+        self.git("branch", branch)
+        created = ai_wt.create_worktree(self.config, branch, worktree_path)
+        metadata = self.metadata("preexisting", branch, worktree_path, created=created)
+
+        self.assertFalse(created)
+        self.assertFalse(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=False,
+                dry_run=False,
+                auto=False,
+            )
+        )
+        self.assertFalse(worktree_path.exists())
+        self.assertIn(branch, self.branch_names())
+        self.assertTrue(ai_wt.metadata_path(self.config, "preexisting").exists())
+
+        self.assertTrue(
+            ai_wt.cleanup_session(
+                self.config,
+                metadata,
+                delete=True,
+                force=True,
+                dry_run=False,
+                auto=False,
+            )
+        )
+        self.assertNotIn(branch, self.branch_names())
+        self.assertFalse(ai_wt.metadata_path(self.config, "preexisting").exists())
+
+    def test_submodule_failure_rolls_back_worktree_and_branch_for_retry(self) -> None:
+        branch = "fix/submodule-retry"
+        worktree_path = self.worktrees / "failed setup"
+        failing_config = dataclasses.replace(self.config, submodule_init=True)
+        real_run_git = ai_wt.run_git
+
+        def fail_submodule(repo_root, args, **kwargs):
+            if args[:2] == ["submodule", "update"]:
+                raise subprocess.CalledProcessError(19, ["git", *args])
+            return real_run_git(repo_root, args, **kwargs)
+
+        with mock.patch.object(ai_wt, "run_git", side_effect=fail_submodule):
+            with self.assertRaisesRegex(
+                ai_wt.AiWtError, "submodule update failed with exit 19"
+            ):
+                ai_wt.create_worktree(failing_config, branch, worktree_path)
+
+        self.assertFalse(worktree_path.exists())
+        self.assertNotIn(branch, self.branch_names())
+        self.assertTrue(ai_wt.create_worktree(self.config, branch, worktree_path))
 
 
 @unittest.skipUnless(os.name == "nt", "requires cmd.exe")

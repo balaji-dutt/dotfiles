@@ -700,6 +700,27 @@ def create_worktree(config: Config, branch: str, worktree_path: Path) -> bool:
         try:
             run_git(worktree_path, ["submodule", "update", "--init", "--recursive"], capture=False)
         except subprocess.CalledProcessError as exc:
+            rollback_ok = True
+            try:
+                run_git(
+                    config.repo_root,
+                    ["worktree", "remove", "--force", str(worktree_path)],
+                    capture=False,
+                )
+            except subprocess.CalledProcessError as rollback_exc:
+                rollback_ok = False
+                eprint(
+                    "warning: could not roll back failed worktree "
+                    f"{worktree_path}: git exited {rollback_exc.returncode}"
+                )
+            if not existed and rollback_ok and branch_exists(config.repo_root, branch):
+                try:
+                    run_git(config.repo_root, ["branch", "-D", branch], capture=False)
+                except subprocess.CalledProcessError as rollback_exc:
+                    eprint(
+                        "warning: could not remove branch created for failed worktree "
+                        f"{branch}: git exited {rollback_exc.returncode}"
+                    )
             die(f"git submodule update failed with exit {exc.returncode}")
     return not existed
 

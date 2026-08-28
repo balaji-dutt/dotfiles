@@ -78,9 +78,14 @@
         "status": "covered",
         "work_item": "dots-4jy.10.3.1",
         "test_paths": ["tests/test_ai_wt.py"],
-        "behavior_requirements": []
+        "behavior_requirements": [
+          "Creates and cleans real temporary Git worktrees without affecting unrelated branches or paths",
+          "Refuses unsafe dirty or pre-existing branch cleanup unless force is explicit",
+          "Serializes repository mutations under lock contention on supported platforms",
+          "Rolls back partial worktree creation so a failed setup can be retried safely"
+        ]
       },
-      "rationale": "The current suite covers the shared Python implementation and launch contracts."
+      "rationale": "The suite covers launch contracts plus real Git lifecycle, path, lock, cleanup, and partial-failure recovery behavior."
     },
     {
       "id": "archived-automation",
