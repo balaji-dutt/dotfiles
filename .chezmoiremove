@@ -31,3 +31,26 @@ Documents/development/container-dotfiles/dotfiles/assets/workspace-templates/hom
 # every apply, so a future hand-rolled tmux.conf gets deleted too - drop this
 # line first if you ever want one, and re-check AoE's "auto" settings.
 .config/tmux/tmux.conf
+
+# Retired Claude Code unslop command wrappers. Each name also exists as a skill
+# under .claude/skills/, and Claude Code lists skills and commands in one slash
+# menu, so a wrapper of the same name shows up as a duplicate entry. The three
+# mode commands (unslop-full, unslop-subtle, unslop-voice-match) have no
+# matching skill directory and must stay out of this list, so these stay as
+# explicit paths - a .claude/commands/unslop*.md glob would delete them too.
+# Every entry re-runs on each apply; to bring a same-named wrapper back, delete
+# its line here first.
+.claude/commands/unslop.md
+.claude/commands/unslop-commit.md
+.claude/commands/unslop-file.md
+.claude/commands/unslop-file-voice.md
+.claude/commands/unslop-help.md
+.claude/commands/unslop-reasoning.md
+.claude/commands/unslop-review.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-commit.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-file.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-file-voice.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-help.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-reasoning.md
+Documents/development/container-dotfiles/dotfiles/.claude/commands/unslop-review.md
