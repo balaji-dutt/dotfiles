@@ -12,7 +12,7 @@ Documents/development/container-dotfiles/dotfiles/.config/opencode/profiles/copi
 
 # Retired OpenCode bridge compatibility shim.
 .config/opencode/plugins/opencode-claude-bridge-compat.js
-Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/plugins/opencode-claude-bridge-compat.js
+Documents/development/container-dotfiles/dotfiles/.config/opencode/plugins/opencode-claude-bridge-compat.js
 
 # Retired snip binary previously installed by WSL provisioning.
 .local/bin/snip
