@@ -134,9 +134,9 @@
     directory = /mnt/devdrive/homelab-IaC
     directory = /mnt/devdrive/hosted-servers-iac
     directory = /mnt/devdrive/agentic-tooling
-    directory = /mnt/devdrive/agentic-tooling/.git
+    directory = /mnt/devdrive/agentic-tooling/worktrees/*
     directory = /mnt/devdrive/Beads-Kanban
-    directory = /mnt/devdrive/Beads-Kanban/.git
+    directory = /mnt/devdrive/Beads-Kanban/worktrees/*
 {{- else if $isDarwin }}
 [diff]
     mnemonicPrefix = true
@@ -167,8 +167,13 @@
     ui = true
 [safe]
     directory = /Volumes/devdrive/homelab-IaC
+    directory = /Volumes/devdrive/homelab-IaC/worktrees/*
     directory = /Volumes/devdrive/hosted-servers-iac
     directory = /Volumes/devdrive/agentic-tooling
+    directory = /Volumes/devdrive/agentic-tooling/worktrees/*
+    directory = /Volumes/devdrive/Beads-Kanban
+    directory = /Volumes/devdrive/Beads-Kanban/worktrees/*
+
 {{- else if $isWindows }}
 [diff]
     mnemonicPrefix = true
