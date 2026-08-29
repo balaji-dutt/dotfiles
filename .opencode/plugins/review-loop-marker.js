@@ -244,18 +244,9 @@ export default async (ctx = {}) => {
     return normalize(p).toLowerCase();
   }
 
-  const baseNorm = normalize(baseDir);
-  const baseNormLower = normalizeLower(baseDir);
-  const isWin = process.platform === "win32";
-
   function isInsideRepo(p) {
     if (!p) return false;
-    if (path.isAbsolute(p)) {
-      const nl = normalizeLower(p);
-      return isWin
-        ? nl.startsWith(baseNormLower)
-        : normalize(p).startsWith(baseNorm);
-    }
+    if (path.isAbsolute(p)) return isPathInside(p, baseDir);
     return true;
   }
 

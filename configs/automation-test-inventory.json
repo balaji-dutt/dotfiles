@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:6a1f5a719947d19cb0c511729b5a3e3195d910021baf54c801f65843770853be",
+  "candidate_digest": "sha256:1a2b89aa1a9aa65d8a3441d4dd4a7be0348d3a9fbc593954804d38baeaa1fd6c",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -320,7 +320,7 @@
       "classification": "excluded",
       "paths": ["tests/*.py", "tests/support/**"],
       "owner": {"kind": "repository", "name": "test harness implementation"},
-      "languages": ["python"],
+      "languages": ["javascript", "python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "low",
       "side_effects": ["none"],
@@ -550,8 +550,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "repo-opencode-plugins", "status": "planned", "work_item": "dots-4jy.10.4.2", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Review-loop, editor, and event plugins need Node contract fixtures."
+      "coverage": {"suite_id": "repo-opencode-plugins", "status": "covered", "work_item": "dots-4jy.10.4.2", "test_paths": ["tests/test_repo_opencode_plugins.py"], "behavior_requirements": []},
+      "rationale": "Isolated Node contract tests cover review event and state transitions, strict gate clearing, editor suppression lifecycle, redacted event logging, malformed inputs, and swallowed client or filesystem failures without npm or host-state dependencies."
     },
     {
       "id": "shell-startup",

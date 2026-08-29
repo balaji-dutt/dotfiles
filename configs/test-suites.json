@@ -288,6 +288,13 @@
       "requires": ["sh"]
     },
     {
+      "id": "repo-opencode-plugins",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_repo_opencode_plugins"],
+      "covers": ["tests/test_repo_opencode_plugins.py"],
+      "requires": ["node"]
+    },
+    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],

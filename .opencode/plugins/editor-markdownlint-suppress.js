@@ -200,7 +200,7 @@ export default async (ctx = {}) => {
 
     dbg(`Polling ${dir} every 30ms (seeded ${seen.size} existing .md files)`);
 
-    setInterval(() => {
+    const pollTimer = setInterval(() => {
       try {
         const entries = readdirSync(dir);
         for (const f of entries) {
@@ -212,6 +212,7 @@ export default async (ctx = {}) => {
         }
       } catch {}
     }, 30);
+    pollTimer.unref?.();
   }
 
   // ── Resolve and start watching/polling ────────────────────────────────────

@@ -354,6 +354,7 @@ export default async (ctx = {}) => {
   // Blocks sub-sessions (parentID set) and the reviewer agent itself, avoiding
   // prompt injection into delegated review sessions.
   async function promptSessionDecision(sessionID) {
+    if (!sessionID) return { ok: true, reason: "" };
     const info = await sessionMeta(sessionID);
     if (!info) return { ok: false, reason: "missing-session-meta" };
     if (info.parentID) return { ok: false, reason: "sub-session" };
@@ -373,7 +374,9 @@ export default async (ctx = {}) => {
   function scheduleEnforce(trigger) {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      void enforceNow(trigger);
+      void enforceNow(trigger).catch((err) =>
+        appendDebug(`enforcement failed trigger=${trigger}: ${err?.message || String(err)}`)
+      );
     }, DEBOUNCE_MS);
     debounceTimer.unref?.();
     void appendDebug(`scheduled enforcement trigger=${trigger} delayMs=${DEBOUNCE_MS}`);
@@ -453,7 +456,8 @@ export default async (ctx = {}) => {
         await appendDebug("prompt inserted into TUI fallback");
       }
     } finally {
-      setTimeout(() => (inFlight = false), 500);
+      const resetTimer = setTimeout(() => (inFlight = false), 500);
+      resetTimer.unref?.();
     }
   }
 
