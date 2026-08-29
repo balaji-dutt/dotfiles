@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:cf0004d0daaccf167956aa4e1a00462f2cfdc2594fdbf6d03f4aee2093c51682",
+  "candidate_digest": "sha256:1aefa68a17ba1a1b1806a8bea0f58fd73b7abab254fc94d4ff62914f04909cdd",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -56,12 +56,12 @@
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {
         "suite_id": "ai-tooling-policy",
-        "status": "partial",
+        "status": "covered",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_ai_tooling_drift.py", "tests/test_config_contracts.py"],
+        "test_paths": ["tests/test_ai_tooling_drift.py", "tests/test_claude_mcp_apply.py", "tests/test_config_contracts.py"],
         "behavior_requirements": []
       },
-      "rationale": "The drift checker is covered; MCP registration still needs isolated contract tests."
+      "rationale": "Offline suites cover AI tooling drift and deterministic MCP validation, filtering, executable resolution, replacement, and failure propagation without changing real Claude configuration."
     },
     {
       "id": "ai-worktree",
@@ -235,8 +235,14 @@
       "risk": "high",
       "side_effects": ["beads", "filesystem", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "claude-review-hooks", "status": "partial", "work_item": "dots-4jy.10.4.1", "test_paths": ["tests/test_remind_beads_hook.py"], "behavior_requirements": []},
-      "rationale": "The reminder hook has coverage; the shared review-gate paths remain planned."
+      "coverage": {
+        "suite_id": "claude-review-gate",
+        "status": "covered",
+        "work_item": "dots-4jy.10.4.1",
+        "test_paths": ["tests/test_claude_review_gate.py", "tests/test_claude_review_hook_wrappers.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Offline unit and temporary-Git suites cover review-gate state transitions, transcript validation, checkout isolation, path policy, legacy migration, and conservative wrapper fallbacks."
     },
     {
       "id": "claude-token-check",
@@ -314,7 +320,7 @@
       "classification": "excluded",
       "paths": ["tests/*.py", "tests/support/**"],
       "owner": {"kind": "repository", "name": "test harness implementation"},
-      "languages": ["python"],
+      "languages": ["javascript", "python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "low",
       "side_effects": ["none"],
@@ -476,20 +482,22 @@
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {
         "suite_id": "managed-ai-adapters",
-        "status": "partial",
+        "status": "covered",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_user_command_wrappers.py"],
+        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": [
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
-          {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Block destructive Beads operations and prevent adapters from exposing or using production secrets in tests.", "status": "planned", "test_paths": []},
+          {"id": "failure-managed-adapter-fallbacks", "kind": "failure", "description": "Reject malformed requests and state, preserve conservative provider fallback behavior, and keep permission capture failures from changing permission decisions.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
+          {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Enforce destructive Beads policy when hook prerequisites parse successfully, preserve fail-open behavior when they do not, and prevent adapters from exposing or using production secrets in tests.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "success-ccr-launch-idempotency", "kind": "success", "description": "Start the Claude Code Router once, skip an already-listening port, and record launch failures without affecting the real router.", "status": "covered", "test_paths": ["tests/test_user_command_wrappers.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "success-managed-compatibility", "kind": "success", "description": "Map quota, cited-search, permission-capture, and router requests through their supported cache, citation, redaction, and model-preset contracts.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
         ]
       },
-      "rationale": "Feature-CI reminders, profiles, dependency guards, and CCR launch idempotency have coverage; remaining adapters still need contract fixtures."
+      "rationale": "Registered offline suites cover managed OpenCode and CCR compatibility, destructive Beads policy, feature-CI reminders, profiles, dependency guards, and CCR launch idempotency without live credentials, network, or Beads mutations."
     },
     {
       "id": "mirrored-container-assets",
@@ -544,8 +552,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "repo-opencode-plugins", "status": "planned", "work_item": "dots-4jy.10.4.2", "test_paths": [], "behavior_requirements": []},
-      "rationale": "Review-loop, editor, and event plugins need Node contract fixtures."
+      "coverage": {"suite_id": "repo-opencode-plugins", "status": "covered", "work_item": "dots-4jy.10.4.2", "test_paths": ["tests/test_repo_opencode_plugins.py"], "behavior_requirements": []},
+      "rationale": "Isolated Node contract tests cover review event and state transitions, strict gate clearing, editor suppression lifecycle, redacted event logging, malformed inputs, and swallowed client or filesystem failures without npm or host-state dependencies."
     },
     {
       "id": "shell-startup",

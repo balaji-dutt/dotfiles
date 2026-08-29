@@ -26,6 +26,12 @@
       "requires": ["git"]
     },
     {
+      "id": "ai-tooling-policy",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_claude_mcp_apply"],
+      "covers": ["tests/test_claude_mcp_apply.py"]
+    },
+    {
       "id": "ai-worktree",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_ai_wt"],
@@ -109,6 +115,13 @@
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_sync_browser_policies"],
       "covers": ["tests/test_sync_browser_policies.py"]
+    },
+    {
+      "id": "claude-review-gate",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_claude_review_gate", "tests.test_claude_review_hook_wrappers"],
+      "covers": ["tests/test_claude_review_gate.py", "tests/test_claude_review_hook_wrappers.py"],
+      "requires": ["bash", "git"]
     },
     {
       "id": "claude-token-check",
@@ -239,6 +252,13 @@
       "requires": ["bash"]
     },
     {
+      "id": "managed-ai-adapters",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_managed_ai_adapters"],
+      "covers": ["tests/test_managed_ai_adapters.py"],
+      "requires": ["bash", "node"]
+    },
+    {
       "id": "notifier-bridge",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_notifier_bridge"],
@@ -279,6 +299,13 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_remind_beads_hook"],
       "covers": ["tests/test_remind_beads_hook.py"],
       "requires": ["sh"]
+    },
+    {
+      "id": "repo-opencode-plugins",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_repo_opencode_plugins"],
+      "covers": ["tests/test_repo_opencode_plugins.py"],
+      "requires": ["node"]
     },
     {
       "id": "statusline-sync-provenance",
