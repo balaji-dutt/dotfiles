@@ -30,15 +30,38 @@
 {{- if gt (len (trim $input)) 0 -}}
 {{-   $live = ($input | fromToml) | default dict -}}
 {{- end -}}
-{{- /* Prune keys retired by aoe 1.13.2, including from generated targets that aoe never opens. */ -}}
+{{- /* Prune retired settings from live inputs, including generated targets that AoE never opens. */ -}}
 {{- if hasKey $live "session" -}}
-{{-   $_ := unset (get $live "session") "new_session_attach_mode" -}}
+{{-   $session := get $live "session" -}}
+{{-   if and (kindIs "map" $session) (hasKey $session "conversation_summary_agent") -}}
+{{-     $oldValue := get $session "conversation_summary_agent" -}}
+{{-     $carriesMeaning := true -}}
+{{-     if and (kindIs "string" $oldValue) (eq $oldValue "") -}}
+{{-       $carriesMeaning = false -}}
+{{-     end -}}
+{{-     if and (not (hasKey $session "smart_rename_agent")) $carriesMeaning -}}
+{{-       $_ := set $session "smart_rename_agent" $oldValue -}}
+{{-     end -}}
+{{-     $_ := unset $session "conversation_summary_agent" -}}
+{{-   end -}}
 {{- end -}}
-{{- if hasKey $live "status_hooks" -}}
-{{-   $_ := unset (get $live "status_hooks") "debounce_ms" -}}
-{{- end -}}
-{{- if hasKey $live "worktree" -}}
-{{-   $_ := unset (get $live "worktree") "show_branch_in_tui" -}}
+{{- $retired := dict
+      "session" (list "new_session_attach_mode" "smart_rename_timing" "session_id_poller_max_threads")
+      "updates" (list "check_interval_hours" "notify_in_cli" "web_poll_interval_minutes")
+      "acp" (list "replay_bytes" "max_concurrent_resumes" "force_end_turn_threshold_secs" "silent_orphan_fast_grace_secs" "rate_limit_auto_resume_grace_secs" "queue_drain_mode")
+      "status_hooks" (list "debounce_ms")
+      "sound" (list "mode")
+      "worktree" (list "show_branch_in_tui")
+-}}
+{{- range $sectionName, $keys := $retired -}}
+{{-   if hasKey $live $sectionName -}}
+{{-     $section := get $live $sectionName -}}
+{{-     if kindIs "map" $section -}}
+{{-       range $key := $keys -}}
+{{-         $_ := unset $section $key -}}
+{{-       end -}}
+{{-     end -}}
+{{-   end -}}
 {{- end -}}
 {{- $repo := `
 [acp]

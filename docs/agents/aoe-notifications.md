@@ -180,6 +180,13 @@ for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
 done
 ```
 
+The live-file merge can also preserve retired keys that are outside the
+overlay. Generated targets may never be opened by AoE before another process
+copies them over an already-migrated config, so AoE's one-time migrations
+cannot clean them. After an upgrade, review upstream config migrations and any
+ignored-key warnings, then mirror the required rename/prune semantics in the
+modify-template.
+
 Use `aoe settings explain <section>.<field>` to see whether a value is a
 persisted user value or a schema default before adding it to the overlay. Note
 that "equals the schema default" is not sufficient reason to drop a key: AoE
