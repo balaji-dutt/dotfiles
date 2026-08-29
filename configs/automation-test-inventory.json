@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:4611f1bfdd27f1cab12f2edf3b1a87b402bdad47a2029ebce101572d1401496c",
+  "candidate_digest": "sha256:e78f4473ff0d7c1edd375bb04b8eb17b6d5360bde983c3d0899ddfd3957317a4",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -455,17 +455,18 @@
         "suite_id": "lifecycle-posix",
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py", "tests/test_retire_legacy_cbm_mise.py"],
+        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_retire_legacy_cbm_mise.py"],
         "behavior_requirements": [
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Prevent unsupported-host mutation, unrelated formula or tap removal in untested retirement hooks, installer side effects, and production secret access across untested lifecycle hooks.", "status": "planned", "test_paths": []},
           {"id": "safety-legacy-cbm-retirement-scope", "kind": "safety", "description": "Retire only fully qualified versions discovered under the exact UBI backend on Darwin or WSL2 while preserving unrelated installs and unsupported hosts.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "success-legacy-cbm-retirement", "kind": "success", "description": "Remove all inactive legacy UBI CBM versions, reshim, verify the active GitHub replacement, and no-op idempotently when the backend is absent.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Linux, macOS, Windows, and WSL2 data and parse non-empty POSIX outputs.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute the selected host refresh hook idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]}
         ]
       },
-      "rationale": "Selected hooks have isolated tests, including exact-backend CBM retirement with failure and idempotence coverage; the full lifecycle render and execution matrix remains planned."
+      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected hooks include isolated host refresh and exact-backend CBM retirement behavior; broad lifecycle execution remains planned."
     },
     {
       "id": "lifecycle-windows",
@@ -481,7 +482,7 @@
         "suite_id": "lifecycle-windows",
         "status": "partial",
         "work_item": "dots-4jy.10.5.4",
-        "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"],
+        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"],
         "behavior_requirements": [
           {"id": "failure-claude-git-transport-diagnostics", "kind": "failure", "description": "Fail before launch when OpenSSH is unavailable and report fingerprint-verification and known_hosts remediation for SSH host-key failures.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "failure-claude-mutation-timeout-retry", "kind": "failure", "description": "Preserve timeout classification through cleanup, stop later Claude mutations after the first timeout, continue OpenCode work, and return nonzero for a later retry.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
@@ -490,10 +491,11 @@
           {"id": "safety-claude-process-tree-containment", "kind": "safety", "description": "Contain each Claude mutation, reap descendants after normal exit or timeout, fail closed before an uncontained launch, and preserve unrelated processes.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Keep broad lifecycle tests from mutating the real Windows profile, installers, or production secrets.", "status": "planned", "test_paths": []},
           {"id": "success-bounded-claude-mutations", "kind": "success", "description": "Complete bounded Claude mutation commands with compatible output, exit status, and child-local environment behavior.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
+          {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Windows data and parse non-empty PowerShell outputs without host mutation.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected Windows installer and refresh paths idempotently in synthetic state.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"]}
         ]
       },
-      "rationale": "Selected installers have tests; broad Pester and rendered-template coverage remains planned."
+      "rationale": "All lifecycle templates render under synthetic Windows data and pass PowerShell AST parsing. Selected installers have behavior tests; broad Pester coverage remains planned."
     },
     {
       "id": "managed-ai-adapters",
@@ -603,8 +605,8 @@
       "risk": "high",
       "side_effects": ["host-config", "process", "secrets"],
       "test_layers": ["contract", "platform-smoke", "render", "unit"],
-      "coverage": {"suite_id": "shell-startup", "status": "partial", "work_item": "dots-4jy.10.5.3", "test_paths": ["tests/test_envrc.py", "tests/test_guarded_main_sync.py"], "behavior_requirements": []},
-      "rationale": "Environment loading and real-repository gpls tests cover clean pulls, exact stash restoration, conflict recovery, temporary-worktree cleanup, paths with spaces, and argument refusal; broader startup ordering and remaining helpers are still planned."
+      "coverage": {"suite_id": "shell-startup", "status": "partial", "work_item": "dots-4jy.10.5.3", "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py"], "behavior_requirements": []},
+      "rationale": "Synthetic platform fixtures render and parse Bash and Zsh startup sources. Environment loading and real-repository gpls tests cover clean pulls, exact stash restoration, conflict recovery, temporary-worktree cleanup, paths with spaces, and argument refusal; broader startup ordering and remaining helpers are still planned."
     },
     {
       "id": "sync-tooling",
@@ -718,10 +720,10 @@
         "suite_id": "windows-shell",
         "status": "partial",
         "work_item": "dots-4jy.10.5.5",
-        "test_paths": ["tests/test_ai_wt.py", "tests/test_guarded_main_sync.py"],
+        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_guarded_main_sync.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered native-Windows cases exercise guarded gpls dispatch and commit-wrapper identity, argument forwarding, attestation transports, fallback, and one-shot state. Profiles, drive mapping, Pageant, and environment fragments still need broader coverage."
+      "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Registered native-Windows cases cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state; profiles, drive mapping, Pageant, and environment fragments still need broader behavior coverage."
     },
     {
       "id": "wsl-provisioning",

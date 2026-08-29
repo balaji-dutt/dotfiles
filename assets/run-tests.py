@@ -52,7 +52,7 @@ class ConfigurationError(ValueError):
 @dataclass(frozen=True)
 class Capability:
     name: str
-    command: str
+    commands: tuple[str, ...]
     probe: tuple[str, ...]
 
 
@@ -138,15 +138,36 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
         if not isinstance(raw, dict):
             raise ConfigurationError(f"capabilities.{name} must be an object")
         command = raw.get("command")
-        if not isinstance(command, str) or not command:
-            raise ConfigurationError(f"capabilities.{name}.command must be a non-empty string")
+        commands_value = raw.get("commands")
+        if command is not None and commands_value is not None:
+            raise ConfigurationError(
+                f"capabilities.{name} must define only one of command or commands"
+            )
+        if command is not None:
+            if not isinstance(command, str) or not command:
+                raise ConfigurationError(f"capabilities.{name}.command must be a non-empty string")
+            commands = (command,)
+        else:
+            commands = _string_list(commands_value, f"capabilities.{name}.commands")
+        for command_index, command_value in enumerate(commands):
+            _validate_placeholders(
+                command_value,
+                f"capabilities.{name}.commands[{command_index}]",
+                STEP_PLACEHOLDERS,
+            )
         probe = _string_list(
             raw.get("probe", []),
             f"capabilities.{name}.probe",
             allow_empty=True,
             allow_duplicates=True,
         )
-        capabilities[name] = Capability(name, command, probe)
+        for probe_index, probe_value in enumerate(probe):
+            _validate_placeholders(
+                probe_value,
+                f"capabilities.{name}.probe[{probe_index}]",
+                STEP_PLACEHOLDERS,
+            )
+        capabilities[name] = Capability(name, commands, probe)
 
     raw_steps = payload.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
@@ -295,21 +316,35 @@ def capability_reason(
     env: dict[str, str],
     repo_root: Path,
 ) -> str | None:
-    executable = shutil.which(capability.command, path=env.get("PATH"))
+    replacements = {"python": sys.executable, "repo": str(repo_root)}
+    commands = tuple(command.format(**replacements) for command in capability.commands)
+    executable = next(
+        (
+            resolved
+            for command in commands
+            if (resolved := shutil.which(command, path=env.get("PATH"))) is not None
+        ),
+        None,
+    )
     if executable is None:
-        return f"missing capability {capability.name} ({capability.command})"
+        return f"missing capability {capability.name} ({' or '.join(commands)})"
     if not capability.probe:
         return None
-    probe = [executable if index == 0 else value for index, value in enumerate(capability.probe)]
-    result = subprocess.run(
-        probe,
-        cwd=repo_root,
-        env=env,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    probe = [value.format(**replacements) for value in capability.probe]
+    probe[0] = executable
+    try:
+        result = subprocess.run(
+            probe,
+            cwd=repo_root,
+            env=env,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return f"capability {capability.name} probe timed out"
     if result.returncode != 0:
         return f"capability probe failed for {capability.name} (exit {result.returncode})"
     return None

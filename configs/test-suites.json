@@ -4,9 +4,18 @@
   "capabilities": {
     "bash": {"command": "bash"},
     "devcontainer-smoke": {"command": "python3", "probe": ["python3", "assets/devcontainer-smoke.py", "--probe"]},
+    "chezmoi": {"command": "chezmoi"},
     "git": {"command": "git"},
     "node": {"command": "node"},
+    "pester": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester", "--repo-root", "{repo}"]
+    },
     "ps": {"command": "ps"},
+    "powershell-parser": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-parser", "--repo-root", "{repo}"]
+    },
     "pwsh": {"command": "pwsh"},
     "sh": {"command": "sh"},
     "zsh": {"command": "zsh"}
@@ -275,6 +284,28 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_host_ai_plugin_refresh_windows"],
       "covers": ["tests/test_host_ai_plugin_refresh_windows.py"],
       "requires": ["pwsh"]
+    },
+    {
+      "id": "lifecycle-render",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_chezmoi_lifecycle_render.LifecycleRenderMatrixTests"],
+      "covers": ["tests/test_chezmoi_lifecycle_render.py"],
+      "requires": ["chezmoi"]
+    },
+    {
+      "id": "lifecycle-render-posix",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_chezmoi_lifecycle_render.LifecyclePosixSyntaxTests"],
+      "covers": ["tests/test_chezmoi_lifecycle_render.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi", "zsh"]
+    },
+    {
+      "id": "lifecycle-render-powershell",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_chezmoi_lifecycle_render.LifecyclePowerShellSyntaxTests"],
+      "covers": ["tests/test_chezmoi_lifecycle_render.py"],
+      "requires": ["chezmoi", "powershell-parser"]
     },
     {
       "id": "macos-maintenance",

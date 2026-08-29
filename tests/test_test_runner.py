@@ -8,6 +8,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from tests.support import powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -163,6 +166,50 @@ class TestRunnerTests(unittest.TestCase):
         strict = self.fixture.run("--require-capabilities")
         self.assertEqual(strict.returncode, 1)
         self.assertIn("FAIL alpha: missing capability absent", strict.stdout)
+
+    def test_capability_uses_first_available_command_alternative(self) -> None:
+        self.fixture.capabilities = {
+            "python-runtime": {
+                "commands": ["definitely-not-a-real-command", "{python}"],
+                "probe": ["ignored", "-c", "raise SystemExit(0)"],
+            }
+        }
+        self.fixture.steps[0]["requires"] = ["python-runtime"]
+        self.fixture.write_registry()
+
+        result = self.fixture.run("--require-capability", "python-runtime")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS alpha", result.stdout)
+
+    def test_capability_alternatives_remain_visible_in_strict_diagnostic(self) -> None:
+        self.fixture.capabilities = {
+            "absent": {"commands": ["missing-first", "missing-second"]}
+        }
+        self.fixture.steps[0]["requires"] = ["absent"]
+        self.fixture.write_registry()
+
+        result = self.fixture.run("--require-capabilities")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing-first or missing-second", result.stdout)
+
+    def test_capability_rejects_mixed_forms_and_unknown_placeholders(self) -> None:
+        self.fixture.capabilities = {
+            "mixed": {"command": "python", "commands": ["python3"]}
+        }
+        self.fixture.write_registry()
+        mixed = self.fixture.run()
+        self.assertEqual(mixed.returncode, 2)
+        self.assertIn("only one of command or commands", mixed.stderr)
+
+        self.fixture.capabilities = {
+            "invalid": {"commands": ["{unsupported}"]}
+        }
+        self.fixture.write_registry()
+        invalid = self.fixture.run()
+        self.assertEqual(invalid.returncode, 2)
+        self.assertIn("unsupported placeholder", invalid.stderr)
 
     def test_selected_capability_requirement_preserves_other_skips(self) -> None:
         self.fixture.capabilities = {
@@ -370,10 +417,13 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Selected steps:", result.stdout)
 
-    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
     def test_powershell_wrapper_delegates_to_runner(self) -> None:
+        executable = powershell.resolve_powershell_runtime()
+        if executable is None:
+            self.skipTest("PowerShell is not installed")
+        wrapper = powershell.powershell_path(POWERSHELL_WRAPPER, executable)
         result = subprocess.run(
-            ["pwsh", "-NoProfile", "-File", str(POWERSHELL_WRAPPER), "--list", "fast"],
+            [executable, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper, "--list", "fast"],
             cwd=REPO_ROOT,
             check=False,
             text=True,
@@ -384,7 +434,7 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn("Selected steps:", result.stdout)
 
         invalid = subprocess.run(
-            ["pwsh", "-NoProfile", "-File", str(POWERSHELL_WRAPPER), "not-a-suite"],
+            [executable, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper, "not-a-suite"],
             cwd=REPO_ROOT,
             check=False,
             text=True,
@@ -393,6 +443,115 @@ class TestRunnerTests(unittest.TestCase):
         )
         self.assertEqual(invalid.returncode, 2, invalid.stderr)
         self.assertIn("invalid choice", invalid.stderr)
+
+
+class PowerShellSupportTests(unittest.TestCase):
+    def test_runtime_prefers_local_pwsh_then_wsl_executable(self) -> None:
+        def choose(command: str, *, path: str | None = None) -> str | None:
+            del path
+            return {"pwsh": None, "pwsh.exe": "/mnt/c/pwsh.exe"}.get(command)
+
+        with mock.patch.object(powershell.shutil, "which", side_effect=choose):
+            actual = powershell.resolve_powershell_runtime(
+                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}
+            )
+
+        self.assertEqual(actual, "/mnt/c/pwsh.exe")
+
+    def test_parser_prefers_runtime_without_container(self) -> None:
+        with (
+            mock.patch.object(
+                powershell, "resolve_powershell_runtime", return_value="/usr/bin/pwsh"
+            ),
+            mock.patch.object(powershell, "_container_runtime") as container_runtime,
+        ):
+            resolved = powershell.powershell_parser_command(
+                REPO_ROOT,
+                "fixture.ps1",
+                environ={"PATH": "/fixture"},
+            )
+
+        self.assertIsNotNone(resolved)
+        command, _ = resolved or ([], {})
+        self.assertEqual(command[0], "/usr/bin/pwsh")
+        container_runtime.assert_not_called()
+
+    def test_parser_container_is_static_evidence_only(self) -> None:
+        with (
+            mock.patch.object(powershell, "resolve_powershell_runtime", return_value=None),
+            mock.patch.object(powershell, "_container_runtime", return_value="/usr/bin/docker"),
+        ):
+            resolved = powershell.powershell_parser_command(
+                REPO_ROOT,
+                "fixture.ps1",
+                environ={"PATH": "/fixture"},
+                provision_container=False,
+            )
+
+        self.assertIsNotNone(resolved)
+        command, _ = resolved or ([], {})
+        self.assertIn("--network=none", command)
+        self.assertIn(powershell.POWERSHELL_AUDIT_IMAGE, command)
+        self.assertNotIn("Invoke-Pester", " ".join(command))
+
+    def test_parser_probe_does_not_provision_container(self) -> None:
+        with (
+            mock.patch.object(powershell, "resolve_powershell_runtime", return_value=None),
+            mock.patch.object(
+                powershell,
+                "_container_runtime",
+                return_value="/usr/bin/docker",
+            ),
+            mock.patch.object(powershell, "_ensure_audit_image") as ensure_image,
+        ):
+            result = powershell.main(
+                ["probe-parser", "--repo-root", str(REPO_ROOT)]
+            )
+
+        self.assertEqual(result, 0)
+        ensure_image.assert_not_called()
+
+    def test_pester_launcher_adapts_versions_without_installing(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, "ok", "")
+        for version, parameter in (((3, 4, 0), "-Script"), ((5, 7, 1), "-Path")):
+            with (
+                self.subTest(version=version),
+                mock.patch.object(
+                    powershell,
+                    "resolve_powershell_runtime",
+                    return_value="/usr/bin/pwsh",
+                ),
+                mock.patch.object(powershell, "pester_version", return_value=version),
+                mock.patch.object(
+                    powershell.subprocess, "run", return_value=completed
+                ) as run,
+            ):
+                result = powershell.run_pester(
+                    [Path("/fixture/Example.Tests.ps1")],
+                    repo_root=REPO_ROOT,
+                    environ={"PATH": "/fixture"},
+                )
+
+            self.assertEqual(result.returncode, 0)
+            command = run.call_args.args[0]
+            self.assertIn(parameter, command[-1])
+            self.assertNotIn("Install-Module", command[-1])
+
+    def test_pester_launcher_rejects_versions_before_3_4(self) -> None:
+        with (
+            mock.patch.object(
+                powershell,
+                "resolve_powershell_runtime",
+                return_value="/usr/bin/pwsh",
+            ),
+            mock.patch.object(powershell, "pester_version", return_value=(3, 3, 0)),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Pester 3.4 or newer"):
+                powershell.run_pester(
+                    [Path("tests/powershell/Example.Tests.ps1")],
+                    repo_root=REPO_ROOT,
+                    environ={"PATH": "/fixture"},
+                )
 
 
 if __name__ == "__main__":

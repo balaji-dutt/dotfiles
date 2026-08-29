@@ -29,9 +29,18 @@
     "capability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command"],
+      "oneOf": [
+        {"required": ["command"]},
+        {"required": ["commands"]}
+      ],
       "properties": {
         "command": {"type": "string", "minLength": 1},
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
         "probe": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     },

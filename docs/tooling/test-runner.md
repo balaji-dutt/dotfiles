@@ -95,22 +95,20 @@ Every top-level `tests/test_*.py` module must appear in the union of `covers`.
 The runner contract tests enforce that registration and specifically retain the
 existing `agent-worktree-merge` suite.
 
-Capabilities name an executable and may include a non-interactive probe. This
-also supports future Node and Pester steps without adding framework-specific
-runner branches. For example:
+Capabilities name one executable with `command`, or ordered alternatives with
+`commands`, and may include a non-interactive probe. The first executable found
+on `PATH` runs the probe with a 30-second timeout. Capability commands and
+probes support the same `{python}` and `{repo}` placeholders as step argv
+arrays. For example:
 
 ```json
 {
   "capabilities": {
     "node": {"command": "node"},
+    "pwsh": {"commands": ["pwsh", "pwsh.exe"]},
     "pester": {
-      "command": "pwsh",
-      "probe": [
-        "pwsh",
-        "-NoProfile",
-        "-Command",
-        "if (Get-Module -ListAvailable Pester) { exit 0 } else { exit 1 }"
-      ]
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester"]
     }
   },
   "steps": [
@@ -125,10 +123,10 @@ runner branches. For example:
       "id": "example-pester-contract",
       "suites": ["platform"],
       "argv": [
-        "pwsh",
-        "-NoProfile",
-        "-Command",
-        "Invoke-Pester tests/powershell/Example.Tests.ps1 -CI"
+        "{python}",
+        "{repo}/tests/support/powershell.py",
+        "run-pester",
+        "{repo}/tests/powershell/Example.Tests.ps1"
       ],
       "covers": ["tests/powershell/Example.Tests.ps1"],
       "platforms": ["windows"],
@@ -138,8 +136,18 @@ runner branches. For example:
 }
 ```
 
-The excerpt illustrates the schema only; those example paths are not registered
-production tests.
+The excerpt illustrates the schema only; the example test path is not a
+registered production test.
+
+`tests/support/powershell.py` keeps static parsing separate from behavioral
+execution. It resolves `pwsh` first and native `pwsh.exe` from WSL2 second. If
+neither exists, parser-only checks may use the retained
+`local/powershell-audit:lts` Docker or Podman image built from
+`assets/Dockerfile.powershell-audit`. That image provides AST evidence only and
+does not satisfy the `pwsh` or `pester` capabilities. Behavioral PowerShell
+tests require a local/native runtime. The Pester probe accepts installed Pester
+3.4 or newer, and the shared launcher selects the compatible Pester 3 or 5
+invocation without installing or upgrading host modules.
 
 ## Isolation contract
 
