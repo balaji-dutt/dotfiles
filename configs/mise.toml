@@ -8,7 +8,9 @@ node = "lts"
 # manually published by aws-sdk-bot during smithy-lang/smithy-typescript#2228's
 # Changesets v3 release failure; registry signatures/integrity present, but no
 # provenance/gitHead.
-"npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2", "@smithy/core@3.33.0", "@smithy/node-http-handler@4.11.0"] }
+# Reviewed 2026-08-29: fastq 1.20.2 tag/gitHead and runtime files match; direct
+# maintainer publish with registry signatures, but no provenance.
+"npm:renovate" = { version = "latest", trust_policy_excludes = ["@yarnpkg/libzip@3.2.2", "@smithy/core@3.33.0", "@smithy/node-http-handler@4.11.0", "fastq@1.20.2"] }
 "pipx:lastversion" = "latest"
 python = "3.14"
 uv = "latest"
