@@ -154,6 +154,7 @@ command/skill model — **not** the always-on hooks:
 - **Commands.** Ten slash commands are vendored under `dot_claude/commands/` — every
   OpenCode `unslop*` command except `stop-unslop`, which only deactivates a persistent
   active mode that the always-on hooks would create, and those hooks are not adopted.
+  Seven of the ten were dropped later; see the 2026-08-29 update below.
 - **No hooks, no marketplace.** Because the `SessionStart`/`UserPromptSubmit` activation
   hooks are intentionally excluded, the `defaultMode: off` config and the
   `~/.claude/.unslop-active` flag are not used — there is no auto-injection to gate.
@@ -167,3 +168,43 @@ command/skill model — **not** the always-on hooks:
   `~/.config/opencode/...` to `~/.claude/...` for the Claude Code copy.
 
 Tracked as Beads issue `dots-mwp`.
+
+### Update (2026-08-29): Claude Code command wrappers reduced to three
+
+Claude Code invokes any skill as `/<skill-name>` on its own, and its slash menu draws
+skills and `~/.claude/commands/*.md` from one list without collapsing by name. A wrapper
+named after a skill therefore shows up as a duplicate menu row. Debug output from
+2.1.250 (`claude -p "say ok" --debug-file <path>`), captured with all ten wrappers still
+in place, reports the merge directly:
+
+```
+Loaded 31 unique skills (31 unconditional, 0 conditional, managed: 0, user: 19, project: 1, additional: 0, legacy commands: 11)
+```
+
+The eleven legacy commands are the ten wrappers plus the project-scoped
+`.claude/commands/refresh-docs.md` in this repo.
+
+"Unique" there counts files, not names. The model-facing skill listing does collapse by
+name — the agent's own skill list in the same session named `unslop-commit` once, and
+carried `unslop-full`, `unslop-subtle`, and `unslop-voice-match` (command-only, no
+skill directory) as separate entries — so only the interactive menu shows the
+repetition.
+
+- **Dropped from `dot_claude/commands/`:** `unslop`, `unslop-commit`, `unslop-file`,
+  `unslop-file-voice`, `unslop-help`, `unslop-reasoning`, `unslop-review`. Under the
+  frontmatter each carried one "Use the `<name>` skill" line and a paragraph or two
+  restating guidance the matching `SKILL.md` already holds, so nothing is lost. The
+  `unslop-file-voice` stop-on-missing-profile rule, for instance, appears three times in
+  that skill: in its frontmatter, in "Do not use this skill when", and as the preflight
+  `load_profile()` check in step 4.
+- **Kept:** `unslop-full`, `unslop-subtle`, `unslop-voice-match`. These select a mode on
+  the `unslop` skill and have no skill directory of their own, so each is a single menu
+  row.
+- **Destination cleanup:** `.chezmoiremove` deletes the seven applied targets under
+  `~/.claude/commands/` and under the container-dotfiles mirror. Dropping files from the
+  source state alone does not remove them from the destination.
+- **OpenCode is unchanged.** `private_dot_config/opencode/commands/` keeps all ten
+  wrappers; whether OpenCode exposes skills as slash commands the same way has not been
+  verified.
+
+Tracked as Beads issue `dots-12at`.
