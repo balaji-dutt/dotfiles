@@ -26,6 +26,12 @@
       "requires": ["git"]
     },
     {
+      "id": "ai-tooling-policy",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_claude_mcp_apply"],
+      "covers": ["tests/test_claude_mcp_apply.py"]
+    },
+    {
       "id": "ai-worktree",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_ai_wt"],
@@ -244,6 +250,13 @@
       "covers": ["tests/test_macos_maintenance.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash"]
+    },
+    {
+      "id": "managed-ai-adapters",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_managed_ai_adapters"],
+      "covers": ["tests/test_managed_ai_adapters.py"],
+      "requires": ["bash", "node"]
     },
     {
       "id": "notifier-bridge",
