@@ -165,9 +165,9 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
 
 - It checks whether the edited repo file maps to a managed chezmoi target on this machine.
   - If managed, it runs:
-    - `chezmoi diff --verbose <target>`
-    - `chezmoi apply --dry-run --verbose <target>`
-    - If not managed (repo-only inputs like `.chezmoiscripts/**`, `ansible/**`, `assets/**`, `configs/**`, `docs/**`), it will not run `chezmoi apply --dry-run --verbose <target>`.
+    - `chezmoi diff --use-builtin-diff --no-pager --verbose <target>`
+    - `chezmoi apply --use-builtin-diff --no-pager --dry-run --verbose <target>`
+    - If not managed (repo-only inputs like `.chezmoiscripts/**`, `ansible/**`, `assets/**`, `configs/**`, `docs/**`), it will not run `chezmoi apply --no-pager --dry-run --verbose <target>`.
     - For repo-only inputs it runs targeted checks:
       - Shell files under `.chezmoiscripts/**` and `bootstrap-wsl.sh`:
         - Renders templates and enforces Bash syntax. Raw shell files also use local ShellCheck or its Docker/Podman fallback as an advisory check.
