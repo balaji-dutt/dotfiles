@@ -122,7 +122,8 @@ renovate-config-validator renovate.json5 --no-global
 ## 8) MVP operating mode recommendation
 
 - Keep explicit single-repo targeting first.
-- Keep automerge off initially.
+- Keep automerge disabled globally and enable it only through scoped package
+  rules.
 - Keep major updates grouped but separate from minor/patch groups.
 - Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
   except OpenCode plugin patch/digest updates. Core Beads clients use a stricter
@@ -132,6 +133,10 @@ renovate-config-validator renovate.json5 --no-global
   Eligible updates should be created in one run; release-age-blocked updates
   remain under `Pending Status Checks`, not `Rate-Limited`.
 - After first successful run, enable weekends-only schedule.
+
+Promptfoo runtime updates remain one host/devcontainer cohort. A group containing
+only patch/digest updates automerges after the seven-day release-age gate. Any
+group containing a minor or major update remains manual.
 
 ### GitLab stability-status warning workaround
 

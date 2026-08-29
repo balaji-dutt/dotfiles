@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 import unittest
 from pathlib import Path
@@ -12,11 +13,15 @@ DEVCONTAINER_NPM = REPO_ROOT / (
     "private_Documents/development/container-dotfiles/devcontainers/"
     "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
 )
+RENOVATE_MANAGERS = ["npm", "custom.regex"]
+RENOVATE_FILES = [
+    "configs/promptfoo-runtime/package.json",
+    "private_Documents/development/container-dotfiles/devcontainers/"
+    "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt",
+]
 # package.json is the pin Renovate updates for this bundle; every other location
 # has to agree with it. Reading it here instead of restating the versions keeps
-# this file out of the set that would have to be bumped in lockstep. Version
-# changes stay human-reviewed through automerge:false on the "promptfoo runtime"
-# group in renovate.json5.
+# this file out of the set that would have to be bumped in lockstep.
 EXPECTED_DEPENDENCIES: dict[str, str] = json.loads(
     (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
 )["dependencies"]
@@ -24,6 +29,13 @@ EXPECTED_DEPENDENCIES: dict[str, str] = json.loads(
 
 def read_text(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def read_rule_array(rule: str, key: str) -> list[str]:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*(\[[^]]*\])', rule)
+    if match is None:
+        raise AssertionError(f"Renovate rule has no {key} array")
+    return json.loads(match.group(1))
 
 
 class PromptfooRuntimeTests(unittest.TestCase):
@@ -130,13 +142,54 @@ class PromptfooRuntimeTests(unittest.TestCase):
             '"/^configs\\\\/promptfoo-runtime\\\\/package\\\\.json$/"',
             renovate,
         )
-        self.assertIn('"groupName": "promptfoo runtime"', renovate)
-        runtime_rule = renovate.rsplit('"groupName": "promptfoo runtime"', 1)[0]
-        runtime_rule = runtime_rule.rsplit("{", 1)[-1]
-        for package_name in EXPECTED_DEPENDENCIES:
-            self.assertIn(f'"{package_name}"', runtime_rule)
-        runtime_rule_tail = renovate.rsplit('"groupName": "promptfoo runtime"', 1)[1]
-        self.assertIn('"automerge": false', runtime_rule_tail)
+        runtime_group = '"groupName": "promptfoo runtime"'
+        runtime_group_index = renovate.index(runtime_group)
+        runtime_rule_start = renovate.rfind("{", 0, runtime_group_index)
+        runtime_rule_end = renovate.index("}", runtime_group_index) + 1
+        runtime_rule = renovate[runtime_rule_start:runtime_rule_end]
+
+        self.assertEqual(read_rule_array(runtime_rule, "matchManagers"), RENOVATE_MANAGERS)
+        self.assertCountEqual(
+            read_rule_array(runtime_rule, "matchDepNames"),
+            EXPECTED_DEPENDENCIES,
+        )
+        self.assertEqual(read_rule_array(runtime_rule, "matchFileNames"), RENOVATE_FILES)
+        self.assertIn('"automerge": false', runtime_rule)
+
+        beads_group = '"groupName": "beads clients"'
+        beads_group_index = renovate.index(beads_group)
+        patch_types = '"matchUpdateTypes": ["patch", "digest"]'
+        patch_types_index = renovate.index(
+            patch_types,
+            runtime_rule_end,
+            beads_group_index,
+        )
+        patch_rule_start = renovate.rfind("{", runtime_rule_end, patch_types_index)
+        patch_rule_end = renovate.index("}", patch_types_index) + 1
+        patch_rule = renovate[patch_rule_start:patch_rule_end]
+
+        self.assertEqual(read_rule_array(patch_rule, "matchManagers"), RENOVATE_MANAGERS)
+        self.assertCountEqual(
+            read_rule_array(patch_rule, "matchDepNames"),
+            EXPECTED_DEPENDENCIES,
+        )
+        self.assertEqual(read_rule_array(patch_rule, "matchFileNames"), RENOVATE_FILES)
+        self.assertEqual(
+            read_rule_array(patch_rule, "matchUpdateTypes"),
+            ["patch", "digest"],
+        )
+        self.assertIn('"automerge": true', patch_rule)
+        self.assertIn('"automergeType": "pr"', patch_rule)
+        self.assertIn('"platformAutomerge": true', patch_rule)
+
+        beads_rule_start = renovate.rfind("{", patch_rule_end, beads_group_index)
+        beads_rule_end = renovate.index("}", beads_group_index) + 1
+        beads_rule = renovate[beads_rule_start:beads_rule_end]
+        self.assertLess(runtime_group_index, patch_types_index)
+        self.assertLess(patch_types_index, beads_group_index)
+        self.assertIn('"minimumReleaseAge": "14 days"', beads_rule)
+        self.assertIn('"minimumGroupSize": 2', beads_rule)
+        self.assertIn('"platformAutomerge": false', beads_rule)
 
 
 if __name__ == "__main__":
