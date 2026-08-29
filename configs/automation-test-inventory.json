@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:e78f4473ff0d7c1edd375bb04b8eb17b6d5360bde983c3d0899ddfd3957317a4",
+  "candidate_digest": "sha256:7f8a9b446b97853d4c1a8d3a0eb100c163abfbbd3cabb713ba9270ccbe8ab52b",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -455,18 +455,20 @@
         "suite_id": "lifecycle-posix",
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_retire_legacy_cbm_mise.py"],
+        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py"],
         "behavior_requirements": [
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
+          {"id": "failure-shell-lifecycle-errors", "kind": "failure", "description": "Propagate commit-template writes, installer checksum validation, and selected lifecycle command failures without replacing valid state.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Prevent unsupported-host mutation, unrelated formula or tap removal in untested retirement hooks, installer side effects, and production secret access across untested lifecycle hooks.", "status": "planned", "test_paths": []},
           {"id": "safety-legacy-cbm-retirement-scope", "kind": "safety", "description": "Retire only fully qualified versions discovered under the exact UBI backend on Darwin or WSL2 while preserving unrelated installs and unsupported hosts.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "safety-selected-fixture-boundaries", "kind": "safety", "description": "Keep selected cleanup, installer, optional-tool, and platform-dispatch tests inside temporary filesystems with fake network and host commands.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "success-legacy-cbm-retirement", "kind": "success", "description": "Remove all inactive legacy UBI CBM versions, reshim, verify the active GitHub replacement, and no-op idempotently when the backend is absent.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Linux, macOS, Windows, and WSL2 data and parse non-empty POSIX outputs.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
-          {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute the selected host refresh hook idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]}
+          {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected host refresh, commit-template, cleanup, installer, and retirement hooks idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py", "tests/test_shell_lifecycle.py"]}
         ]
       },
-      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected hooks include isolated host refresh and exact-backend CBM retirement behavior; broad lifecycle execution remains planned."
+      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected commit-template, cleanup, installer, host-refresh, and exact-backend CBM retirement paths have isolated behavior tests; broad lifecycle execution and untested retirement hooks remain planned."
     },
     {
       "id": "lifecycle-windows",
@@ -737,16 +739,19 @@
       "test_layers": ["integration", "platform-smoke", "static"],
       "coverage": {
         "suite_id": "wsl-provisioning",
-        "status": "planned",
+        "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": [],
+        "test_paths": ["tests/test_bootstrap_wsl.py"],
         "behavior_requirements": [
-          {"id": "failure-bootstrap-and-task-errors", "kind": "failure", "description": "Propagate bootstrap, package, and command-bearing Ansible task failures with actionable diagnostics.", "status": "planned", "test_paths": []},
-          {"id": "safety-disposable-wsl-boundary", "kind": "safety", "description": "Keep provisioning smoke tests disposable and prevent mutation of the developer's active WSL2 installation or secrets.", "status": "planned", "test_paths": []},
-          {"id": "success-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []}
+          {"id": "failure-ansible-task-errors", "kind": "failure", "description": "Propagate failures from command-bearing Ansible roles and tasks with actionable diagnostics.", "status": "planned", "test_paths": []},
+          {"id": "failure-bootstrap-dispatch-errors", "kind": "failure", "description": "Fail before package work without a noninteractive token and propagate package, source, and rendered Ansible dispatch failures.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
+          {"id": "safety-disposable-wsl-boundary", "kind": "safety", "description": "Run a full provisioning smoke only in disposable WSL2 state without developer-host or secret mutation.", "status": "planned", "test_paths": []},
+          {"id": "safety-fixture-bootstrap-boundary", "kind": "safety", "description": "Exercise bootstrap and rendered provisioning dispatch with fake commands, synthetic tokens, and temporary source and config paths.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
+          {"id": "success-bootstrap-dispatch-rerun", "kind": "success", "description": "Install or skip bootstrap tools as appropriate, preserve paths with spaces, initialize the selected source, and rerun rendered Ansible dispatch with stable arguments.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
+          {"id": "success-full-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Bootstrap and command-bearing Ansible tasks need syntax, contract, and disposable WSL2 smoke tests."
+      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, and rendered Ansible dispatch without live package, network, or secret operations. Command-bearing Ansible behavior and a disposable full WSL2 smoke remain planned."
     }
   ]
 }

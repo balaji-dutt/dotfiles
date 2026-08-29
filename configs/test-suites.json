@@ -395,6 +395,14 @@
       "requires": ["bash"]
     },
     {
+      "id": "shell-lifecycle",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_shell_lifecycle"],
+      "covers": ["tests/test_shell_lifecycle.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi", "git"]
+    },
+    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],
@@ -430,6 +438,14 @@
       "covers": ["tests/test_user_command_wrappers.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash"]
+    },
+    {
+      "id": "wsl-bootstrap",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_bootstrap_wsl"],
+      "covers": ["tests/test_bootstrap_wsl.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi"]
     }
   ]
 }

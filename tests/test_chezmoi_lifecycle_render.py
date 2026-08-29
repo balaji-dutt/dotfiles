@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 from tests.support.powershell import parse_powershell, powershell_parser_command
 
@@ -151,6 +152,48 @@ def fixture_data(platform: str, temporary_root: Path) -> dict[str, object]:
     }
 
 
+def render_template(
+    relative: str,
+    platform: str,
+    configure: Callable[[dict[str, object]], None] | None = None,
+) -> str:
+    if CHEZMOI is None:
+        raise RuntimeError("chezmoi is unavailable")
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        config = root / "chezmoi.toml"
+        override = root / "override.json"
+        config.write_text("", encoding="utf-8")
+        data = fixture_data(platform, root)
+        if configure is not None:
+            configure(data)
+        override.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+        result = subprocess.run(
+            [
+                CHEZMOI,
+                "--config",
+                str(config),
+                "--source",
+                str(REPO_ROOT),
+                "execute-template",
+                "--override-data-file",
+                str(override),
+                "--file",
+                str(REPO_ROOT / relative),
+            ],
+            cwd=REPO_ROOT,
+            env={**os.environ, "CHEZMOI_NO_TTY": "1"},
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+    if result.returncode != 0:
+        raise AssertionError(f"{platform} {relative}: {result.stderr}")
+    return result.stdout
+
+
 @lru_cache(maxsize=1)
 def render_matrix() -> dict[tuple[str, str], bytes]:
     if CHEZMOI is None:
@@ -220,9 +263,9 @@ def render_matrix() -> dict[tuple[str, str], bytes]:
 class LifecycleRenderMatrixTests(unittest.TestCase):
     def test_inventory_includes_every_lifecycle_template(self) -> None:
         lifecycle = tuple((REPO_ROOT / ".chezmoiscripts").glob("*.tmpl"))
-        self.assertEqual(len(lifecycle), 44)
+        self.assertEqual(len(lifecycle), 45)
         self.assertEqual(sum(path.name.endswith(".ps1.tmpl") for path in lifecycle), 17)
-        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 27)
+        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 28)
 
     def test_all_sources_render_for_each_fixture(self) -> None:
         matrix = render_matrix()
