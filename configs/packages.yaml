@@ -10,7 +10,7 @@
 # Tool versions (release archives)
 # -----------------------------------------------------------------------------
 versions:
-  aoe: "1.14.1" # renovate: datasource=github-releases depName=agent-of-empires/agent-of-empires extractVersion=^v(?<version>.*)$
+  aoe: "1.15.0" # renovate: datasource=github-releases depName=agent-of-empires/agent-of-empires extractVersion=^v(?<version>.*)$
   # dolt moved to .chezmoidata.yaml (dolt_version) so macOS and WSL2 share one
   # pin; wsl-playbook.yml receives it via -e.
   gh: "2.97.0" # renovate: datasource=github-releases depName=cli/cli extractVersion=^v(?<version>.*)$
