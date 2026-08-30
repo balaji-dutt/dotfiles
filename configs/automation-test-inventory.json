@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:3090b85cfa0840ae874a85056ae5731f93e1eec8d68a3af0b1ff17109a732e42",
+  "candidate_digest": "sha256:dcb98bb67d7e1fd67e267714cd9b44d2f56fc9b12a19a59eef533d2ca3922408",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -261,6 +261,7 @@
       "id": "devcontainer-runtime",
       "classification": "owned",
       "paths": [
+        "assets/devcontainer-smoke.py",
         "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/**",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_devcontainer-clipboard-osc52",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-claude-bridge-validate",
@@ -278,21 +279,21 @@
       "test_layers": ["integration", "platform-smoke", "render", "unit"],
       "coverage": {
         "suite_id": "devcontainer-runtime",
-        "status": "partial",
+        "status": "covered",
         "work_item": "dots-4jy.10.6",
-        "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_opencode_workspace_overrides.py", "tests/test_orbstack_ssh_agent_relay.py"],
+        "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke.py", "tests/test_devcontainer_smoke_live.py", "tests/test_opencode_workspace_overrides.py", "tests/test_orbstack_ssh_agent_relay.py"],
         "behavior_requirements": [
           {"id": "failure-invalid-lifecycle-input", "kind": "failure", "description": "Reject invalid lifecycle and dependency configuration with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
           {"id": "failure-invalid-relay-input", "kind": "failure", "description": "Reject invalid relay arguments and unsafe socket state with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
           {"id": "failure-invalid-workspace-override-input", "kind": "failure", "description": "Reject malformed workspace override inputs without corrupting the active configuration.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]},
-          {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep live lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "planned", "test_paths": []},
+          {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep live lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "covered", "test_paths": ["tests/test_devcontainer_smoke.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "safety-host-isolation", "kind": "safety", "description": "Exercise lifecycle functions without running installers or mutating host paths.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
-          {"id": "success-idempotent-lifecycle-runtime", "kind": "success", "description": "Repeat lifecycle persistence and materialization with the expected container state.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "success-idempotent-lifecycle-runtime", "kind": "success", "description": "Repeat lifecycle persistence and materialization with the expected container state.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "success-idempotent-relay-runtime", "kind": "success", "description": "Relay concurrent bidirectional SSH-agent traffic and clean up sockets reliably.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
           {"id": "success-idempotent-workspace-override", "kind": "success", "description": "Merge and remap workspace overrides repeatedly with stable output.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]}
         ]
       },
-      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Isolated suites cover lifecycle persistence and materialization, workspace override parsing and replacement, and concurrent socket relay behavior without installers or host mutation. The live disposable-container smoke remains incomplete."
+      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Isolated suites cover lifecycle persistence and materialization, workspace override parsing and replacement, and concurrent socket relay behavior without installers or host mutation. The opt-in smoke uses a preloaded image, synthetic read-only inputs, no network, unique resources, bounded commands, and guaranteed cleanup to validate the safe production runtime phases across create, restart, and rerun. Package installers and optional network integrations remain outside the smoke boundary."
     },
     {
       "id": "espanso-scripts",

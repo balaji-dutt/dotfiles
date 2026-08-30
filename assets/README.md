@@ -172,6 +172,21 @@ and `all`. See `docs/tooling/test-runner.md` for capability skips, reports, exit
 codes, suite registration, and fixture contracts. GitLab jobs and the guarded
 feature-push workflow are documented in `docs/tooling/continuous-integration.md`.
 
+### Disposable devcontainer smoke
+
+Runs the production persistence and materialization phases in a disposable
+container with synthetic read-only inputs and a uniquely named volume. The
+required image must already exist; the harness disables pulls and networking:
+
+```sh
+DEVCONTAINER_SMOKE=1 python3 assets/devcontainer-smoke.py --probe
+DEVCONTAINER_SMOKE=1 python3 assets/devcontainer-smoke.py --run
+```
+
+The probe creates no containers, volumes, or temporary files. The live run is
+POSIX-only, has bounded commands, always removes its owned container and volume,
+and writes diagnostics under `ci-artifacts/devcontainer-smoke/`.
+
 ### Claude MCP registration
 
 Registers the user-scope Claude MCP servers declared in `configs/claude-mcp.json`.

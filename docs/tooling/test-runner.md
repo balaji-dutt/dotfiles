@@ -147,12 +147,19 @@ Each invocation gets a temporary sandbox. Child processes receive synthetic
 `HOME`, `USERPROFILE`, XDG, and temporary directories. Git global/system config
 points at an empty sandbox file, interactive Git prompts are disabled, and
 credential/service variables are not copied wholesale from the parent process.
+The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are the
+only live-smoke settings passed through. The command timeout defaults to 180
+seconds and accepts values from 30 through 900. No similarly prefixed credential
+or secret variables are allowed.
 
 The runner prepends fail-closed `bd` and `dolt` commands. An accidental call
 therefore cannot reach this checkout's real Beads database. A test that needs
 those commands must prepend its own fake-bin fixture, which takes precedence
 over the guards. Tests must still avoid live networks, GUI automation,
 installers, secrets, and destructive host operations by default.
+The registered live devcontainer step is the exception only when
+`DEVCONTAINER_SMOKE=1`; its capability probe otherwise leaves the step as a
+runner-level skip.
 
 ## Shared fixtures
 

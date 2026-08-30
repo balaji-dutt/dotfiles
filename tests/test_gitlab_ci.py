@@ -171,7 +171,7 @@ class GitLabCiContractTests(unittest.TestCase):
             (SCHEDULE, "manual"),
             (WEB, "manual"),
         ]
-        for name in ("linux-all", "windows-all"):
+        for name in ("devcontainer-smoke", "linux-all", "windows-all"):
             with self.subTest(job=name):
                 rules = job_rules(top_level_block(self.text, name))
                 self.assertEqual(rules, expected_rules)
@@ -189,14 +189,16 @@ class GitLabCiContractTests(unittest.TestCase):
     def test_new_jobs_are_independent_and_publish_registration_reports(self) -> None:
         linux_fast = top_level_block(self.text, "linux-fast")
         linux_all = top_level_block(self.text, "linux-all")
+        devcontainer_smoke = top_level_block(self.text, "devcontainer-smoke")
         windows_all = top_level_block(self.text, "windows-all")
-        for block in (linux_fast, linux_all, windows_all):
+        for block in (linux_fast, linux_all, devcontainer_smoke, windows_all):
             self.assertIn("  stage: test\n", block)
             self.assertIn("  needs: []\n", block)
             self.assertIn("  interruptible: true\n", block)
             self.assertIn("  artifacts:\n", block)
             self.assertIn("    when: always\n", block)
             self.assertIn("    expire_in: 7 days\n", block)
+        for block in (linux_fast, linux_all, windows_all):
             self.assertIn("--report-file", block)
 
         self.assertIn("  image: python:3.13.7-bookworm\n", linux_fast)
@@ -204,6 +206,12 @@ class GitLabCiContractTests(unittest.TestCase):
         self.assertIn("--require-capability git --require-capability sh", linux_fast)
         self.assertIn("  allow_failure: true\n", linux_all)
         self.assertIn("./assets/run-tests.sh all", linux_all)
+        self.assertIn("  allow_failure: true\n", devcontainer_smoke)
+        self.assertIn("    - devcontainer-smoke\n", devcontainer_smoke)
+        self.assertNotIn("  image:", devcontainer_smoke)
+        self.assertIn('    DEVCONTAINER_SMOKE: "1"\n', devcontainer_smoke)
+        self.assertIn("python3 assets/devcontainer-smoke.py --run", devcontainer_smoke)
+        self.assertIn("      - ci-artifacts/devcontainer-smoke/\n", devcontainer_smoke)
         self.assertIn("  allow_failure: true\n", windows_all)
         self.assertIn("    - saas-windows-medium-amd64\n", windows_all)
         self.assertNotIn("  image:", windows_all)

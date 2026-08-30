@@ -301,6 +301,40 @@ class TestRunnerTests(unittest.TestCase):
         self.assertTrue(actual["git_global"].startswith(str(Path(actual["home"]).parent)))
         self.assertTrue(actual["tmp"].startswith(str(Path(actual["home"]).parent)))
 
+    def test_devcontainer_smoke_opt_in_and_artifact_settings_are_passed_through(self) -> None:
+        output = self.fixture.root / "smoke-environment.json"
+        self.fixture.write_script(
+            "pass.py",
+            "import json, os, pathlib\n"
+            f"pathlib.Path({str(output)!r}).write_text(json.dumps({{"
+            "'enabled': os.environ.get('DEVCONTAINER_SMOKE'), "
+            "'artifacts': os.environ.get('DEVCONTAINER_SMOKE_ARTIFACTS'), "
+            "'timeout': os.environ.get('DEVCONTAINER_SMOKE_TIMEOUT_SECONDS'), "
+            "'secret': os.environ.get('DEVCONTAINER_SMOKE_SECRET')}), encoding='utf-8')\n",
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "DEVCONTAINER_SMOKE": "1",
+                "DEVCONTAINER_SMOKE_ARTIFACTS": "ci-artifacts/smoke",
+                "DEVCONTAINER_SMOKE_TIMEOUT_SECONDS": "240",
+                "DEVCONTAINER_SMOKE_SECRET": "must-not-leak",
+            }
+        )
+
+        result = self.fixture.run(env=env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(output.read_text(encoding="utf-8")),
+            {
+                "enabled": "1",
+                "artifacts": "ci-artifacts/smoke",
+                "timeout": "240",
+                "secret": None,
+            },
+        )
+
     def test_current_registry_covers_every_top_level_test(self) -> None:
         payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
         covered = {path for step in payload["steps"] for path in step["covers"]}

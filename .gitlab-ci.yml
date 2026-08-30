@@ -217,6 +217,41 @@ linux-all:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
 
+devcontainer-smoke:
+  stage: test
+  tags:
+    - devcontainer-smoke
+  needs: []
+  interruptible: true
+  allow_failure: true
+  timeout: 30m
+  variables:
+    DEVCONTAINER_SMOKE: "1"
+    DEVCONTAINER_SMOKE_ARTIFACTS: "ci-artifacts/devcontainer-smoke"
+  script:
+    - mkdir -p ci-artifacts/devcontainer-smoke
+    - python3 assets/devcontainer-smoke.py --run
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - ci-artifacts/devcontainer-smoke/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\//'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /(^|,)renovate(,|$)/i'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^renovate\//'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+
 windows-all:
   stage: test
   tags:

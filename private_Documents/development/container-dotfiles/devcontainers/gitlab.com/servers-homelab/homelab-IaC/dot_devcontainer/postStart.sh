@@ -377,89 +377,106 @@ EOF
   chmod 700 "$helper_path"
 }
 
-post_start_runtime_configuration() {
+post_start_persistence_phase() {
+  local workspace_root
+  workspace_root="$1"
+
+  mkdir -p \
+    /home/vscode/persistent-data \
+    /home/vscode/persistent-data/opencode/{config,cache,share,state} \
+    "$HOME/.cache" \
+    "$HOME/.local/share" \
+    "$HOME/.local/state" \
+    "$HOME/.local/bin" \
+    "$HOME/.ssh"
+
+  ensure_agent_of_empires_persistence_link
+  ensure_claude_persistence_links
+  ensure_beads_persistence_mounts "$workspace_root"
+  install_claude_managed_asset_links
+}
+
+post_start_optional_integrations_phase() {
+  register_claude_mcp_servers
+
+  if ! install_better_beads_kanban_vscode_extension; then
+    echo "WARN: Better Beads Kanban VSIX install failed; continuing postStart." >&2
+  fi
+}
+
+post_start_materialization_phase() {
   local workspace_root persisted_opencode_profiles normalized_persisted_profiles
   workspace_root="$1"
 
-mkdir -p \
-  /home/vscode/persistent-data \
-  /home/vscode/persistent-data/opencode/{config,cache,share,state} \
-  "$HOME/.cache" \
-  "$HOME/.local/share" \
-  "$HOME/.local/state" \
-  "$HOME/.local/bin" \
-  "$HOME/.ssh"
+  if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
+    install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
+      /home/vscode/persistent-data/agent-of-empires/config.toml
+  else
+    echo "WARN: Agent of Empires config not found; keeping existing config." >&2
+  fi
 
-ensure_agent_of_empires_persistence_link
-ensure_claude_persistence_links
-ensure_beads_persistence_mounts "$workspace_root"
-install_claude_managed_asset_links
-register_claude_mcp_servers
+  ensure_opencode_persistence_links
+  materialize_opencode_managed_assets
 
-if ! install_better_beads_kanban_vscode_extension; then
-  echo "WARN: Better Beads Kanban VSIX install failed; continuing postStart." >&2
-fi
+  if [[ -f /tmp/host-container-configs/opencode.env ]]; then
+    persisted_opencode_profiles="$(read_opencode_profiles_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"
+    install -m 0600 /tmp/host-container-configs/opencode.env \
+      /home/vscode/persistent-data/opencode/config/opencode.env
 
-if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
-  install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
-    /home/vscode/persistent-data/agent-of-empires/config.toml
-else
-  echo "WARN: Agent of Empires config not found; keeping existing config." >&2
-fi
-
-ensure_opencode_persistence_links
-materialize_opencode_managed_assets
-
-if [[ -f /tmp/host-container-configs/opencode.env ]]; then
-  persisted_opencode_profiles="$(read_opencode_profiles_from_env_file /home/vscode/persistent-data/opencode/config/opencode.env || true)"
-  install -m 0600 /tmp/host-container-configs/opencode.env \
-    /home/vscode/persistent-data/opencode/config/opencode.env
-
-  if [[ -n "${persisted_opencode_profiles:-}" ]]; then
-    if normalized_persisted_profiles="$(normalize_opencode_profiles "$persisted_opencode_profiles")"; then
-      if ! write_opencode_profiles_to_env_file /home/vscode/persistent-data/opencode/config/opencode.env "$normalized_persisted_profiles"; then
-        echo "WARN: Failed preserving OpenCode profile settings in refreshed opencode.env." >&2
+    if [[ -n "${persisted_opencode_profiles:-}" ]]; then
+      if normalized_persisted_profiles="$(normalize_opencode_profiles "$persisted_opencode_profiles")"; then
+        if ! write_opencode_profiles_to_env_file /home/vscode/persistent-data/opencode/config/opencode.env "$normalized_persisted_profiles"; then
+          echo "WARN: Failed preserving OpenCode profile settings in refreshed opencode.env." >&2
+        fi
+      else
+        echo "WARN: Skipping invalid persisted OpenCode profile settings." >&2
       fi
-    else
-      echo "WARN: Skipping invalid persisted OpenCode profile settings." >&2
     fi
+  else
+    echo "WARN: /tmp/host-container-configs/opencode.env not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then restart the container. Keeping existing env file if present." >&2
   fi
-else
-  echo "WARN: /tmp/host-container-configs/opencode.env not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then restart the container. Keeping existing env file if present." >&2
-fi
 
-load_opencode_env_file
+  load_opencode_env_file
 
-if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
-  install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
-    "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$workspace_root"; then
-    echo "WARN: OpenCode workspace override sync failed." >&2
+  if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
+    install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
+      "$HOME/.local/bin/opencode-sync-workspace-overrides"
+    if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$workspace_root"; then
+      echo "WARN: OpenCode workspace override sync failed." >&2
+    fi
+  else
+    echo "WARN: OpenCode workspace override helper not found; skipping workspace override sync." >&2
   fi
-else
-  echo "WARN: OpenCode workspace override helper not found; skipping workspace override sync." >&2
-fi
 
-if [[ -f /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc ]]; then
-  ln -sfn /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc \
-    "$HOME/.markdownlint-cli2.jsonc"
-else
-  echo "WARN: /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc not found; keeping existing markdownlint config." >&2
-fi
+  if [[ -f /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc ]]; then
+    ln -sfn /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc \
+      "$HOME/.markdownlint-cli2.jsonc"
+  else
+    echo "WARN: /tmp/host-dotfiles/dot_markdownlint-cli2.jsonc not found; keeping existing markdownlint config." >&2
+  fi
 
-if [[ -f /tmp/host-dotfiles/dot_local/share/git-helpers.zsh ]]; then
-  install -m 0644 /tmp/host-dotfiles/dot_local/share/git-helpers.zsh \
-    "$HOME/.local/share/git-helpers.zsh"
-fi
+  if [[ -f /tmp/host-dotfiles/dot_local/share/git-helpers.zsh ]]; then
+    install -m 0644 /tmp/host-dotfiles/dot_local/share/git-helpers.zsh \
+      "$HOME/.local/share/git-helpers.zsh"
+  fi
 
-install_sset_helper
+  install_sset_helper
+}
+
+post_start_runtime_configuration() {
+  local workspace_root
+  workspace_root="$1"
+
+  post_start_persistence_phase "$workspace_root"
+  post_start_optional_integrations_phase
+  post_start_materialization_phase "$workspace_root"
 }
 
 post_start_refresh_ssh() {
-if ! "$HOME/.local/bin/sset"; then
-  echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
-  echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
-fi
+  if ! "$HOME/.local/bin/sset"; then
+    echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
+    echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
+  fi
 }
 
 post_start_main() (

@@ -14,8 +14,8 @@ Git remains responsible for moving commits between devices, while CI verifies a
 pushed commit independently of the development host.
 
 The policy favors useful feedback within the GitLab Free compute allowance.
-Only the `fast` Linux suite is automatic. Full Linux and Windows runs are manual,
-and superseded automatic jobs are interruptible.
+Only the `fast` Linux suite is automatic. Full Linux, Windows, and disposable
+devcontainer runs are manual, and superseded automatic jobs are interruptible.
 
 ## Agent worktree workflow
 
@@ -122,7 +122,7 @@ merely to make a source change testable.
 
 ## Pipeline rule table
 
-| Pipeline context | `linux-fast` | `linux-all` / `windows-all` |
+| Pipeline context | `linux-fast` | Manual full and devcontainer jobs |
 | --- | --- | --- |
 | Feature push without an open MR | automatic, gating | manual, non-blocking |
 | Feature push with an open MR | skipped; MR owns the SHA | manual, non-blocking |
@@ -170,6 +170,22 @@ The runner tag is `saas-windows-medium-amd64`; the job deliberately has no
 container `image` because the hosted Windows executor does not support one. If
 GitLab changes beta or subscription availability, a self-hosted Windows runner
 can reuse the same command and capability contract.
+
+`devcontainer-smoke` is a manual, non-blocking job that requires a self-hosted
+runner carrying the `devcontainer-smoke` tag, Docker, the Dev Container CLI,
+Python 3, and the preloaded `homelab-iac:base` image. It does not use a job image
+or pull one:
+
+```sh
+DEVCONTAINER_SMOKE=1 \
+DEVCONTAINER_SMOKE_ARTIFACTS=ci-artifacts/devcontainer-smoke \
+python3 assets/devcontainer-smoke.py --run
+```
+
+The job remains pending when no matching runner is provisioned; its presence is
+not evidence that a smoke run occurred. A run uses only repository sources,
+synthetic temporary inputs, and a unique persistent volume. Docker networking is
+disabled, commands are bounded, and cleanup plus diagnostics run after failures.
 
 Artifacts are uploaded even when tests fail and expire after seven days. Their
 JSON records selected steps, registered `covers` paths, skips, failures, and the
@@ -251,7 +267,7 @@ local merge.
 | WSL2 | represented by Linux, not native | `./assets/run-tests.sh all` | no hosted WSL2 runner; Linux does not prove `op.exe` versus `op` selection |
 | Native Windows | manual all | `pwsh -NoProfile -File ./assets/run-tests.ps1 all` | current Windows hosted-runner beta or equivalent self-hosted tag |
 | macOS | local only | `./assets/run-tests.sh all` | hosted macOS is not available on the current Free plan |
-| Devcontainer | documented command only | `./assets/run-tests.sh all` inside a disposable container | no repo-owned runner yet; smoke implementation is `dots-4jy.10.6.4` |
+| Devcontainer | manual, non-blocking when a tagged runner exists | `DEVCONTAINER_SMOKE=1 python3 assets/devcontainer-smoke.py --run` | requires a self-hosted `devcontainer-smoke` runner with the preloaded image; otherwise the registered live step skips locally |
 
 Missing optional tools remain explicit runner skips unless a lane names them
 with `--require-capability`. A platform is not reported as passing when no runner

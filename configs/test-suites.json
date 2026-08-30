@@ -3,6 +3,7 @@
   "schema_version": 1,
   "capabilities": {
     "bash": {"command": "bash"},
+    "devcontainer-smoke": {"command": "python3", "probe": ["python3", "assets/devcontainer-smoke.py", "--probe"]},
     "git": {"command": "git"},
     "node": {"command": "node"},
     "ps": {"command": "ps"},
@@ -164,6 +165,22 @@
       "covers": ["tests/test_devcontainer_lifecycle.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash", "git"]
+    },
+    {
+      "id": "devcontainer-smoke-contract",
+      "suites": ["fast", "integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_smoke"],
+      "covers": ["tests/test_devcontainer_smoke.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
+      "id": "devcontainer-smoke-live",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_smoke_live"],
+      "covers": ["tests/test_devcontainer_smoke_live.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["devcontainer-smoke"]
     },
     {
       "id": "envrc-render",

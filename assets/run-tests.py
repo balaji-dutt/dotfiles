@@ -23,6 +23,9 @@ STEP_PLACEHOLDERS = {"python", "repo"}
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
     "COMSPEC",
+    "DEVCONTAINER_SMOKE",
+    "DEVCONTAINER_SMOKE_ARTIFACTS",
+    "DEVCONTAINER_SMOKE_TIMEOUT_SECONDS",
     "LANG",
     "LC_ALL",
     "LC_CTYPE",
