@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+import contextlib
 import grp
 import os
 import pwd
@@ -11,6 +12,9 @@ import socket
 import stat
 import sys
 import threading
+
+
+MAX_PENDING_BYTES = 1024 * 1024
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,22 +45,60 @@ def relay_stream(client: socket.socket, upstream_path: str) -> None:
     upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         upstream.connect(upstream_path)
-        selector = selectors.DefaultSelector()
-        selector.register(client, selectors.EVENT_READ, upstream)
-        selector.register(upstream, selectors.EVENT_READ, client)
+        client.setblocking(False)
+        upstream.setblocking(False)
+        peers = {client: upstream, upstream: client}
+        pending = {client: bytearray(), upstream: bytearray()}
+        read_open = {client: True, upstream: True}
+        registered: set[socket.socket] = set()
 
-        while True:
-            events = selector.select()
-            if not events:
-                continue
+        with selectors.DefaultSelector() as selector:
+            while any(read_open.values()) or any(pending.values()):
+                for connection in (client, upstream):
+                    events = 0
+                    if (
+                        read_open[connection]
+                        and len(pending[peers[connection]]) < MAX_PENDING_BYTES
+                    ):
+                        events |= selectors.EVENT_READ
+                    if pending[connection]:
+                        events |= selectors.EVENT_WRITE
+                    if events and connection in registered:
+                        selector.modify(connection, events)
+                    elif events:
+                        selector.register(connection, events)
+                        registered.add(connection)
+                    elif connection in registered:
+                        selector.unregister(connection)
+                        registered.remove(connection)
 
-            for key, _ in events:
-                source = key.fileobj
-                dest = key.data
-                chunk = source.recv(65536)
-                if not chunk:
-                    return
-                dest.sendall(chunk)
+                for key, event_mask in selector.select():
+                    connection = key.fileobj
+                    if event_mask & selectors.EVENT_READ:
+                        try:
+                            chunk = connection.recv(65536)
+                        except BlockingIOError:
+                            chunk = None
+                        if chunk:
+                            pending[peers[connection]].extend(chunk)
+                        elif chunk == b"":
+                            read_open[connection] = False
+                            if not pending[peers[connection]]:
+                                with contextlib.suppress(OSError):
+                                    peers[connection].shutdown(socket.SHUT_WR)
+
+                    if event_mask & selectors.EVENT_WRITE and pending[connection]:
+                        try:
+                            sent = connection.send(pending[connection])
+                        except BlockingIOError:
+                            continue
+                        except (BrokenPipeError, ConnectionResetError):
+                            return
+                        del pending[connection][:sent]
+                        source = peers[connection]
+                        if not pending[connection] and not read_open[source]:
+                            with contextlib.suppress(OSError):
+                                connection.shutdown(socket.SHUT_WR)
     finally:
         try:
             upstream.close()

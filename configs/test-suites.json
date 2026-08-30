@@ -298,6 +298,13 @@
       "requires": ["bash", "git"]
     },
     {
+      "id": "orbstack-ssh-agent-relay",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_orbstack_ssh_agent_relay"],
+      "covers": ["tests/test_orbstack_ssh_agent_relay.py"],
+      "platforms": ["linux", "macos", "wsl2"]
+    },
+    {
       "id": "project-deps-guard",
       "suites": ["fast"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_project_deps_guard"],
