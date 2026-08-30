@@ -144,6 +144,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -371,7 +372,28 @@ if "anthropic-api" in profiles:
 if "api-fallback" in profiles:
     apply_api_fallback(agents_cfg)
 
-active_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+payload = json.dumps(merged, indent=2) + "\n"
+temporary_path = None
+try:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=active_path.parent,
+        prefix=f".{active_path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary_path.chmod(0o600)
+    os.replace(temporary_path, active_path)
+    temporary_path = None
+except Exception as exc:  # noqa: BLE001
+    print(f"ERROR: Failed to replace active OpenCode config: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+finally:
+    if temporary_path is not None:
+        temporary_path.unlink(missing_ok=True)
 PY
 
 printf '%s\n' "$runtime_dir"

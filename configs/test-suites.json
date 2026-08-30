@@ -290,6 +290,14 @@
       "requires": ["pwsh"]
     },
     {
+      "id": "opencode-workspace-overrides",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_workspace_overrides"],
+      "covers": ["tests/test_opencode_workspace_overrides.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
       "id": "project-deps-guard",
       "suites": ["fast"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_project_deps_guard"],
