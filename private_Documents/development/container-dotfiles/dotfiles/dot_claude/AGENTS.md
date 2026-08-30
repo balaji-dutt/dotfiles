@@ -129,6 +129,13 @@
   `command rm -f -- file` first, or `>| file`. `noclobber` also makes `>> file`
   fail when `file` does not exist, so pair the alias-safe removal form with `>`
   rather than `>>`, or use zsh's `>>| file`.
+- These dotfiles define `npm` and `npx` wrapper functions. Claude Code's shell
+  snapshot can capture those functions without `_run_preferred_command`, which
+  they call, so bare `npm` or `npx` can exit 127. Use `command npm` and
+  `command npx` in agent commands to bypass the wrappers.
+- `ls` may be aliased to `eza`. Do not parse its output or assume coreutils
+  flags in agent commands. Use file-discovery tools for enumeration, and use
+  `command ls` only when an unaliased, human-readable listing is needed.
 - Ask before running anything that:
   - changes the filesystem outside the repo
   - alters system settings, permissions, or security state
