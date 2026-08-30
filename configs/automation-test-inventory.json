@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:1aefa68a17ba1a1b1806a8bea0f58fd73b7abab254fc94d4ff62914f04909cdd",
+  "candidate_digest": "sha256:ca26d4138634a800158f317a0dbfb05d4f025661549a5fee6c6ec080cc902e96",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -278,16 +278,21 @@
       "test_layers": ["integration", "platform-smoke", "render", "unit"],
       "coverage": {
         "suite_id": "devcontainer-runtime",
-        "status": "planned",
+        "status": "partial",
         "work_item": "dots-4jy.10.6",
-        "test_paths": [],
+        "test_paths": ["tests/test_devcontainer_lifecycle.py"],
         "behavior_requirements": [
-          {"id": "failure-invalid-lifecycle-input", "kind": "failure", "description": "Reject invalid lifecycle, workspace, relay, or dependency configuration with actionable diagnostics.", "status": "planned", "test_paths": []},
-          {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep smoke and lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "planned", "test_paths": []},
-          {"id": "success-idempotent-runtime", "kind": "success", "description": "Complete lifecycle, override, and relay setup repeatedly with the expected container state.", "status": "planned", "test_paths": []}
+          {"id": "failure-invalid-lifecycle-input", "kind": "failure", "description": "Reject invalid lifecycle and dependency configuration with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "failure-invalid-relay-input", "kind": "failure", "description": "Reject invalid relay arguments and unsafe socket state with actionable diagnostics.", "status": "planned", "test_paths": []},
+          {"id": "failure-invalid-workspace-override-input", "kind": "failure", "description": "Reject malformed workspace override inputs without corrupting the active configuration.", "status": "planned", "test_paths": []},
+          {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep live lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "planned", "test_paths": []},
+          {"id": "safety-host-isolation", "kind": "safety", "description": "Exercise lifecycle functions without running installers or mutating host paths.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "success-idempotent-lifecycle-runtime", "kind": "success", "description": "Repeat lifecycle persistence and materialization with the expected container state.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "success-idempotent-relay-runtime", "kind": "success", "description": "Relay concurrent bidirectional SSH-agent traffic and clean up sockets reliably.", "status": "planned", "test_paths": []},
+          {"id": "success-idempotent-workspace-override", "kind": "success", "description": "Merge and remap workspace overrides repeatedly with stable output.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split."
+      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Source-safe lifecycle contracts and isolated filesystem tests cover persistence migrations, managed materialization, profile preservation, invalid inputs, and repeated execution without running installers or touching host paths. Workspace overrides, the socket relay, and live disposable-container smoke remain incomplete."
     },
     {
       "id": "espanso-scripts",

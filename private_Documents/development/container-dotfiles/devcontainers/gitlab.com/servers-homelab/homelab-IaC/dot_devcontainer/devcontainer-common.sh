@@ -134,10 +134,10 @@ ensure_git_safe_directories() (
 
 ensure_agent_of_empires_persistence_link() {
   local aoe_persist_dir aoe_config_dir
-  aoe_persist_dir="/home/vscode/persistent-data/agent-of-empires"
-  aoe_config_dir="$HOME/.config/agent-of-empires"
+  aoe_persist_dir="${1:-/home/vscode/persistent-data/agent-of-empires}"
+  aoe_config_dir="${2:-$HOME/.config/agent-of-empires}"
 
-  mkdir -p "$aoe_persist_dir" "$HOME/.config"
+  mkdir -p "$aoe_persist_dir" "$(dirname "$aoe_config_dir")"
 
   if [[ -L "$aoe_config_dir" ]]; then
     ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
@@ -208,20 +208,27 @@ ensure_opencode_persistence_link() {
 }
 
 ensure_opencode_persistence_links() {
-  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/config "$HOME/.config/opencode"
-  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/cache "$HOME/.cache/opencode"
-  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/share "$HOME/.local/share/opencode"
-  ensure_opencode_persistence_link /home/vscode/persistent-data/opencode/state "$HOME/.local/state/opencode"
+  local persistent_root config_home cache_home data_home state_home
+  persistent_root="${1:-/home/vscode/persistent-data/opencode}"
+  config_home="${2:-$HOME/.config}"
+  cache_home="${3:-$HOME/.cache}"
+  data_home="${4:-$HOME/.local/share}"
+  state_home="${5:-$HOME/.local/state}"
+
+  ensure_opencode_persistence_link "$persistent_root/config" "$config_home/opencode"
+  ensure_opencode_persistence_link "$persistent_root/cache" "$cache_home/opencode"
+  ensure_opencode_persistence_link "$persistent_root/share" "$data_home/opencode"
+  ensure_opencode_persistence_link "$persistent_root/state" "$state_home/opencode"
 }
 
 ensure_claude_persistence_links() {
   local claude_persist_dir claude_config_persist_dir
   local claude_config_dir claude_home_config claude_home_config_persist
 
-  claude_persist_dir="/home/vscode/persistent-data/claude"
+  claude_persist_dir="${1:-/home/vscode/persistent-data/claude}"
   claude_config_persist_dir="$claude_persist_dir/config"
-  claude_config_dir="$HOME/.claude"
-  claude_home_config="$HOME/.claude.json"
+  claude_config_dir="${2:-$HOME/.claude}"
+  claude_home_config="${3:-$HOME/.claude.json}"
   claude_home_config_persist="$claude_persist_dir/.claude.json"
 
   mkdir -p "$claude_config_persist_dir"

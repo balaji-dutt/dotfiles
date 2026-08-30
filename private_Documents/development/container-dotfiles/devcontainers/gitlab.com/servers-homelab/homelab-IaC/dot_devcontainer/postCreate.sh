@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-
-# --- Logging / debugging ---
-LOG_FILE="${LOG_FILE:-/tmp/postCreate.log}"
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee "$LOG_FILE") 2>&1
 
 timestamp() { date +"%Y-%m-%d %H:%M:%S%z"; }
 
@@ -12,10 +6,13 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 common_file="$script_dir/devcontainer-common.sh"
 if [[ ! -r "$common_file" ]]; then
   echo "ERROR: Shared devcontainer helper not found: $common_file" >&2
-  exit 1
+  return 1 2>/dev/null || exit 1
 fi
 # shellcheck source=private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh
-source "$common_file"
+source "$common_file" || {
+  echo "ERROR: Failed to source shared devcontainer helper: $common_file" >&2
+  return 1 2>/dev/null || exit 1
+}
 
 step() { echo; echo "==== [$(timestamp)] STEP: $* ===="; }
 done_step() { echo "==== [$(timestamp)] DONE: $* ===="; }
@@ -40,7 +37,7 @@ trim_whitespace() {
 
 bootstrap_local_git_metadata() {
   local workspace="$1"
-  local source_git_dir="/tmp/host-workspace-git"
+  local source_git_dir="${2:-/tmp/host-workspace-git}"
   local target_git_dir="$workspace/.git"
 
   # macOS-only mount; no-op on other hosts.
@@ -421,6 +418,136 @@ npm_allow_scripts_for_package() {
   esac
 }
 
+retire_mnemo_persistence_link() {
+  local actual_target link_path target_dir
+
+  link_path="${1:-$HOME/.mnemo}"
+  target_dir="${2:-/home/vscode/persistent-data/mnemo}"
+
+  if [[ ! -L "$link_path" ]]; then
+    if [[ -e "$link_path" ]]; then
+      echo "Preserving non-symlink mnemo data path: $link_path"
+    fi
+    return 0
+  fi
+
+  actual_target="$(readlink "$link_path")"
+  if [[ "$actual_target" != "$target_dir" ]]; then
+    echo "Preserving mnemo symlink with a different target: $link_path"
+    return 0
+  fi
+
+  command rm -f -- "$link_path"
+  if [[ -e "$link_path" || -L "$link_path" ]]; then
+    echo "ERROR: failed to retire mnemo persistence symlink: $link_path" >&2
+    return 1
+  fi
+
+  echo "Retired mnemo persistence symlink; data remains at $target_dir"
+}
+
+install_opencode_env_file() {
+  local src dest profile_lines tmp_file
+
+  src="${1:-/tmp/host-container-configs/opencode.env}"
+  dest="${2:-/home/vscode/persistent-data/opencode/config/opencode.env}"
+  profile_lines=""
+  tmp_file=""
+
+  if [[ ! -f "$src" ]]; then
+    echo "WARN: $src not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then rebuild/restart the container. Keeping existing env file if present." >&2
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+  profile_lines="$(mktemp "${dest}.profiles.XXXXXX")"
+
+  if [[ -r "$dest" ]]; then
+    awk '
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { print; next }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { print; next }
+    ' "$dest" > "$profile_lines"
+  fi
+
+  install -m 0600 "$src" "$dest"
+
+  if [[ -s "$profile_lines" ]]; then
+    tmp_file="$(mktemp "${dest}.XXXXXX")"
+    awk '
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { next }
+      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { next }
+      { print }
+    ' "$dest" > "$tmp_file"
+    cat "$profile_lines" >> "$tmp_file"
+    mv -f "$tmp_file" "$dest"
+    chmod 600 "$dest" 2>/dev/null || true
+    tmp_file=""
+  fi
+
+  rm -f "$profile_lines" ${tmp_file:+"$tmp_file"}
+}
+
+post_create_persistence_phase() {
+  step "Setup Claude config symlinks and permissions"
+  ensure_claude_persistence_links
+  install_claude_managed_asset_links
+  register_claude_mcp_servers
+  done_step "Setup Claude config symlinks and permissions"
+
+  step "Source /tmp/host-container-configs/container_env (if present)"
+  if [[ -f /tmp/host-container-configs/container_env ]]; then
+    # shellcheck disable=SC1091
+    source /tmp/host-container-configs/container_env
+  else
+    echo "/tmp/host-container-configs/container_env not found; skipping."
+  fi
+  done_step "Source /tmp/host-container-configs/container_env (if present)"
+
+  step "Retire mnemo persistence symlink"
+  retire_mnemo_persistence_link
+  done_step "Retire mnemo persistence symlink"
+
+  step "Prime OpenCode/AoE persistent-data symlinks before install"
+  mkdir -p \
+    /home/vscode/persistent-data/opencode/{config,cache,share,state} \
+    "$HOME/.cache" \
+    "$HOME/.local/share" \
+    "$HOME/.local/state"
+
+  ensure_agent_of_empires_persistence_link
+  ensure_opencode_persistence_links
+  done_step "Prime OpenCode/AoE persistent-data symlinks before install"
+
+  step "Install generated OpenCode env file (if present)"
+  install_opencode_env_file
+  done_step "Install generated OpenCode env file (if present)"
+}
+
+post_create_materialization_phase() {
+  step "Install OpenCode managed assets"
+  materialize_opencode_managed_assets
+  done_step "Install OpenCode managed assets"
+}
+
+post_create_workspace_override_phase() {
+  local workspace_path
+  workspace_path="$1"
+
+  load_opencode_env_file
+
+  step "Refresh OpenCode workspace model overrides"
+  if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
+    install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
+      "$HOME/.local/bin/opencode-sync-workspace-overrides"
+    if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$workspace_path"; then
+      echo "WARN: OpenCode workspace override sync failed."
+    fi
+  else
+    echo "OpenCode workspace override helper not found; skipping."
+  fi
+  done_step "Refresh OpenCode workspace model overrides"
+}
+
 on_error() {
   local exit_code=$?
   echo
@@ -428,6 +555,13 @@ on_error() {
   echo "!!!! See log: $LOG_FILE"
   exit "$exit_code"
 }
+
+post_create_main() (
+set -Eeuo pipefail
+
+LOG_FILE="${LOG_FILE:-/tmp/postCreate.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee "$LOG_FILE") 2>&1
 trap on_error ERR
 
 # Print commands as they run in debug mode (very helpful for "where did it hang?")
@@ -732,110 +866,7 @@ else
 fi
 done_step "Install plannotator CLI"
 
-# --- 6) Claude symlinks / setup ---
-step "Setup Claude config symlinks and permissions"
-ensure_claude_persistence_links
-install_claude_managed_asset_links
-register_claude_mcp_servers
-done_step "Setup Claude config symlinks and permissions"
-
-# --- 7) Source container env + dotfiles ---
-step "Source /tmp/host-container-configs/container_env (if present)"
-if [[ -f /tmp/host-container-configs/container_env ]]; then
-  # shellcheck disable=SC1091
-  source /tmp/host-container-configs/container_env
-else
-  echo "/tmp/host-container-configs/container_env not found; skipping."
-fi
-done_step "Source /tmp/host-container-configs/container_env (if present)"
-
-retire_mnemo_persistence_link() {
-  local actual_target link_path target_dir
-
-  link_path="$HOME/.mnemo"
-  target_dir="/home/vscode/persistent-data/mnemo"
-
-  if [[ ! -L "$link_path" ]]; then
-    if [[ -e "$link_path" ]]; then
-      echo "Preserving non-symlink mnemo data path: $link_path"
-    fi
-    return 0
-  fi
-
-  actual_target="$(readlink "$link_path")"
-  if [[ "$actual_target" != "$target_dir" ]]; then
-    echo "Preserving mnemo symlink with a different target: $link_path"
-    return 0
-  fi
-
-  command rm -f -- "$link_path"
-  if [[ -e "$link_path" || -L "$link_path" ]]; then
-    echo "ERROR: failed to retire mnemo persistence symlink: $link_path" >&2
-    return 1
-  fi
-
-  echo "Retired mnemo persistence symlink; data remains at $target_dir"
-}
-
-install_opencode_env_file() {
-  local src dest profile_lines tmp_file
-
-  src="/tmp/host-container-configs/opencode.env"
-  dest="/home/vscode/persistent-data/opencode/config/opencode.env"
-  profile_lines=""
-  tmp_file=""
-
-  if [[ ! -f "$src" ]]; then
-    echo "WARN: $src not found; run ./assets/sync-devcontainer-all.sh or ./assets/render-container-configs.sh on the host, then rebuild/restart the container. Keeping existing env file if present." >&2
-    return 0
-  fi
-
-  mkdir -p "$(dirname "$dest")"
-  profile_lines="$(mktemp "${dest}.profiles.XXXXXX")"
-
-  if [[ -r "$dest" ]]; then
-    awk '
-      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { print; next }
-      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { print; next }
-    ' "$dest" > "$profile_lines"
-  fi
-
-  install -m 0600 "$src" "$dest"
-
-  if [[ -s "$profile_lines" ]]; then
-    tmp_file="$(mktemp "${dest}.XXXXXX")"
-    awk '
-      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILES=/ { next }
-      /^[[:space:]]*(export[[:space:]]+)?OPENCODE_PROFILE=/ { next }
-      { print }
-    ' "$dest" > "$tmp_file"
-    cat "$profile_lines" >> "$tmp_file"
-    mv -f "$tmp_file" "$dest"
-    chmod 600 "$dest" 2>/dev/null || true
-    tmp_file=""
-  fi
-
-  rm -f "$profile_lines" ${tmp_file:+"$tmp_file"}
-}
-
-step "Retire mnemo persistence symlink"
-retire_mnemo_persistence_link
-done_step "Retire mnemo persistence symlink"
-
-step "Prime OpenCode/AoE persistent-data symlinks before install"
-mkdir -p \
-  /home/vscode/persistent-data/opencode/{config,cache,share,state} \
-  "$HOME/.cache" \
-  "$HOME/.local/share" \
-  "$HOME/.local/state"
-
-ensure_agent_of_empires_persistence_link
-ensure_opencode_persistence_links
-done_step "Prime OpenCode/AoE persistent-data symlinks before install"
-
-step "Install generated OpenCode env file (if present)"
-install_opencode_env_file
-done_step "Install generated OpenCode env file (if present)"
+post_create_persistence_phase
 
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles
@@ -855,9 +886,7 @@ else
 fi
 done_step "Run host dotfiles installer (if present)"
 
-step "Install OpenCode managed assets"
-materialize_opencode_managed_assets
-done_step "Install OpenCode managed assets"
+post_create_materialization_phase
 
 step "Install Better Beads Kanban VSIX (if VS Code CLI is available)"
 if ! install_better_beads_kanban_vscode_extension; then
@@ -888,20 +917,17 @@ else
 fi
 done_step "Load Antidote (if present)"
 
-load_opencode_env_file
-
-step "Refresh OpenCode workspace model overrides"
-if [[ -f /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh ]]; then
-  install -m 0755 /tmp/host-homelab-devcontainer/opencode-sync-workspace-overrides.sh \
-    "$HOME/.local/bin/opencode-sync-workspace-overrides"
-  if ! "$HOME/.local/bin/opencode-sync-workspace-overrides" "${OPENCODE_PROFILES:-${OPENCODE_PROFILE:-defaults}}" "$WORKSPACE_PATH"; then
-    echo "WARN: OpenCode workspace override sync failed."
-  fi
-else
-  echo "OpenCode workspace override helper not found; skipping."
-fi
-done_step "Refresh OpenCode workspace model overrides"
+post_create_workspace_override_phase "$WORKSPACE_PATH"
 
 step "postCreate complete"
 echo "Log saved to: $LOG_FILE"
 done_step "postCreate complete"
+)
+
+post_create_dispatch() {
+  post_create_main "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  post_create_dispatch "$@"
+fi

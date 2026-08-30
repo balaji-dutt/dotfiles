@@ -158,6 +158,14 @@
       "requires": ["bash"]
     },
     {
+      "id": "devcontainer-lifecycle",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_lifecycle"],
+      "covers": ["tests/test_devcontainer_lifecycle.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git"]
+    },
+    {
       "id": "envrc-render",
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_envrc"],

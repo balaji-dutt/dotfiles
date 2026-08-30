@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-
-LOG_FILE="${LOG_FILE:-/tmp/postStart.log}"
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee "$LOG_FILE") 2>&1
 
 timestamp() { date +"%Y-%m-%d %H:%M:%S%z"; }
 
@@ -11,10 +6,13 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 common_file="$script_dir/devcontainer-common.sh"
 if [[ ! -r "$common_file" ]]; then
   echo "ERROR: Shared devcontainer helper not found: $common_file" >&2
-  exit 1
+  return 1 2>/dev/null || exit 1
 fi
 # shellcheck source=private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh
-source "$common_file"
+source "$common_file" || {
+  echo "ERROR: Failed to source shared devcontainer helper: $common_file" >&2
+  return 1 2>/dev/null || exit 1
+}
 
 log_run_header() {
   local workspace
@@ -26,14 +24,6 @@ log_run_header() {
   echo "hostname=$(hostname 2>/dev/null || true)"
   echo "note=postStart runs when the container starts or reopens; check /tmp/postCreate.log for create/recreate runs."
 }
-
-workspace_root="${1:-}"
-if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
-  workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-fi
-workspace_root="${workspace_root:-$PWD}"
-log_run_header "$workspace_root"
-ensure_git_safe_directories "$workspace_root"
 
 read_opencode_profiles_from_env_file() {
   local env_file
@@ -387,6 +377,10 @@ EOF
   chmod 700 "$helper_path"
 }
 
+post_start_runtime_configuration() {
+  local workspace_root persisted_opencode_profiles normalized_persisted_profiles
+  workspace_root="$1"
+
 mkdir -p \
   /home/vscode/persistent-data \
   /home/vscode/persistent-data/opencode/{config,cache,share,state} \
@@ -459,8 +453,37 @@ if [[ -f /tmp/host-dotfiles/dot_local/share/git-helpers.zsh ]]; then
 fi
 
 install_sset_helper
+}
 
+post_start_refresh_ssh() {
 if ! "$HOME/.local/bin/sset"; then
   echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
   echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
+fi
+}
+
+post_start_main() (
+set -Eeuo pipefail
+
+LOG_FILE="${LOG_FILE:-/tmp/postStart.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee "$LOG_FILE") 2>&1
+
+workspace_root="${1:-}"
+if [[ -z "$workspace_root" ]] && command -v git >/dev/null 2>&1; then
+  workspace_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+workspace_root="${workspace_root:-$PWD}"
+log_run_header "$workspace_root"
+ensure_git_safe_directories "$workspace_root"
+post_start_runtime_configuration "$workspace_root"
+post_start_refresh_ssh
+)
+
+post_start_dispatch() {
+  post_start_main "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  post_start_dispatch "$@"
 fi
