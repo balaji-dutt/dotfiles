@@ -4,5 +4,5 @@ opencode-ai@latest
 @ansible/ansible-mcp-server@26.6.0
 promptfoo@0.122.0
 @opencode-ai/sdk@1.18.21
-@anthropic-ai/claude-agent-sdk@0.3.239
+@anthropic-ai/claude-agent-sdk@0.3.241
 @anthropic-ai/sdk@0.120.0
