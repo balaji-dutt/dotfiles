@@ -17,7 +17,7 @@
 | `configs/packages.yaml` | WSL2 package groups and WSL external tool version pins |
 | `configs/mise.toml` | mise tool/plugin declarations, including npm CLI shims |
 | `configs/mise_wsl2.toml` | WSL2-specific mise configuration |
-| `configs/promptfoo-runtime/` | exact Promptfoo/provider SDK package manifest and npm lockfile for macOS and WSL2 hosts |
+| `configs/promptfoo-runtime/` | exact Promptfoo/provider SDK package manifest and npm lockfile for macOS, WSL2, and devcontainers |
 | `configs/uv_tools.txt` | `uv tool` package list |
 | `configs/npm_globals.txt` | raw npm global packages |
 | `configs/npm_globals_linux.txt` | raw npm globals for Linux/WSL2 |
@@ -57,7 +57,8 @@ they change. It also copies the Promptfoo package and lock files into
 `~/.local/share/promptfoo-runtime` and runs `npm ci` through mise. macOS uses the
 dedicated Promptfoo onchange hook for the same lockfile-backed runtime. The
 managed `~/bin/promptfoo` wrapper always executes that co-located package tree so
-provider SDK resolution does not depend on isolated npm or mise installs.
+provider SDK resolution does not depend on isolated npm or mise installs. The
+homelab devcontainer hydrates the same manifest and lockfile during `postCreate`.
 
 ## Related Top-Level Manifest
 

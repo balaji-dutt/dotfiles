@@ -376,6 +376,189 @@ retire_mnemo_persistence_link "$6" "$7"
         self.assertEqual(stat.S_IMODE(env_target.stat().st_mode), 0o600)
         self.assertFalse(mnemo_link.exists())
 
+    def test_global_npm_install_timing_preserves_failures(self) -> None:
+        fake_bin = self.fixture.root / "fake bin"
+        fake_bin.mkdir()
+        npm_log = self.fixture.root / "npm-args.log"
+        fake_npm = fake_bin / "npm"
+        fake_npm.write_text(
+            """#!/bin/sh
+printf '%s\n' "$*" >>"$NPM_ARG_LOG"
+case "$*" in
+  *fail-package*) exit 37 ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        fake_npm.chmod(0o755)
+        env = dict(self.env)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["NPM_ARG_LOG"] = str(npm_log)
+
+        result = self.run_bash(
+            r'''
+source "$1"
+install_global_npm_package '@opencode-ai/sdk@1.18.21'
+set +e
+install_global_npm_package 'fail-package@1.0.0'
+rc=$?
+set -e
+[[ "$rc" -eq 37 ]]
+''',
+            str(POST_CREATE),
+            env=env,
+        )
+        self.assert_success(result)
+        self.assertEqual(
+            npm_log.read_text(encoding="utf-8").splitlines(),
+            [
+                "install -g @opencode-ai/sdk@1.18.21",
+                "install -g fail-package@1.0.0",
+            ],
+        )
+        self.assertRegex(
+            result.stdout,
+            r"\[npm\] finish package=fail-package@1\.0\.0 status=37 elapsed_seconds=\d+",
+        )
+
+    def test_prepare_npm_cache_honors_override_and_is_idempotent(self) -> None:
+        cache_dir = self.fixture.root / "persistent data" / "npm cache"
+        env = dict(self.env)
+        env["npm_config_cache"] = str(cache_dir)
+        result = self.run_bash(
+            r'''
+source "$1"
+prepare_npm_cache
+prepare_npm_cache
+printf '%s\n' "$npm_config_cache"
+''',
+            str(POST_CREATE),
+            env=env,
+        )
+        self.assert_success(result)
+        self.assertEqual(result.stdout.strip(), str(cache_dir))
+        self.assertTrue(cache_dir.is_dir())
+        self.assertEqual(stat.S_IMODE(cache_dir.stat().st_mode), 0o700)
+
+    def test_promptfoo_runtime_install_uses_lockfile_and_omits_optional(self) -> None:
+        fake_bin = self.fixture.root / "fake bin"
+        fake_bin.mkdir()
+        source_dir = self.fixture.root / "runtime source"
+        runtime_dir = self.fixture.root / "runtime target"
+        source_dir.mkdir()
+        (source_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
+        (source_dir / "package-lock.json").write_text(
+            '{"lockfileVersion":3}\n', encoding="utf-8"
+        )
+        npm_log = self.fixture.root / "npm.log"
+        (fake_bin / "npm").write_text(
+            """#!/bin/sh
+printf 'cwd=%s args=%s CI=%s\n' "$PWD" "$*" "${CI-unset}" >"$NPM_LOG"
+""",
+            encoding="utf-8",
+        )
+        (fake_bin / "npm").chmod(0o755)
+        env = dict(self.env)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["NPM_LOG"] = str(npm_log)
+        env["CI"] = "1"
+
+        result = self.run_bash(
+            r'''
+source "$1"
+npm_package_belongs_to_promptfoo_runtime promptfoo
+npm_package_belongs_to_promptfoo_runtime '@opencode-ai/sdk'
+if npm_package_belongs_to_promptfoo_runtime opencode-ai; then exit 20; fi
+install_promptfoo_runtime "$2" "$3"
+''',
+            str(POST_CREATE),
+            str(source_dir),
+            str(runtime_dir),
+            env=env,
+        )
+        self.assert_success(result)
+        self.assertEqual(
+            (runtime_dir / "package.json").read_text(encoding="utf-8"),
+            '{"private":true}\n',
+        )
+        self.assertEqual(
+            (runtime_dir / "package-lock.json").read_text(encoding="utf-8"),
+            '{"lockfileVersion":3}\n',
+        )
+        self.assertEqual(stat.S_IMODE(runtime_dir.stat().st_mode), 0o700)
+        npm_text = npm_log.read_text(encoding="utf-8")
+        self.assertIn(f"cwd={runtime_dir}", npm_text)
+        self.assertIn("args=ci --omit=optional --timing", npm_text)
+        self.assertIn(
+            "--allow-scripts=@playwright/browser-chromium,@swc/core,"
+            "onnxruntime-node,sharp,protobufjs,esbuild",
+            npm_text,
+        )
+        self.assertIn("CI=unset", npm_text)
+        self.assertRegex(
+            result.stdout,
+            r"\[npm\] finish package=promptfoo-runtime status=0 elapsed_seconds=\d+",
+        )
+
+    def test_promptfoo_runtime_verifier_checks_esm_packages_before_cli(self) -> None:
+        fake_bin = self.fixture.root / "fake bin"
+        fake_bin.mkdir()
+        runtime_dir = self.fixture.root / "runtime root"
+        promptfoo_bin = runtime_dir / "node_modules" / ".bin" / "promptfoo"
+        promptfoo_bin.parent.mkdir(parents=True)
+        node_log = self.fixture.root / "node.log"
+        promptfoo_log = self.fixture.root / "promptfoo.log"
+
+        (fake_bin / "node").write_text(
+            """#!/bin/sh
+payload="$(cat)"
+printf 'cwd=%s args=%s\n%s\n' "$PWD" "$*" "$payload" >"$NODE_LOG"
+if [ "${NODE_RESOLVE_FAIL:-0}" = 1 ]; then exit 41; fi
+""",
+            encoding="utf-8",
+        )
+        promptfoo_bin.write_text(
+            """#!/bin/sh
+printf '%s\n' "$*" >"$PROMPTFOO_LOG"
+""",
+            encoding="utf-8",
+        )
+        (fake_bin / "node").chmod(0o755)
+        promptfoo_bin.chmod(0o755)
+
+        env = dict(self.env)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["NODE_LOG"] = str(node_log)
+        env["PROMPTFOO_LOG"] = str(promptfoo_log)
+        result = self.run_bash(
+            'source "$1"; verify_promptfoo_runtime "$2"',
+            str(POST_CREATE),
+            str(runtime_dir),
+            env=env,
+        )
+        self.assert_success(result)
+        node_text = node_log.read_text(encoding="utf-8")
+        self.assertIn(f"cwd={runtime_dir}", node_text)
+        for package_name in (
+            "promptfoo",
+            "@opencode-ai/sdk",
+            "@anthropic-ai/claude-agent-sdk",
+            "@anthropic-ai/sdk",
+        ):
+            self.assertIn(package_name, node_text)
+        self.assertEqual(promptfoo_log.read_text(encoding="utf-8").strip(), "--version")
+
+        promptfoo_log.unlink()
+        env["NODE_RESOLVE_FAIL"] = "1"
+        failed = self.run_bash(
+            'source "$1"; set +e; verify_promptfoo_runtime "$2"; rc=$?; [[ "$rc" -eq 1 ]]',
+            str(POST_CREATE),
+            str(runtime_dir),
+            env=env,
+        )
+        self.assert_success(failed)
+        self.assertFalse(promptfoo_log.exists())
+
     def test_post_start_profile_helpers_validate_preserve_and_replace(self) -> None:
         env_file = self.fixture.root / "persistent env" / "opencode.env"
         env_file.parent.mkdir(parents=True)

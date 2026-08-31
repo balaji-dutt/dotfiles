@@ -418,6 +418,108 @@ npm_allow_scripts_for_package() {
   esac
 }
 
+npm_package_belongs_to_promptfoo_runtime() {
+  case "$1" in
+    promptfoo|@opencode-ai/sdk|@anthropic-ai/claude-agent-sdk|@anthropic-ai/sdk)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+prepare_npm_cache() {
+  local cache_dir
+
+  cache_dir="${npm_config_cache:-/home/vscode/persistent-data/npm-cache}"
+  install -d -m 0700 "$cache_dir"
+  export npm_config_cache="$cache_dir"
+}
+
+install_global_npm_package() {
+  local pkg pkg_name allow_scripts started_at finished_at rc
+  local -a npm_args
+
+  pkg="$1"
+  pkg_name="$(npm_package_name_from_spec "$pkg")"
+  allow_scripts="$(npm_allow_scripts_for_package "$pkg_name")"
+  npm_args=(install -g)
+
+  if [[ -n "$allow_scripts" ]]; then
+    npm_args+=("--allow-scripts=$allow_scripts")
+  fi
+
+  started_at="$(date +%s)"
+  echo "[npm] start package=$pkg mode=global epoch=$started_at"
+  # Some package lifecycle scripts skip native downloads when CI is set.
+  if env -u CI npm "${npm_args[@]}" "$pkg"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  finished_at="$(date +%s)"
+  echo "[npm] finish package=$pkg status=$rc elapsed_seconds=$((finished_at - started_at))"
+  return "$rc"
+}
+
+install_promptfoo_runtime() {
+  local source_dir runtime_dir allow_scripts started_at finished_at rc
+  local package_file lock_file
+
+  source_dir="${1:-/tmp/host-dotfiles/configs/promptfoo-runtime}"
+  runtime_dir="${2:-$HOME/.local/share/promptfoo-runtime}"
+  package_file="$source_dir/package.json"
+  lock_file="$source_dir/package-lock.json"
+  allow_scripts="$(npm_allow_scripts_for_package promptfoo)"
+
+  if [[ ! -r "$package_file" || ! -r "$lock_file" ]]; then
+    echo "ERROR: Promptfoo runtime manifest or lockfile is missing in $source_dir" >&2
+    return 1
+  fi
+
+  install -d -m 0700 "$runtime_dir"
+  install -m 0600 "$package_file" "$runtime_dir/package.json"
+  install -m 0600 "$lock_file" "$runtime_dir/package-lock.json"
+
+  started_at="$(date +%s)"
+  echo "[npm] start package=promptfoo-runtime mode=local omit_optional=true epoch=$started_at"
+  if (
+    cd "$runtime_dir"
+    env -u CI npm ci --omit=optional --timing "--allow-scripts=$allow_scripts"
+  ); then
+    rc=0
+  else
+    rc=$?
+  fi
+  finished_at="$(date +%s)"
+  echo "[npm] finish package=promptfoo-runtime status=$rc elapsed_seconds=$((finished_at - started_at))"
+  return "$rc"
+}
+
+verify_promptfoo_runtime() {
+  local runtime_dir
+
+  runtime_dir="${1:-$HOME/.local/share/promptfoo-runtime}"
+
+  (
+    cd "$runtime_dir"
+    node --input-type=module <<'NODE'
+for (const packageName of [
+  'promptfoo',
+  '@opencode-ai/sdk',
+  '@anthropic-ai/claude-agent-sdk',
+  '@anthropic-ai/sdk',
+]) {
+  import.meta.resolve(packageName);
+}
+NODE
+  ) || return 1
+
+  "$runtime_dir/node_modules/.bin/promptfoo" --version >/dev/null || return 1
+  echo "Promptfoo runtime ready in $runtime_dir"
+}
+
 retire_mnemo_persistence_link() {
   local actual_target link_path target_dir
 
@@ -585,6 +687,10 @@ if [[ -d /home/vscode/persistent-data ]]; then
 fi
 done_step "Fix ownership for persistent-data"
 
+step "Prepare persistent npm cache"
+prepare_npm_cache
+done_step "Prepare persistent npm cache"
+
 step "Configure Git safe directories"
 ensure_git_safe_directories "$WORKSPACE_PATH"
 done_step "Configure Git safe directories"
@@ -664,26 +770,36 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
   echo "--- npm packages file ---"
   sed -n '1,200p' /tmp/host-homelab-configs/npm_packages.txt || true
   echo "-------------------------"
+  effective_npm_cache="$(npm config get cache)"
+  echo "[npm] node=$(node --version) npm=$(npm --version) cache=$effective_npm_cache"
+  if [[ "$effective_npm_cache" != "$npm_config_cache" ]]; then
+    echo "ERROR: npm cache mismatch: expected $npm_config_cache, got $effective_npm_cache" >&2
+    exit 1
+  fi
+  echo "[npm] Promptfoo runtime: local npm ci with optional dependencies omitted"
+
+  promptfoo_runtime_requested=0
 
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
-    allow_scripts=""
     pkg_name="$(npm_package_name_from_spec "$pkg")"
-    allow_scripts="$(npm_allow_scripts_for_package "$pkg_name")"
-    echo "[npm] installing: $pkg"
-    # Keep CI=1 for the noninteractive bootstrap, but do not pass it to npm
-    # lifecycle scripts. Some npm tools, such as @beads/bd, skip native binary
-    # downloads when CI is set and leave only a broken JavaScript shim behind.
-    if [[ -n "$allow_scripts" ]]; then
-      env -u CI npm install -g --allow-scripts="$allow_scripts" "$pkg"
-    else
-      env -u CI npm install -g "$pkg"
+    if npm_package_belongs_to_promptfoo_runtime "$pkg_name"; then
+      promptfoo_runtime_requested=1
+      echo "[npm] deferring to lockfile-backed Promptfoo runtime: $pkg"
+      continue
     fi
+
+    install_global_npm_package "$pkg"
 
     if [[ "$pkg" == @beads/bd@* ]]; then
       bd version
     fi
   done < /tmp/host-homelab-configs/npm_packages.txt
+
+  if [[ "$promptfoo_runtime_requested" -eq 1 ]]; then
+    install_promptfoo_runtime
+    verify_promptfoo_runtime
+  fi
 else
   echo "No /tmp/host-homelab-configs/npm_packages.txt found; skipping."
 fi

@@ -60,8 +60,9 @@ The `homelab-IaC` devcontainer has its own package pins under:
 
 The main package-list files are:
 
-- `npm_packages.txt` for global npm tools installed by `postCreate.sh` from
-  `/tmp/host-homelab-configs/npm_packages.txt`
+- `npm_packages.txt` for npm tools installed by `postCreate.sh` from
+  `/tmp/host-homelab-configs/npm_packages.txt`; most are global, while the
+  Promptfoo runtime cohort is installed together under one local package root
 - `uv_tools.txt` for uv-installed Python tools
 - `pipx_packages.txt`, which is deprecated and retained only as a pointer away
   from pipx
@@ -69,6 +70,33 @@ The main package-list files are:
 Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
 Do not add comments to that file; the installer loop treats each non-blank line
 as an npm package spec.
+
+Promptfoo and its three provider SDK entries are grouped into the dedicated
+`~/.local/share/promptfoo-runtime` package root instead of being installed
+globally. `postCreate.sh` copies `configs/promptfoo-runtime/package.json` and its
+lockfile from the host dotfiles mount, then runs `npm ci --omit=optional` with
+npm timing output. The lockfile pins the complete dependency graph and `npm ci`
+fails when the manifest and lockfile disagree.
+
+The supported Promptfoo runtime consists of the CLI plus the pinned OpenCode
+SDK, Claude Agent SDK, and Anthropic SDK. Browser-provider support, local
+Hugging Face/ONNX execution, and other optional provider SDKs are not
+preinstalled. Add one of those features only with an explicit package and
+lifecycle-script review rather than removing the omission globally.
+
+Global npm packages still install sequentially. Each package writes start,
+finish, status, and elapsed-time records to `/tmp/postCreate.log`; the Promptfoo
+runtime installation records the same elapsed-time fields and npm phase timing.
+npm peer and deprecation warnings remain visible and are not treated as retries
+by the lifecycle script.
+
+`postCreate.sh` stores npm's content-addressed cache at
+`/home/vscode/persistent-data/npm-cache` on the existing named volume. This can
+reduce downloads on later container rebuilds, but it does not make the first
+cold build cache-warm. To discard suspected cache corruption from inside the
+container, run
+`npm --cache /home/vscode/persistent-data/npm-cache cache clean --force`; the
+next rebuild repopulates it.
 
 Claude Code is the exception: it is pinned by `CLAUDE_CODE_VERSION` in
 `devcontainer.json.tmpl` and installed from Anthropic's signed apt repository,
