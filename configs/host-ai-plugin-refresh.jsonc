@@ -19,7 +19,7 @@
       {
         "id": "plannotator@plannotator",
         "scope": "user",
-        "version": "0.27.7" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
+        "version": "0.27.8" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
       },
       {
         "id": "cc-safety-net@cc-marketplace",
@@ -44,7 +44,7 @@
       },
       {
         "package": "@plannotator/opencode",
-        "version": "0.27.7" // renovate: datasource=npm depName=@plannotator/opencode
+        "version": "0.27.8" // renovate: datasource=npm depName=@plannotator/opencode
       },
       {
         "package": "@gotgenes/opencode-agent-identity",
