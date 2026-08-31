@@ -409,9 +409,6 @@ npm_allow_scripts_for_package() {
     opencode-ai|@fission-ai/openspec|@beads/bd)
       printf '%s\n' "$pkg_name"
       ;;
-    promptfoo)
-      printf '%s\n' '@playwright/browser-chromium,@swc/core,onnxruntime-node,sharp,protobufjs,esbuild'
-      ;;
     *)
       return 0
       ;;
@@ -435,6 +432,35 @@ prepare_npm_cache() {
   cache_dir="${npm_config_cache:-/home/vscode/persistent-data/npm-cache}"
   install -d -m 0700 "$cache_dir"
   export npm_config_cache="$cache_dir"
+}
+
+promptfoo_runtime_platform_package_spec() {
+  local lock_file arch package_name
+
+  lock_file="$1"
+  arch="$(node -p 'process.arch')"
+  case "$arch" in
+    arm64|x64)
+      package_name="@libsql/linux-${arch}-gnu"
+      ;;
+    *)
+      echo "ERROR: Unsupported Promptfoo runtime architecture: $arch" >&2
+      return 1
+      ;;
+  esac
+
+  node --input-type=module - "$lock_file" "$package_name" <<'NODE'
+import fs from 'node:fs';
+
+const [lockFile, packageName] = process.argv.slice(2);
+const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+const entry = lock.packages?.[`node_modules/${packageName}`];
+if (!entry?.optional || typeof entry.version !== 'string') {
+  console.error(`Missing optional lockfile entry for ${packageName}`);
+  process.exit(1);
+}
+console.log(`${packageName}@${entry.version}`);
+NODE
 }
 
 install_global_npm_package() {
@@ -464,14 +490,13 @@ install_global_npm_package() {
 }
 
 install_promptfoo_runtime() {
-  local source_dir runtime_dir allow_scripts started_at finished_at rc
+  local source_dir runtime_dir platform_package_spec started_at finished_at rc
   local package_file lock_file
 
   source_dir="${1:-/tmp/host-dotfiles/configs/promptfoo-runtime}"
   runtime_dir="${2:-$HOME/.local/share/promptfoo-runtime}"
   package_file="$source_dir/package.json"
   lock_file="$source_dir/package-lock.json"
-  allow_scripts="$(npm_allow_scripts_for_package promptfoo)"
 
   if [[ ! -r "$package_file" || ! -r "$lock_file" ]]; then
     echo "ERROR: Promptfoo runtime manifest or lockfile is missing in $source_dir" >&2
@@ -481,12 +506,14 @@ install_promptfoo_runtime() {
   install -d -m 0700 "$runtime_dir"
   install -m 0600 "$package_file" "$runtime_dir/package.json"
   install -m 0600 "$lock_file" "$runtime_dir/package-lock.json"
+  platform_package_spec="$(promptfoo_runtime_platform_package_spec "$lock_file")" || return 1
 
   started_at="$(date +%s)"
   echo "[npm] start package=promptfoo-runtime mode=local omit_optional=true epoch=$started_at"
   if (
-    cd "$runtime_dir"
-    env -u CI npm ci --omit=optional --timing "--allow-scripts=$allow_scripts"
+    cd "$runtime_dir" || exit 1
+    env -u CI npm ci --omit=optional --timing &&
+    env -u CI npm install --no-save --omit=optional "$platform_package_spec"
   ); then
     rc=0
   else

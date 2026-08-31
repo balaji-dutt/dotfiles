@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -448,12 +449,26 @@ printf '%s\n' "$npm_config_cache"
         source_dir.mkdir()
         (source_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
         (source_dir / "package-lock.json").write_text(
-            '{"lockfileVersion":3}\n', encoding="utf-8"
+            """{
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/@libsql/linux-arm64-gnu": {
+      "version": "0.5.29",
+      "optional": true
+    },
+    "node_modules/@libsql/linux-x64-gnu": {
+      "version": "0.5.29",
+      "optional": true
+    }
+  }
+}
+""",
+            encoding="utf-8",
         )
         npm_log = self.fixture.root / "npm.log"
         (fake_bin / "npm").write_text(
             """#!/bin/sh
-printf 'cwd=%s args=%s CI=%s\n' "$PWD" "$*" "${CI-unset}" >"$NPM_LOG"
+printf 'cwd=%s args=%s CI=%s\n' "$PWD" "$*" "${CI-unset}" >>"$NPM_LOG"
 """,
             encoding="utf-8",
         )
@@ -483,22 +498,58 @@ install_promptfoo_runtime "$2" "$3"
         )
         self.assertEqual(
             (runtime_dir / "package-lock.json").read_text(encoding="utf-8"),
-            '{"lockfileVersion":3}\n',
+            (source_dir / "package-lock.json").read_text(encoding="utf-8"),
         )
         self.assertEqual(stat.S_IMODE(runtime_dir.stat().st_mode), 0o700)
-        npm_text = npm_log.read_text(encoding="utf-8")
-        self.assertIn(f"cwd={runtime_dir}", npm_text)
-        self.assertIn("args=ci --omit=optional --timing", npm_text)
-        self.assertIn(
-            "--allow-scripts=@playwright/browser-chromium,@swc/core,"
-            "onnxruntime-node,sharp,protobufjs,esbuild",
-            npm_text,
+        npm_lines = npm_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(npm_lines), 2)
+        self.assertEqual(
+            npm_lines[0],
+            f"cwd={runtime_dir} args=ci --omit=optional --timing CI=unset",
         )
-        self.assertIn("CI=unset", npm_text)
+        self.assertRegex(
+            npm_lines[1],
+            rf"^cwd={re.escape(str(runtime_dir))} args=install --no-save "
+            r"--omit=optional @libsql/linux-(?:arm64|x64)-gnu@0\.5\.29 CI=unset$",
+        )
+        self.assertNotIn("--allow-scripts", "\n".join(npm_lines))
         self.assertRegex(
             result.stdout,
             r"\[npm\] finish package=promptfoo-runtime status=0 elapsed_seconds=\d+",
         )
+
+    def test_promptfoo_runtime_install_rejects_missing_platform_binding(self) -> None:
+        fake_bin = self.fixture.root / "fake bin"
+        fake_bin.mkdir()
+        source_dir = self.fixture.root / "runtime source"
+        runtime_dir = self.fixture.root / "runtime target"
+        source_dir.mkdir()
+        (source_dir / "package.json").write_text('{"private":true}\n', encoding="utf-8")
+        (source_dir / "package-lock.json").write_text(
+            '{"lockfileVersion":3,"packages":{}}\n',
+            encoding="utf-8",
+        )
+        npm_log = self.fixture.root / "npm.log"
+        (fake_bin / "npm").write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$NPM_LOG\"\n",
+            encoding="utf-8",
+        )
+        (fake_bin / "npm").chmod(0o755)
+        env = dict(self.env)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["NPM_LOG"] = str(npm_log)
+
+        result = self.run_bash(
+            'source "$1"; install_promptfoo_runtime "$2" "$3"',
+            str(POST_CREATE),
+            str(source_dir),
+            str(runtime_dir),
+            env=env,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing optional lockfile entry for @libsql/linux-", result.stderr)
+        self.assertFalse(npm_log.exists())
 
     def test_promptfoo_runtime_verifier_checks_esm_packages_before_cli(self) -> None:
         fake_bin = self.fixture.root / "fake bin"

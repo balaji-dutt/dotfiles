@@ -76,7 +76,8 @@ Promptfoo and its three provider SDK entries are grouped into the dedicated
 globally. `postCreate.sh` copies `configs/promptfoo-runtime/package.json` and its
 lockfile from the host dotfiles mount, then runs `npm ci --omit=optional` with
 npm timing output. The lockfile pins the complete dependency graph and `npm ci`
-fails when the manifest and lockfile disagree.
+fails when the manifest and lockfile disagree. The installer then adds only the
+lockfile-pinned libSQL native binding for the container architecture.
 
 The supported Promptfoo runtime consists of the CLI plus the pinned OpenCode
 SDK, Claude Agent SDK, and Anthropic SDK. Browser-provider support, local

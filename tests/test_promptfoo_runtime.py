@@ -25,6 +25,18 @@ RENOVATE_FILES = [
 EXPECTED_DEPENDENCIES: dict[str, str] = json.loads(
     (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
 )["dependencies"]
+EXPECTED_SCRIPT_APPROVALS = {
+    "@playwright/browser-chromium",
+    "@swc/core",
+    "esbuild",
+    "onnxruntime-node",
+    "protobufjs",
+    "sharp",
+}
+EXPECTED_LINUX_BINDINGS = {
+    "@libsql/linux-arm64-gnu",
+    "@libsql/linux-x64-gnu",
+}
 
 
 def read_text(relative_path: str) -> str:
@@ -49,6 +61,23 @@ class PromptfooRuntimeTests(unittest.TestCase):
         lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
 
         self.assertEqual(lock["packages"][""]["dependencies"], EXPECTED_DEPENDENCIES)
+
+    def test_manifest_approves_reviewed_install_scripts(self) -> None:
+        manifest = json.loads(
+            (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(set(manifest["allowScripts"]), EXPECTED_SCRIPT_APPROVALS)
+        self.assertTrue(all(manifest["allowScripts"].values()))
+
+    def test_lockfile_contains_supported_linux_bindings(self) -> None:
+        lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
+
+        for package_name in EXPECTED_LINUX_BINDINGS:
+            with self.subTest(package=package_name):
+                entry = lock["packages"][f"node_modules/{package_name}"]
+                self.assertRegex(entry["version"], r"^\d+\.\d+\.\d+$")
+                self.assertTrue(entry["optional"])
 
     def test_devcontainer_pins_match_host_bundle(self) -> None:
         pins: dict[str, str] = {}
