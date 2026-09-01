@@ -62,6 +62,19 @@ class PromptfooRuntimeTests(unittest.TestCase):
 
         self.assertEqual(lock["packages"][""]["dependencies"], EXPECTED_DEPENDENCIES)
 
+    def test_lockfile_contains_all_claude_agent_sdk_platforms(self) -> None:
+        lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
+        packages = lock["packages"]
+        sdk = packages["node_modules/@anthropic-ai/claude-agent-sdk"]
+
+        for package_name, version in sdk["optionalDependencies"].items():
+            with self.subTest(package=package_name):
+                entry_key = f"node_modules/{package_name}"
+                self.assertIn(entry_key, packages)
+                entry = packages[entry_key]
+                self.assertEqual(entry["version"], version)
+                self.assertTrue(entry["optional"])
+
     def test_manifest_approves_reviewed_install_scripts(self) -> None:
         manifest = json.loads(
             (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
