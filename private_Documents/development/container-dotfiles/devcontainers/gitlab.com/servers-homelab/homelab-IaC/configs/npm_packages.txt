@@ -1,5 +1,5 @@
 opencode-ai@latest
-@fission-ai/openspec@1.10.0
+@fission-ai/openspec@1.11.0
 @beads/bd@1.2.2
 @ansible/ansible-mcp-server@26.6.0
 promptfoo@0.122.0
