@@ -16,9 +16,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
 
-SCHEMA_REF = "./schemas/automation-provenance.v1.schema.json"
+SCHEMA_REF = "./schemas/automation-provenance.v2.schema.json"
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
-VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 class CheckFailure(RuntimeError):
@@ -241,7 +240,6 @@ def load_policy(repo_root: Path, policy_path: Path) -> dict[str, Any]:
             "schema_version",
             "generated",
             "mirrors",
-            "promptfoo",
             "espanso",
             "statusline",
             "unslop",
@@ -251,8 +249,8 @@ def load_policy(repo_root: Path, policy_path: Path) -> dict[str, Any]:
     )
     if payload.get("$schema") != SCHEMA_REF:
         fail(f"policy $schema must be {SCHEMA_REF!r}")
-    if payload.get("schema_version") != 1:
-        fail("policy schema_version must be 1")
+    if payload.get("schema_version") != 2:
+        fail("policy schema_version must be 2")
     schema_path = (policy_path.parent / SCHEMA_REF).resolve()
     try:
         schema_path.relative_to(repo_root.resolve())
@@ -349,48 +347,6 @@ def check_generated(
     if unused:
         fail(f"generated exception path is absent from manifest: {', '.join(sorted(unused))}")
     return f"generated: verified (accepted exceptions: {', '.join(sorted(accepted)) or 'none'})"
-
-
-def check_promptfoo(repo_root: Path, section: object) -> str:
-    promptfoo = object_value(section, "promptfoo")
-    require_keys(promptfoo, {"manifest", "lockfile", "devcontainer_packages"}, "promptfoo")
-    paths = {
-        name: safe_path(promptfoo[name], f"promptfoo.{name}")
-        for name in ("manifest", "lockfile", "devcontainer_packages")
-    }
-    package = object_value(load_json(repo_root / paths["manifest"], label="Promptfoo manifest"), "Promptfoo manifest")
-    dependencies = package.get("dependencies")
-    if not isinstance(dependencies, dict) or not dependencies:
-        fail("Promptfoo manifest dependencies must be a non-empty object")
-    for name, version in dependencies.items():
-        if not isinstance(name, str) or not name or not isinstance(version, str):
-            fail("Promptfoo dependency names and versions must be non-empty strings")
-        if not VERSION_PATTERN.fullmatch(version):
-            fail(f"Promptfoo dependency {name!r} is not an exact semver pin: {version!r}")
-
-    lock = object_value(load_json(repo_root / paths["lockfile"], label="Promptfoo lockfile"), "Promptfoo lockfile")
-    try:
-        lock_dependencies = lock["packages"][""]["dependencies"]
-    except (KeyError, TypeError):
-        fail("Promptfoo lockfile is missing packages[''].dependencies")
-    if lock_dependencies != dependencies:
-        fail("Promptfoo lockfile direct dependencies differ from package.json")
-
-    pins: dict[str, str] = {}
-    try:
-        lines = (repo_root / paths["devcontainer_packages"]).read_text(encoding="utf-8").splitlines()
-    except OSError as error:
-        fail(f"cannot read Promptfoo devcontainer packages: {error}")
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "@" not in line:
-            continue
-        name, version = line.rsplit("@", 1)
-        if name in dependencies:
-            pins[name] = version
-    if pins != dependencies:
-        fail("Promptfoo devcontainer pins differ from package.json")
-    return "promptfoo: derived pins verified"
 
 
 def path_matches(path: str, patterns: tuple[str, ...]) -> bool:
@@ -646,7 +602,6 @@ def check_repository(repo_root: Path, policy_path: Path | None = None) -> CheckR
         policy = load_policy(root, selected_policy)
         summaries = (
             check_generated(root, tracked, policy["generated"]),
-            check_promptfoo(root, policy["promptfoo"]),
             check_mirrors(root, tracked, policy["mirrors"]),
             check_espanso(root, tracked, policy["espanso"]),
             check_statusline(root, tracked, policy["statusline"]),

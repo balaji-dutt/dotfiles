@@ -134,9 +134,9 @@ renovate-config-validator renovate.json5 --no-global
   remain under `Pending Status Checks`, not `Rate-Limited`.
 - After first successful run, enable weekends-only schedule.
 
-Promptfoo runtime updates remain one host/devcontainer cohort. A group containing
-only patch/digest updates automerges after the seven-day release-age gate. Any
-group containing a minor or major update remains manual.
+Promptfoo host and devcontainer runtimes use independent four-package cohorts.
+Within each cohort, patch/digest updates automerge after the seven-day
+release-age gate. Minor and major updates remain manual.
 
 ### GitLab stability-status warning workaround
 

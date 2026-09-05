@@ -1,6 +1,6 @@
 {
-  "$schema": "./schemas/automation-provenance.v1.schema.json",
-  "schema_version": 1,
+  "$schema": "./schemas/automation-provenance.v2.schema.json",
+  "schema_version": 2,
   "generated": {
     "manifest": ".agentic-tooling/generated-manifest.json",
     "accepted_divergences": [
@@ -20,11 +20,6 @@
   },
   "mirrors": {
     "manifest": "configs/devcontainer-sync.jsonc"
-  },
-  "promptfoo": {
-    "manifest": "configs/promptfoo-runtime/package.json",
-    "lockfile": "configs/promptfoo-runtime/package-lock.json",
-    "devcontainer_packages": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
   },
   "espanso": {
     "chains": [

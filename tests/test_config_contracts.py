@@ -11,9 +11,9 @@ CONFIGS = REPO_ROOT / "configs"
 LOAD_JSON = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
 CONTRACTS = {
     "automation-provenance.json": {
-        "schema": "schemas/automation-provenance.v1.schema.json",
-        "ref": "./schemas/automation-provenance.v1.schema.json",
-        "version": 1,
+        "schema": "schemas/automation-provenance.v2.schema.json",
+        "ref": "./schemas/automation-provenance.v2.schema.json",
+        "version": 2,
         "consumers": ("assets/check-automation-provenance.py",),
     },
     "automation-test-inventory.json": {
@@ -94,7 +94,10 @@ YAML_CONTRACTS = {
         "consumers": ("ansible/wsl-playbook.yml",),
     }
 }
-RETAINED_SCHEMAS = {"schemas/automation-test-inventory.v1.schema.json"}
+RETAINED_SCHEMAS = {
+    "schemas/automation-provenance.v1.schema.json",
+    "schemas/automation-test-inventory.v1.schema.json",
+}
 
 
 class ConfigContractTests(unittest.TestCase):
@@ -226,13 +229,21 @@ class ConfigContractTests(unittest.TestCase):
         for path in actual:
             self.assertRegex(path, r"\.v\d+\.schema\.json$")
 
-        retained = json.loads(
-            (CONFIGS / "schemas/automation-test-inventory.v1.schema.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual(retained["$id"], "urn:dotfiles:schema:automation-test-inventory:v1")
-        self.assertEqual(retained["properties"]["schema_version"]["const"], 1)
+        retained_ids = {
+            "schemas/automation-provenance.v1.schema.json": (
+                "urn:dotfiles:schema:automation-provenance:v1"
+            ),
+            "schemas/automation-test-inventory.v1.schema.json": (
+                "urn:dotfiles:schema:automation-test-inventory:v1"
+            ),
+        }
+        for relative_path, schema_id in retained_ids.items():
+            with self.subTest(schema=relative_path):
+                retained = json.loads(
+                    (CONFIGS / relative_path).read_text(encoding="utf-8")
+                )
+                self.assertEqual(retained["$id"], schema_id)
+                self.assertEqual(retained["properties"]["schema_version"]["const"], 1)
 
 
 if __name__ == "__main__":

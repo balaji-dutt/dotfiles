@@ -34,7 +34,7 @@ def tree_digest(root: Path) -> str:
 class ProvenanceFixture:
     def __init__(self, root: Path) -> None:
         self.root = init_git_repository(root)
-        self.write("configs/schemas/automation-provenance.v1.schema.json", "{}\n")
+        self.write("configs/schemas/automation-provenance.v2.schema.json", "{}\n")
 
         generated = b"#!/bin/sh\necho generated\n"
         self.write_bytes("generated/tool.sh", generated, executable=True)
@@ -71,20 +71,6 @@ class ProvenanceFixture:
   }]},
 }
 """,
-        )
-
-        dependencies = {"@example/sdk": "1.2.3", "promptfoo": "4.5.6"}
-        write_json(
-            self.root / "configs/promptfoo-runtime/package.json",
-            {"private": True, "dependencies": dependencies},
-        )
-        write_json(
-            self.root / "configs/promptfoo-runtime/package-lock.json",
-            {"packages": {"": {"dependencies": dependencies}}},
-        )
-        self.write(
-            "container/npm_packages.txt",
-            "@example/sdk@1.2.3\npromptfoo@4.5.6\n",
         )
 
         self.write("configs/espanso/tool.py", "print('espanso')\n")
@@ -162,18 +148,13 @@ class ProvenanceFixture:
     def policy_payload(self) -> dict[str, object]:
         canonical = self.root / "unslop/canonical"
         return {
-            "$schema": "./schemas/automation-provenance.v1.schema.json",
-            "schema_version": 1,
+            "$schema": "./schemas/automation-provenance.v2.schema.json",
+            "schema_version": 2,
             "generated": {
                 "manifest": ".agentic-tooling/generated-manifest.json",
                 "accepted_divergences": [],
             },
             "mirrors": {"manifest": "configs/devcontainer-sync.jsonc"},
-            "promptfoo": {
-                "manifest": "configs/promptfoo-runtime/package.json",
-                "lockfile": "configs/promptfoo-runtime/package-lock.json",
-                "devcontainer_packages": "container/npm_packages.txt",
-            },
             "espanso": {
                 "chains": [
                     {
@@ -293,24 +274,6 @@ class AutomationProvenanceTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assert_failure("mirror manifest schema_version must be 1")
-
-    def test_promptfoo_pins_are_derived_from_package_manifest(self) -> None:
-        dependencies = {"@example/sdk": "2.0.0", "promptfoo": "4.5.6"}
-        write_json(
-            self.fixture.root / "configs/promptfoo-runtime/package.json",
-            {"private": True, "dependencies": dependencies},
-        )
-        self.assert_failure("lockfile direct dependencies differ")
-        write_json(
-            self.fixture.root / "configs/promptfoo-runtime/package-lock.json",
-            {"packages": {"": {"dependencies": dependencies}}},
-        )
-        self.fixture.write(
-            "container/npm_packages.txt",
-            "@example/sdk@2.0.0\npromptfoo@4.5.6\n",
-        )
-        result = self.fixture.run()
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_espanso_statusline_and_unslop_drift_fail(self) -> None:
         cases = (

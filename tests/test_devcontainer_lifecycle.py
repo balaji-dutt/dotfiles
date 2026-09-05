@@ -20,6 +20,8 @@ RUNTIME_DIR = (
 COMMON = RUNTIME_DIR / "devcontainer-common.sh"
 POST_CREATE = RUNTIME_DIR / "postCreate.sh"
 POST_START = RUNTIME_DIR / "postStart.sh"
+DEVCONTAINER_CONFIG = RUNTIME_DIR / "devcontainer.json.tmpl"
+PROMPTFOO_SOURCE = RUNTIME_DIR.parent / "configs/promptfoo-runtime"
 BASH = shutil.which("bash")
 
 
@@ -481,9 +483,6 @@ printf 'cwd=%s args=%s CI=%s\n' "$PWD" "$*" "${CI-unset}" >>"$NPM_LOG"
         result = self.run_bash(
             r'''
 source "$1"
-npm_package_belongs_to_promptfoo_runtime promptfoo
-npm_package_belongs_to_promptfoo_runtime '@opencode-ai/sdk'
-if npm_package_belongs_to_promptfoo_runtime opencode-ai; then exit 20; fi
 install_promptfoo_runtime "$2" "$3"
 ''',
             str(POST_CREATE),
@@ -517,6 +516,63 @@ install_promptfoo_runtime "$2" "$3"
             result.stdout,
             r"\[npm\] finish package=promptfoo-runtime status=0 elapsed_seconds=\d+",
         )
+
+    def test_promptfoo_runtime_is_a_required_independent_phase(self) -> None:
+        post_create = POST_CREATE.read_text(encoding="utf-8")
+        global_step = 'step "Install global npm packages from '
+        runtime_step = 'step "Install lockfile-backed Promptfoo runtime"'
+
+        self.assertIn(
+            'source_dir="${1:-/tmp/host-homelab-configs/promptfoo-runtime}"',
+            post_create,
+        )
+        self.assertNotIn("npm_package_belongs_to_promptfoo_runtime", post_create)
+        self.assertNotIn("promptfoo_runtime_requested", post_create)
+        self.assertLess(post_create.index(global_step), post_create.index(runtime_step))
+        runtime_phase = post_create[post_create.index(runtime_step) :]
+        self.assertIn("install_promptfoo_runtime\n", runtime_phase)
+        self.assertIn("verify_promptfoo_runtime\n", runtime_phase)
+
+    def test_promptfoo_runtime_source_is_delivered_by_configs_mount(self) -> None:
+        devcontainer = DEVCONTAINER_CONFIG.read_text(encoding="utf-8")
+        mount = (
+            "source=${localEnv:HOME}/Documents/development/dotfiles/"
+            "private_Documents/development/container-dotfiles/devcontainers/"
+            "gitlab.com/servers-homelab/homelab-IaC/configs,"
+            "target=/tmp/host-homelab-configs,type=bind,readonly"
+        )
+
+        self.assertIn(mount, devcontainer)
+        self.assertTrue((PROMPTFOO_SOURCE / "package.json").is_file())
+        self.assertTrue((PROMPTFOO_SOURCE / "package-lock.json").is_file())
+
+    def test_promptfoo_runtime_install_rejects_missing_owned_inputs(self) -> None:
+        fake_bin = self.fixture.root / "fake bin"
+        fake_bin.mkdir()
+        missing_source = self.fixture.root / "missing runtime source"
+        runtime_dir = self.fixture.root / "runtime target"
+        npm_log = self.fixture.root / "npm.log"
+        (fake_bin / "npm").write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$NPM_LOG\"\n",
+            encoding="utf-8",
+        )
+        (fake_bin / "npm").chmod(0o755)
+        env = dict(self.env)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["NPM_LOG"] = str(npm_log)
+
+        result = self.run_bash(
+            'source "$1"; install_promptfoo_runtime "$2" "$3"',
+            str(POST_CREATE),
+            str(missing_source),
+            str(runtime_dir),
+            env=env,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Promptfoo runtime manifest or lockfile is missing", result.stderr)
+        self.assertFalse(runtime_dir.exists())
+        self.assertFalse(npm_log.exists())
 
     def test_promptfoo_runtime_install_rejects_missing_platform_binding(self) -> None:
         fake_bin = self.fixture.root / "fake bin"

@@ -23,9 +23,6 @@ and fails when a source, generated output, mirror, or vendored copy drifts.
   checker applies its include/exclude rules to Git-tracked paths and compares
   file bytes, executable modes, symlink targets, and cleanup-managed stale
   targets.
-- `configs/promptfoo-runtime/package.json` owns Promptfoo dependency versions.
-  The npm lockfile and devcontainer package list must carry those derived pins;
-  the provenance policy does not duplicate the versions.
 - The Espanso policy records the canonical source, shared include template, and
   platform wrapper chain. Each wrapper must delegate to the expected authority.
 - The two statusline copies must remain byte- and version-identical, and the

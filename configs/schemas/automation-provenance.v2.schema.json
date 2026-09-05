@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:automation-provenance:v2",
+  "title": "Automation provenance policy v2",
+  "description": "Non-derivable integrity locks and authority references for generated, mirrored, and vendored automation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "espanso",
+    "forbidden_behavioral_roots",
+    "generated",
+    "mirrors",
+    "schema_version",
+    "statusline",
+    "unslop"
+  ],
+  "properties": {
+    "$schema": {"const": "./schemas/automation-provenance.v2.schema.json"},
+    "schema_version": {"const": 2},
+    "generated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted_divergences", "manifest"],
+      "properties": {
+        "manifest": {"$ref": "#/$defs/path"},
+        "accepted_divergences": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["accepted_digest", "path", "rationale", "required_markers"],
+            "properties": {
+              "path": {"$ref": "#/$defs/path"},
+              "accepted_digest": {"$ref": "#/$defs/digest"},
+              "required_markers": {"$ref": "#/$defs/nonEmptyStrings"},
+              "rationale": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "mirrors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest"],
+      "properties": {"manifest": {"$ref": "#/$defs/path"}}
+    },
+    "espanso": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chains"],
+      "properties": {
+        "chains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["renders", "source", "template"],
+            "properties": {
+              "source": {"$ref": "#/$defs/path"},
+              "template": {"$ref": "#/$defs/path"},
+              "renders": {"$ref": "#/$defs/paths"}
+            }
+          }
+        }
+      }
+    },
+    "statusline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["copies", "sync_command"],
+      "properties": {
+        "copies": {"$ref": "#/$defs/paths"},
+        "sync_command": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "unslop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_root", "copies", "entrypoints", "snapshot", "tree_digest"],
+      "properties": {
+        "canonical_root": {"$ref": "#/$defs/path"},
+        "copies": {"$ref": "#/$defs/paths"},
+        "entrypoints": {"$ref": "#/$defs/nonEmptyStrings"},
+        "snapshot": {"$ref": "#/$defs/path"},
+        "tree_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "forbidden_behavioral_roots": {"$ref": "#/$defs/paths"}
+  },
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+    "paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+    "nonEmptyStrings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
