@@ -337,7 +337,10 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
         rule_start = renovate.rfind(
             '"matchDepNames": ["@beads/bd", "gastownhall/beads"]'
         )
-        self.assertGreater(rule_start, renovate.rfind('"groupName": "promptfoo runtime"'))
+        self.assertGreater(
+            rule_start,
+            renovate.rfind('"groupName": "promptfoo devcontainer runtime"'),
+        )
         rule = renovate[rule_start:]
 
         self.assertIn('"minimumReleaseAge": "14 days"', rule)

@@ -8,23 +8,19 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = REPO_ROOT / "configs/promptfoo-runtime"
-DEVCONTAINER_NPM = REPO_ROOT / (
+HOST_RUNTIME_DIR = REPO_ROOT / "configs/promptfoo-runtime"
+HOMELAB_ROOT = REPO_ROOT / (
     "private_Documents/development/container-dotfiles/devcontainers/"
-    "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+    "gitlab.com/servers-homelab/homelab-IaC"
 )
-RENOVATE_MANAGERS = ["npm", "custom.regex"]
-RENOVATE_FILES = [
-    "configs/promptfoo-runtime/package.json",
-    "private_Documents/development/container-dotfiles/devcontainers/"
-    "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt",
-]
-# package.json is the pin Renovate updates for this bundle; every other location
-# has to agree with it. Reading it here instead of restating the versions keeps
-# this file out of the set that would have to be bumped in lockstep.
-EXPECTED_DEPENDENCIES: dict[str, str] = json.loads(
-    (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
-)["dependencies"]
+DEVCONTAINER_RUNTIME_DIR = HOMELAB_ROOT / "configs/promptfoo-runtime"
+DEVCONTAINER_NPM = HOMELAB_ROOT / "configs/npm_packages.txt"
+RUNTIME_PACKAGE_NAMES = {
+    "@anthropic-ai/claude-agent-sdk",
+    "@anthropic-ai/sdk",
+    "@opencode-ai/sdk",
+    "promptfoo",
+}
 EXPECTED_SCRIPT_APPROVALS = {
     "@playwright/browser-chromium",
     "@swc/core",
@@ -33,14 +29,36 @@ EXPECTED_SCRIPT_APPROVALS = {
     "protobufjs",
     "sharp",
 }
+HOST_CLAUDE_PLATFORM_PACKAGES = {
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64",
+    "@anthropic-ai/claude-agent-sdk-linux-x64",
+}
+DEVCONTAINER_CLAUDE_PLATFORM_PACKAGES = {
+    "@anthropic-ai/claude-agent-sdk-linux-arm64",
+    "@anthropic-ai/claude-agent-sdk-linux-x64",
+}
 EXPECTED_LINUX_BINDINGS = {
     "@libsql/linux-arm64-gnu",
     "@libsql/linux-x64-gnu",
+}
+RENOVATE_RUNTIMES = {
+    "promptfoo host runtime": "configs/promptfoo-runtime/package.json",
+    "promptfoo devcontainer runtime": (
+        "private_Documents/development/container-dotfiles/devcontainers/"
+        "gitlab.com/servers-homelab/homelab-IaC/configs/"
+        "promptfoo-runtime/package.json"
+    ),
 }
 
 
 def read_text(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def read_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_rule_array(rule: str, key: str) -> list[str]:
@@ -50,59 +68,107 @@ def read_rule_array(rule: str, key: str) -> list[str]:
     return json.loads(match.group(1))
 
 
+def renovate_rules(renovate: str) -> list[str]:
+    return re.findall(r"^    \{\n.*?^    \}", renovate, flags=re.MULTILINE | re.DOTALL)
+
+
 class PromptfooRuntimeTests(unittest.TestCase):
-    def test_manifest_pins_every_dependency_exactly(self) -> None:
-        self.assertTrue(EXPECTED_DEPENDENCIES, "package.json declares no dependencies")
-        for package_name, version in EXPECTED_DEPENDENCIES.items():
-            with self.subTest(package=package_name):
-                self.assertRegex(version, r"^\d+\.\d+\.\d+$")
-
-    def test_manifest_and_lockfile_have_exact_direct_dependencies(self) -> None:
-        lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
-
-        self.assertEqual(lock["packages"][""]["dependencies"], EXPECTED_DEPENDENCIES)
-
-    def test_lockfile_contains_all_claude_agent_sdk_platforms(self) -> None:
-        lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
-        packages = lock["packages"]
-        sdk = packages["node_modules/@anthropic-ai/claude-agent-sdk"]
-
-        for package_name, version in sdk["optionalDependencies"].items():
-            with self.subTest(package=package_name):
-                entry_key = f"node_modules/{package_name}"
-                self.assertIn(entry_key, packages)
-                entry = packages[entry_key]
-                self.assertEqual(entry["version"], version)
-                self.assertTrue(entry["optional"])
-
-    def test_manifest_approves_reviewed_install_scripts(self) -> None:
-        manifest = json.loads(
-            (RUNTIME_DIR / "package.json").read_text(encoding="utf-8")
+    def runtime_cases(self) -> tuple[tuple[str, Path], ...]:
+        return (
+            ("host", HOST_RUNTIME_DIR),
+            ("devcontainer", DEVCONTAINER_RUNTIME_DIR),
         )
 
-        self.assertEqual(set(manifest["allowScripts"]), EXPECTED_SCRIPT_APPROVALS)
-        self.assertTrue(all(manifest["allowScripts"].values()))
+    def test_manifests_pin_private_npm_runtime_dependencies(self) -> None:
+        names: set[str] = set()
+        for environment, runtime_dir in self.runtime_cases():
+            with self.subTest(environment=environment):
+                manifest = read_json(runtime_dir / "package.json")
+                dependencies = manifest["dependencies"]
+                self.assertIsInstance(dependencies, dict)
+                self.assertEqual(set(dependencies), RUNTIME_PACKAGE_NAMES)
+                self.assertEqual(
+                    manifest["$schema"],
+                    "https://json.schemastore.org/package.json",
+                )
+                self.assertTrue(manifest["private"])
+                self.assertIsInstance(manifest["name"], str)
+                names.add(manifest["name"])
+                for package_name, version in dependencies.items():
+                    with self.subTest(environment=environment, package=package_name):
+                        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(len(names), 2)
 
-    def test_lockfile_contains_supported_linux_bindings(self) -> None:
-        lock = json.loads((RUNTIME_DIR / "package-lock.json").read_text(encoding="utf-8"))
+    def test_each_manifest_matches_its_own_lockfile(self) -> None:
+        for environment, runtime_dir in self.runtime_cases():
+            with self.subTest(environment=environment):
+                manifest = read_json(runtime_dir / "package.json")
+                lock = read_json(runtime_dir / "package-lock.json")
+                self.assertEqual(
+                    lock["packages"][""]["dependencies"],
+                    manifest["dependencies"],
+                )
 
-        for package_name in EXPECTED_LINUX_BINDINGS:
-            with self.subTest(package=package_name):
-                entry = lock["packages"][f"node_modules/{package_name}"]
-                self.assertRegex(entry["version"], r"^\d+\.\d+\.\d+$")
+    def assert_claude_platform_entries(
+        self,
+        runtime_dir: Path,
+        expected_packages: set[str],
+    ) -> None:
+        lock = read_json(runtime_dir / "package-lock.json")
+        packages = lock["packages"]
+        sdk = packages["node_modules/@anthropic-ai/claude-agent-sdk"]
+        optional_dependencies = sdk["optionalDependencies"]
+
+        for package_name in expected_packages:
+            with self.subTest(runtime=runtime_dir.name, package=package_name):
+                expected_version = optional_dependencies[package_name]
+                entry = packages[f"node_modules/{package_name}"]
+                self.assertEqual(entry["version"], expected_version)
                 self.assertTrue(entry["optional"])
 
-    def test_devcontainer_pins_match_host_bundle(self) -> None:
-        pins: dict[str, str] = {}
-        for line in DEVCONTAINER_NPM.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "@" not in line:
-                continue
-            package_name, version = line.rsplit("@", 1)
-            if package_name in EXPECTED_DEPENDENCIES:
-                pins[package_name] = version
+    def test_host_lockfile_covers_supported_host_platforms(self) -> None:
+        self.assert_claude_platform_entries(
+            HOST_RUNTIME_DIR,
+            HOST_CLAUDE_PLATFORM_PACKAGES,
+        )
 
-        self.assertEqual(pins, EXPECTED_DEPENDENCIES)
+    def test_devcontainer_lockfile_covers_supported_linux_platforms(self) -> None:
+        self.assert_claude_platform_entries(
+            DEVCONTAINER_RUNTIME_DIR,
+            DEVCONTAINER_CLAUDE_PLATFORM_PACKAGES,
+        )
+
+    def test_install_script_policies_are_environment_specific(self) -> None:
+        host = read_json(HOST_RUNTIME_DIR / "package.json")["allowScripts"]
+        devcontainer = read_json(DEVCONTAINER_RUNTIME_DIR / "package.json")[
+            "allowScripts"
+        ]
+
+        self.assertEqual(
+            host,
+            {**{package: True for package in EXPECTED_SCRIPT_APPROVALS}, "fsevents": False},
+        )
+        self.assertEqual(
+            devcontainer,
+            {package: True for package in EXPECTED_SCRIPT_APPROVALS},
+        )
+
+    def test_lockfiles_contain_supported_linux_bindings(self) -> None:
+        for environment, runtime_dir in self.runtime_cases():
+            packages = read_json(runtime_dir / "package-lock.json")["packages"]
+            for package_name in EXPECTED_LINUX_BINDINGS:
+                with self.subTest(environment=environment, package=package_name):
+                    entry = packages[f"node_modules/{package_name}"]
+                    self.assertRegex(entry["version"], r"^\d+\.\d+\.\d+$")
+                    self.assertTrue(entry["optional"])
+
+    def test_devcontainer_global_packages_exclude_runtime_dependencies(self) -> None:
+        package_names = {
+            line.rsplit("@", 1)[0]
+            for line in DEVCONTAINER_NPM.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#") and "@" in line
+        }
+        self.assertTrue(RUNTIME_PACKAGE_NAMES.isdisjoint(package_names))
 
     def test_promptfoo_is_not_an_isolated_mise_tool(self) -> None:
         mise = tomllib.loads(read_text("configs/mise.toml"))
@@ -139,9 +205,24 @@ class PromptfooRuntimeTests(unittest.TestCase):
             self.assertIn(source_path, macos_hook)
             self.assertIn(source_path, wsl_hook)
             self.assertIn(source_path, ansible)
-        for package_name in EXPECTED_DEPENDENCIES:
+        for package_name in RUNTIME_PACKAGE_NAMES:
             self.assertIn(package_name, macos_hook)
             self.assertIn(package_name, ansible)
+
+    def test_devcontainer_hydrates_its_own_runtime_root(self) -> None:
+        post_create = read_text(
+            "private_Documents/development/container-dotfiles/devcontainers/"
+            "gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh"
+        )
+        self.assertIn(
+            "/tmp/host-homelab-configs/promptfoo-runtime",
+            post_create,
+        )
+        self.assertNotIn(
+            "/tmp/host-dotfiles/configs/promptfoo-runtime",
+            post_create,
+        )
+        self.assertNotIn("npm_package_belongs_to_promptfoo_runtime", post_create)
 
     def test_generated_verifiers_use_esm_resolution(self) -> None:
         skill_roots = (
@@ -176,62 +257,40 @@ class PromptfooRuntimeTests(unittest.TestCase):
                     verifier,
                 )
 
-    def test_renovate_scope_and_group_are_narrow(self) -> None:
+    def test_renovate_scopes_runtime_groups_independently(self) -> None:
         renovate = read_text("renovate.json5")
+        rules = renovate_rules(renovate)
 
         self.assertIn('"enabledManagers": ["custom.regex", "npm"]', renovate)
-        self.assertIn(
-            '"/^configs\\\\/promptfoo-runtime\\\\/package\\\\.json$/"',
-            renovate,
-        )
-        runtime_group = '"groupName": "promptfoo runtime"'
-        runtime_group_index = renovate.index(runtime_group)
-        runtime_rule_start = renovate.rfind("{", 0, runtime_group_index)
-        runtime_rule_end = renovate.index("}", runtime_group_index) + 1
-        runtime_rule = renovate[runtime_rule_start:runtime_rule_end]
+        self.assertNotIn('"groupName": "promptfoo runtime"', renovate)
 
-        self.assertEqual(read_rule_array(runtime_rule, "matchManagers"), RENOVATE_MANAGERS)
-        self.assertCountEqual(
-            read_rule_array(runtime_rule, "matchDepNames"),
-            EXPECTED_DEPENDENCIES,
-        )
-        self.assertEqual(read_rule_array(runtime_rule, "matchFileNames"), RENOVATE_FILES)
-        self.assertIn('"automerge": false', runtime_rule)
-
-        beads_group = '"groupName": "beads clients"'
-        beads_group_index = renovate.index(beads_group)
-        patch_types = '"matchUpdateTypes": ["patch", "digest"]'
-        patch_types_index = renovate.index(
-            patch_types,
-            runtime_rule_end,
-            beads_group_index,
-        )
-        patch_rule_start = renovate.rfind("{", runtime_rule_end, patch_types_index)
-        patch_rule_end = renovate.index("}", patch_types_index) + 1
-        patch_rule = renovate[patch_rule_start:patch_rule_end]
-
-        self.assertEqual(read_rule_array(patch_rule, "matchManagers"), RENOVATE_MANAGERS)
-        self.assertCountEqual(
-            read_rule_array(patch_rule, "matchDepNames"),
-            EXPECTED_DEPENDENCIES,
-        )
-        self.assertEqual(read_rule_array(patch_rule, "matchFileNames"), RENOVATE_FILES)
-        self.assertEqual(
-            read_rule_array(patch_rule, "matchUpdateTypes"),
-            ["patch", "digest"],
-        )
-        self.assertIn('"automerge": true', patch_rule)
-        self.assertIn('"automergeType": "pr"', patch_rule)
-        self.assertIn('"platformAutomerge": true', patch_rule)
-
-        beads_rule_start = renovate.rfind("{", patch_rule_end, beads_group_index)
-        beads_rule_end = renovate.index("}", beads_group_index) + 1
-        beads_rule = renovate[beads_rule_start:beads_rule_end]
-        self.assertLess(runtime_group_index, patch_types_index)
-        self.assertLess(patch_types_index, beads_group_index)
-        self.assertIn('"minimumReleaseAge": "14 days"', beads_rule)
-        self.assertIn('"minimumGroupSize": 2', beads_rule)
-        self.assertIn('"platformAutomerge": false', beads_rule)
+        for group_name, filename in RENOVATE_RUNTIMES.items():
+            escaped_pattern = filename.replace("/", "\\\\/").replace(".", "\\\\.")
+            with self.subTest(group=group_name):
+                self.assertIn('"/^' + escaped_pattern + '$/"', renovate)
+                matching_rules = [rule for rule in rules if f'"{filename}"' in rule]
+                self.assertEqual(len(matching_rules), 2)
+                base_rule = next(
+                    rule
+                    for rule in matching_rules
+                    if f'"groupName": "{group_name}"' in rule
+                )
+                patch_rule = next(
+                    rule
+                    for rule in matching_rules
+                    if '"matchUpdateTypes": ["patch", "digest"]' in rule
+                )
+                for rule in matching_rules:
+                    self.assertEqual(read_rule_array(rule, "matchManagers"), ["npm"])
+                    self.assertCountEqual(
+                        read_rule_array(rule, "matchDepNames"),
+                        RUNTIME_PACKAGE_NAMES,
+                    )
+                    self.assertEqual(read_rule_array(rule, "matchFileNames"), [filename])
+                self.assertIn('"automerge": false', base_rule)
+                self.assertIn('"automerge": true', patch_rule)
+                self.assertIn('"automergeType": "pr"', patch_rule)
+                self.assertIn('"platformAutomerge": true', patch_rule)
 
 
 if __name__ == "__main__":

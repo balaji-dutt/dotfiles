@@ -17,7 +17,7 @@ tracked paths, cross-file references, and runtime capability rules.
 
 | Instance | Schema | Semantic consumer |
 | :--- | :--- | :--- |
-| `configs/automation-provenance.json` | `configs/schemas/automation-provenance.v1.schema.json` | `assets/check-automation-provenance.py` |
+| `configs/automation-provenance.json` | `configs/schemas/automation-provenance.v2.schema.json` | `assets/check-automation-provenance.py` |
 | `configs/automation-test-inventory.json` | `configs/schemas/automation-test-inventory.v2.schema.json` | `assets/check-automation-test-inventory.py` |
 | `configs/ai-tooling-support.json` | `configs/schemas/ai-tooling-support.v1.schema.json` | `assets/check-ai-tooling.py` |
 | `configs/claude-mcp.json` | `configs/schemas/claude-mcp.v1.schema.json` | `assets/check-ai-tooling.py`; `assets/claude-mcp-apply.py`; `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl` |
@@ -74,8 +74,8 @@ Published `configs/schemas/*.vN.schema.json` files are immutable. Breaking chang
 get a new schema file, a new `$id` suffix, and a matching
 `schema_version`. Update the instance, consumer, tests, migration notes, and
 this catalog in the same change. Retain published schemas as historical
-contracts; the automation inventory's v1 schema remains immutable while v2
-adds behavioral requirements.
+contracts; the automation provenance and automation inventory v1 schemas remain
+immutable while their active v2 contracts carry the breaking changes.
 
 Compatible semantic tightening can remain within the consumer when the JSON
 shape is unchanged. Document the new rule and add a consumer test rather than

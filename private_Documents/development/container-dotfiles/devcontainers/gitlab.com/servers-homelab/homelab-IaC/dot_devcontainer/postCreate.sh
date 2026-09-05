@@ -415,17 +415,6 @@ npm_allow_scripts_for_package() {
   esac
 }
 
-npm_package_belongs_to_promptfoo_runtime() {
-  case "$1" in
-    promptfoo|@opencode-ai/sdk|@anthropic-ai/claude-agent-sdk|@anthropic-ai/sdk)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 prepare_npm_cache() {
   local cache_dir
 
@@ -493,7 +482,7 @@ install_promptfoo_runtime() {
   local source_dir runtime_dir platform_package_spec started_at finished_at rc
   local package_file lock_file
 
-  source_dir="${1:-/tmp/host-dotfiles/configs/promptfoo-runtime}"
+  source_dir="${1:-/tmp/host-homelab-configs/promptfoo-runtime}"
   runtime_dir="${2:-$HOME/.local/share/promptfoo-runtime}"
   package_file="$source_dir/package.json"
   lock_file="$source_dir/package-lock.json"
@@ -789,6 +778,12 @@ done_step "Install Claude Code from Anthropic apt package"
 
 # --- 4) Global npm packages ---
 step "Install global npm packages from /tmp/host-homelab-configs/npm_packages.txt"
+effective_npm_cache="$(npm config get cache)"
+echo "[npm] node=$(node --version) npm=$(npm --version) cache=$effective_npm_cache"
+if [[ "$effective_npm_cache" != "$npm_config_cache" ]]; then
+  echo "ERROR: npm cache mismatch: expected $npm_config_cache, got $effective_npm_cache" >&2
+  exit 1
+fi
 if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
   # Global npm installs have no project package.json for npm approve-scripts to
   # update. Keep script approvals scoped to the reviewed install invocation so
@@ -797,25 +792,8 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
   echo "--- npm packages file ---"
   sed -n '1,200p' /tmp/host-homelab-configs/npm_packages.txt || true
   echo "-------------------------"
-  effective_npm_cache="$(npm config get cache)"
-  echo "[npm] node=$(node --version) npm=$(npm --version) cache=$effective_npm_cache"
-  if [[ "$effective_npm_cache" != "$npm_config_cache" ]]; then
-    echo "ERROR: npm cache mismatch: expected $npm_config_cache, got $effective_npm_cache" >&2
-    exit 1
-  fi
-  echo "[npm] Promptfoo runtime: local npm ci with optional dependencies omitted"
-
-  promptfoo_runtime_requested=0
-
   while IFS= read -r pkg || [[ -n "${pkg:-}" ]]; do
     [[ -z "${pkg// /}" ]] && continue
-    pkg_name="$(npm_package_name_from_spec "$pkg")"
-    if npm_package_belongs_to_promptfoo_runtime "$pkg_name"; then
-      promptfoo_runtime_requested=1
-      echo "[npm] deferring to lockfile-backed Promptfoo runtime: $pkg"
-      continue
-    fi
-
     install_global_npm_package "$pkg"
 
     if [[ "$pkg" == @beads/bd@* ]]; then
@@ -823,14 +801,15 @@ if [[ -f /tmp/host-homelab-configs/npm_packages.txt ]]; then
     fi
   done < /tmp/host-homelab-configs/npm_packages.txt
 
-  if [[ "$promptfoo_runtime_requested" -eq 1 ]]; then
-    install_promptfoo_runtime
-    verify_promptfoo_runtime
-  fi
 else
   echo "No /tmp/host-homelab-configs/npm_packages.txt found; skipping."
 fi
 done_step "Install global npm packages"
+
+step "Install lockfile-backed Promptfoo runtime"
+install_promptfoo_runtime
+verify_promptfoo_runtime
+done_step "Install lockfile-backed Promptfoo runtime"
 
 step "Install ansible MCP server fixed wrapper"
 install_ansible_mcp_server_wrapper

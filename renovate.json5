@@ -7,7 +7,8 @@
   "rangeStrategy": "replace",
   "npm": {
     "managerFilePatterns": [
-      "/^configs\\/promptfoo-runtime\\/package\\.json$/"
+      "/^configs\\/promptfoo-runtime\\/package\\.json$/",
+      "/^private_Documents\\/development\\/container-dotfiles\\/devcontainers\\/gitlab\\.com\\/servers-homelab\\/homelab-IaC\\/configs\\/promptfoo-runtime\\/package\\.json$/"
     ]
   },
   // Keep release-age checks internal. Do not set prCreation to "not-pending"
@@ -425,10 +426,7 @@
       "groupName": "fast moving tools (major)"
     },
     {
-      // Keep each provider SDK and Promptfoo aligned between the host bundle and
-      // the devcontainer. Provider loading is sensitive to runtime compatibility,
-      // so minor and major updates require review.
-      "matchManagers": ["npm", "custom.regex"],
+      "matchManagers": ["npm"],
       "matchDepNames": [
         "promptfoo",
         "@opencode-ai/sdk",
@@ -436,14 +434,13 @@
         "@anthropic-ai/sdk"
       ],
       "matchFileNames": [
-        "configs/promptfoo-runtime/package.json",
-        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+        "configs/promptfoo-runtime/package.json"
       ],
-      "groupName": "promptfoo runtime",
+      "groupName": "promptfoo host runtime",
       "automerge": false
     },
     {
-      "matchManagers": ["npm", "custom.regex"],
+      "matchManagers": ["npm"],
       "matchDepNames": [
         "promptfoo",
         "@opencode-ai/sdk",
@@ -451,8 +448,37 @@
         "@anthropic-ai/sdk"
       ],
       "matchFileNames": [
-        "configs/promptfoo-runtime/package.json",
-        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+        "configs/promptfoo-runtime/package.json"
+      ],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepNames": [
+        "promptfoo",
+        "@opencode-ai/sdk",
+        "@anthropic-ai/claude-agent-sdk",
+        "@anthropic-ai/sdk"
+      ],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/promptfoo-runtime/package.json"
+      ],
+      "groupName": "promptfoo devcontainer runtime",
+      "automerge": false
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepNames": [
+        "promptfoo",
+        "@opencode-ai/sdk",
+        "@anthropic-ai/claude-agent-sdk",
+        "@anthropic-ai/sdk"
+      ],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/promptfoo-runtime/package.json"
       ],
       "matchUpdateTypes": ["patch", "digest"],
       "automerge": true,

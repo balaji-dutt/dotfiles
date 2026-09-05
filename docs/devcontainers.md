@@ -60,24 +60,28 @@ The `homelab-IaC` devcontainer has its own package pins under:
 
 The main package-list files are:
 
-- `npm_packages.txt` for npm tools installed by `postCreate.sh` from
-  `/tmp/host-homelab-configs/npm_packages.txt`; most are global, while the
-  Promptfoo runtime cohort is installed together under one local package root
+- `npm_packages.txt` for global npm tools installed by `postCreate.sh` from
+  `/tmp/host-homelab-configs/npm_packages.txt`
+- `promptfoo-runtime/package.json` and `package-lock.json` for the local
+  Promptfoo runtime and provider SDKs
 - `uv_tools.txt` for uv-installed Python tools
 - `pipx_packages.txt`, which is deprecated and retained only as a pointer away
   from pipx
 
-Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt`.
-Do not add comments to that file; the installer loop treats each non-blank line
-as an npm package spec.
+Renovate tracks exact `<npm-package>@<version>` lines in `npm_packages.txt` and
+uses its npm manager for the Promptfoo runtime manifest. Do not add comments to
+the package list; the installer loop treats each non-blank line as an npm
+package spec.
 
-Promptfoo and its three provider SDK entries are grouped into the dedicated
+Promptfoo and its three provider SDKs are grouped into the dedicated
 `~/.local/share/promptfoo-runtime` package root instead of being installed
-globally. `postCreate.sh` copies `configs/promptfoo-runtime/package.json` and its
-lockfile from the host dotfiles mount, then runs `npm ci --omit=optional` with
-npm timing output. The lockfile pins the complete dependency graph and `npm ci`
-fails when the manifest and lockfile disagree. The installer then adds only the
-lockfile-pinned libSQL native binding for the container architecture.
+globally. `postCreate.sh` copies the devcontainer-owned manifest and lockfile
+from `/tmp/host-homelab-configs/promptfoo-runtime`, then runs
+`npm ci --omit=optional` with npm timing output. The lockfile pins the complete
+dependency graph and `npm ci` fails when the manifest and lockfile disagree.
+The installer then adds only the lockfile-pinned libSQL native binding for the
+container architecture. Host and devcontainer Promptfoo runtime cohorts update
+independently.
 
 The supported Promptfoo runtime consists of the CLI plus the pinned OpenCode
 SDK, Claude Agent SDK, and Anthropic SDK. Browser-provider support, local
