@@ -3,10 +3,10 @@
   "name": "dotfiles-promptfoo-runtime",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.247",
-    "@anthropic-ai/sdk": "0.121.0",
-    "@opencode-ai/sdk": "1.18.23",
-    "promptfoo": "0.122.1"
+    "@anthropic-ai/claude-agent-sdk": "0.3.251",
+    "@anthropic-ai/sdk": "0.122.0",
+    "@opencode-ai/sdk": "1.18.25",
+    "promptfoo": "0.122.2"
   },
   "allowScripts": {
     "@playwright/browser-chromium": true,
