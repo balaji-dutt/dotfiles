@@ -4,7 +4,7 @@
   "name": "justthebrowser",
   "upstream": {
     "repo": "corbindavenport/just-the-browser",
-    "version": "v1.8"
+    "version": "v1.9"
   },
   "scope": {
     "browsers": ["chrome", "firefox"],
@@ -15,7 +15,7 @@
     {
       "path": "chrome/install.reg",
       "source_path": "chrome/install.reg",
-      "sha256": "ced46897bc38ae2e5a3f6b58cc7599caa1b9b10fa2cc0a1661c2f4ef96da3539"
+      "sha256": "d3a9409bf2b35892ce67cfb2ec56da7224aa9af760921e33bc155c0a59f12dbb"
     },
     {
       "path": "chrome/uninstall.reg",
@@ -25,7 +25,7 @@
     {
       "path": "chrome/chrome.mobileconfig",
       "source_path": "chrome/chrome.mobileconfig",
-      "sha256": "2521b20e4fe9904be97d9e8bae98bc1cedf097f0b8f83885730a8d3dd6037697"
+      "sha256": "c58bcaa42f283f4be08b8a42d60f916f09eae1c9e2afda3b91ab4dca021b3dcb"
     },
     {
       "path": "firefox/install.reg",
