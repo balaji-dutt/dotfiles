@@ -170,6 +170,7 @@ export default async (ctx = {}) => {
       timers.delete(filePath);
       void inject(filePath);
     }, 250);
+    timer.unref?.();
     timers.set(filePath, timer);
   }
 

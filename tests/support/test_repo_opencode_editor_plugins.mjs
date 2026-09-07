@@ -24,6 +24,60 @@ async function importFresh(fixture, name) {
   return fixture.importPlugin(name);
 }
 
+async function assertFileContentEventually(filePath, expected, timeout = 2000) {
+  const deadline = Date.now() + timeout;
+  let actual;
+  do {
+    actual = await readFile(filePath, "utf8");
+    if (actual === expected) return;
+    await wait(20);
+  } while (Date.now() < deadline);
+  assert.equal(actual, expected);
+}
+
+async function assertFileContentRemains(filePath, expected, duration = 750) {
+  const deadline = Date.now() + duration;
+  do {
+    assert.equal(await readFile(filePath, "utf8"), expected);
+    await wait(20);
+  } while (Date.now() < deadline);
+  assert.equal(await readFile(filePath, "utf8"), expected);
+}
+
+async function runChild(source, env) {
+  const child = spawn(process.execPath, ["--input-type=module", "--eval", source], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const closed = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  let timeoutHandle;
+  let result;
+  try {
+    result = await Promise.race([
+      closed,
+      new Promise((resolve) => {
+        timeoutHandle = setTimeout(() => resolve({ timeout: true }), 3000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+  if (result.timeout) {
+    child.kill("SIGKILL");
+    await closed;
+    assert.fail(`child process timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+  }
+  assert.equal(result.code, 0, `child exited with ${result.code} (${result.signal})\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+  return stdout;
+}
+
 test("editor suppression handles new, existing, configured, and disabled files", async (t) => {
   t.after(() => { delete process.env.OPENCODE_EDITOR_MD_SUPPRESS; });
   process.env.OPENCODE_EDITOR_MD_SUPPRESS = "0";
@@ -34,8 +88,7 @@ test("editor suppression handles new, existing, configured, and disabled files",
   const disabled = path.join(os.tmpdir(), `disabled-${process.pid}-${Date.now()}.md`);
   t.after(() => rm(disabled, { force: true }));
   await writeFile(disabled, "body\n");
-  await wait(100);
-  assert.equal(await readFile(disabled, "utf8"), "body\n");
+  await assertFileContentRemains(disabled, "body\n");
   delete process.env.OPENCODE_EDITOR_MD_SUPPRESS;
 
   const seeded = path.join(os.tmpdir(), `seeded-${process.pid}.md`);
@@ -53,34 +106,85 @@ test("editor suppression handles new, existing, configured, and disabled files",
   await writeFile(fresh, "body\n");
   await writeFile(ignored, "plain\n");
   await writeFile(suppressed, "<!-- markdownlint-disable MD001 -->\nbody\n");
-  await wait(180);
-  assert.equal(await readFile(fresh, "utf8"), "<!-- custom -->\nbody\n");
+  await assertFileContentEventually(fresh, "<!-- custom -->\nbody\n");
   assert.equal(await readFile(ignored, "utf8"), "plain\n");
   assert.equal(await readFile(suppressed, "utf8"), "<!-- markdownlint-disable MD001 -->\nbody\n");
   assert.equal(await readFile(seeded, "utf8"), "seeded\n");
 });
 
-test("editor polling does not keep a child process alive", async (t) => {
+test("editor polling injects and does not keep a child process alive", { skip: process.platform !== "linux" }, async (t) => {
   const fixture = await createPluginFixture([editorName], { editorSuppressHeader: undefined });
   t.after(() => fixture.cleanup());
   const pluginPath = fixture.path(".opencode", "plugins", editorName);
   const childTmp = fixture.path("child-tmp");
   const markdownPath = path.join(childTmp, "new.md");
   await mkdir(childTmp);
-  const source = `import {readFile,writeFile} from "node:fs/promises"; import plugin from ${JSON.stringify(pathToFileURL(pluginPath).href)}; await plugin({worktree:${JSON.stringify(fixture.root)}}); await writeFile(${JSON.stringify(markdownPath)},"body\\n"); await new Promise((resolve)=>setTimeout(resolve,180)); process.stdout.write(await readFile(${JSON.stringify(markdownPath)},"utf8"));`;
-  const child = spawn(process.execPath, ["--input-type=module", "--eval", source], {
-    env: { ...process.env, TMPDIR: childTmp, TMP: childTmp, TEMP: childTmp },
-    stdio: ["ignore", "pipe", "pipe"],
+  const source = `
+    import assert from "node:assert/strict";
+    import { readFile, writeFile } from "node:fs/promises";
+    import plugin from ${JSON.stringify(pathToFileURL(pluginPath).href)};
+    const filePath = ${JSON.stringify(markdownPath)};
+    const expected = "<!-- markdownlint-disable -->\\nbody\\n";
+    await plugin({ worktree: ${JSON.stringify(fixture.root)} });
+    await writeFile(filePath, "body\\n");
+    const deadline = Date.now() + 2000;
+    let actual;
+    do {
+      actual = await readFile(filePath, "utf8");
+      if (actual === expected) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } while (Date.now() < deadline);
+    assert.equal(actual, expected);
+    process.stdout.write(actual);
+  `;
+  const stdout = await runChild(source, {
+    ...process.env,
+    TMPDIR: childTmp,
+    TMP: childTmp,
+    TEMP: childTmp,
   });
-  let stdout = "";
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
-  const result = await Promise.race([
-    new Promise((resolve) => child.on("exit", (code) => resolve({ code }))),
-    wait(1500).then(() => ({ timeout: true })),
-  ]);
-  if (result.timeout) child.kill("SIGKILL");
-  assert.deepEqual(result, { code: 0 });
   assert.equal(stdout, "<!-- markdownlint-disable -->\nbody\n");
+});
+
+test("editor watcher debounce does not keep a child process alive", { skip: process.platform === "linux" }, async (t) => {
+  const fixture = await createPluginFixture([editorName], { editorSuppressHeader: undefined });
+  t.after(() => fixture.cleanup());
+  const pluginPath = fixture.path(".opencode", "plugins", editorName);
+  const childTmp = fixture.path("child-tmp");
+  const markdownPath = path.join(childTmp, "new.md");
+  await mkdir(childTmp);
+  const source = `
+    import assert from "node:assert/strict";
+    import { writeFile } from "node:fs/promises";
+    import plugin from ${JSON.stringify(pathToFileURL(pluginPath).href)};
+    const originalSetTimeout = globalThis.setTimeout;
+    let resolveDebounce;
+    const debounceSeen = new Promise((resolve) => { resolveDebounce = resolve; });
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      const timer = originalSetTimeout(callback, delay, ...args);
+      if (delay === 250) resolveDebounce(timer);
+      return timer;
+    };
+    await plugin({ worktree: ${JSON.stringify(fixture.root)} });
+    await writeFile(${JSON.stringify(markdownPath)}, "body\\n");
+    let deadlineTimer;
+    const debounceTimer = await Promise.race([
+      debounceSeen,
+      new Promise((_, reject) => {
+        deadlineTimer = originalSetTimeout(() => reject(new Error("debounce timer was not observed")), 2000);
+      }),
+    ]);
+    clearTimeout(deadlineTimer);
+    assert.equal(debounceTimer.hasRef(), false);
+    process.stdout.write("unrefed\\n");
+  `;
+  const stdout = await runChild(source, {
+    ...process.env,
+    TMPDIR: childTmp,
+    TMP: childTmp,
+    TEMP: childTmp,
+  });
+  assert.equal(stdout, "unrefed\n");
 });
 
 test("event tap summarizes, throttles, redacts, and truncates", async (t) => {
