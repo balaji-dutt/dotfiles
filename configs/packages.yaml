@@ -13,10 +13,10 @@ versions:
   aoe: "1.15.1" # renovate: datasource=github-releases depName=agent-of-empires/agent-of-empires extractVersion=^v(?<version>.*)$
   # dolt moved to .chezmoidata.yaml (dolt_version) so macOS and WSL2 share one
   # pin; wsl-playbook.yml receives it via -e.
-  gh: "2.98.0" # renovate: datasource=github-releases depName=cli/cli extractVersion=^v(?<version>.*)$
-  glab: "1.115.0" # renovate: datasource=gitlab-releases depName=gitlab-org/cli extractVersion=^v(?<version>.*)$
+  gh: "2.99.0" # renovate: datasource=github-releases depName=cli/cli extractVersion=^v(?<version>.*)$
+  glab: "1.116.0" # renovate: datasource=gitlab-releases depName=gitlab-org/cli extractVersion=^v(?<version>.*)$
   lazydocker: "0.25.2" # renovate: datasource=github-releases depName=jesseduffield/lazydocker extractVersion=^v(?<version>.*)$
-  openusage: "0.24.4" # renovate: datasource=github-releases depName=janekbaraniewski/openusage extractVersion=^v(?<version>.*)$
+  openusage: "0.25.0" # renovate: datasource=github-releases depName=janekbaraniewski/openusage extractVersion=^v(?<version>.*)$
 
 # -----------------------------------------------------------------------------
 # Apt packages - All WSL instances
