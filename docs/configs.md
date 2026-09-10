@@ -28,7 +28,7 @@
 | `configs/automation-test-inventory.json` | owned automation classification, risk, and behavioral coverage mapping |
 | `configs/gitlab-pipeline-guard.json` | main-push GitLab pipeline guard policy |
 | `configs/test-suites.json` | canonical test suite, command, platform, and capability registry |
-| `configs/schemas/*.schema.json` | immutable JSON Schema contracts for custom repository policy files |
+| `configs/schemas/*.schema.json` | immutable JSON Schema contracts for custom repository policies and transient payloads |
 | `configs/winget-packages.json` | Windows winget package set |
 | `configs/choco-packages.config` | Windows Chocolatey package set |
 | `configs/browser-policies/**` | vendored Chrome/Firefox policy artifacts |
@@ -72,11 +72,13 @@ homelab devcontainer owns an independent manifest and lockfile under its
 
 ## Validation
 
-The versioned custom policy contracts and their owning consumers are cataloged
-in `docs/tooling/config-contracts.md`. JSON and JSONC policies carry schema and
+The versioned custom policy and transient payload contracts and their owning
+consumers or specifications are cataloged in
+`docs/tooling/config-contracts.md`. JSON and JSONC policies carry schema and
 version markers. `configs/packages.yaml` uses an editor-only schema association
-so Ansible does not receive metadata variables. JSON Schema defines file
-structure; each consumer also enforces cross-file and runtime semantics.
+so Ansible does not receive metadata variables. Standalone payload schemas have
+no tracked instance. JSON Schema defines structure; each consumer also enforces
+cross-file and runtime semantics.
 The automation risk and evidence rules are documented in
 `docs/tooling/automation-coverage-policy.md`.
 

@@ -98,6 +98,13 @@ RETAINED_SCHEMAS = {
     "schemas/automation-provenance.v1.schema.json",
     "schemas/automation-test-inventory.v1.schema.json",
 }
+STANDALONE_SCHEMAS = {
+    "schemas/ai-attestation-handoff.v1.schema.json": {
+        "id": "urn:dotfiles:schema:ai-attestation-handoff:v1",
+        "version": 1,
+        "authority": "docs/git-agent-attestation.md",
+    }
+}
 
 
 class ConfigContractTests(unittest.TestCase):
@@ -149,6 +156,49 @@ class ConfigContractTests(unittest.TestCase):
                 with self.subTest(instance=instance_name, consumer=consumer_name):
                     consumer = (REPO_ROOT / consumer_name).read_text(encoding="utf-8")
                     self.assertIn(contract["ref"], consumer)
+
+    def test_standalone_schemas_have_metadata_and_catalog_authority(self) -> None:
+        catalog = (REPO_ROOT / "docs/tooling/config-contracts.md").read_text(
+            encoding="utf-8"
+        )
+        for relative_path, contract in STANDALONE_SCHEMAS.items():
+            with self.subTest(schema=relative_path):
+                schema = json.loads(
+                    (CONFIGS / relative_path).read_text(encoding="utf-8")
+                )
+                self.assert_schema_metadata(schema, contract["version"])
+                self.assertEqual(schema["$id"], contract["id"])
+                self.assertIn(f"`configs/{relative_path}`", catalog)
+                self.assertIn(f"`{contract['authority']}`", catalog)
+
+    def test_ai_attestation_handoff_contract_is_closed_and_paired(self) -> None:
+        schema = json.loads(
+            (
+                CONFIGS / "schemas/ai-attestation-handoff.v1.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(set(schema["required"]), {"participants", "schemaVersion"})
+        self.assertEqual(schema["properties"]["schemaVersion"]["const"], 1)
+        participants = schema["properties"]["participants"]
+        self.assertEqual(participants["minItems"], 1)
+        self.assertEqual(participants["maxItems"], 8)
+        self.assertEqual(schema["$defs"]["identifier"]["maxLength"], 128)
+        self.assertEqual(schema["$defs"]["sourceDefinition"]["maxLength"], 512)
+
+        participant = schema["$defs"]["participant"]
+        self.assertFalse(participant["additionalProperties"])
+        self.assertEqual(participant["required"], ["tool"])
+        self.assertEqual(
+            participant["dependentRequired"],
+            {
+                "sourceDefinition": ["sourceDigest"],
+                "sourceDigest": ["sourceDefinition"],
+            },
+        )
+        self.assertEqual(
+            schema["$defs"]["sourceDigest"]["pattern"],
+            "^sha256:[0-9a-f]{64}$",
+        )
 
     def test_contract_catalog_lists_every_managed_instance_schema_and_consumer(self) -> None:
         catalog = (REPO_ROOT / "docs/tooling/config-contracts.md").read_text(
@@ -220,7 +270,7 @@ class ConfigContractTests(unittest.TestCase):
     def test_schema_directory_contains_only_cataloged_versioned_contracts(self) -> None:
         expected = {
             contract["schema"] for contract in (*CONTRACTS.values(), *YAML_CONTRACTS.values())
-        } | RETAINED_SCHEMAS
+        } | RETAINED_SCHEMAS | set(STANDALONE_SCHEMAS)
         actual = {
             path.relative_to(CONFIGS).as_posix()
             for path in (CONFIGS / "schemas").glob("*.schema.json")

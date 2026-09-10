@@ -8,10 +8,11 @@
 
 # Configuration Contracts
 
-Repository policy files that have custom structure use immutable, versioned
-JSON Schema contracts. Structural schemas are the editor-facing contract; the
-owning command remains responsible for semantic checks such as sorted values,
-tracked paths, cross-file references, and runtime capability rules.
+Repository policy files and published transient payloads that have custom
+structure use immutable, versioned JSON Schema contracts. Structural schemas
+are the machine-readable contract; the owning command or specification remains
+responsible for semantic checks such as sorted values, tracked paths,
+cross-file references, and runtime capability rules.
 
 ## Managed contracts
 
@@ -38,6 +39,20 @@ fields.
 `yaml-language-server` header points editors at the schema, but the file does
 not add `$schema` or `schema_version` data keys because Ansible loads every
 top-level key as a variable. Ansible remains the semantic consumer.
+
+## Standalone payload contracts
+
+These schemas describe transient inputs rather than tracked policy instances.
+They therefore have no repository instance with a relative `$schema` marker.
+
+| Payload | Schema | Semantic authority |
+| :--- | :--- | :--- |
+| AI attestation handoff | `configs/schemas/ai-attestation-handoff.v1.schema.json` | `docs/git-agent-attestation.md` |
+
+The attestation handoff is invocation-scoped or stored briefly in a
+worktree-private Git path. Its schema defines the closed v1 JSON shape; the
+normative document defines transport lifecycle, trailer rendering, and trust
+semantics.
 
 ## Inventory boundaries
 
@@ -71,11 +86,13 @@ The migrated legacy formats use v1 as their first formal version. Informal
 Schema contract, so normalizing those markers does not consume a later version.
 
 Published `configs/schemas/*.vN.schema.json` files are immutable. Breaking changes
-get a new schema file, a new `$id` suffix, and a matching
-`schema_version`. Update the instance, consumer, tests, migration notes, and
-this catalog in the same change. Retain published schemas as historical
-contracts; the automation provenance and automation inventory v1 schemas remain
-immutable while their active v2 contracts carry the breaking changes.
+get a new schema file and a new `$id` suffix. Managed instances also
+receive a matching `schema_version`; standalone payloads carry the version
+marker their schema defines. Update the instance or payload producer, consumer,
+tests, migration notes, and this catalog in the same change. Retain published
+schemas as historical contracts; the automation provenance and automation
+inventory v1 schemas remain immutable while their active v2 contracts carry
+the breaking changes.
 
 Compatible semantic tightening can remain within the consumer when the JSON
 shape is unchanged. Document the new rule and add a consumer test rather than
