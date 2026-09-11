@@ -348,6 +348,14 @@
       "requires": ["node"]
     },
     {
+      "id": "retire-legacy-cbm-mise",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_retire_legacy_cbm_mise"],
+      "covers": ["tests/test_retire_legacy_cbm_mise.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],
