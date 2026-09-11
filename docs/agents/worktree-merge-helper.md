@@ -8,18 +8,38 @@
 
 # Agent Worktree Merge Helper
 
-`assets/agent-wt-merge` is a repo-local helper for agents landing worktree
-branches back onto `main` or `master`. The copy in the checked-out main
-worktree is authoritative, even when the agent is running from an older
-feature worktree.
+`assets/agent-wt-merge` is a repo-local helper for landing worktree branches
+back onto `main` or `master`. Humans and agents can invoke it. The copy in the
+checked-out main worktree is authoritative, even when the caller is running
+from an older feature worktree.
 
 It exists so OpenCode and Claude skills do not need to rebuild the same shell or
 Python snippets every time they merge a feature worktree.
 
-The helper shares policy parsing, exact-SHA checking, and reserved-ref safety
-with `assets/guarded-main-sync` through `assets/gitlab_pipeline_runtime.py`.
-Humans use `gpls` for an ahead-and-behind guarded main; the agent helper remains
-the interface for feature-worktree merges and agent recovery compatibility.
+In CI-gated repositories, the helper shares policy parsing, exact-SHA checking,
+and reserved-ref safety with `assets/guarded-main-sync` through
+`assets/gitlab_pipeline_runtime.py`. Humans use `gpls` for an ahead-and-behind
+guarded main; `agent-wt-merge prepare-main-ci` prepares exact evidence for a
+clean, ahead-only rewritten or batched main tip without pushing main.
+
+## Repository capabilities
+
+Probe the selected helper with `--help`. Its source root, not the caller's
+working directory, determines whether `configs/gitlab-pipeline-guard.json`
+exists:
+
+- Absent policy: **local-only**, advertising only `inspect`, `ff`, and `no-ff`.
+  The standalone helper does not require the GitLab runtime or checker. A
+  GitHub Actions workflow does not opt a repository into this GitLab contract.
+- Present policy: **CI-gated**, also advertising `prepare-ci` and
+  `prepare-main-ci`. Invalid policy, a broken policy symlink, or a missing
+  runtime/checker fails when CI is required; it never selects local-only as a
+  fallback. Help does not load or validate the runtime.
+
+The global skill accepts exact command rows only from one unambiguous
+`Commands:` section in successful help output. It records the mode before
+inspection and does not downgrade after a CI failure. A helper with an
+unsupported contract is a stopping condition, not permission to use raw Git.
 
 ## Commands
 
@@ -39,12 +59,15 @@ authoritative helper path before invoking it:
 - `prepare-ci` normally publishes the exact current feature SHA, verifies the
   advertised remote feature ref, and polls its required CI job. Defaults are a
   15-second interval and a 15-minute timeout.
-- `prepare-main-ci` recovers exact-SHA evidence for a clean, unpushed, linear
-  local main tip through a reserved temporary CI ref with the same polling
-  defaults.
+- `prepare-main-ci` obtains exact-SHA evidence for a clean, unpushed local main
+  tip, including rewritten or batched history, through a reserved temporary CI
+  ref with the same polling defaults.
 - `ff` runs only `git merge --ff-only` from the main worktree.
 - `no-ff` runs only `git merge --no-ff` from the main worktree and uses the
   selected actor for merge commit authorship.
+
+The two preparation commands are available only in CI-gated mode. A direct
+attempt in local-only mode fails as unsupported without publishing a ref.
 
 The working directory remains the feature worktree, so the helper still gets
 the source branch and repository from the caller. Invoking a known feature
@@ -59,6 +82,9 @@ approved `--update-main` fast-forwards main, the running process resolves and
 executes the newly checked-out main helper before it starts the feature merge.
 It removes `--update-main` to prevent an update loop and removes
 `--use-local-helper` so the updated main policy becomes authoritative.
+If the update changes the helper's CI/local-only mode, it stops after updating
+main and before merging the feature. Rediscover capabilities and approve a new
+operation; do not retry under the old approval.
 
 Running feature commands from `main` or `master` is an error because there is no
 feature worktree to merge. `prepare-main-ci` is the only main-worktree command.
@@ -78,7 +104,8 @@ an explicit issue ID.
 - current feature branch and SHA;
 - `main`/`master` branch and checked-out worktree path;
 - whether local main is dirty;
-- the advertised remote-main SHA and whether local main is ahead or behind it;
+- the remote-tracking main SHA and whether local main is ahead or behind it;
+- whether a fetch was attempted and succeeded, with a failure warning;
 - whether fast-forward is possible;
 - helper path and provenance (`canonical`, `delegated`, `fallback`, or
   `override`), including post-update re-execution;
@@ -90,6 +117,21 @@ an explicit issue ID.
 
 `ai-wt` metadata is optional. The helper uses Git worktree facts as the source of
 truth and only uses `.ai-wt/sessions/*.json` to improve cleanup suggestions.
+
+## Local-only merges
+
+Both merge commands pin the feature SHA and use the same helper provenance,
+clean-main, merge-type, Beads, and local-cleanup checks as CI-gated merges.
+They attempt an `origin` fetch best-effort; offline and no-origin repositories
+can proceed with a warning. A known behind main still requires explicit
+`--update-main` approval and a successful fetch before the update. Diverged
+main stops for separate recovery, even with that flag.
+
+Ahead-only main can accept multiple independent feature branches before a
+push, using no-ff when fast-forward is impossible. Local-only merges do not
+publish features, poll CI, delete remote feature refs, or claim CI success or
+bypass. Their reports explicitly mark those operations as not performed.
+Agents request approval immediately before the local merge.
 
 ## Feature publication and CI gate
 
@@ -117,12 +159,19 @@ The common-directory `pipeline-guard.override` is an explicit bypass rather
 than CI success. Publication is still required, and a bypassed merge retains
 the remote feature branch.
 
-Every merge command repeats a required fetch, pins the feature SHA, verifies
-the remote feature advertises that SHA, and performs a fresh one-shot CI check
-before changing main. A no-ff merge additionally requires local main to equal
-the freshly advertised remote main; fast-forward may proceed while local main
-is ahead when the feature contains it. The merge targets the pinned SHA rather
-than the movable branch name.
+Every CI-gated merge repeats a required fetch, pins the feature SHA, verifies
+the remote feature advertises that SHA, performs a fresh one-shot CI check, and
+revalidates advertised remote main before changing local main. Ahead-only main
+can accept another independent branch without pushing between merges. Behind
+main requires approved updating; diverged main requires separate recovery. The
+merge targets the pinned SHA rather than the movable branch name.
+
+For a no-ff tip directly based on advertised remote main, the push guard checks
+the feature parent. If earlier local landings put the merge's first parent
+ahead of remote main, pushing the batch requires successful CI for the exact
+final main SHA. The merge report identifies this requirement but does not run
+main preparation automatically. Feature-job success alone does not cover the
+combined batch tip.
 
 After real CI success and local merge, the helper deletes the remote feature
 with an exact expected-SHA lease and verifies its absence. A missing ref is
@@ -130,14 +179,19 @@ already clean. A moved ref is never deleted. Cleanup failure is a post-merge
 partial failure: the merge is not rolled back, and Beads closure is still
 attempted and reported independently.
 
-## Rewritten main recovery
+## Exact main CI preparation
 
 Rebasing or cherry-picking a local guarded main after merge changes commit
 SHAs, so exact feature-tip evidence no longer covers the rewritten main tip.
+Batching independent feature landings can also require evidence for the exact
+final main SHA. Finish the intended batch, then separately approve
+`prepare-main-ci` from the main worktree if that SHA lacks successful evidence.
+Later commits require evidence for the new SHA, even if an earlier tip passed.
+
 For human ahead-and-behind synchronization, use `gpls`; it records and performs
 the rebase before obtaining new evidence and delays finalization until an exact
-stash is restored. `prepare-main-ci` remains the agent compatibility command
-for a clean rewritten main that is already ahead and not diverged. It:
+stash is restored. Humans and agents can use `prepare-main-ci` for a clean main
+that is already ahead and not diverged. It:
 
 1. requires a clean, attached guarded main with unpushed commits;
 2. fetches the policy remote and rejects behind or diverged history;
@@ -148,7 +202,9 @@ for a clean rewritten main that is already ahead and not diverged. It:
 6. revalidates the local tip and advertised remote main after success; and
 7. exact-lease-deletes the temporary ref only after real success.
 
-The command never pushes main or tags. Terminal failure, API error, timeout,
+The command never pushes main or tags; retry the original push separately after
+successful preparation. The push guard only checks evidence and never publishes
+or waits for CI automatically. Terminal failure, API error, timeout,
 override bypass, local or remote movement, and cleanup failure retain the
 temporary ref for diagnosis. The full SHA in the namespace prevents collisions,
 and an existing reserved ref at a different SHA is never updated.
@@ -226,8 +282,9 @@ helper is repo-local. The allow rules accept quoted or unquoted absolute paths
 anchored under `*/dotfiles/` for the `assets/agent-wt-merge` and
 `.opencode/bin/agent-wt-merge` candidates for `inspect`, `ff`, and `no-ff`.
 Explicit `prepare-ci` and `prepare-main-ci` patterns remain ask-gated because
-commit or inspection permission does not authorize publication. Invoking `ff`
-or `no-ff` authorizes only the helper's lease-protected remote feature deletion
-after real CI success. `prepare-main-ci` authorizes only its temporary recovery
-ref and eligible exact-lease cleanup. None authorizes pushing main or tags.
-Local cleanup commands remain ask-gated.
+commit or inspection permission does not authorize publication. In CI-gated
+mode, invoking `ff` or `no-ff` authorizes only the helper's lease-protected remote
+feature deletion after real CI success. In local-only mode, neither command
+mutates remote refs. `prepare-main-ci` authorizes only its temporary CI ref and
+eligible exact-lease cleanup. None authorizes pushing main or tags. Local
+cleanup commands remain ask-gated.

@@ -22,21 +22,21 @@
           {
             "id": "failure-merge-preconditions",
             "kind": "failure",
-            "description": "Reject dirty, stale, unpublished, untrusted-CI, invalid-first-parent, diverged-main, or unsafe recovery operations without advancing the target branch or publishing a recovery ref.",
+            "description": "Reject unsafe merge or recovery state, fail closed for configured CI errors, and stop before feature merge when an approved main update changes helper mode.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "safety-beads-and-remote-state",
             "kind": "safety",
-            "description": "Pin exact SHAs, avoid main and tag pushes, and exact-lease-delete only unchanged feature or reserved main-CI refs after real CI success.",
+            "description": "Pin exact SHAs, preserve Beads and cleanup ownership, never push main or tags, perform no CI or remote ref mutations in local-only mode, and lease-delete CI evidence only after real success.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "success-supported-merge",
             "kind": "success",
-            "description": "Publish and poll exact feature or rewritten-main tips, complete supported merges, clean eligible evidence refs, and report independent merge and cleanup outcomes.",
+            "description": "Advertise repository-specific capabilities, merge standalone with best-effort fetch in local-only mode, and support guarded batch landing with explicit exact-main CI preparation and independent cleanup outcomes.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
           }
@@ -217,10 +217,10 @@
         "work_item": "dots-4jy.10.1.3",
         "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"],
         "behavior_requirements": [
-          {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, ambiguous-history, invalid-policy, and missing guarded tracking states.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
-          {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select only the exact linear tip or valid no-ff feature parent, preserve the pre-push contract, and block rebasing guarded local-ahead main even when the pipeline override exists.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, non-ancestor or octopus history, invalid-policy, and missing guarded tracking states; batch tips require their own successful CI evidence.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select the exact linear or batch tip, or the feature parent of a single no-ff merge directly based on advertised main; preserve the pre-push contract and block guarded local-ahead rebases even with an override.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
           {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
-          {"id": "success-structured-job-state", "kind": "success", "description": "Report exact-SHA success, retryable, terminal, error, and explicit bypass outcomes for guarded automation.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]}
+          {"id": "success-structured-job-state", "kind": "success", "description": "Report exact-SHA outcomes, guide explicit main preparation without pushing, and accept a batch tip only after its successful evidence is prepared or reused.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]}
         ]
       },
       "rationale": "Offline contract suites cover job dispatch, exact-SHA status reporting, and the fail-closed feature-pipeline guard."

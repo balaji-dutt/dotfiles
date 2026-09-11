@@ -33,6 +33,8 @@ class ApiState:
         self.job_status = job_status
         self.pipeline_mode = "normal"
         self.requests: list[str] = []
+        self.available_shas: set[str] | None = None
+        self.ci_remote: Path | None = None
 
 
 @contextmanager
@@ -51,7 +53,13 @@ def gitlab_api(state: ApiState) -> Iterator[str]:
                     body = b"[]"
                 else:
                     sha = urllib.parse.parse_qs(parsed.query)["sha"][0]
+                    if state.ci_remote is not None and state.available_shas is not None:
+                        published = run_git(state.ci_remote, "rev-parse", "--verify", f"refs/heads/ci/main/{sha}", check=False)
+                        if published.returncode == 0 and published.stdout.strip() == sha:
+                            state.available_shas.add(sha)
                     pipeline_ids = [42, 41] if state.pipeline_mode == "multiple" else [41]
+                    if state.available_shas is not None and sha not in state.available_shas:
+                        pipeline_ids = []
                     body = json.dumps(
                         [
                             {
@@ -286,7 +294,9 @@ class PipelineGuardTests(unittest.TestCase):
                     )
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(expected, result.stderr)
-                self.assertIn("documented override", result.stderr)
+                self.assertIn("prepare-main-ci", result.stderr)
+                self.assertIn("retry the original push separately", result.stderr)
+                self.assertNotIn("documented override", result.stderr)
 
     def test_direct_mode_classifies_exact_sha_job_states(self) -> None:
         tip = self.commit("feature\n", "feature")
@@ -360,7 +370,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertEqual(unreachable.returncode, 1)
         self.assertIn("API request failed", unreachable.stderr)
 
-    def test_ambiguous_and_non_ancestor_histories_block_before_api(self) -> None:
+    def test_batch_merge_checks_final_main_and_non_ancestor_still_blocks(self) -> None:
         run_git(self.root, "switch", "--quiet", "-c", "feature")
         self.commit("feature\n", "feature")
         run_git(self.root, "switch", "--quiet", self.main_branch)
@@ -368,15 +378,15 @@ class PipelineGuardTests(unittest.TestCase):
         run_git(self.root, "add", "main-only")
         run_git(self.root, "commit", "--quiet", "-m", "local main")
         run_git(self.root, "merge", "--quiet", "--no-ff", "feature", "-m", "merge feature")
-        ambiguous_tip = self.rev_parse("HEAD")
+        batch_tip = self.rev_parse("HEAD")
         state = ApiState()
         with gitlab_api(state) as api_url:
-            ambiguous = self.run_guard(
-                self.record(ambiguous_tip, self.base_sha), self.policy(api_url)
+            batch = self.run_guard(
+                self.record(batch_tip, self.base_sha), self.policy(api_url)
             )
-        self.assertEqual(ambiguous.returncode, 1)
-        self.assertIn("ambiguous", ambiguous.stderr)
-        self.assertEqual(state.requests, [])
+        self.assertEqual(batch.returncode, 0, batch.stderr)
+        self.assertIn(batch_tip, batch.stdout)
+        self.assertTrue(any(f"sha={batch_tip}" in request for request in state.requests))
 
         run_git(self.root, "switch", "--quiet", "--detach", self.base_sha)
         unrelated = self.commit("unrelated\n", "unrelated")
@@ -384,7 +394,7 @@ class PipelineGuardTests(unittest.TestCase):
         state = ApiState()
         with gitlab_api(state) as api_url:
             non_ancestor = self.run_guard(
-                self.record(unrelated, ambiguous_tip), self.policy(api_url)
+                self.record(unrelated, batch_tip), self.policy(api_url)
             )
         self.assertEqual(non_ancestor.returncode, 1)
         self.assertIn("not a fast-forward", non_ancestor.stderr)
@@ -414,6 +424,107 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertEqual(sha256_deletion.returncode, 0, sha256_deletion.stderr)
         self.assertEqual(sha256_new_ref.returncode, 0, sha256_new_ref.stderr)
         self.assertEqual(len(state.requests), 2)
+
+    def test_independent_branches_land_before_push_and_batch_needs_prepared_main(self) -> None:
+        from tests.test_agent_wt_merge import GitFixture
+
+        for ci_gated in (False, True):
+            with self.subTest(ci_gated=ci_gated):
+                fixture = GitFixture(feature_commit=False, ci_gated=ci_gated)
+                self.addCleanup(fixture.cleanup)
+                fixture.set_override(False)
+                state = ApiState()
+                state.available_shas = set()
+                with gitlab_api(state) as api_url:
+                    policy_path = fixture.main / "configs" / "gitlab-pipeline-guard.json"
+                    if ci_gated:
+                        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+                        policy["api_url"] = api_url
+                        write_json(policy_path, policy)
+                        shutil.copy2(HELPER, fixture.main / "assets" / HELPER.name)
+                        fixture.commit_all(fixture.main, "configure isolated CI service")
+                        fixture.git(fixture.main, "push", "origin", "main")
+                        fixture.git(fixture.feature, "merge", "--ff-only", "main")
+                    remote_main = fixture.remote_ref_sha("refs/heads/main")
+                    second = fixture.root / "second feature"
+                    fixture.git(fixture.main, "worktree", "add", "-b", "second", str(second), "main")
+                    first_sha = fixture.commit_feature("first.txt", "first\n", "first change")
+                    (second / "second.txt").write_text("second\n", encoding="utf-8")
+                    second_sha = fixture.commit_all(second, "second change")
+                    if ci_gated:
+                        fixture.git(second, "push", "origin", "second")
+                    state.available_shas.update({first_sha, second_sha})
+                    refs_before = fixture.output(fixture.remote, "show-ref")
+                    first = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode")
+                    self.assertEqual(first.returncode, 0, first.stderr)
+                    landed = fixture.run_helper(fixture.main_helper, second, "no-ff", "--actor", "opencode", "-m", "land second change")
+                    self.assertEqual(landed.returncode, 0, landed.stderr)
+                    main_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD^1"), first_sha)
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD^2"), second_sha)
+                    self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+                    if not ci_gated:
+                        self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs_before)
+                        self.assertEqual(state.requests, [])
+                        continue
+
+                    def check_push(sha: str) -> subprocess.CompletedProcess[str]:
+                        return subprocess.run(
+                            [sys.executable, str(HELPER), "--repo-root", str(fixture.main), "--policy", str(policy_path), "origin", str(fixture.remote)],
+                            input=self.record(sha, str(remote_main)), env=fixture.env,
+                            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                        )
+
+                    refs_before_check = fixture.output(fixture.remote, "show-ref")
+                    blocked = check_push(main_sha)
+                    self.assertEqual(blocked.returncode, 1)
+                    self.assertIn(main_sha, blocked.stderr)
+                    self.assertIn("prepare-main-ci", blocked.stderr)
+                    self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs_before_check)
+                    for job_status in ("pending", "failed"):
+                        state.available_shas.add(main_sha)
+                        state.job_status = job_status
+                        self.assertEqual(check_push(main_sha).returncode, 1)
+                    state.available_shas.discard(main_sha)
+                    state.job_status = "success"
+                    state.ci_remote = fixture.remote
+                    prepared = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci", "--poll-interval", "1", "--poll-timeout", "1")
+                    self.assertEqual(prepared.returncode, 0, prepared.stderr)
+                    self.assertIn("Temporary CI ref: deleted", prepared.stdout)
+                    self.assertIn(main_sha, state.available_shas)
+                    self.assertEqual(check_push(main_sha).returncode, 0)
+                    self.assertIsNone(fixture.remote_ref_sha(f"refs/heads/ci/main/{main_sha}"))
+                    self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+                    reused = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci")
+                    self.assertEqual(reused.returncode, 0, reused.stderr)
+                    self.assertIn("no temporary ref was published", reused.stdout)
+                    newer = fixture.commit_main("later.txt", "later\n", "later change")
+                    self.assertEqual(check_push(newer).returncode, 1)
+                    self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs_before_check)
+
+    def test_octopus_and_missing_object_histories_block_before_api(self) -> None:
+        parents = []
+        for number in range(3):
+            run_git(self.root, "switch", "--quiet", "-c", f"side-{number}", self.base_sha)
+            item = self.root / f"item-{number}"
+            item.write_text(str(number), encoding="utf-8")
+            run_git(self.root, "add", item.name)
+            run_git(self.root, "commit", "--quiet", "-m", f"side {number}")
+            parents.append(self.rev_parse("HEAD"))
+        tree = self.rev_parse("HEAD^{tree}")
+        parent_args = [argument for sha in parents for argument in ("-p", sha)]
+        octopus = run_git(self.root, "commit-tree", tree, *parent_args, "-m", "octopus").stdout.strip()
+        for tip, remote, expected in (
+            (octopus, self.base_sha, "octopus"),
+            ("f" * 40, self.base_sha, "git"),
+            (parents[0], "f" * 40, "git"),
+        ):
+            state = ApiState()
+            with gitlab_api(state) as api_url:
+                result = self.run_guard(self.record(tip, remote), self.policy(api_url))
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(expected, result.stderr)
+            self.assertEqual(state.requests, [])
 
     def test_common_dir_override_bypasses_policy_and_network(self) -> None:
         tip = self.commit("feature\n", "feature")

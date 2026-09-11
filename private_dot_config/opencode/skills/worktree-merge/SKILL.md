@@ -2,8 +2,8 @@
 name: worktree-merge
 description: Merge the current feature branch worktree into main according to
   the repository helper's advertised local or CI-gated contract, or recover
-  exact-SHA CI evidence for a rewritten local main when supported. Fast-forward
-  when possible; otherwise create a descriptive no-ff merge commit attributed
+  exact-SHA CI evidence for a rewritten or batched local main when supported.
+  Fast-forward when possible; otherwise create a descriptive no-ff merge commit attributed
   to OpenCode, then offer worktree and branch cleanup.
   Triggered by phrases like "merge this branch into main", "merge the
   worktree back to main", "recover rewritten main CI", or a guarded main push
@@ -32,7 +32,7 @@ only improves cleanup suggestions.
   `main`/`master`.
 - A feature branch needs the repository helper's approval-gated `ff` or `no-ff`
   landing workflow.
-- A guarded rewritten local main needs exact-SHA CI recovery and the helper
+- A guarded rewritten or batched local main needs exact-SHA CI and the helper
   advertises that capability.
 
 ## Do not use this skill when
@@ -67,7 +67,7 @@ only improves cleanup suggestions.
 ## Branch sanity and helper discovery
 
 Before looking for a helper, read the current branch with Git. If it is
-`main`/`master`, use **Rewritten main recovery** below; do not enter the feature
+`main`/`master`, use **Exact main CI preparation** below; do not enter the feature
 merge workflow. If HEAD is detached, stop and report it.
 
 From the feature worktree root, use `git worktree list --porcelain` to resolve
@@ -131,16 +131,18 @@ For a feature merge, choose and record exactly one mode before inspection:
 Never change that mode because inspection, policy lookup, publication, CI, or a
 merge command later fails. In particular, a CI-gated failure never permits a
 local-only fallback. Record separately whether `prepare-main-ci` is advertised;
-that command alone controls rewritten-main recovery.
+that command alone controls exact main CI preparation.
 
-## Rewritten main recovery
+## Exact main CI preparation
 
-Use this path only when the guarded local `main`/`master` tip was rewritten and
-the main push guard reports missing exact-SHA evidence. Select the executable
-helper from that main worktree, verify its path is clean, and perform **Helper
+Use this path when the guarded local `main`/`master` tip was rewritten or
+contains a batch of local landings, and the helper or main push guard reports
+that exact main-SHA evidence is required. Preparation may wait until the batch
+is finished; do not run it automatically after each merge. Select the executable
+helper from the main worktree, verify its path is clean, and perform **Helper
 capability discovery**. If `prepare-main-ci` is not advertised in the command
-section, report that recovery is unsupported and stop. Do not infer support
-from `prepare-ci` or any narrative mention, and do not fall back to a raw
+section, report that main preparation is unsupported and stop. Do not infer
+support from `prepare-ci` or any narrative mention, and do not fall back to a raw
 temporary-ref push.
 
 When `prepare-main-ci` is advertised, ask permission to run:
@@ -162,6 +164,8 @@ main, then exact-lease-deletes only the temporary CI ref. Failure, timeout,
 bypass, branch movement, or cleanup failure retains the ref as evidence. An
 explicit bypass is not CI success and does not authorize the guarded main push.
 Report the result and obtain separate approval for any later main/tag push.
+Later commits change the tip SHA and require their own evidence; successful
+feature CI or evidence for an earlier main SHA does not validate the final batch.
 
 Do not use feature `inspect`, `prepare-ci`, `ff`, or `no-ff` from main. Do not
 fall back to a raw temporary-ref push when the guarded helper is unavailable.
@@ -194,9 +198,12 @@ helper reports the corresponding data:
 - If `helper.path`, `helper.state`, or related provenance fields are present,
   verify they match the selected normal, fallback, or approved override path.
 - `origin.behind_count > 0` requires user approval before `--update-main`.
-- `origin.ahead_count > 0` blocks `no-ff`; local main must exactly equal the
-  freshly advertised remote main before a no-ff merge.
-- If `fetch.ok` is false, surface the warning.
+- `origin.ahead_count > 0` alone does not block `no-ff`. Independent branches
+  may land locally before main is pushed. If both ahead and behind counts are
+  positive, stop for explicit divergence recovery; do not rebase implicitly.
+- If `fetch.ok` is false, surface the warning. Local-only fetch is best-effort,
+  including offline or no-origin repositories; known behind state still needs
+  an approved update, and an update requires a successful fetch.
 - `beads.opencode.matches == true` identifies the only issue ID eligible for
   `--close-beads`.
 - If `cleanup.action` is `suggest` or `defer`, follow that classification. A
@@ -210,6 +217,9 @@ produce it. Missing or malformed CI-contract data in any response is blocking;
 it never changes the mode to local-only. Every CI-gated merge command performs
 a new required fetch and fails closed if it cannot establish current remote
 state.
+
+If an older helper rejects ahead-of-origin main or another precondition, honor
+the failure. Do not bypass it with raw Git or switch modes.
 
 ### 2. Follow the selected mode
 
@@ -243,10 +253,12 @@ publish a feature ref, poll CI, delete a remote feature ref, or claim CI success
 - Add `--update-main` only after asking the user when inspect shows local
   `main`/`master` is behind `origin/<main>` and the helper usage advertises that
   option for the selected merge command. If an update is required but the
-  option is not advertised, stop. In CI-gated mode, the helper must then start
+  option is not advertised, stop. The helper must then start
   a fresh process from the updated main helper before merging; require the final
   report to show `helper.reexecuted_after_main_update` as true when reported by
-  that contract.
+  that contract. If the updated helper reports a capability-mode change, stop
+  before the feature merge and repeat capability discovery and approval as a
+  new operation; never treat it as a fallback from failed CI.
 - Add `--close-beads <issue-id>` only when `beads.opencode.matches` is true and
   the helper usage advertises that option for the selected merge command. If
   state is absent or mismatched, or the option is unsupported, omit the flag
@@ -296,6 +308,11 @@ exact-lease-deletes only the remote feature ref before attempting Beads closure.
 If the remote feature moved or deletion failed after the merge, report the
 partial failure; do not retry the merge or delete the moved ref.
 
+When the helper reports that the batch needs exact main CI before a push, report
+the final main SHA and the separately approval-gated **Exact main CI
+preparation** path. Do not run it automatically or claim feature CI covers the
+batch. Further local landings may continue before preparing the final tip.
+
 In local-only mode, rely on the helper's reported local merge result. Do not
 infer publication, CI, or remote-cleanup effects that the helper did not
 advertise. In either mode, the helper never pushes main or tags. If a command
@@ -314,6 +331,8 @@ After a successful helper run, report:
 - in CI-gated mode, whether the exact feature SHA was published and passed or
   bypassed CI, and whether the remote feature was deleted, already absent,
   retained for bypass, or could not be cleaned safely;
+- whether the helper reports exact main CI is required before a later batch
+  push, including the final SHA and separate preparation approval;
 - in local-only mode, that `prepare-ci` was not advertised, CI preparation was
   not performed, and no feature publication or remote-feature cleanup was
   performed by this workflow;
@@ -398,6 +417,7 @@ For a CI-gated feature merge:
 - Main SHA after: <short>
 - Commits merged: <n>
 - Feature CI: <required job and exact SHA: success | explicit bypass>
+- Main CI before batch push: <exact SHA required; preparation not run | not reported>
 - Remote feature: <deleted | already absent | retained | partial failure>
 - Beads issue closed: <id and exact reason | no, reason>
 - Cleanup: <offered: commands, not run | deferred: manager and reason>
@@ -423,7 +443,7 @@ For a local-only feature merge:
 - Main/tags pushed: no
 ```
 
-For rewritten-main recovery, report instead:
+For exact main CI preparation, report instead:
 
 ```markdown
 ## Prepared exact CI for <main-branch>

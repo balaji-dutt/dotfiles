@@ -24,6 +24,13 @@ the current non-main repository has an executable `agent-wt-merge` helper and a
 valid pipeline policy. A successful `oc-commit` or `cc-commit` that changes HEAD
 injects guidance for the active agent; it does not publish anything.
 
+The steps below apply to this repository's GitLab-policy mode. A copied helper
+without `configs/gitlab-pipeline-guard.json` advertises only `inspect`, `ff`, and
+`no-ff`, works without the GitLab runtime, and merges locally with best-effort
+fetching. It does not publish features or operate another provider's pipelines.
+The global skill follows the selected helper's `Commands:` rows, not incidental
+mentions of CI commands in its help text. Broken configured CI fails closed.
+
 1. Develop and commit on a short-lived feature branch.
 2. Separately approve publication and monitoring:
 
@@ -41,8 +48,16 @@ injects guidance for the active agent; it does not publish anything.
 4. After a real CI-backed merge, the helper exact-lease-deletes the remote
    feature branch before Beads closure. A bypass retains it. Local worktree and
    feature-branch cleanup remains separately permissioned.
-5. Push main. The managed `pre-push` hook independently verifies the same
-   feature-tip evidence before Git sends the update.
+5. Additional independent features may land on ahead-only local main without
+   pushing between merges. Finish the batch before preparing its final SHA.
+6. If the helper or push guard requires exact main-tip evidence, separately run
+   `agent-wt-merge prepare-main-ci` from main before pushing.
+   A no-ff tip directly based on advertised remote main can use feature-parent
+   evidence; a two-parent batch tip requires its own successful job. Main
+   preparation never pushes main or tags.
+7. Push main, or retry the original push if it was blocked. The managed
+   `pre-push` hook verifies the required SHA before Git sends the separately
+   requested update.
 
 Do not rebase or pull with rebase after the local merge and before the guarded
 main push. Replaying the commit changes its SHA and invalidates exact-SHA
@@ -68,8 +83,31 @@ git push -u origin HEAD
 
 Wait for the exact commit's `linux-fast` job before using the merge helper. Do
 not use a manual merge when the repository policy exists but the authoritative
-helper is unavailable; that would omit the fresh CI, publication, first-parent,
+helper is unavailable; that would omit the fresh CI, publication, remote-main,
 and lease-cleanup checks.
+
+## Preparing a batch for push
+
+`agent-wt-merge` is also a human-facing command despite its name. After landing
+several independent branches, local main may have a combined tip whose SHA has
+never run CI. When the merge report or push guard identifies that SHA, finish
+the intended batch and run from the clean, ahead-only main worktree:
+
+```sh
+./assets/agent-wt-merge prepare-main-ci
+```
+
+For an agent, this publication needs separate approval. The command reuses
+successful exact-SHA evidence when available; otherwise it publishes only
+`refs/heads/ci/main/<full-sha>`, polls `linux-fast`, and exact-lease-deletes the
+temporary ref after real success and tip revalidation. Failure, timeout, bypass,
+movement, or cleanup failure retains any published ref for diagnosis.
+
+Then retry the original push separately, including its originally intended
+flags such as `--follow-tags`. Neither the merge helper nor the push guard
+pushes main or tags automatically. The guard does not create a CI ref or wait
+for a job. Additional commits require successful evidence for the new SHA;
+feature-job success or an earlier main result does not cover a changed batch.
 
 ## Rewritten main recovery
 
@@ -105,9 +143,10 @@ tags. After success, run the reported command separately:
 git push
 ```
 
-The agent-only `agent-wt-merge prepare-main-ci` command remains available for a
-clean rewritten main that is already ahead and not diverged. Both paths obtain
-fresh exact-SHA evidence; patch equivalence never reuses the original evidence.
+Humans and agents can also use `agent-wt-merge prepare-main-ci` for a clean
+rewritten main that is already ahead and not diverged, with the same preparation
+contract as a batch tip. Both paths obtain fresh exact-SHA evidence; patch
+equivalence never reuses the original evidence.
 
 When a branch has an open merge request, its MR pipeline owns `linux-fast`; the
 parallel branch-push pipeline does not run a duplicate job. A `main` push also
@@ -205,27 +244,34 @@ production Beads database, or live network.
 `pre-push` hook. The standard-library helper queries the public GitLab API for
 project `44618209` and requires an exact successful `linux-fast` job.
 
-- A fast-forward/linear `main` update checks the pushed tip SHA.
+- A linear `main` tip checks the pushed tip SHA.
 - A normal no-ff merge whose first parent is the advertised remote `main` checks
   its second, feature-parent SHA.
-- Non-fast-forward, octopus, missing-object, and ambiguous histories fail rather
-  than selecting a commit heuristically.
+- Another two-parent tip checks the exact pushed main SHA, provided advertised
+  remote main is its ancestor. This covers several local landings in one push.
+- Non-fast-forward, octopus, missing-object, and unsupported histories fail
+  rather than selecting a commit heuristically.
 
-The selected feature-tip policy permits normal local no-ff merges but does not
-test changes made only while resolving that merge. Push the feature branch again
-after amending its tip, or use a manual full lane when integrated-tree behavior
-needs validation.
+The single-merge feature-parent policy does not test changes made only while
+resolving that merge. Push the feature branch again after amending its tip, or
+use a manual full lane when integrated-tree behavior needs validation. Batch-tip
+validation checks the integrated main commit rather than substituting success
+from either feature parent.
 
 The check fails closed when the pipeline is absent, pending, failed, or
-unreachable. Wait for GitLab and retry the push. The helper uses no token because
-the project is public; making it private requires a separate authentication
-design rather than silently weakening the guard.
+unreachable. A non-successful main-tip job reports the required SHA and points
+to explicit `prepare-main-ci` from main, followed by a separate retry of the
+original push. Failed jobs still require investigation; preparation does not
+turn failure into success. The helper uses no token because the project is
+public; making it private requires a separate authentication design rather than
+silently weakening the guard.
 
 The same checker exposes a machine-readable exact-SHA mode to the shared
 pipeline runtime used by `agent-wt-merge` and `guarded-main-sync`. Its outcomes
 are `success`, `retryable`, `terminal`, `error`, and `bypass`. Only a missing or
-active required job is retryable. The existing pre-push arguments, stdin
-protocol, history selection, and fail-closed behavior remain unchanged.
+active required job is retryable. The pre-push arguments and stdin protocol do
+not authorize publication or polling; the guard performs one evidence check
+per selected SHA.
 
 For a deliberate temporary bypass, create the fixed override in the Git common
 directory. It applies to all linked worktrees and remains active until removed:
@@ -251,8 +297,8 @@ own broader escape hatch; neither mechanism is a security boundary.
 The common-directory pipeline override does not authorize rebasing guarded
 local main. Git's explicit `git rebase --no-verify` remains a reviewed escape
 hatch because hooks are not a security boundary. A resulting rewritten main
-must obtain fresh evidence through guarded `gpls` reconciliation or the
-agent-only `prepare-main-ci`; patch equivalence does not preserve exact-SHA
+must obtain fresh evidence through guarded `gpls` reconciliation or
+`prepare-main-ci`; patch equivalence does not preserve exact-SHA
 evidence.
 
 For worktree merges, bypass does not count as CI success. The feature must still

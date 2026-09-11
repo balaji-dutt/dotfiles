@@ -41,7 +41,8 @@ def load_helper_module():
 
 
 class GitFixture:
-    def __init__(self, *, feature_commit: bool = True) -> None:
+    def __init__(self, *, feature_commit: bool = True, ci_gated: bool = True) -> None:
+        self.ci_gated = ci_gated
         self._temporary = tempfile.TemporaryDirectory(prefix="agent wt merge ")
         self.root = Path(self._temporary.name).resolve()
         self.main = self.root / "main worktree"
@@ -61,7 +62,8 @@ class GitFixture:
         self.git(self.main, "config", "user.name", "Test User")
         self.git(self.main, "config", "user.email", "test@example.com")
         self.install_helper(self.main)
-        self.install_pipeline_files(self.main)
+        if ci_gated:
+            self.install_pipeline_files(self.main)
         (self.main / "base.txt").write_text("base\n", encoding="utf-8")
         self.commit_all(self.main, "initial")
 
@@ -73,9 +75,9 @@ class GitFixture:
         self.git(self.feature, "config", "user.email", "test@example.com")
         if feature_commit:
             self.commit_feature("feature.txt", "feature\n", "feature")
-        else:
+        elif ci_gated:
             self.publish_feature()
-        self.set_override(True)
+        self.set_override(ci_gated)
 
         self.fake_bin.mkdir()
         write_executable(
@@ -119,7 +121,8 @@ if os.environ.get("FAKE_BD_FAIL"):
         helper.parent.mkdir(parents=True, exist_ok=True)
         if text is None:
             shutil.copy2(SOURCE_HELPER, helper)
-            shutil.copy2(SOURCE_RUNTIME, helper.parent / SOURCE_RUNTIME.name)
+            if self.ci_gated:
+                shutil.copy2(SOURCE_RUNTIME, helper.parent / SOURCE_RUNTIME.name)
         else:
             write_executable(helper, text)
         return helper
@@ -221,7 +224,8 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
     def commit_feature(self, name: str, content: str, message: str) -> str:
         (self.feature / name).write_text(content, encoding="utf-8")
         sha = self.commit_all(self.feature, message)
-        self.publish_feature()
+        if self.ci_gated:
+            self.publish_feature()
         return sha
 
     def commit_main(self, name: str, content: str, message: str) -> str:
@@ -321,8 +325,8 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
 
 
 class AgentWtMergeTests(unittest.TestCase):
-    def fixture(self, *, feature_commit: bool = True) -> GitFixture:
-        fixture = GitFixture(feature_commit=feature_commit)
+    def fixture(self, *, feature_commit: bool = True, ci_gated: bool = True) -> GitFixture:
+        fixture = GitFixture(feature_commit=feature_commit, ci_gated=ci_gated)
         self.addCleanup(fixture.cleanup)
         return fixture
 
@@ -337,6 +341,230 @@ class AgentWtMergeTests(unittest.TestCase):
         helper = load_helper_module()
         with self.assertRaisesRegex(helper.AgentWtMergeError, "unsafe for publication"):
             helper.feature_remote_ref("feature;ignore")
+
+    def test_local_help_is_standalone_and_ignores_github_workflows_and_cwd(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        workflows = fixture.main / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "test.yml").write_text(
+            "name: Test\non:\n  push:\n    branches: [main]\n"
+            "  pull_request:\n    branches: [main]\n  workflow_dispatch:\n",
+            encoding="utf-8",
+        )
+        fixture.install_pipeline_files(fixture.feature)
+        secondary = fixture.main / ".opencode" / "bin" / "agent-wt-merge"
+        secondary.parent.mkdir(parents=True)
+        shutil.copy2(SOURCE_HELPER, secondary)
+        for helper in (fixture.main_helper, secondary):
+            for cwd in (fixture.feature, fixture.root):
+                with self.subTest(helper=helper, cwd=cwd):
+                    result = fixture.run_helper(helper, cwd, "--help")
+                    self.assert_ok(result)
+                    self.assertEqual(result.stdout.count("Commands:"), 1)
+                    self.assertNotIn("prepare-ci", result.stdout)
+                    self.assertNotIn("prepare-main-ci", result.stdout)
+                    rows = result.stdout.split("Commands:\n")[1].splitlines()
+                    self.assertEqual([row.split()[0] for row in rows], ["inspect", "ff", "no-ff"])
+
+    def test_ci_help_matches_original_text_without_loading_runtime(self) -> None:
+        fixture = self.fixture()
+        (fixture.main / "assets" / SOURCE_RUNTIME.name).unlink()
+        result = fixture.run_helper(fixture.main_helper, fixture.root, "--help")
+        self.assert_ok(result)
+        self.assertEqual(result.stdout, """Usage:
+  ./assets/agent-wt-merge inspect [--fetch] [--json] [--use-local-helper]
+  ./assets/agent-wt-merge prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [--use-local-helper]
+  ./assets/agent-wt-merge prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [--use-local-helper]
+  ./assets/agent-wt-merge ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [--use-local-helper]
+  ./assets/agent-wt-merge no-ff --actor <opencode|claude> -m <subject> [-m <body>] [--update-main] [--close-beads <issue-id>] [--use-local-helper]
+
+Commands:
+  inspect  Report merge target facts and cleanup suggestions.
+  prepare-ci  Publish the exact feature tip and wait for required CI.
+  prepare-main-ci  Publish an unpushed main tip to a temporary ref and wait for CI.
+  ff       Fast-forward main/master to the current feature branch.
+  no-ff    Create a no-ff merge commit on main/master.
+""")
+
+    def test_broken_ci_configuration_never_falls_back_to_local(self) -> None:
+        for broken in ("json", "runtime", "checker", "symlink", "directory", "configs-file", "configs-symlink"):
+            with self.subTest(broken=broken):
+                fixture = self.fixture()
+                policy = fixture.main / "configs" / "gitlab-pipeline-guard.json"
+                if broken == "json":
+                    policy.write_text("{", encoding="utf-8")
+                elif broken in {"runtime", "checker"}:
+                    name = SOURCE_RUNTIME.name if broken == "runtime" else "check-gitlab-pipeline.py"
+                    (fixture.main / "assets" / name).unlink()
+                else:
+                    policy.unlink()
+                    if broken == "symlink":
+                        policy.symlink_to("missing-policy")
+                    elif broken == "directory":
+                        policy.mkdir()
+                    else:
+                        policy.parent.rmdir()
+                        if broken == "configs-file":
+                            policy.parent.write_text("invalid", encoding="utf-8")
+                        else:
+                            policy.parent.symlink_to("missing-configs", target_is_directory=True)
+                help_result = fixture.run_helper(fixture.main_helper, fixture.root, "--help")
+                if broken.startswith("configs-"):
+                    self.assertNotEqual(help_result.returncode, 0)
+                else:
+                    self.assert_ok(help_result)
+                    self.assertIn("  prepare-ci  ", help_result.stdout)
+                fixture.commit_all(fixture.main, "configure invalid CI")
+                before = fixture.output(fixture.main, "rev-parse", "HEAD")
+                refs = fixture.output(fixture.remote, "show-ref")
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "blocked")
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+                self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
+
+    def test_local_ff_and_no_ff_allow_best_effort_fetch_without_remote_mutation(self) -> None:
+        for merge_type in ("ff", "no-ff"):
+            for remote in ("online", "offline", "absent"):
+                with self.subTest(merge_type=merge_type, remote=remote):
+                    fixture = self.fixture(ci_gated=False)
+                    self.assertIsNone(fixture.remote_feature_sha())
+                    feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+                    if merge_type == "no-ff":
+                        fixture.commit_main("main-only", "main\n", "local main")
+                    if remote == "offline":
+                        fixture.git(fixture.main, "remote", "set-url", "origin", str(fixture.root / "missing-remote"))
+                    elif remote == "absent":
+                        fixture.git(fixture.main, "remote", "remove", "origin")
+                    refs = fixture.output(fixture.remote, "show-ref")
+                    inspected = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--fetch", "--json")
+                    self.assert_ok(inspected)
+                    facts = json.loads(inspected.stdout)
+                    self.assertFalse(facts["main_dirty"])
+                    self.assertGreater(facts["feature"]["commits_ahead"], 0)
+                    self.assertEqual(facts["feature"]["fast_forward_possible"], merge_type == "ff")
+                    args = [merge_type, "--actor", "opencode"]
+                    if merge_type == "no-ff":
+                        args.extend(["-m", "land local feature"])
+                    result = fixture.run_helper(fixture.main_helper, fixture.feature, *args)
+                    self.assert_ok(result)
+                    self.assertIn("Merge mode: local-only", result.stdout)
+                    self.assertIn("Feature CI: not performed", result.stdout)
+                    self.assertIn("Feature publication: not performed", result.stdout)
+                    self.assertIn("Remote feature cleanup: not performed", result.stdout)
+                    self.assertNotIn("prepare-main-ci", result.stdout)
+                    if remote != "online":
+                        self.assertIn("Fetch warning:", result.stdout)
+                    self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
+                    tip = "HEAD" if merge_type == "ff" else "HEAD^2"
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", tip), feature_sha)
+                    if merge_type == "no-ff":
+                        self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%an <%ae>"), "OpenCode <noreply@opencode.ai>")
+
+    def test_local_mode_retains_published_feature_and_closes_only_matching_beads(self) -> None:
+        for state_kind in ("matching", "mismatched", "failure", "unlink-failure"):
+            with self.subTest(state_kind=state_kind):
+                fixture = self.fixture(ci_gated=False)
+                fixture.publish_feature()
+                refs = fixture.output(fixture.remote, "show-ref")
+                started = fixture.output(fixture.main, "rev-parse", "HEAD")
+                state = fixture.write_state(started_sha=started)
+                fixture.git(fixture.main, "worktree", "lock", "--reason", "AoE-managed", str(fixture.feature))
+                env = {}
+                if state_kind == "mismatched":
+                    payload = read_json(state)
+                    payload["branch"] = "another-feature"
+                    write_json(state, payload)
+                elif state_kind == "failure":
+                    env["FAKE_BD_FAIL"] = "1"
+                elif state_kind == "unlink-failure":
+                    env["FAKE_BD_REMOVE_STATE"] = str(state)
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env=env)
+                self.assertEqual(result.returncode, 0 if state_kind == "matching" else 1, result.stderr)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+                self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
+                self.assertEqual(state.exists(), state_kind in {"mismatched", "failure"})
+                self.assertIn("aoe", result.stdout.lower())
+                if state_kind == "mismatched":
+                    self.assertFalse(fixture.bd_log.exists())
+
+    def test_local_ci_commands_fail_before_mutation(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        refs = fixture.output(fixture.remote, "show-ref")
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        for command, cwd in (("prepare-ci", fixture.feature), ("prepare-main-ci", fixture.main)):
+            result = fixture.run_helper(fixture.main_helper, cwd, command)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unsupported", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
+
+    def test_local_merges_retain_preconditions(self) -> None:
+        for condition in ("dirty", "detached", "no-commits", "wrong-type", "behind", "diverged"):
+            with self.subTest(condition=condition):
+                fixture = self.fixture(ci_gated=False, feature_commit=condition != "no-commits")
+                args = ["ff", "--actor", "opencode"]
+                if condition == "dirty":
+                    (fixture.main / "base.txt").write_text("dirty\n", encoding="utf-8")
+                elif condition == "detached":
+                    fixture.git(fixture.feature, "switch", "--detach")
+                elif condition == "wrong-type":
+                    args = ["no-ff", "--actor", "opencode", "-m", "wrong"]
+                elif condition in {"behind", "diverged"}:
+                    upstream = fixture.upstream_clone()
+                    (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+                    fixture.commit_all(upstream, "upstream")
+                    fixture.git(upstream, "push", "origin", "main")
+                    if condition == "diverged":
+                        fixture.commit_main("local.txt", "local\n", "local main")
+                        args.append("--update-main")
+                before = fixture.output(fixture.main, "rev-parse", "HEAD")
+                refs = fixture.output(fixture.remote, "show-ref")
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, *args)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+                self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
+
+    def test_local_update_reexecutes_and_mode_changes_stop_before_feature_merge(self) -> None:
+        for initial_ci, change_mode in ((False, False), (False, True), (True, True)):
+            with self.subTest(initial_ci=initial_ci, change_mode=change_mode):
+                fixture = self.fixture(ci_gated=initial_ci)
+                upstream = fixture.upstream_clone()
+                if change_mode:
+                    if initial_ci:
+                        fixture.git(upstream, "rm", "configs/gitlab-pipeline-guard.json")
+                    else:
+                        fixture.install_pipeline_files(upstream)
+                        shutil.copy2(SOURCE_RUNTIME, upstream / "assets" / SOURCE_RUNTIME.name)
+                (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+                upstream_sha = fixture.commit_all(upstream, "update main contract")
+                fixture.git(upstream, "push", "origin", "main")
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land feature", "--update-main")
+                if change_mode:
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("helper mode changed", result.stderr)
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), upstream_sha)
+                else:
+                    self.assert_ok(result)
+                    self.assertIn("Re-executed after main update: yes", result.stdout)
+                    self.assertIn("Merge mode: local-only", result.stdout)
+
+    def test_delegation_override_and_fallback_select_helper_source_policy(self) -> None:
+        for selection in ("delegated", "override", "fallback"):
+            with self.subTest(selection=selection):
+                fixture = self.fixture(ci_gated=False)
+                fixture.install_pipeline_files(fixture.feature)
+                args = ["prepare-ci"]
+                if selection == "override":
+                    args.append("--use-local-helper")
+                elif selection == "fallback":
+                    fixture.git(fixture.main, "rm", "assets/agent-wt-merge")
+                    fixture.commit_all(fixture.main, "remove main helper")
+                result = fixture.run_helper(fixture.feature_helper, fixture.feature, *args)
+                self.assertEqual(result.returncode, 2)
+                expected = "unsupported" if selection == "delegated" else "cannot load GitLab pipeline runtime"
+                self.assertIn(expected, result.stderr)
 
     def test_main_helper_uses_feature_cwd_with_spaces(self) -> None:
         fixture = self.fixture()
@@ -846,7 +1074,7 @@ class AgentWtMergeTests(unittest.TestCase):
         self.assertIn("exact-lease deletion was not attempted", result.stdout)
         self.assertIn("lease-protected remote feature cleanup did not complete", result.stdout)
 
-    def test_no_ff_rejects_local_main_ahead_of_advertised_main(self) -> None:
+    def test_no_ff_allows_local_main_ahead_of_advertised_main(self) -> None:
         fixture = self.fixture()
         fixture.set_override(False)
         (fixture.main / "main-only.txt").write_text("main only\n", encoding="utf-8")
@@ -859,12 +1087,14 @@ class AgentWtMergeTests(unittest.TestCase):
             "--actor",
             "opencode",
             "-m",
-            "must not merge",
+            "merge feature",
         )
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("no-ff merge requires local main at advertised origin/main", result.stderr)
-        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+        self.assert_ok(result)
+        self.assertIn("Main push requires successful exact-SHA CI", result.stdout)
+        self.assertIn("At batch end, run prepare-main-ci", result.stdout)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD^1"), main_sha)
+        self.assertIsNone(fixture.remote_feature_sha())
 
     def test_ff_allows_local_main_ahead_when_feature_contains_it(self) -> None:
         fixture = self.fixture(feature_commit=False)

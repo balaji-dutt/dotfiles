@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agent-facing helper for inspecting and landing Git worktrees."""
+"""Helper for inspecting and landing Git worktrees and preparing exact-SHA CI."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Any
 
 sys.dont_write_bytecode = True
 _SCRIPT_PATH = Path(__file__).resolve()
@@ -27,16 +28,8 @@ else:
 if str(_RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(_RUNTIME_DIR))
 
-from gitlab_pipeline_runtime import (
-    PipelineRuntime,
-    PipelineRuntimeError,
-    check_pipeline as shared_check_pipeline,
-    cleanup_main_ci_ref as shared_cleanup_main_ci_ref,
-    load_pipeline_runtime as shared_load_pipeline_runtime,
-    main_ci_remote_ref as shared_main_ci_remote_ref,
-    publish_main_ci_ref as shared_publish_main_ci_ref,
-    remote_ref_sha as shared_remote_ref_sha,
-)
+if TYPE_CHECKING:
+    from gitlab_pipeline_runtime import PipelineRuntime
 
 
 SCRIPT_NAME = Path(sys.argv[0]).name
@@ -384,11 +377,34 @@ def helper_source_root(helper_path: Path) -> Path:
     die(f"cannot resolve source root for helper: {resolved}")
 
 
-def load_pipeline_runtime(helper: HelperProvenance, main_branch: str) -> PipelineRuntime:
-    source_root = helper_source_root(helper.path)
+def ci_enabled(helper_path: Path) -> bool:
+    policy = helper_source_root(helper_path) / "configs" / "gitlab-pipeline-guard.json"
     try:
-        return shared_load_pipeline_runtime(source_root, main_branch)
-    except PipelineRuntimeError as exc:
+        policy.lstat()
+    except FileNotFoundError:
+        if policy.parent.is_symlink() and not policy.parent.exists():
+            die(f"cannot inspect pipeline policy through broken path: {policy.parent}")
+        return False
+    except OSError as exc:
+        die(f"cannot inspect pipeline policy {policy}: {exc}")
+    return True
+
+
+def pipeline_module() -> ModuleType:
+    try:
+        import gitlab_pipeline_runtime
+    except (ImportError, SyntaxError) as exc:
+        die(f"cannot load GitLab pipeline runtime; restore assets/gitlab_pipeline_runtime.py: {exc}")
+    return gitlab_pipeline_runtime
+
+
+def load_pipeline_runtime(helper: HelperProvenance, main_branch: str) -> PipelineRuntime:
+    if not ci_enabled(helper.path):
+        die("CI preparation is unsupported: this helper has no GitLab pipeline policy")
+    shared = pipeline_module()
+    try:
+        return shared.load_pipeline_runtime(helper_source_root(helper.path), main_branch)
+    except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
@@ -807,9 +823,10 @@ def remote_ref_sha(
     remote_name: str,
     remote_ref: str,
 ) -> str | None:
+    shared = pipeline_module()
     try:
-        return shared_remote_ref_sha(repo_root, remote_name, remote_ref)
-    except PipelineRuntimeError as exc:
+        return shared.remote_ref_sha(repo_root, remote_name, remote_ref)
+    except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
@@ -842,9 +859,10 @@ def check_pipeline(
     runtime: PipelineRuntime,
     sha: str,
 ) -> dict[str, Any]:
+    shared = pipeline_module()
     try:
-        return shared_check_pipeline(repo_root, runtime, sha)
-    except PipelineRuntimeError as exc:
+        return shared.check_pipeline(repo_root, runtime, sha)
+    except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
@@ -957,9 +975,10 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
 
 
 def main_ci_remote_ref(main_branch: str, main_sha: str) -> str:
+    shared = pipeline_module()
     try:
-        return shared_main_ci_remote_ref(main_branch, main_sha)
-    except PipelineRuntimeError as exc:
+        return shared.main_ci_remote_ref(main_branch, main_sha)
+    except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
@@ -969,9 +988,10 @@ def publish_main_ci_ref(
     main_branch: str,
     main_sha: str,
 ) -> tuple[str, bool]:
+    shared = pipeline_module()
     try:
-        return shared_publish_main_ci_ref(repo_root, runtime, main_branch, main_sha)
-    except PipelineRuntimeError as exc:
+        return shared.publish_main_ci_ref(repo_root, runtime, main_branch, main_sha)
+    except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
@@ -981,7 +1001,7 @@ def cleanup_main_ci_ref(
     remote_ref: str,
     main_sha: str,
 ) -> dict[str, Any]:
-    return shared_cleanup_main_ci_ref(repo_root, runtime, remote_ref, main_sha)
+    return pipeline_module().cleanup_main_ci_ref(repo_root, runtime, remote_ref, main_sha)
 
 
 def ensure_main_ci_state_unchanged(
@@ -1169,7 +1189,7 @@ def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
         die(f"could not fast-forward {ctx.main_branch} from {ctx.origin_ref}: {detail}")
 
 
-def reexec_after_main_update(ctx: MergeContext, argv: list[str]) -> None:
+def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_ci: bool) -> None:
     canonical = canonical_helper_path(ctx.main_worktree)
     if canonical is None:
         die(
@@ -1182,6 +1202,11 @@ def reexec_after_main_update(ctx: MergeContext, argv: list[str]) -> None:
             f"updated {ctx.main_branch}, but its helper path is dirty; the feature branch was not merged:\n"
             + "\n".join(dirty)
         )
+    if ci_enabled(canonical) != expected_ci:
+        die(
+            f"updated {ctx.main_branch}, but helper mode changed; the feature branch was not merged. "
+            "Rediscover helper capabilities and obtain approval before retrying"
+        )
     next_argv = [
         item for item in argv if item not in {"--update-main", LOCAL_HELPER_FLAG}
     ]
@@ -1192,11 +1217,11 @@ def reexec_after_main_update(ctx: MergeContext, argv: list[str]) -> None:
 def ensure_merge_preconditions(
     ctx: MergeContext,
     *,
-    merge_type: str,
+    ci_gated: bool,
     remote_name: str,
     update_main: bool,
 ) -> MergeContext:
-    if not ctx.fetch_attempted or not ctx.fetch_ok:
+    if ci_gated and (not ctx.fetch_attempted or not ctx.fetch_ok):
         die(
             f"git fetch from {remote_name} failed before merge: "
             f"{ctx.fetch_message or 'unknown error'}"
@@ -1205,6 +1230,8 @@ def ensure_merge_preconditions(
         paths = "\n".join(ctx.main_dirty_paths)
         die(f"main worktree is dirty; refusing to merge:\n{paths}")
     if ctx.origin_behind_count and ctx.origin_behind_count > 0:
+        if ctx.origin_ahead_count:
+            die(f"{ctx.main_branch} has diverged from {ctx.origin_ref}; reconcile it before merging")
         if not update_main:
             die(
                 f"{ctx.main_branch} is behind {ctx.origin_ref} by {ctx.origin_behind_count} commit(s); "
@@ -1212,17 +1239,8 @@ def ensure_merge_preconditions(
             )
     if ctx.commits_ahead == 0:
         die(f"{ctx.feature_branch} has no commits ahead of {ctx.main_branch}")
-    if ctx.origin_sha is None:
+    if ci_gated and ctx.origin_sha is None:
         die(f"cannot verify advertised {remote_name}/{ctx.main_branch}")
-    if (
-        merge_type == "no-ff"
-        and ctx.main_sha != ctx.origin_sha
-        and not (update_main and bool(ctx.origin_behind_count))
-    ):
-        die(
-            f"no-ff merge requires local {ctx.main_branch} at advertised "
-            f"{remote_name}/{ctx.main_branch} {ctx.origin_sha}; local SHA is {ctx.main_sha}"
-        )
     return ctx
 
 
@@ -1451,18 +1469,33 @@ def print_merge_report(report: dict[str, Any]) -> None:
     if helper.get("reexecuted_after_main_update"):
         print("  - Re-executed after main update: yes")
     print(f"- Merge type: {report['merge_type']}")
+    print(f"- Merge mode: {report['mode']}")
     print(f"- Main SHA before: {report['main_sha_before'][:12]}")
     print(f"- Main SHA after: {report['main_sha_after'][:12]}")
     print(f"- Commits merged: {report['commits_merged']}")
     if report.get("merge_commit_author"):
         print(f"- Merge commit author: {report['merge_commit_author']}")
     pipeline = report["pipeline"]
-    print(
-        f"- Feature CI: {pipeline['outcome']} "
-        f"({pipeline.get('detail') or 'no detail'})"
-    )
+    if pipeline is None:
+        print("- Feature CI: not performed (local-only)")
+        print("- Feature publication: not performed")
+    else:
+        print(
+            f"- Feature CI: {pipeline['outcome']} "
+            f"({pipeline.get('detail') or 'no detail'})"
+        )
+    if report["main_ci_required"]:
+        print(
+            f"- Main push requires successful exact-SHA CI for {report['main_sha_after']}. "
+            "At batch end, run prepare-main-ci from the main worktree with approval if evidence "
+            "is missing, then retry the original push separately. Later commits require new evidence."
+        )
+    if report["fetch_warning"]:
+        print(f"- Fetch warning: {report['fetch_warning']}")
     remote_cleanup = report["remote_cleanup"]
-    if remote_cleanup.get("cleaned"):
+    if pipeline is None:
+        print("- Remote feature cleanup: not performed (local-only)")
+    elif remote_cleanup.get("cleaned"):
         qualifier = "already absent" if remote_cleanup.get("already_absent") else "deleted"
         print(
             f"- Remote feature cleanup: {qualifier} "
@@ -1528,11 +1561,13 @@ def perform_merge(
 
     full_argv = [merge_type, *raw_args]
     repo_root = resolve_repo_root()
-    runtime = load_pipeline_runtime(helper, resolve_main_branch(repo_root))
+    ci_gated = ci_enabled(helper.path)
+    runtime = load_pipeline_runtime(helper, resolve_main_branch(repo_root)) if ci_gated else None
+    remote_name = runtime.remote_name if runtime else "origin"
     ctx = ensure_merge_preconditions(
-        build_context(fetch=True, helper=helper, remote_name=runtime.remote_name),
-        merge_type=merge_type,
-        remote_name=runtime.remote_name,
+        build_context(fetch=True, helper=helper, remote_name=remote_name),
+        ci_gated=ci_gated,
+        remote_name=remote_name,
         update_main=parsed.update_main,
     )
     before_sha = ctx.main_sha
@@ -1546,26 +1581,27 @@ def perform_merge(
             if ctx.fast_forward_possible:
                 die("fast-forward is possible; use the ff command instead of creating a no-ff merge commit")
 
-    require_remote_feature(ctx, runtime, feature_sha)
-    pipeline_result = check_pipeline(ctx.original_worktree, runtime, feature_sha)
-    pipeline_outcome = str(pipeline_result["outcome"])
-    if pipeline_outcome not in {"success", "bypass"}:
-        detail = str(pipeline_result.get("detail") or "no detail")
-        die(f"feature CI blocked for {feature_sha}: {detail}; run prepare-ci and retry")
+    pipeline_result = None
+    if runtime is not None:
+        require_remote_feature(ctx, runtime, feature_sha)
+        pipeline_result = check_pipeline(ctx.original_worktree, runtime, feature_sha)
+        if pipeline_result["outcome"] not in {"success", "bypass"}:
+            detail = str(pipeline_result.get("detail") or "no detail")
+            die(f"feature CI blocked for {feature_sha}: {detail}; run prepare-ci and retry")
 
-    advertised_main_sha = remote_ref_sha(
-        ctx.original_worktree,
-        runtime.remote_name,
-        runtime.guarded_ref,
-    )
-    if advertised_main_sha != ctx.origin_sha:
-        die(
-            f"{runtime.remote_name}/{ctx.main_branch} moved after fetch: advertised "
-            f"{advertised_main_sha or 'nothing'}, expected {ctx.origin_sha}; rerun the command"
+        advertised_main_sha = remote_ref_sha(
+            ctx.original_worktree,
+            runtime.remote_name,
+            runtime.guarded_ref,
         )
+        if advertised_main_sha != ctx.origin_sha:
+            die(
+                f"{runtime.remote_name}/{ctx.main_branch} moved after fetch: advertised "
+                f"{advertised_main_sha or 'nothing'}, expected {ctx.origin_sha}; rerun the command"
+            )
     if ctx.origin_behind_count and parsed.update_main:
-        update_main_from_origin(ctx, runtime.remote_name)
-        reexec_after_main_update(ctx, full_argv)
+        update_main_from_origin(ctx, remote_name)
+        reexec_after_main_update(ctx, full_argv, expected_ci=ci_gated)
 
     if merge_type == "ff":
         result = run_git(ctx.main_worktree, ["merge", "--ff-only", feature_sha], check=False)
@@ -1584,12 +1620,11 @@ def perform_merge(
     if merge_type == "no-ff":
         merge_commit_author = git_output(ctx.main_worktree, ["log", "-1", "--format=%an <%ae>"])
 
-    remote_cleanup = cleanup_remote_feature(
-        ctx,
-        runtime,
-        feature_sha,
-        pipeline_outcome,
-    )
+    remote_cleanup = {"requested": False}
+    if runtime is not None and pipeline_result is not None:
+        remote_cleanup = cleanup_remote_feature(
+            ctx, runtime, feature_sha, str(pipeline_result["outcome"])
+        )
     try:
         beads_result = close_beads_issue(
             ctx=ctx,
@@ -1605,6 +1640,9 @@ def perform_merge(
             "reason": f"Beads closure could not be evaluated: {exc}",
         }
     report = {
+        "mode": "CI-gated" if ci_gated else "local-only",
+        "main_ci_required": ci_gated and merge_type == "no-ff" and before_sha != ctx.origin_sha,
+        "fetch_warning": ctx.fetch_message if not ctx.fetch_ok else None,
         "merge_type": merge_type,
         "main_branch": ctx.main_branch,
         "feature_branch": ctx.feature_branch,
@@ -1613,7 +1651,7 @@ def perform_merge(
         "commits_merged": commits_merged,
         "merge_commit_author": merge_commit_author,
         "pipeline": pipeline_result,
-        "remote_name": runtime.remote_name,
+        "remote_name": remote_name,
         "remote_cleanup": remote_cleanup,
         "close_beads": parsed.close_beads,
         "beads": beads_result,
@@ -1642,7 +1680,7 @@ def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
 
 
 def usage() -> str:
-    return f"""Usage:
+    text = f"""Usage:
   ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
@@ -1656,14 +1694,20 @@ Commands:
   ff       Fast-forward main/master to the current feature branch.
   no-ff    Create a no-ff merge commit on main/master.
 """
+    if not ci_enabled(running_helper_path()):
+        text = "".join(
+            line for line in text.splitlines(keepends=True)
+            if "prepare-ci" not in line and "prepare-main-ci" not in line
+        )
+    return text
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] in {"-h", "--help"}:
-        print(usage(), end="")
-        return 0
-    command, raw_args = argv[0], argv[1:]
     try:
+        if not argv or argv[0] in {"-h", "--help"}:
+            print(usage(), end="")
+            return 0
+        command, raw_args = argv[0], argv[1:]
         helper = prepare_helper_execution(
             argv,
             allow_main=command == "prepare-main-ci",
