@@ -70,8 +70,8 @@ and reasoning settings are merged from
 `~/.config/opencode/opencode.jsonc`), not in the repo-local
 `.opencode/opencode.jsonc`:
 
-- `agent-engineer` -> `openai/gpt-5.6-sol`
-- `special-builder` -> `openai/gpt-5.6-sol`
+- `agent-engineer` -> `openai/gpt-6-astra`
+- `special-builder` -> `openai/gpt-6-astra`
 
 So the Claude and OpenCode sides of the same agent deliberately run different
 models. Changing one does not change the other.
