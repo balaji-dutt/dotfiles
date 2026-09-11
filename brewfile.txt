@@ -14,6 +14,8 @@ brew "tmux"
 brew "aoe"
 # Manage your dotfiles across multiple diverse machines, securely
 brew "chezmoi"
+# TIFF library and utilities
+brew "libtiff"
 # Good-lookin' diffs with diff-highlight and more
 brew "diff-so-fancy"
 # Load/unload environment variables based on $PWD
@@ -48,7 +50,7 @@ brew "yt-dlp"
 brew "anomalyco/tap/opencode"
 # Monitor your AI coding tool quotas from a single TUI dashboard
 brew "janekbaraniewski/tap/openusage", link: true, trusted: true
-# Modern version of fasd productivity booster, offering quick access to files and directories
+# Modern fasd-style quick access to files and directories
 brew "wyne/tap/fasder"
 # Command-line interface for 1Password
 cask "1password-cli"
@@ -97,8 +99,6 @@ cask "microsoft-office"
 cask "notebooks"
 # App to write, plan, collaborate, and get organised
 cask "notion"
-# MikroTik Winbox
-cask "nrlquaker-winbox"
 # Knowledge base that works on top of a local folder of plain text Markdown files
 cask "obsidian"
 # AI usage tracker for Cursor, Claude Code, Codex, Copilot and more
