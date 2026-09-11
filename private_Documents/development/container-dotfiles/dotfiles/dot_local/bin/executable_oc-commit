@@ -16,9 +16,120 @@ EOF
   exit 0
 fi
 
+tool="opencode"
+state_name="ai-attestation-opencode.json"
+state_path="$(env -u AI_ATTESTATION_JSON git rev-parse --git-path "$state_name" 2>/dev/null || true)"
+payload=""
+
+if [[ -n "${AI_ATTESTATION_JSON+x}" ]]; then
+  payload_size="$(LC_ALL=C printf '%s' "$AI_ATTESTATION_JSON" | wc -c | tr -d '[:space:]')"
+  if [[ "$payload_size" =~ ^[0-9]+$ ]] && ((payload_size <= 16384)); then
+    payload="$AI_ATTESTATION_JSON"
+  fi
+elif [[ -n "$state_path" && -r "$state_path" ]]; then
+  payload_size="$(LC_ALL=C wc -c <"$state_path" 2>/dev/null | tr -d '[:space:]')"
+  if [[ "$payload_size" =~ ^[0-9]+$ ]] && ((payload_size <= 16384)); then
+    payload="$(<"$state_path")"
+  fi
+fi
+
+if [[ -n "$state_path" ]]; then
+  command rm -f -- "$state_path" 2>/dev/null || true
+fi
+
+participant_values=()
+source_definitions=()
+source_digests=()
+
+if [[ -n "$payload" ]] && command -v jq >/dev/null 2>&1; then
+  jq_filter='def identifier:
+    type == "string" and length >= 1 and length <= 128 and
+    test("\\A[A-Za-z0-9][A-Za-z0-9._:/@+-]*\\z");
+  def role:
+    type == "string" and length >= 1 and length <= 64 and
+    test("\\A[a-z0-9][a-z0-9-]*\\z");
+  def source_definition:
+    type == "string" and length >= 1 and length <= 512 and
+    test("\\A[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*\\z");
+  def source_digest:
+    type == "string" and test("\\Asha256:[0-9a-f]{64}\\z");
+  def optional_identifier($value): if ($value | identifier) then $value else "" end;
+  def optional_role($value): if ($value | role) then $value else "" end;
+  if type == "object" and has("schemaVersion") and has("participants") and
+      ((keys_unsorted - ["participants", "schemaVersion"]) | length == 0) and
+      .schemaVersion == 1 and (.participants | type == "array") and
+      (.participants | length >= 1 and length <= 8) and
+      all(.participants[];
+        if type == "object" then
+          ((keys_unsorted - ["agent", "model", "role", "sourceDefinition", "sourceDigest", "tool"]) | length == 0)
+        else true end)
+  then
+    [.participants[] |
+      if type == "object" and (.tool | identifier) then
+        (optional_identifier(.agent)) as $agent |
+        (optional_role(.role)) as $role |
+        (optional_identifier(.model)) as $model |
+        (if (.sourceDefinition | source_definition) and (.sourceDigest | source_digest)
+         then .sourceDefinition else "" end) as $sourceDefinition |
+        (if $sourceDefinition != "" then .sourceDigest else "" end) as $sourceDigest |
+        {tool: .tool, agent: $agent, role: $role, model: $model,
+         sourceDefinition: $sourceDefinition, sourceDigest: $sourceDigest}
+      else empty end] |
+    reduce .[] as $record ([];
+      if any(.[]; . == $record) then . else . + [$record] end) |
+    .[] | [.tool, .agent, .role, .model, .sourceDefinition, .sourceDigest] |
+    join("\u001f")
+  else error("invalid handoff") end'
+
+  if parsed_records="$(printf '%s' "$payload" | jq -r "$jq_filter" 2>/dev/null)"; then
+    while IFS=$'\x1f' read -r record_tool record_agent record_role record_model record_source record_digest; do
+      [[ -n "$record_tool" ]] || continue
+      participant="tool=$record_tool"
+      [[ -z "$record_agent" ]] || participant+="; agent=$record_agent"
+      [[ -z "$record_role" ]] || participant+="; role=$record_role"
+      [[ -z "$record_model" ]] || participant+="; model=$record_model"
+      participant_values+=("$participant")
+      source_definitions+=("$record_source")
+      source_digests+=("$record_digest")
+    done <<<"$parsed_records"
+  fi
+fi
+
+if ((${#participant_values[@]} == 0)); then
+  participant_values=("tool=$tool")
+  source_definitions=("")
+  source_digests=("")
+fi
+
+trailer_args=()
+for ((index = 0; index < ${#participant_values[@]}; index++)); do
+  trailer_args+=(--trailer "AI-Participant: ${participant_values[index]}")
+  if [[ -n "${source_definitions[index]}" ]]; then
+    trailer_args+=(--trailer "Source-Definition: ${source_definitions[index]}")
+    trailer_args+=(--trailer "Source-Digest: ${source_digests[index]}")
+  fi
+done
+
+trailer_config=(
+  -c trailer.separators=:
+  -c trailer.where=end
+  -c trailer.ifexists=add
+  -c trailer.ifmissing=add
+)
+for trailer_token in AI-Participant Source-Definition Source-Digest; do
+  trailer_config+=(
+    -c "trailer.${trailer_token}.key=${trailer_token}"
+    -c "trailer.${trailer_token}.where=end"
+    -c "trailer.${trailer_token}.ifexists=add"
+    -c "trailer.${trailer_token}.ifmissing=add"
+    -c "trailer.${trailer_token}.cmd=printf %s"
+  )
+done
+
 exec env \
+  -u AI_ATTESTATION_JSON \
   GIT_AUTHOR_NAME="OpenCode" \
   GIT_AUTHOR_EMAIL="noreply@opencode.ai" \
   GIT_COMMITTER_NAME="OpenCode" \
   GIT_COMMITTER_EMAIL="noreply@opencode.ai" \
-  git commit "$@"
+  git "${trailer_config[@]}" commit "${trailer_args[@]}" "$@"
