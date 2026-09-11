@@ -691,8 +691,14 @@
       "risk": "high",
       "side_effects": ["filesystem", "host-config", "network", "process", "secrets"],
       "test_layers": ["contract", "integration", "platform-smoke", "render", "unit"],
-      "coverage": {"suite_id": "windows-shell", "status": "partial", "work_item": "dots-4jy.10.5.5", "test_paths": ["tests/test_guarded_main_sync.py"], "behavior_requirements": []},
-      "rationale": "Native-Windows guarded gpls dispatch has a registered platform test; profiles, drive mapping, Pageant, environment fragments, and commit wrappers still need broader coverage."
+      "coverage": {
+        "suite_id": "windows-shell",
+        "status": "partial",
+        "work_item": "dots-4jy.10.5.5",
+        "test_paths": ["tests/test_ai_wt.py", "tests/test_guarded_main_sync.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Registered native-Windows cases exercise guarded gpls dispatch and commit-wrapper identity, argument forwarding, attestation transports, fallback, and one-shot state. Profiles, drive mapping, Pageant, and environment fragments still need broader coverage."
     },
     {
       "id": "wsl-provisioning",

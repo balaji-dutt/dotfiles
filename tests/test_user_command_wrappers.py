@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -18,9 +19,11 @@ def run_script(
     script: Path,
     *args: str,
     env: dict[str, str],
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["/bin/bash", str(script), *args],
+        cwd=cwd,
         env=env,
         check=False,
         text=True,
@@ -38,7 +41,7 @@ def write_env_logger(path: Path, log_path: Path) -> Path:
         "path.parent.mkdir(parents=True, exist_ok=True)\n"
         "keys = [\n"
         "    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME',\n"
-        "    'GIT_COMMITTER_EMAIL', 'PLANNOTATOR_PORT',\n"
+        "    'GIT_COMMITTER_EMAIL', 'AI_ATTESTATION_JSON', 'PLANNOTATOR_PORT',\n"
         "    'CLAUDE_PLANNOTATOR_POOL', 'OPENCODE_PLANNOTATOR_POOL',\n"
         "    'ANTHROPIC_SYSTEM_PROMPT_PATH',\n"
         "    'OPENCODE_DISABLE_CLAUDE_CODE_PROMPT',\n"
@@ -50,18 +53,68 @@ def write_env_logger(path: Path, log_path: Path) -> Path:
     )
 
 
+def write_commit_git(path: Path, log_path: Path) -> Path:
+    return write_executable(
+        path,
+        f"#!{sys.executable}\n"
+        "import json, os, pathlib, sys\n"
+        f"path = pathlib.Path({str(log_path)!r})\n"
+        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "with path.open('a', encoding='utf-8') as handle:\n"
+        "    handle.write(json.dumps({'argv': sys.argv[1:], 'ai': os.environ.get('AI_ATTESTATION_JSON'), 'author': os.environ.get('GIT_AUTHOR_NAME'), 'committer': os.environ.get('GIT_COMMITTER_NAME')}) + '\\n')\n"
+        "if sys.argv[1:3] == ['rev-parse', '--git-path']:\n"
+        "    state_path = os.environ.get('FAKE_STATE_PATH')\n"
+        "    if state_path:\n"
+        "        print(state_path)\n"
+        "        raise SystemExit(0)\n"
+        "    raise SystemExit(1)\n"
+        "raise SystemExit(int(os.environ.get('FAKE_EXIT', '0')))\n",
+    )
+
+
 class CommitWrapperTests(unittest.TestCase):
-    def test_wrappers_forward_identity_arguments_and_exit_status(self) -> None:
-        cases = (
-            ("executable_cc-commit", "Claude", "noreply@anthropic.com"),
-            ("executable_oc-commit", "OpenCode", "noreply@opencode.ai"),
+    DIGEST = "sha256:" + "0123456789abcdef" * 4
+    CASES = (
+        ("executable_cc-commit", "Claude", "noreply@anthropic.com", "claude-code", "ai-attestation-claude-code.json"),
+        ("executable_oc-commit", "OpenCode", "noreply@opencode.ai", "opencode", "ai-attestation-opencode.json"),
+    )
+
+    def init_repository(self, repo: Path, env: dict[str, str]) -> None:
+        subprocess.run(["git", "init", "--quiet", str(repo)], env=env, check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test User"], env=env, check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], env=env, check=True)
+
+    def stage_change(self, repo: Path, env: dict[str, str], name: str, content: str) -> None:
+        (repo / name).write_text(content, encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "--", name], env=env, check=True)
+
+    def commit_message(self, repo: Path, env: dict[str, str]) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo), "log", "-1", "--format=%B"],
+            env=env,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+
+    def parsed_trailers(self, repo: Path, env: dict[str, str]) -> list[str]:
+        result = subprocess.run(
+            ["git", "interpret-trailers", "--parse"],
+            env=env,
+            input=self.commit_message(repo, env),
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
         )
-        for filename, identity, email in cases:
+        return result.stdout.splitlines()
+
+    def test_wrappers_forward_identity_arguments_and_exit_status(self) -> None:
+        for filename, identity, _email, tool, state_name in self.CASES:
             with self.subTest(filename=filename), isolated_environment(
                 prefix="commit wrapper "
             ) as fixture:
-                log = fixture.root / "git.json"
-                write_env_logger(fixture.fake_bin / "git", log)
+                log = fixture.root / "git.jsonl"
+                write_commit_git(fixture.fake_bin / "git", log)
                 env = fixture.env | {"FAKE_EXIT": "27"}
 
                 result = run_script(
@@ -74,15 +127,187 @@ class CommitWrapperTests(unittest.TestCase):
                 )
 
                 self.assertEqual(result.returncode, 27)
-                payload = json.loads(log.read_text(encoding="utf-8"))
-                self.assertEqual(
-                    payload["argv"],
-                    ["commit", "-m", "subject with spaces", "--", "path;literal"],
+                calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(calls[0]["argv"], ["rev-parse", "--git-path", state_name])
+                payload = calls[-1]
+                self.assertEqual(payload["argv"][-4:], ["-m", "subject with spaces", "--", "path;literal"])
+                self.assertEqual(payload["argv"][0:2], ["-c", "trailer.separators=:"])
+                self.assertIn("AI-Participant: tool=" + tool, payload["argv"])
+                self.assertLess(payload["argv"].index("--trailer"), payload["argv"].index("--"))
+                self.assertIsNone(payload["ai"])
+                self.assertEqual(payload["author"], identity)
+                self.assertEqual(payload["committer"], identity)
+
+    def test_environment_records_are_normalized_deduplicated_and_parseable(self) -> None:
+        for filename, identity, email, tool, _state_name in self.CASES:
+            with self.subTest(filename=filename), isolated_environment(prefix="attestation env ") as fixture:
+                repo = fixture.root / "repo"
+                self.init_repository(repo, fixture.env)
+                self.stage_change(repo, fixture.env, "path;literal", identity)
+                rich = {
+                    "tool": tool,
+                    "agent": "build",
+                    "role": "editor",
+                    "model": "provider/model-v1",
+                    "sourceDefinition": "agents/build.md",
+                    "sourceDigest": self.DIGEST,
+                }
+                payload = json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "participants": [
+                            rich,
+                            {
+                                "tool": "review-tool",
+                                "agent": "bad value",
+                                "role": "Reviewer",
+                                "model": "provider/reviewer",
+                                "sourceDefinition": "agents/build.md",
+                                "sourceDigest": self.DIGEST,
+                            },
+                            rich,
+                        ],
+                    }
                 )
-                self.assertEqual(payload["env"]["GIT_AUTHOR_NAME"], identity)
-                self.assertEqual(payload["env"]["GIT_COMMITTER_NAME"], identity)
-                self.assertEqual(payload["env"]["GIT_AUTHOR_EMAIL"], email)
-                self.assertEqual(payload["env"]["GIT_COMMITTER_EMAIL"], email)
+                result = run_script(
+                    BIN / filename,
+                    "-m",
+                    f"Commit as {identity}",
+                    "-m",
+                    "body\n\nRefs: dots-test",
+                    "--",
+                    "path;literal",
+                    env=fixture.env | {"AI_ATTESTATION_JSON": payload},
+                    cwd=repo,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    self.parsed_trailers(repo, fixture.env),
+                    [
+                        "Refs: dots-test",
+                        f"AI-Participant: tool={tool}; agent=build; role=editor; model=provider/model-v1",
+                        "Source-Definition: agents/build.md",
+                        f"Source-Digest: {self.DIGEST}",
+                        "AI-Participant: tool=review-tool; model=provider/reviewer",
+                        "Source-Definition: agents/build.md",
+                        f"Source-Digest: {self.DIGEST}",
+                    ],
+                )
+                identity_line = subprocess.run(
+                    ["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+                    env=fixture.env,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip()
+                self.assertEqual(identity_line, f"{identity} <{email}>|{identity} <{email}>")
+
+    def test_state_is_one_shot_environment_wins_and_failed_retry_degrades(self) -> None:
+        with isolated_environment(prefix="attestation state ") as fixture:
+            log = fixture.root / "git.jsonl"
+            state_path = fixture.root / "state.json"
+            write_commit_git(fixture.fake_bin / "git", log)
+            state_path.write_text(
+                json.dumps({"schemaVersion": 1, "participants": [{"tool": "state-tool"}]}),
+                encoding="utf-8",
+            )
+            environment_payload = json.dumps(
+                {"schemaVersion": 1, "participants": [{"tool": "environment-tool"}]}
+            )
+            env = fixture.env | {
+                "AI_ATTESTATION_JSON": environment_payload,
+                "FAKE_STATE_PATH": str(state_path),
+                "FAKE_EXIT": "27",
+            }
+            failed = run_script(BIN / "executable_oc-commit", "-m", "failure", env=env)
+            self.assertEqual(failed.returncode, 27)
+            self.assertFalse(state_path.exists())
+            calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+            self.assertIn("AI-Participant: tool=environment-tool", calls[-1]["argv"])
+            self.assertNotIn("AI-Participant: tool=state-tool", calls[-1]["argv"])
+            self.assertIsNone(calls[-1]["ai"])
+
+            retry = run_script(
+                BIN / "executable_oc-commit",
+                "-m",
+                "retry",
+                env=fixture.env | {"FAKE_STATE_PATH": str(state_path)},
+            )
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+            self.assertIn("AI-Participant: tool=opencode", calls[-1]["argv"])
+
+    def test_invalid_oversized_and_unavailable_parser_inputs_degrade(self) -> None:
+        payloads = (
+            "{not json",
+            json.dumps({"schemaVersion": 2, "participants": [{"tool": "other"}]}),
+            json.dumps({"schemaVersion": 1, "participants": [{"tool": "other"}]}) + (" " * 16384),
+            json.dumps({"schemaVersion": 1, "participants": [{"tool": "other"}], "extra": True}),
+            json.dumps({"schemaVersion": 1, "participants": [{"tool": "other"}] * 9}),
+            json.dumps({"schemaVersion": 1, "participants": [{"tool": "newline-tool\n"}]}),
+        )
+        for index, payload in enumerate(payloads):
+            with self.subTest(index=index), isolated_environment(prefix="attestation invalid ") as fixture:
+                log = fixture.root / "git.jsonl"
+                write_commit_git(fixture.fake_bin / "git", log)
+                result = run_script(
+                    BIN / "executable_oc-commit",
+                    "-m",
+                    "subject",
+                    env=fixture.env | {"AI_ATTESTATION_JSON": payload},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+                self.assertIn("AI-Participant: tool=opencode", calls[-1]["argv"])
+                self.assertNotIn("AI-Participant: tool=other", calls[-1]["argv"])
+
+        with isolated_environment(prefix="attestation no jq ") as fixture:
+            repo = fixture.root / "repo"
+            self.init_repository(repo, fixture.env)
+            self.stage_change(repo, fixture.env, "no-jq.txt", "content")
+            no_jq_bin = fixture.root / "no-jq-bin"
+            no_jq_bin.mkdir()
+            for command in ("env", "git", "rm", "tr", "wc"):
+                executable = shutil.which(command)
+                self.assertIsNotNone(executable)
+                os.symlink(executable, no_jq_bin / command)
+            payload = json.dumps({"schemaVersion": 1, "participants": [{"tool": "rich-tool"}]})
+            result = run_script(
+                BIN / "executable_oc-commit",
+                "-m",
+                "No jq",
+                env=fixture.env | {"PATH": str(no_jq_bin), "AI_ATTESTATION_JSON": payload},
+                cwd=repo,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.parsed_trailers(repo, fixture.env), ["AI-Participant: tool=opencode"])
+
+    def test_command_local_trailer_policy_overrides_repository_defaults(self) -> None:
+        with isolated_environment(prefix="attestation config ") as fixture:
+            repo = fixture.root / "repo"
+            self.init_repository(repo, fixture.env)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.where", "start"], env=fixture.env, check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.ifexists", "replace"], env=fixture.env, check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.AI-Participant.where", "start"], env=fixture.env, check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.AI-Participant.cmd", "printf hostile"], env=fixture.env, check=True)
+            self.stage_change(repo, fixture.env, "config.txt", "content")
+            payload = json.dumps(
+                {"schemaVersion": 1, "participants": [{"tool": "one"}, {"tool": "two"}]}
+            )
+            result = run_script(
+                BIN / "executable_oc-commit",
+                "-m",
+                "Configured",
+                "-m",
+                "Refs: dots-test",
+                env=fixture.env | {"AI_ATTESTATION_JSON": payload},
+                cwd=repo,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                self.parsed_trailers(repo, fixture.env),
+                ["Refs: dots-test", "AI-Participant: tool=one", "AI-Participant: tool=two"],
+            )
 
     def test_help_does_not_invoke_git(self) -> None:
         with isolated_environment(prefix="commit help ") as fixture:
@@ -96,6 +321,18 @@ class CommitWrapperTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("git commit", result.stdout)
             self.assertFalse(marker.exists())
+
+    def test_help_preserves_attestation_state(self) -> None:
+        with isolated_environment(prefix="commit help state ") as fixture:
+            state_path = fixture.root / "state.json"
+            state_path.write_text("state", encoding="utf-8")
+            result = run_script(
+                BIN / "executable_oc-commit",
+                "--help",
+                env=fixture.env | {"FAKE_STATE_PATH": str(state_path)},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(state_path.read_text(encoding="utf-8"), "state")
 
 
 class CodeWrapperTests(unittest.TestCase):

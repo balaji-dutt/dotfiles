@@ -1211,6 +1211,25 @@ class WindowsLauncherTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt", "requires native Windows")
 class WindowsCommitWrapperTests(unittest.TestCase):
+    DIGEST = "sha256:" + "0123456789abcdef" * 4
+
+    def parsed_trailers(self, git: str, repo: Path) -> list[str]:
+        message = subprocess.run(
+            [git, "log", "-1", "--format=%B"],
+            cwd=repo,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        return subprocess.run(
+            [git, "interpret-trailers", "--parse"],
+            cwd=repo,
+            input=message,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.replace("\r\n", "\n").splitlines()
+
     def test_powershell_wrappers_preserve_multiline_args_and_scope_environment(self) -> None:
         git = shutil.which("git")
         pwsh = shutil.which("pwsh")
@@ -1220,11 +1239,13 @@ class WindowsCommitWrapperTests(unittest.TestCase):
             "OpenCode": "OpenCode <noreply@opencode.ai>|OpenCode <noreply@opencode.ai>",
             "Claude": "Claude <noreply@anthropic.com>|Claude <noreply@anthropic.com>",
         }
+        expected_tool = {"OpenCode": "opencode", "Claude": "claude-code"}
         body = '- first bullet\n- second "quoted" & <angle> | pipe\n- third 100% ^ caret ! bang $dollar'
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             env = os.environ.copy()
+            env.pop("AI_ATTESTATION_JSON", None)
             env.update(
                 {
                     "GIT_AUTHOR_NAME": "Parent Author",
@@ -1263,7 +1284,14 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                     text=True,
                     stdout=subprocess.PIPE,
                 ).stdout.replace("\r\n", "\n").rstrip("\n")
-                self.assertEqual(commit_message, f"{message}\n\n{body}")
+                self.assertEqual(
+                    commit_message,
+                    f"{message}\n\n{body}\n\nAI-Participant: tool={expected_tool[identity]}",
+                )
+                self.assertEqual(
+                    self.parsed_trailers(git, repo),
+                    [f"AI-Participant: tool={expected_tool[identity]}"],
+                )
 
                 failed = subprocess.run(
                     [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "No changes"],
@@ -1277,6 +1305,203 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
             self.assertEqual(env["GIT_AUTHOR_NAME"], "Parent Author")
             self.assertEqual(env["GIT_COMMITTER_NAME"], "Parent Committer")
+
+    def test_attestation_environment_and_state_transports(self) -> None:
+        git = shutil.which("git")
+        pwsh = shutil.which("pwsh")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
+        for identity, wrapper in WINDOWS_COMMIT_WRAPPERS.items():
+            with self.subTest(identity=identity), tempfile.TemporaryDirectory() as temp_dir:
+                repo = Path(temp_dir)
+                subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                env = os.environ.copy()
+                env.pop("AI_ATTESTATION_JSON", None)
+                tool = "opencode" if identity == "OpenCode" else "claude-code"
+                state_name = "ai-attestation-opencode.json" if identity == "OpenCode" else "ai-attestation-claude-code.json"
+                state_relative = subprocess.run(
+                    [git, "rev-parse", "--git-path", state_name],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip()
+                state_path = repo / state_relative
+                state_path.write_text(
+                    json.dumps({"schemaVersion": 1, "participants": [{"tool": "state-tool"}]}),
+                    encoding="utf-8",
+                )
+                payload = json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "participants": [
+                            {
+                                "tool": tool,
+                                "agent": "build",
+                                "role": "editor",
+                                "model": "provider/model-v1",
+                                "sourceDefinition": "agents/build.md",
+                                "sourceDigest": self.DIGEST,
+                            }
+                        ],
+                    }
+                )
+                tracked = repo / "environment.txt"
+                tracked.write_text("environment\n", encoding="utf-8")
+                subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
+                result = subprocess.run(
+                    [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "Environment"],
+                    cwd=repo,
+                    env=env | {"AI_ATTESTATION_JSON": payload},
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(state_path.exists())
+                self.assertEqual(
+                    self.parsed_trailers(git, repo),
+                    [
+                        f"AI-Participant: tool={tool}; agent=build; role=editor; model=provider/model-v1",
+                        "Source-Definition: agents/build.md",
+                        f"Source-Digest: {self.DIGEST}",
+                    ],
+                )
+
+                state_path.write_text(
+                    json.dumps({"schemaVersion": 1, "participants": [{"tool": "state-tool"}]}),
+                    encoding="utf-8",
+                )
+                tracked.write_text("state\n", encoding="utf-8")
+                subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
+                state_result = subprocess.run(
+                    [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "State"],
+                    cwd=repo,
+                    env=env,
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(state_result.returncode, 0, state_result.stderr)
+                self.assertFalse(state_path.exists())
+                self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=state-tool"])
+
+    def test_attestation_failed_commit_consumes_state_before_retry(self) -> None:
+        git = shutil.which("git")
+        pwsh = shutil.which("pwsh")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            wrapper = WINDOWS_COMMIT_WRAPPERS["OpenCode"]
+            subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            env = os.environ.copy()
+            env.pop("AI_ATTESTATION_JSON", None)
+            tracked = repo / "retry.txt"
+            tracked.write_text("initial\n", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
+            subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "Initial"],
+                cwd=repo,
+                env=env,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            state_relative = subprocess.run(
+                [git, "rev-parse", "--git-path", "ai-attestation-opencode.json"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            state_path = repo / state_relative
+            state_path.write_text(
+                json.dumps({"schemaVersion": 1, "participants": [{"tool": "one-shot"}]}),
+                encoding="utf-8",
+            )
+            failed = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "No changes"],
+                cwd=repo,
+                env=env,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(state_path.exists())
+            tracked.write_text("retry\n", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, check=True, env=env)
+            retry = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(wrapper), "-m", "Retry"],
+                cwd=repo,
+                env=env,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=opencode"])
+
+    def test_attestation_native_parser_when_jq_is_unavailable(self) -> None:
+        git = shutil.which("git")
+        pwsh = shutil.which("pwsh")
+        jq = shutil.which("jq")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
+        filtered_entries = [
+            entry
+            for entry in os.environ.get("PATH", "").split(os.pathsep)
+            if not jq or Path(entry).resolve() != Path(jq).parent.resolve()
+        ]
+        filtered_path = os.pathsep.join(filtered_entries)
+        if shutil.which("git", path=filtered_path) is None or shutil.which("jq", path=filtered_path) is not None:
+            self.skipTest("cannot isolate git from jq on this host")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run([git, "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            tracked = repo / "native.txt"
+            tracked.write_text("native\n", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, check=True)
+            payload = json.dumps(
+                {"schemaVersion": 1, "participants": [{"tool": "native-parser", "role": "editor"}]}
+            )
+            env = os.environ.copy()
+            env.update({"PATH": filtered_path, "AI_ATTESTATION_JSON": payload})
+            result = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]), "-m", "Native"],
+                cwd=repo,
+                env=env,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                self.parsed_trailers(git, repo),
+                ["AI-Participant: tool=native-parser; role=editor"],
+            )
+
+            tracked.write_text("newline\n", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, check=True)
+            newline_payload = json.dumps(
+                {"schemaVersion": 1, "participants": [{"tool": "newline-tool\n"}]}
+            )
+            newline_result = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]), "-m", "Newline"],
+                cwd=repo,
+                env=env | {"AI_ATTESTATION_JSON": newline_payload},
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(newline_result.returncode, 0, newline_result.stderr)
+            self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=opencode"])
 
     def test_bare_commands_resolve_to_powershell_wrappers(self) -> None:
         pwsh = shutil.which("pwsh")
