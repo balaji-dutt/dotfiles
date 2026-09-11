@@ -1,0 +1,196 @@
+{{- $isWSL2 := get . "isWSL2" | default false -}}
+{{- if eq .chezmoi.os "linux" -}}
+{{- $osrel := get .chezmoi.kernel "osrelease" | default "" | lower -}}
+{{- $isWSL2 = or $isWSL2 (and ($osrel | contains "microsoft") ($osrel | contains "wsl2")) -}}
+{{- end -}}
+{{- if or (eq .chezmoi.os "darwin") $isWSL2 -}}
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly LEGACY_TOOL="ubi:DeusData/codebase-memory-mcp"
+readonly REPLACEMENT_TOOL="github:DeusData/codebase-memory-mcp"
+
+is_native_executable() {
+  local candidate="$1"
+  local resolved="$candidate"
+
+  [[ -n "$candidate" && -x "$candidate" && ! -d "$candidate" ]] || return 1
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f -- "$candidate" 2>/dev/null || printf '%s' "$candidate")"
+  fi
+
+  [[ "$candidate" != /mnt/[[:alpha:]]/* \
+    && "$resolved" != /mnt/[[:alpha:]]/* \
+    && "$candidate" != *.exe \
+    && "$resolved" != *.exe ]]
+}
+
+resolve_mise() {
+  local candidate
+
+  if [[ -n "${CBM_RETIRE_MISE_BIN:-}" ]]; then
+    if is_native_executable "$CBM_RETIRE_MISE_BIN"; then
+      printf '%s\n' "$CBM_RETIRE_MISE_BIN"
+      return 0
+    fi
+    return 1
+  fi
+
+  for candidate in \
+    /opt/homebrew/bin/mise \
+    /usr/local/bin/mise \
+    /usr/bin/mise \
+    "$HOME/.local/bin/mise" \
+    "$HOME/.local/share/mise/bin/mise"; do
+    if is_native_executable "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  candidate="$(command -v mise 2>/dev/null || true)"
+  if is_native_executable "$candidate"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+mise_bin="$(resolve_mise || true)"
+if [[ -z "$mise_bin" ]]; then
+  printf 'INFO: mise is unavailable; preserving legacy codebase-memory-mcp installs.\n'
+  exit 0
+fi
+
+if ! legacy_listing="$("$mise_bin" ls --installed --no-header "$LEGACY_TOOL" 2>/dev/null)"; then
+  printf 'ERROR: failed to list installed versions for %s.\n' "$LEGACY_TOOL" >&2
+  exit 1
+fi
+
+if [[ -z "$legacy_listing" ]]; then
+  exit 0
+fi
+
+if ! legacy_current="$("$mise_bin" ls --current --no-header "$LEGACY_TOOL" 2>/dev/null)"; then
+  printf 'ERROR: failed to check whether %s is still requested.\n' "$LEGACY_TOOL" >&2
+  exit 1
+fi
+
+if [[ -n "$legacy_current" ]]; then
+  printf 'ERROR: preserving %s because an active mise config still requests it.\n' \
+    "$LEGACY_TOOL" >&2
+  exit 1
+fi
+
+legacy_specs=()
+while IFS= read -r listing_line; do
+  [[ -n "$listing_line" ]] || continue
+  read -r listed_tool listed_version listing_extra <<< "$listing_line"
+  if [[ "$listed_tool" != "$LEGACY_TOOL" \
+    || -z "$listed_version" \
+    || -n "${listing_extra:-}" \
+    || ! "$listed_version" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+    printf 'ERROR: refusing to parse unexpected mise listing row: %s\n' \
+      "$listing_line" >&2
+    exit 1
+  fi
+
+  legacy_spec="${LEGACY_TOOL}@${listed_version}"
+  if [[ "${#legacy_specs[@]}" -gt 0 ]]; then
+    for existing_spec in "${legacy_specs[@]}"; do
+      if [[ "$existing_spec" == "$legacy_spec" ]]; then
+        printf 'ERROR: refusing duplicate mise listing row: %s\n' "$listing_line" >&2
+        exit 1
+      fi
+    done
+  fi
+  legacy_specs+=("$legacy_spec")
+done <<< "$legacy_listing"
+
+if [[ "${#legacy_specs[@]}" -eq 0 ]]; then
+  printf 'ERROR: mise returned an unparseable installed-version listing for %s.\n' \
+    "$LEGACY_TOOL" >&2
+  exit 1
+fi
+
+if ! replacement_listing="$("$mise_bin" ls --current --no-header "$REPLACEMENT_TOOL" 2>/dev/null)"; then
+  printf 'ERROR: failed to inspect the managed codebase-memory-mcp replacement.\n' >&2
+  exit 1
+fi
+
+if [[ -z "$replacement_listing" || "$replacement_listing" == *$'\n'* ]]; then
+  printf 'ERROR: the managed codebase-memory-mcp replacement is not uniquely configured.\n' >&2
+  exit 1
+fi
+
+read -r replacement_name replacement_version _replacement_extra <<< "$replacement_listing"
+if [[ "$replacement_name" != "$REPLACEMENT_TOOL" \
+  || -z "$replacement_version" \
+  || ! "$replacement_version" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+  printf 'ERROR: refusing unexpected managed codebase-memory-mcp state.\n' >&2
+  exit 1
+fi
+
+replacement_spec="${REPLACEMENT_TOOL}@${replacement_version}"
+if ! replacement_root="$("$mise_bin" where "$replacement_spec" 2>/dev/null)" \
+  || [[ -z "$replacement_root" || ! -d "$replacement_root" ]]; then
+  printf 'ERROR: the managed codebase-memory-mcp replacement is not installed.\n' >&2
+  exit 1
+fi
+replacement_root="${replacement_root%/}"
+
+if ! cbm_before="$("$mise_bin" which codebase-memory-mcp 2>/dev/null)" \
+  || ! is_native_executable "$cbm_before" \
+  || [[ "$cbm_before" != "$replacement_root/"* ]]; then
+  printf 'ERROR: active codebase-memory-mcp does not resolve to the managed GitHub backend.\n' >&2
+  exit 1
+fi
+
+if ! "$cbm_before" --version >/dev/null 2>&1; then
+  printf 'ERROR: the managed codebase-memory-mcp replacement is not healthy.\n' >&2
+  exit 1
+fi
+
+for legacy_spec in "${legacy_specs[@]}"; do
+  if ! legacy_root="$("$mise_bin" where "$legacy_spec" 2>/dev/null)" \
+    || [[ -z "$legacy_root" || ! -d "$legacy_root" ]]; then
+    printf 'ERROR: installed legacy mise spec cannot be resolved: %s\n' \
+      "$legacy_spec" >&2
+    exit 1
+  fi
+done
+
+for legacy_spec in "${legacy_specs[@]}"; do
+  if ! "$mise_bin" uninstall --yes "$legacy_spec"; then
+    printf 'ERROR: failed to uninstall legacy mise spec: %s\n' "$legacy_spec" >&2
+    exit 1
+  fi
+done
+
+if ! "$mise_bin" reshim; then
+  printf 'ERROR: mise reshim failed after retiring the legacy CBM backend.\n' >&2
+  exit 1
+fi
+
+if ! remaining_legacy="$("$mise_bin" ls --installed --no-header "$LEGACY_TOOL" 2>/dev/null)"; then
+  printf 'ERROR: failed to verify retirement of %s.\n' "$LEGACY_TOOL" >&2
+  exit 1
+fi
+if [[ -n "$remaining_legacy" ]]; then
+  printf 'ERROR: legacy codebase-memory-mcp mise versions remain installed.\n' >&2
+  exit 1
+fi
+
+if ! cbm_after="$("$mise_bin" which codebase-memory-mcp 2>/dev/null)" \
+  || [[ "$cbm_after" != "$cbm_before" ]] \
+  || ! is_native_executable "$cbm_after" \
+  || [[ "$cbm_after" != "$replacement_root/"* ]] \
+  || ! "$cbm_after" --version >/dev/null 2>&1; then
+  printf 'ERROR: managed codebase-memory-mcp changed after legacy retirement.\n' >&2
+  exit 1
+fi
+
+printf 'Retired legacy codebase-memory-mcp mise backend.\n'
+{{- end -}}

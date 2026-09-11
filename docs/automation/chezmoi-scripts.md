@@ -25,6 +25,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_once_before_copy_sublime_merge_packages.sh.tmpl` | once | Sublime Merge package sync |
 | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once | Windows Sublime Merge sync |
 | `run_once_after_97-retire-macos-beads-dolt-links.sh.tmpl` | once | retire legacy macOS mise shim links |
+| `run_once_after_97-retire-codebase-memory-mcp-ubi.sh.tmpl` | once | retire legacy CBM UBI installs on macOS and WSL2 |
 | `run_once_after_99-cleanup-wrong-apply.sh.tmpl` | once | cleanup after wrong apply |
 | `run_once_after_99-cleanup-wrong-apply.ps1.tmpl` | once | Windows cleanup variant |
 | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once | migrate the Windows quota sidecar to APPDATA |
@@ -70,6 +71,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - The two always-run CBM configuration hooks execute after platform installers,
   set `auto_index=true` only when needed, and verify the cache-local value. They
   never call CBM's native installer or export a repository graph.
+- The CBM UBI retirement hook requires an inactive UBI backend and a healthy
+  GitHub-backed CBM before uninstalling each fully qualified UBI version it
+  discovers. It never prunes mise or deletes install directories directly.
 - The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
   `dot_claude/settings-base.json`, but only the former is hashed into its
   onchange trigger; see `docs/devcontainers.md`.
