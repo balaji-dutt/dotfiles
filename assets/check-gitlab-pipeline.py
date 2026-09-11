@@ -196,13 +196,13 @@ def validation_sha(repo_root: Path, record: PushRecord) -> str | None:
     parents = fields[1:]
     if len(parents) == 1:
         return record.local_sha
-    if len(parents) == 2 and parents[0] == record.remote_sha:
-        return parents[1]
+    if len(parents) == 2:
+        return parents[1] if parents[0] == record.remote_sha else record.local_sha
     if len(parents) > 2:
         fail("octopus merge at the guarded push tip is ambiguous")
     fail(
         "merge history at the guarded push tip is ambiguous; expected a linear tip "
-        "or one no-ff merge whose first parent is advertised remote main"
+        "or a two-parent merge"
     )
 
 
@@ -289,14 +289,20 @@ def check_job(policy: Policy, sha: str) -> JobCheck:
     )
 
 
-def require_successful_job(policy: Policy, sha: str) -> str:
+def require_successful_job(policy: Policy, sha: str, *, main_tip: bool = False) -> str:
     check = check_job(policy, sha)
     if check.outcome == "success":
         return check.pipeline_url
     url_hint = f" Latest pipeline: {check.pipeline_url}" if check.pipeline_url else ""
+    remedy = (
+        "From the guarded main worktree, run ./assets/agent-wt-merge prepare-main-ci "
+        "with approval to prepare this exact tip, then retry the original push separately. "
+        "Later commits require evidence for the new SHA."
+        if main_tip else "Retry after the pipeline passes or use the documented override."
+    )
     fail(
         f"required GitLab job {policy.required_job!r} has not succeeded for {sha}: "
-        f"{check.detail}.{url_hint} Retry after the pipeline passes or use the documented override."
+        f"{check.detail}.{url_hint} {remedy}"
     )
 
 
@@ -478,14 +484,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         records = parse_push_records(sys.stdin.read())
         validation_shas = {
-            sha
+            (sha, sha == record.local_sha)
             for record in records
             if record.remote_ref == policy.guarded_ref
             for sha in (validation_sha(repo_root, record),)
             if sha is not None
         }
-        for sha in sorted(validation_shas):
-            pipeline_url = require_successful_job(policy, sha)
+        for sha, main_tip in sorted(validation_shas):
+            pipeline_url = require_successful_job(policy, sha, main_tip=main_tip)
             suffix = f" ({pipeline_url})" if pipeline_url else ""
             print(
                 f"PASS pipeline-guard: {policy.required_job} succeeded for {sha}{suffix}"

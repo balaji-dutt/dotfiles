@@ -40,19 +40,26 @@ fields.
 not add `$schema` or `schema_version` data keys because Ansible loads every
 top-level key as a variable. Ansible remains the semantic consumer.
 
-## Standalone payload contracts
+## Standalone contracts
 
-These schemas describe transient inputs rather than tracked policy instances.
-They therefore have no repository instance with a relative `$schema` marker.
+These schemas describe transient inputs or opt-in policies for other repositories.
+They have no active tracked instance in this repository.
 
 | Payload | Schema | Semantic authority |
 | :--- | :--- | :--- |
 | AI attestation handoff | `configs/schemas/ai-attestation-handoff.v1.schema.json` | `docs/git-agent-attestation.md` |
+| GitHub pipeline policy (`configs/pipeline-guard.json` in a consuming repo) | `configs/schemas/pipeline-guard.v1.schema.json` | `assets/pipeline_policy.py`; `docs/tooling/continuous-integration.md` |
 
 The attestation handoff is invocation-scoped or stored briefly in a
 worktree-private Git path. Its schema defines the closed v1 JSON shape; the
 normative document defines transport lifecycle, trailer rendering, and trust
 semantics.
+
+The GitHub policy selects a host, repository, guarded remote/ref, required workflow
+IDs or filenames, and request bounds. It conflicts with a legacy GitLab policy;
+workflow YAML alone does not opt in. The clone-local account pin and Git-common-dir
+evidence records are not tracked policy fields. Dotfiles retains its active GitLab
+policy unchanged.
 
 ## Inventory boundaries
 

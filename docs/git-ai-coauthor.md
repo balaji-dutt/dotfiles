@@ -68,6 +68,14 @@ reported. The apply hook removes only two stale local overrides after seeding
 the default hooks directory: the old managed template path and a missing
 `.beads/hooks` path.
 
+The same reconciliation owns the repository-opt-in `pre-push` template. Its
+pipeline policy and checker come from the checked-out main worktree, including
+when a push starts in an older linked feature worktree. An opted-in GitHub clone
+also needs the complete repository runtime described in
+[the CI installation runbook](tooling/continuous-integration.md#install-the-complete-github-contract).
+An updated source template or global agent skill alone does not update an
+installed hook. Preserved custom hooks require their owner's explicit integration.
+
 ## Usage
 
 Set global default trailer once (optional):

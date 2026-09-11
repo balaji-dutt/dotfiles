@@ -5,15 +5,85 @@ remote_name=${1:-}
 remote_url=${2:-}
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR
+main_branch=
+for candidate in main master; do
+  if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$candidate"; then
+    main_branch=$candidate
+    break
+  fi
+done
+main_root=
+worktree_root=
+worktrees=$(git -C "$repo_root" -c core.quotePath=false worktree list --porcelain) || exit 1
+while IFS= read -r line; do
+  case "$line" in
+    'worktree "'*)
+      echo "ERROR: pipeline guard cannot safely resolve this quoted worktree path." >&2
+      exit 1
+      ;;
+    'worktree '*) worktree_root=${line#worktree } ;;
+    "branch refs/heads/$main_branch")
+      if [ -n "$main_root" ]; then
+        echo "ERROR: pipeline guard found ambiguous main worktrees." >&2
+        exit 1
+      fi
+      main_root=$worktree_root
+      ;;
+  esac
+done <<EOF
+$worktrees
+EOF
+if [ -n "$main_root" ]; then
+  repo_root=$main_root
+elif [ -n "$main_branch" ]; then
+  for name in pipeline-guard.json gitlab-pipeline-guard.json; do
+    if git -C "$repo_root" cat-file -e "$main_branch:configs/$name" 2>/dev/null ||
+       [ -e "$repo_root/configs/$name" ] || [ -L "$repo_root/configs/$name" ]; then
+      echo "ERROR: pipeline guard requires the authoritative main worktree to be checked out." >&2
+      exit 1
+    fi
+  done
+fi
 policy="$repo_root/configs/gitlab-pipeline-guard.json"
+github_policy="$repo_root/configs/pipeline-guard.json"
 helper="$repo_root/assets/check-gitlab-pipeline.py"
 python_resolver="$repo_root/assets/resolve-python3"
 
-if [ ! -f "$policy" ]; then
+if { [ -e "$policy" ] || [ -L "$policy" ]; } &&
+   { [ -e "$github_policy" ] || [ -L "$github_policy" ]; }; then
+  echo "ERROR: pipeline guard policies conflict; select one provider contract." >&2
+  exit 1
+fi
+if { [ -L "$repo_root/configs" ] && [ ! -d "$repo_root/configs" ]; } ||
+   { [ -e "$repo_root/configs" ] && [ ! -d "$repo_root/configs" ]; }; then
+  echo "ERROR: pipeline guard cannot inspect the repository policy directory." >&2
+  exit 1
+fi
+if [ ! -e "$policy" ] && [ ! -L "$policy" ] && [ ! -e "$github_policy" ] && [ ! -L "$github_policy" ]; then
+  for name in pipeline-guard.json gitlab-pipeline-guard.json; do
+    if git -C "$repo_root" cat-file -e "HEAD:configs/$name" 2>/dev/null; then
+      echo "ERROR: tracked pipeline policy is missing from the authoritative worktree." >&2
+      exit 1
+    fi
+  done
   exit 0
 fi
 
-common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+if [ -e "$github_policy" ] || [ -L "$github_policy" ]; then
+  helper="$repo_root/assets/check-pipeline.py"
+  if [ ! -f "$helper" ]; then
+    echo "ERROR: pipeline guard helper is missing: $helper" >&2
+    exit 1
+  fi
+  if [ ! -x "$python_resolver" ]; then
+    echo "ERROR: pipeline guard Python resolver is missing: $python_resolver" >&2
+    exit 1
+  fi
+  exec "$python_resolver" -- "$helper" --repo-root "$repo_root" "$remote_name" "$remote_url"
+fi
+
+common_dir=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
   echo "ERROR: pipeline guard cannot resolve the Git common directory." >&2
   exit 1
 }
