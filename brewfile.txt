@@ -129,6 +129,8 @@ cask "visual-studio-code"
 cask "vlc"
 # Web browser
 cask "waterfox"
+# Administration tool for MikroTik RouterOS
+cask "winbox"
 # VPN client for secure internet access and private browsing
 cask "windscribe"
 # Collect, organise, cite, and share research sources
