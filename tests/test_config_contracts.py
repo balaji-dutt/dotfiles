@@ -99,6 +99,11 @@ RETAINED_SCHEMAS = {
     "schemas/automation-test-inventory.v1.schema.json",
 }
 STANDALONE_SCHEMAS = {
+    "schemas/pipeline-guard.v1.schema.json": {
+        "id": "urn:dotfiles:schema:pipeline-guard:v1",
+        "version": 1,
+        "authority": "docs/tooling/continuous-integration.md",
+    },
     "schemas/ai-attestation-handoff.v1.schema.json": {
         "id": "urn:dotfiles:schema:ai-attestation-handoff:v1",
         "version": 1,

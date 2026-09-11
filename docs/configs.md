@@ -35,6 +35,13 @@
 | `configs/espanso/base.yml` | shared Espanso base match config |
 | `configs/espanso/*.py` | shared Espanso script helpers rendered into platform config dirs |
 
+The standalone `configs/schemas/pipeline-guard.v1.schema.json` supports an opt-in
+`configs/pipeline-guard.json` in consuming GitHub repositories. There is no active
+instance here: dotfiles keeps its GitLab policy. The two policy paths may not
+coexist. Account pins are clone-local Git configuration and evidence is shared
+Git-common-directory metadata, neither a tracked policy field. See
+[GitHub Actions opt-in](tooling/continuous-integration.md#github-actions-opt-in).
+
 ## Package Categories in `configs/packages.yaml`
 
 - `base_apt_packages`: common apt packages for WSL2

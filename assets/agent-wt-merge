@@ -287,6 +287,10 @@ def read_exec_chain() -> list[str]:
     return value
 
 
+ACTIVE_EVIDENCE_TOKEN: str | None = None
+EVIDENCE_OPERATION_ENV = "AGENT_WT_MERGE_EVIDENCE_OPERATION"
+
+
 def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = False) -> None:
     current = running_helper_path()
     target = target.resolve()
@@ -305,6 +309,8 @@ def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = Fals
         env[EXEC_CHAIN_ENV] = json.dumps(chain)
     if after_main_update:
         env[REEXEC_AFTER_UPDATE_ENV] = "1"
+    if ACTIVE_EVIDENCE_TOKEN is not None:
+        env[EVIDENCE_OPERATION_ENV] = ACTIVE_EVIDENCE_TOKEN
 
     try:
         os.execve(target_text, [target_text, *argv], env)
@@ -377,20 +383,50 @@ def helper_source_root(helper_path: Path) -> Path:
     die(f"cannot resolve source root for helper: {resolved}")
 
 
+def ci_provider(helper_path: Path) -> str | None:
+    found = []
+    for provider, name in (("gitlab", "gitlab-pipeline-guard.json"), ("github", "pipeline-guard.json")):
+        policy = helper_source_root(helper_path) / "configs" / name
+        try:
+            policy.lstat()
+        except FileNotFoundError:
+            if policy.parent.is_symlink() and not policy.parent.exists():
+                die(f"cannot inspect pipeline policy through broken path: {policy.parent}")
+            continue
+        except OSError as exc:
+            die(f"cannot inspect pipeline policy {policy}: {exc}")
+        found.append(provider)
+    if len(found) > 1:
+        die("conflicting pipeline policies; configure exactly one policy")
+    return found[0] if found else None
+
+
 def ci_enabled(helper_path: Path) -> bool:
-    policy = helper_source_root(helper_path) / "configs" / "gitlab-pipeline-guard.json"
+    return ci_provider(helper_path) is not None
+
+
+def ci_contract(helper_path: Path) -> tuple[str | None, bytes]:
+    provider = ci_provider(helper_path)
+    if provider is None:
+        return None, b""
+    name = "pipeline-guard.json" if provider == "github" else "gitlab-pipeline-guard.json"
     try:
-        policy.lstat()
-    except FileNotFoundError:
-        if policy.parent.is_symlink() and not policy.parent.exists():
-            die(f"cannot inspect pipeline policy through broken path: {policy.parent}")
-        return False
+        with (helper_source_root(helper_path) / "configs" / name).open("rb") as stream:
+            contents = stream.read(65537)
+        if len(contents) > 65536:
+            die("pipeline policy exceeds 64 KiB")
+        return provider, contents
     except OSError as exc:
-        die(f"cannot inspect pipeline policy {policy}: {exc}")
-    return True
+        die(f"cannot read pipeline evidence contract: {exc}")
 
 
 def pipeline_module() -> ModuleType:
+    if ci_provider(running_helper_path()) == "github":
+        try:
+            import pipeline_runtime
+        except (ImportError, SyntaxError) as exc:
+            die(f"cannot load provider pipeline runtime; restore the documented assets runtime files: {exc}")
+        return pipeline_runtime
     try:
         import gitlab_pipeline_runtime
     except (ImportError, SyntaxError) as exc:
@@ -400,7 +436,7 @@ def pipeline_module() -> ModuleType:
 
 def load_pipeline_runtime(helper: HelperProvenance, main_branch: str) -> PipelineRuntime:
     if not ci_enabled(helper.path):
-        die("CI preparation is unsupported: this helper has no GitLab pipeline policy")
+        die("CI preparation is unsupported: this helper has no pipeline policy")
     shared = pipeline_module()
     try:
         return shared.load_pipeline_runtime(helper_source_root(helper.path), main_branch)
@@ -858,16 +894,25 @@ def check_pipeline(
     repo_root: Path,
     runtime: PipelineRuntime,
     sha: str,
+    source_ref: str,
 ) -> dict[str, Any]:
     shared = pipeline_module()
     try:
+        if getattr(runtime, "provider", None) == "github":
+            return shared.check_pipeline(repo_root, runtime, sha, source_ref)
         return shared.check_pipeline(repo_root, runtime, sha)
     except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
 
-def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: str) -> None:
+def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: str) -> bool:
     remote_ref = feature_remote_ref(ctx.feature_branch)
+    if getattr(runtime, "provider", None) == "github":
+        shared = pipeline_module()
+        try:
+            shared.validate_remote(ctx.original_worktree, runtime.policy)
+        except shared.PipelineRuntimeError as exc:
+            die(str(exc))
     remote_check = run_git(
         ctx.original_worktree,
         ["remote", "get-url", runtime.remote_name],
@@ -876,6 +921,7 @@ def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: st
     if remote_check.returncode != 0:
         detail = (remote_check.stderr or remote_check.stdout or "remote not found").strip()
         die(f"cannot publish through remote {runtime.remote_name!r}: {detail}")
+    already_present = remote_ref_sha(ctx.original_worktree, runtime.remote_name, remote_ref) == feature_sha
     result = run_git(
         ctx.original_worktree,
         [
@@ -899,6 +945,7 @@ def publish_feature(ctx: MergeContext, runtime: PipelineRuntime, feature_sha: st
             f"published feature verification failed: {runtime.remote_name}/{ctx.feature_branch} "
             f"advertises {advertised_sha or 'nothing'}, expected {feature_sha}"
         )
+    return not already_present
 
 
 def positive_seconds(value: str) -> int:
@@ -909,6 +956,20 @@ def positive_seconds(value: str) -> int:
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be greater than zero")
     return parsed
+
+
+def print_workflow_evidence(result: dict[str, Any]) -> None:
+    if result.get("provider") != "github":
+        return
+    print(f"GitHub evidence: {result['host']}/{result['repository']} {result['source_ref']} at {result['sha']}")
+    for workflow in result["workflows"]:
+        print(
+            f"- Workflow {workflow['workflow_id']} {workflow['path']}: "
+            f"run {workflow.get('run_id')}, attempt {workflow.get('run_attempt')}, {workflow['outcome']}"
+        )
+        for job in workflow.get("jobs", []):
+            if job.get("conclusion") != "success":
+                print(f"  Job diagnostic: {json.dumps(job, ensure_ascii=True)}")
 
 
 def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
@@ -926,9 +987,10 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
     ctx = build_context(fetch=False, helper=helper)
     runtime = load_pipeline_runtime(helper, ctx.main_branch)
     feature_sha = ctx.feature_sha
-    publish_feature(ctx, runtime, feature_sha)
+    published = publish_feature(ctx, runtime, feature_sha)
+    action = "Published" if published else "Reusing already published"
     print(
-        f"Published {ctx.feature_branch} at {feature_sha} to "
+        f"{action} {ctx.feature_branch} at {feature_sha} to "
         f"{runtime.remote_name}/{ctx.feature_branch}"
     )
 
@@ -937,10 +999,12 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
     for attempt in range(1, maximum_checks + 1):
         if attempt > 1 and time.monotonic() >= deadline:
             break
-        latest = check_pipeline(ctx.original_worktree, runtime, feature_sha)
+        latest = check_pipeline(ctx.original_worktree, runtime, feature_sha, feature_remote_ref(ctx.feature_branch))
+        print_workflow_evidence(latest)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
         if outcome == "success":
+            persist_evidence(ctx.original_worktree, runtime, latest)
             pipeline_url = latest.get("pipeline_url")
             suffix = f" ({pipeline_url})" if pipeline_url else ""
             print(
@@ -1081,7 +1145,11 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
             f"{advertised_main_sha or 'nothing'}, expected {origin_sha}; rerun the command"
         )
 
-    initial = check_pipeline(repo_root, runtime, main_sha)
+    ci_ref = main_ci_remote_ref(main_branch, main_sha)
+    initial = check_pipeline(repo_root, runtime, main_sha, ci_ref)
+    print_workflow_evidence(initial)
+    if getattr(runtime, "provider", None) == "github" and initial["outcome"] in {"terminal", "error"}:
+        die(f"main CI blocked for {main_sha}: {initial.get('detail', 'no detail')}; no ref was published")
     if initial["outcome"] == "success":
         ensure_main_ci_state_unchanged(
             repo_root,
@@ -1091,6 +1159,7 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
             origin_sha,
             None,
         )
+        persist_evidence(repo_root, runtime, initial, before_sha=origin_sha, landing_sha=main_sha)
         print(
             f"PASS main CI: {runtime.required_job} already succeeded for {main_sha}; "
             "no temporary ref was published"
@@ -1115,7 +1184,8 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
     for attempt in range(1, maximum_checks + 1):
         if attempt > 1 and time.monotonic() >= deadline:
             break
-        latest = check_pipeline(repo_root, runtime, main_sha)
+        latest = check_pipeline(repo_root, runtime, main_sha, ci_ref)
+        print_workflow_evidence(latest)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
         if outcome == "success":
@@ -1159,6 +1229,7 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
         origin_sha,
         remote_ref,
     )
+    persist_evidence(repo_root, runtime, latest, before_sha=origin_sha, landing_sha=main_sha)
     cleanup = cleanup_main_ci_ref(repo_root, runtime, remote_ref, main_sha)
     if not cleanup.get("cleaned"):
         print(
@@ -1189,7 +1260,7 @@ def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
         die(f"could not fast-forward {ctx.main_branch} from {ctx.origin_ref}: {detail}")
 
 
-def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_ci: bool) -> None:
+def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_contract: tuple[str | None, bytes]) -> None:
     canonical = canonical_helper_path(ctx.main_worktree)
     if canonical is None:
         die(
@@ -1202,9 +1273,9 @@ def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_ci:
             f"updated {ctx.main_branch}, but its helper path is dirty; the feature branch was not merged:\n"
             + "\n".join(dirty)
         )
-    if ci_enabled(canonical) != expected_ci:
+    if ci_contract(canonical) != expected_contract:
         die(
-            f"updated {ctx.main_branch}, but helper mode changed; the feature branch was not merged. "
+            f"updated {ctx.main_branch}, but helper mode changed or its evidence contract changed; the feature branch was not merged. "
             "Rediscover helper capabilities and obtain approval before retrying"
         )
     next_argv = [
@@ -1449,6 +1520,16 @@ def remote_cleanup_partial_failure(remote_cleanup: dict[str, Any]) -> bool:
     )
 
 
+def persist_evidence(repo_root: Path, runtime: PipelineRuntime, result: dict[str, Any], **landing) -> str | None:
+    if getattr(runtime, "provider", None) != "github":
+        return None
+    shared = pipeline_module()
+    try:
+        return shared.save_evidence(repo_root, runtime, result, **landing)
+    except (shared.PipelineRuntimeError, OSError) as exc:
+        die(f"workflow evidence could not be recorded; remote evidence was retained: {exc}")
+
+
 def print_cleanup(cleanup: dict[str, Any], *, after_merge: bool) -> None:
     if cleanup["action"] == "defer":
         print(f"- Cleanup deferred to {cleanup['manager']}: {cleanup['note']}")
@@ -1492,6 +1573,11 @@ def print_merge_report(report: dict[str, Any]) -> None:
         )
     if report["fetch_warning"]:
         print(f"- Fetch warning: {report['fetch_warning']}")
+    if report.get("evidence_path"):
+        print_workflow_evidence(pipeline)
+        print(f"- Workflow evidence record: {report['evidence_path']}")
+    if report.get("evidence_error"):
+        print(f"- Partial failure: merge landed at {report['main_sha_after']}, but {report['evidence_error']}")
     remote_cleanup = report["remote_cleanup"]
     if pipeline is None:
         print("- Remote feature cleanup: not performed (local-only)")
@@ -1562,6 +1648,7 @@ def perform_merge(
     full_argv = [merge_type, *raw_args]
     repo_root = resolve_repo_root()
     ci_gated = ci_enabled(helper.path)
+    expected_contract = ci_contract(helper.path)
     runtime = load_pipeline_runtime(helper, resolve_main_branch(repo_root)) if ci_gated else None
     remote_name = runtime.remote_name if runtime else "origin"
     ctx = ensure_merge_preconditions(
@@ -1584,7 +1671,7 @@ def perform_merge(
     pipeline_result = None
     if runtime is not None:
         require_remote_feature(ctx, runtime, feature_sha)
-        pipeline_result = check_pipeline(ctx.original_worktree, runtime, feature_sha)
+        pipeline_result = check_pipeline(ctx.original_worktree, runtime, feature_sha, feature_remote_ref(ctx.feature_branch))
         if pipeline_result["outcome"] not in {"success", "bypass"}:
             detail = str(pipeline_result.get("detail") or "no detail")
             die(f"feature CI blocked for {feature_sha}: {detail}; run prepare-ci and retry")
@@ -1601,8 +1688,12 @@ def perform_merge(
             )
     if ctx.origin_behind_count and parsed.update_main:
         update_main_from_origin(ctx, remote_name)
-        reexec_after_main_update(ctx, full_argv, expected_ci=ci_gated)
+        reexec_after_main_update(ctx, full_argv, expected_contract=expected_contract)
 
+    if git_output(ctx.main_worktree, ["rev-parse", "HEAD"]) != before_sha or dirty_paths(ctx.main_worktree):
+        die("main changed while merge evidence was inspected; feature was not merged")
+    if ci_contract(helper.path) != expected_contract:
+        die("pipeline evidence contract changed; rediscover capabilities before merging")
     if merge_type == "ff":
         result = run_git(ctx.main_worktree, ["merge", "--ff-only", feature_sha], check=False)
     else:
@@ -1621,10 +1712,17 @@ def perform_merge(
         merge_commit_author = git_output(ctx.main_worktree, ["log", "-1", "--format=%an <%ae>"])
 
     remote_cleanup = {"requested": False}
+    evidence_path = None
+    evidence_error = None
     if runtime is not None and pipeline_result is not None:
-        remote_cleanup = cleanup_remote_feature(
-            ctx, runtime, feature_sha, str(pipeline_result["outcome"])
-        )
+        try:
+            evidence_path = persist_evidence(ctx.original_worktree, runtime, pipeline_result, before_sha=before_sha, landing_sha=after_sha)
+        except AgentWtMergeError as exc:
+            evidence_error = str(exc)
+        if evidence_error is None:
+            remote_cleanup = cleanup_remote_feature(ctx, runtime, feature_sha, str(pipeline_result["outcome"]))
+        else:
+            remote_cleanup = {"requested": False, "retained": True, "reason": evidence_error}
     try:
         beads_result = close_beads_issue(
             ctx=ctx,
@@ -1653,6 +1751,8 @@ def perform_merge(
         "pipeline": pipeline_result,
         "remote_name": remote_name,
         "remote_cleanup": remote_cleanup,
+        "evidence_path": evidence_path,
+        "evidence_error": evidence_error,
         "close_beads": parsed.close_beads,
         "beads": beads_result,
         "cleanup": ctx.cleanup,
@@ -1662,6 +1762,7 @@ def perform_merge(
     return 1 if (
         remote_cleanup_partial_failure(remote_cleanup)
         or beads_partial_failure(beads_result)
+        or evidence_error is not None
     ) else 0
 
 
@@ -1671,12 +1772,52 @@ def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     add_local_helper_argument(parser)
     parsed = parser.parse_args(raw_args)
-    ctx = build_context(fetch=parsed.fetch, helper=helper)
+    provider = ci_provider(helper.path)
+    runtime = load_pipeline_runtime(helper, resolve_main_branch(resolve_repo_root())) if provider == "github" else None
+    ctx = build_context(fetch=parsed.fetch, helper=helper, remote_name=runtime.remote_name if runtime else "origin")
+    payload = context_dict(ctx)
+    if runtime is not None:
+        shared = pipeline_module()
+        try:
+            store = shared.EvidenceStore(ctx.original_worktree)
+            store.records()
+            payload["pipeline"] = {"provider": provider, "policy_fingerprint": runtime.policy.fingerprint, "evidence_store": str(store.path)}
+        except shared.PipelineRuntimeError as exc:
+            die(str(exc))
     if parsed.json:
-        print(json.dumps(context_dict(ctx), indent=2, sort_keys=True))
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print_context_text(ctx)
+        if "pipeline" in payload:
+            print(f"- Workflow evidence store: {payload['pipeline']['evidence_store']}")
     return 0
+
+
+def cmd_prune_evidence(raw_args: list[str], *, helper: HelperProvenance) -> int:
+    parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} prune-evidence")
+    parser.add_argument("--apply", action="store_true", help="remove only freshly verified eligible local evidence records")
+    parser.add_argument("--json", action="store_true")
+    add_local_helper_argument(parser)
+    parsed = parser.parse_args(raw_args)
+    if ci_provider(helper.path) != "github":
+        die("prune-evidence is unsupported by this helper's policy contract")
+    shared = pipeline_module()
+    try:
+        root = resolve_repo_root()
+        runtime = load_pipeline_runtime(helper, resolve_main_branch(root))
+        report = shared.EvidenceStore(root).prune(runtime.policy, apply=parsed.apply)
+    except (shared.PipelineRuntimeError, OSError) as exc:
+        die(str(exc))
+    if parsed.json:
+        print(json.dumps(report, sort_keys=True, indent=2))
+    else:
+        print(f"Workflow evidence store: {report['evidence_store']}")
+        print(f"Evidence pruning: {'apply' if parsed.apply else 'preview only'}")
+        for item in report["records"]:
+            print(f"- {item['key']}: {item['action']} ({item['reason']})")
+        if report["error"]:
+            eprint(report["error"])
+    return 1 if report["error"] else 0
 
 
 def usage() -> str:
@@ -1694,7 +1835,11 @@ Commands:
   ff       Fast-forward main/master to the current feature branch.
   no-ff    Create a no-ff merge commit on main/master.
 """
-    if not ci_enabled(running_helper_path()):
+    provider = ci_provider(running_helper_path())
+    if provider == "github":
+        text = text.replace("\nCommands:\n", f"  ./assets/{SCRIPT_NAME} prune-evidence [--apply] [--json] [{LOCAL_HELPER_FLAG}]\n\nCommands:\n")
+        text += "  prune-evidence  Preview or explicitly prune landed, remote-confirmed evidence.\n"
+    if provider is None:
         text = "".join(
             line for line in text.splitlines(keepends=True)
             if "prepare-ci" not in line and "prepare-main-ci" not in line
@@ -1702,7 +1847,22 @@ Commands:
     return text
 
 
+def dispatch(command: str, raw_args: list[str], helper: HelperProvenance) -> int:
+    if command == "inspect":
+        return cmd_inspect(raw_args, helper=helper)
+    if command == "prepare-ci":
+        return cmd_prepare_ci(raw_args, helper=helper)
+    if command == "prepare-main-ci":
+        return cmd_prepare_main_ci(raw_args, helper=helper)
+    if command == "prune-evidence":
+        return cmd_prune_evidence(raw_args, helper=helper)
+    if command in {"ff", "no-ff"}:
+        return perform_merge(raw_args, merge_type=command, helper=helper)
+    die(f"unknown command: {command}")
+
+
 def main(argv: list[str]) -> int:
+    global ACTIVE_EVIDENCE_TOKEN
     try:
         if not argv or argv[0] in {"-h", "--help"}:
             print(usage(), end="")
@@ -1710,19 +1870,30 @@ def main(argv: list[str]) -> int:
         command, raw_args = argv[0], argv[1:]
         helper = prepare_helper_execution(
             argv,
-            allow_main=command == "prepare-main-ci",
+            allow_main=command in {"prepare-main-ci", "prune-evidence"},
         )
-        if command == "inspect":
-            return cmd_inspect(raw_args, helper=helper)
-        if command == "prepare-ci":
-            return cmd_prepare_ci(raw_args, helper=helper)
-        if command == "prepare-main-ci":
-            return cmd_prepare_main_ci(raw_args, helper=helper)
-        if command == "ff":
-            return perform_merge(raw_args, merge_type="ff", helper=helper)
-        if command == "no-ff":
-            return perform_merge(raw_args, merge_type="no-ff", helper=helper)
-        die(f"unknown command: {command}")
+        if ci_provider(helper.path) != "github" or command not in {"prepare-ci", "prepare-main-ci", "ff", "no-ff"}:
+            return dispatch(command, raw_args, helper)
+        shared = pipeline_module()
+        try:
+            store = shared.EvidenceStore(resolve_repo_root())
+            inherited_token = os.environ.pop(EVIDENCE_OPERATION_ENV, None)
+            token = store.resume_operation(inherited_token) if inherited_token else store.start_operation()
+            ACTIVE_EVIDENCE_TOKEN = token
+        except (shared.PipelineRuntimeError, OSError) as exc:
+            die(str(exc))
+        result = 2
+        try:
+            result = dispatch(command, raw_args, helper)
+        finally:
+            ACTIVE_EVIDENCE_TOKEN = None
+            try:
+                store.finish_operation(token)
+            except (shared.PipelineRuntimeError, OSError) as exc:
+                eprint(f"Partial failure: evidence operation marker retained: {exc}; do not retry a landed merge")
+                if result == 0:
+                    result = 1
+        return result
     except AgentWtMergeError as exc:
         eprint(str(exc))
         return 2

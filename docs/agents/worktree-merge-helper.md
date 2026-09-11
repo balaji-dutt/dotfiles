@@ -16,25 +16,32 @@ from an older feature worktree.
 It exists so OpenCode and Claude skills do not need to rebuild the same shell or
 Python snippets every time they merge a feature worktree.
 
-In CI-gated repositories, the helper shares policy parsing, exact-SHA checking,
-and reserved-ref safety with `assets/guarded-main-sync` through
-`assets/gitlab_pipeline_runtime.py`. Humans use `gpls` for an ahead-and-behind
-guarded main; `agent-wt-merge prepare-main-ci` prepares exact evidence for a
-clean, ahead-only rewritten or batched main tip without pushing main.
+CI-gated repositories select GitLab job evidence or GitHub Actions workflow
+evidence through an explicit policy. GitLab shares its runtime with
+`assets/guarded-main-sync`; its human `gpls` reconciliation remains GitLab-only.
+Both providers reuse the exact-ref publication and lease-cleanup primitives.
+`agent-wt-merge prepare-main-ci` prepares evidence for a clean, ahead-only
+rewritten or batched main tip without pushing main.
 
 ## Repository capabilities
 
 Probe the selected helper with `--help`. Its source root, not the caller's
-working directory, determines whether `configs/gitlab-pipeline-guard.json`
-exists:
+working directory, determines the policy:
 
-- Absent policy: **local-only**, advertising only `inspect`, `ff`, and `no-ff`.
-  The standalone helper does not require the GitLab runtime or checker. A
-  GitHub Actions workflow does not opt a repository into this GitLab contract.
-- Present policy: **CI-gated**, also advertising `prepare-ci` and
-  `prepare-main-ci`. Invalid policy, a broken policy symlink, or a missing
-  runtime/checker fails when CI is required; it never selects local-only as a
-  fallback. Help does not load or validate the runtime.
+- Neither policy: **local-only**, advertising only `inspect`, `ff`, and `no-ff`.
+  The standalone helper requires no pipeline runtime, checker, or `gh`.
+- `configs/gitlab-pipeline-guard.json`: **CI-gated**, also advertising
+  `prepare-ci` and `prepare-main-ci`, with the legacy GitLab job contract.
+- `configs/pipeline-guard.json`: **CI-gated**, with GitHub workflow evidence
+  and the additional `prune-evidence` command.
+- Both policy paths: a conflict, never precedence or fallback. Invalid policy,
+  broken paths, or missing runtime dependencies fail closed. Help does not load
+  the runtime, but an unreadable policy location can fail even the help probe.
+
+Workflow files alone do not opt in. The new schema currently supports GitHub;
+it does not enable arbitrary providers. See the
+[GitHub policy and installation runbook](../tooling/continuous-integration.md#github-actions-opt-in)
+before copying the helper into another repository.
 
 The global skill accepts exact command rows only from one unambiguous
 `Commands:` section in successful help output. It records the mode before
@@ -43,9 +50,9 @@ unsupported contract is a stopping condition, not permission to use raw Git.
 
 ## Commands
 
-Run feature commands from the feature worktree root. Run `prepare-main-ci` from
-the checked-out guarded main worktree. Agent skills resolve and quote the
-authoritative helper path before invoking it:
+Run feature commands from the feature worktree root and `prepare-main-ci` from
+the checked-out guarded main worktree. `prune-evidence` accepts either attached
+worktree. Agent skills resolve and quote the authoritative helper path:
 
 ```sh
 "<main-worktree>/assets/agent-wt-merge" inspect [--fetch] [--json]
@@ -53,11 +60,12 @@ authoritative helper path before invoking it:
 "<main-worktree>/assets/agent-wt-merge" prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>]
 "<main-worktree>/assets/agent-wt-merge" ff --actor opencode|claude [--update-main] [--close-beads <issue-id>]
 "<main-worktree>/assets/agent-wt-merge" no-ff --actor opencode|claude -m "<subject>" -m "<body>" [--update-main] [--close-beads <issue-id>]
+"<main-worktree>/assets/agent-wt-merge" prune-evidence [--apply] [--json]
 ```
 
 - `inspect` reports merge facts and cleanup suggestions.
 - `prepare-ci` normally publishes the exact current feature SHA, verifies the
-  advertised remote feature ref, and polls its required CI job. Defaults are a
+  advertised remote feature ref, and polls its configured CI evidence. Defaults are a
   15-second interval and a 15-minute timeout.
 - `prepare-main-ci` obtains exact-SHA evidence for a clean, unpushed local main
   tip, including rewritten or batched history, through a reserved temporary CI
@@ -65,6 +73,8 @@ authoritative helper path before invoking it:
 - `ff` runs only `git merge --ff-only` from the main worktree.
 - `no-ff` runs only `git merge --no-ff` from the main worktree and uses the
   selected actor for merge commit authorship.
+- `prune-evidence` previews GitHub receipt eligibility; `--apply` separately
+  authorizes deletion of eligible local metadata, not Git refs or worktrees.
 
 The two preparation commands are available only in CI-gated mode. A direct
 attempt in local-only mode fails as unsupported without publishing a ref.
@@ -82,12 +92,13 @@ approved `--update-main` fast-forwards main, the running process resolves and
 executes the newly checked-out main helper before it starts the feature merge.
 It removes `--update-main` to prevent an update loop and removes
 `--use-local-helper` so the updated main policy becomes authoritative.
-If the update changes the helper's CI/local-only mode, it stops after updating
-main and before merging the feature. Rediscover capabilities and approve a new
-operation; do not retry under the old approval.
+If the update changes the mode, provider, or policy evidence contract, it stops
+after updating main and before merging the feature. Rediscover capabilities and
+approve a new operation; do not retry under the old approval.
 
 Running feature commands from `main` or `master` is an error because there is no
-feature worktree to merge. `prepare-main-ci` is the only main-worktree command.
+feature worktree to merge. Main accepts only `prepare-main-ci` and, for GitHub,
+`prune-evidence`.
 
 The helper never pushes main, another ordinary branch, or tags. `prepare-ci`
 publishes only the captured SHA to the same-named remote feature branch without
@@ -117,6 +128,9 @@ an explicit issue ID.
 
 `ai-wt` metadata is optional. The helper uses Git worktree facts as the source of
 truth and only uses `.ai-wt/sessions/*.json` to improve cleanup suggestions.
+For GitHub, `pipeline` additionally reports `provider`, `policy_fingerprint`,
+and `evidence_store`. Inspection validates existing receipts but does not call
+the GitHub API or create the store.
 
 ## Local-only merges
 
@@ -150,12 +164,13 @@ SHA and normally pushes only:
 ```
 
 It rejects non-fast-forward conflicts, verifies the exact advertised SHA with
-`ls-remote`, and checks the policy's exact-SHA job. Missing and active jobs are
+`ls-remote`, and checks the configured evidence. Missing and active evidence is
 retryable; terminal failure, malformed responses, policy errors, and API errors
 fail immediately. Timeout leaves the published feature available for diagnosis
-and does not change local main.
+and does not change local main. GitHub uses the workflow contract below rather
+than the GitLab required-job checker.
 
-The common-directory `pipeline-guard.override` is an explicit bypass rather
+The GitLab common-directory `pipeline-guard.override` is an explicit bypass rather
 than CI success. Publication is still required, and a bypassed merge retains
 the remote feature branch.
 
@@ -171,13 +186,70 @@ the feature parent. If earlier local landings put the merge's first parent
 ahead of remote main, pushing the batch requires successful CI for the exact
 final main SHA. The merge report identifies this requirement but does not run
 main preparation automatically. Feature-job success alone does not cover the
-combined batch tip.
+combined batch tip. GitHub single-landing evidence also needs its recorded source
+ref and run identity; an arbitrary green run at the same SHA is insufficient.
 
 After real CI success and local merge, the helper deletes the remote feature
 with an exact expected-SHA lease and verifies its absence. A missing ref is
 already clean. A moved ref is never deleted. Cleanup failure is a post-merge
 partial failure: the merge is not rolled back, and Beads closure is still
-attempted and reported independently.
+attempted and reported independently. GitHub first persists the checked identity
+and its landing association. If persistence fails after the merge, the feature
+ref is retained and the landed SHA, evidence failure, and Beads result are
+reported independently. Never rerun the merge to repair that result.
+
+## GitHub workflow evidence
+
+All configured workflows must finish with conclusion `success`. The workflow
+owns matrix expansion, conditions, and optional-job semantics; job enumeration
+is diagnostic, not a fixed job list or an additional every-job-success gate.
+The legacy commit-status rollup is not consulted.
+
+Evidence binds the configured repository, resolved workflow ID, exact SHA,
+published branch/ref, `push` event, run ID, and attempt. The helper selects the
+newest eligible run, checks attempt-scoped jobs, then revalidates identity and
+state before accepting it. Older green runs cannot hide newer failures or
+reruns. Missing/active evidence can wait within the preparation timeout; API,
+authentication, malformed identity, and terminal failures stop. The helper does
+not dispatch or rerun workflows. An already-published SHA may not start a new
+run, so reports distinguish publication from reuse.
+
+The optional clone-local `pipeline-guard.githubAccount` selects one stored `gh`
+account on the configured host. Without a pin, normal `gh` credential precedence
+applies. Missing or unauthorized pinned access fails; the helper never switches
+global accounts or tries other logins. Tokens stay inside credential resolution
+and API-child environment handling, not arguments, diagnostics, policy, or
+receipts. This does not select a Git SSH key, credential helper, or author.
+Agents must ask before changing a pin and must not retrieve tokens themselves.
+
+Receipts live at `<git-common-dir>/agent-wt-merge/evidence/v1/`, resolved through
+Git rather than by assuming `.git` is a directory. They survive removal of a
+linked feature worktree and are shared across human, Claude, and OpenCode
+invocations in that clone. They do not live in `.opencode` or `.claude` and are
+not copied to independent clones. They contain policy and run references, not
+cached authorization. The push guard checks current policy/history and remotely
+revalidates the stored identity. Missing receipts can use exact reserved-main
+evidence; corrupt or unverifiable metadata requires operator attention, not a
+fabricated record or silent downgrade.
+
+## Evidence cleanup
+
+Only an explicit cleanup request enters this workflow. Require the advertised
+`prune-evidence` command, then preview with `prune-evidence --json`. Preview may
+fetch remote main but deletes nothing. Report its store path and per-record
+eligibility reasons, then ask separately before `--apply --json`.
+
+Apply recomputes eligibility against freshly fetched and advertised remote main.
+The recorded landing must be included there; policy, local main, and record
+contents must remain unchanged, and no active operation may depend on receipts.
+Unpushed, unassociated, unverifiable, or concurrently used records remain. A
+successful pre-push check is not a successful push. There is no age-only expiry,
+automatic post-merge cleanup, or pruning from the push hook.
+
+Only eligible helper-owned receipt files are removed. Metadata locks and active
+markers are conservative collision signals; never break them automatically.
+An interrupted process may leave one requiring operator investigation. Do not
+remove branches, worktrees, remote refs, or GitHub runs as evidence cleanup.
 
 ## Exact main CI preparation
 
@@ -188,7 +260,7 @@ final main SHA. Finish the intended batch, then separately approve
 `prepare-main-ci` from the main worktree if that SHA lacks successful evidence.
 Later commits require evidence for the new SHA, even if an earlier tip passed.
 
-For human ahead-and-behind synchronization, use `gpls`; it records and performs
+For GitLab human ahead-and-behind synchronization, use `gpls`; it records and performs
 the rebase before obtaining new evidence and delays finalization until an exact
 stash is restored. Humans and agents can use `prepare-main-ci` for a clean main
 that is already ahead and not diverged. It:
@@ -202,6 +274,11 @@ that is already ahead and not diverged. It:
 6. revalidates the local tip and advertised remote main after success; and
 7. exact-lease-deletes the temporary ref only after real success.
 
+For GitHub, reuse must match the reserved `ci/<main>/<full-sha>` push identity,
+and the receipt is persisted before temporary-ref deletion. A feature or main
+run at the same SHA is not a substitute. GitHub rebase reconciliation is not
+part of `gpls` or this helper; use separate recovery before preparing a clean tip.
+
 The command never pushes main or tags; retry the original push separately after
 successful preparation. The push guard only checks evidence and never publishes
 or waits for CI automatically. Terminal failure, API error, timeout,
@@ -209,8 +286,8 @@ override bypass, local or remote movement, and cleanup failure retain the
 temporary ref for diagnosis. The full SHA in the namespace prevents collisions,
 and an existing reserved ref at a different SHA is never updated.
 
-The managed repository-opt-in `pre-rebase` hook protects this evidence earlier.
-When a valid policy is present, it blocks rebasing guarded main while its local
+The managed GitLab-opt-in `pre-rebase` hook protects this evidence earlier.
+When a valid GitLab policy is present, it blocks rebasing guarded main while its local
 commits are absent from the policy remote-tracking ref. It permits non-main
 rebases and guarded main with no local-ahead commits. Invalid guarded state
 fails closed. `pipeline-guard.override` does not bypass this check; Git's
@@ -287,4 +364,5 @@ mode, invoking `ff` or `no-ff` authorizes only the helper's lease-protected remo
 feature deletion after real CI success. In local-only mode, neither command
 mutates remote refs. `prepare-main-ci` authorizes only its temporary CI ref and
 eligible exact-lease cleanup. None authorizes pushing main or tags. Local
-cleanup commands remain ask-gated.
+cleanup commands remain ask-gated. Evidence pruning has separate preview and
+apply approval; no new automatic permission rule is implied by its advertisement.

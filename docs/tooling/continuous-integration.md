@@ -21,13 +21,14 @@ devcontainer runs are manual, and superseded automatic jobs are interruptible.
 
 OpenCode and Claude use global post-commit adapters that remain inactive unless
 the current non-main repository has an executable `agent-wt-merge` helper and a
-valid pipeline policy. A successful `oc-commit` or `cc-commit` that changes HEAD
+valid GitLab pipeline policy. A successful `oc-commit` or `cc-commit` that changes HEAD
 injects guidance for the active agent; it does not publish anything.
 
 The steps below apply to this repository's GitLab-policy mode. A copied helper
-without `configs/gitlab-pipeline-guard.json` advertises only `inspect`, `ff`, and
-`no-ff`, works without the GitLab runtime, and merges locally with best-effort
-fetching. It does not publish features or operate another provider's pipelines.
+without either supported policy advertises only `inspect`, `ff`, and `no-ff`,
+works without a pipeline runtime or `gh`, and merges locally with best-effort
+fetching. GitHub repositories explicitly opt in with `configs/pipeline-guard.json`
+as described below; workflow files alone do not opt in.
 The global skill follows the selected helper's `Commands:` rows, not incidental
 mentions of CI commands in its help text. Broken configured CI fails closed.
 
@@ -304,6 +305,156 @@ evidence.
 For worktree merges, bypass does not count as CI success. The feature must still
 be published at the exact SHA, and the remote feature ref is retained after the
 local merge.
+
+## GitHub Actions opt-in
+
+Other repositories can use the same helper for feature gating, exact batch-main
+preparation, and main-push enforcement with GitHub Actions. This does not change
+dotfiles' active GitLab policy. Configure exactly one policy, in the authoritative
+main worktree. The presence of both supported policy paths is an error.
+
+Example `configs/pipeline-guard.json` in a consuming repository:
+
+```json
+{
+  "$schema": "./schemas/pipeline-guard.v1.schema.json",
+  "schema_version": 1,
+  "provider": "github",
+  "host": "github.com",
+  "repository": "example/project",
+  "guarded_remote": "origin",
+  "guarded_ref": "refs/heads/main",
+  "workflows": ["ci.yml"],
+  "timeout_seconds": 5,
+  "max_pages": 10
+}
+```
+
+Replace the example repository and workflow selector. Select one to eight
+numeric workflow IDs or filenames, not display names or job names. Selectors
+are resolved to active workflow IDs and must be distinct. Every selected
+workflow must complete with conclusion `success`; matrix sizes and optional or
+conditional jobs remain the workflow's responsibility. Job details are progress
+diagnostics, not a second acceptance rule. No YAML matrix reconstruction or
+legacy commit-status rollup is used.
+
+Workflows must accept `push` events for both feature branches and the reserved
+`ci/<main>/<full-sha>` namespace. A main-only or pull-request-only workflow cannot
+provide that evidence. Missing runs wait only within the helper's bounded
+preparation timeout; the tool cannot distinguish delayed creation from a ref
+that never triggers. It does not alter workflows, dispatch, or rerun them.
+
+Git-expanded fetch and push URLs must unambiguously match the configured host
+and repository. Ordinary HTTPS and `git@host:owner/repo.git` or
+`ssh://git@host/owner/repo.git` URLs are supported; multiple destinations,
+nonstandard ports, and unresolved SSH host aliases fail closed. Git URL rewrites
+are checked after expansion, never changed by the helper.
+
+### GitHub account selection
+
+The backend calls `gh api` with an explicit host and repository. With no account
+pin, normal `gh` environment/stored credential precedence applies. To use a
+specific already-authenticated account in this clone, explicitly configure:
+
+```sh
+git config --local pipeline-guard.githubAccount bar
+```
+
+This selects only that stored account on the configured host; missing, expired,
+or unauthorized access fails without trying another login. The helper isolates
+the API-child environment and disables API debug output. It never switches the
+global active account or writes tokens to arguments, logs, policies, or receipts.
+Git transport authentication and commit authorship remain separate: this pin does
+not choose an SSH key or change Git's credential helper. Account setup and pin
+changes require explicit approval in agent sessions.
+
+### GitHub landing and push evidence
+
+Use `prepare-ci` with separate publication approval, then `inspect` and the
+selected `ff`/`no-ff` merge. Evidence identifies repository, workflow, source ref,
+exact SHA, `push` event, run ID, and attempt together. A same-SHA run on main or
+another feature is not interchangeable. The newest eligible run and its current
+attempt must remain consistent; old green attempts cannot mask a new failure.
+Already-published SHAs can reuse matching evidence but may not trigger new runs.
+
+Before deleting a successfully merged remote feature, the helper stores a
+receipt under `<git-common-dir>/agent-wt-merge/evidence/v1/`. This clone-local
+store is shared by linked worktrees and human/agent invocations, survives feature
+worktree removal, and is outside `.opencode` and `.claude`. It contains references,
+not cached success. Receipt-write failure after landing is reported as a partial
+failure, retains the feature ref, and does not suppress independent Beads results.
+Do not retry or roll back the landed merge.
+
+The managed pre-push hook resolves the checked-out main worktree's policy and
+checker even when invoked from an older feature worktree. It checks current
+remote destination, advertised main, topology, policy, and remotely revalidated
+receipt identity; it never publishes, polls, prunes, dispatches, or reruns CI.
+A linear/single landing can use its feature receipt. A batched two-parent tip
+requires exact final-main evidence from `ci/<main>/<full-sha>`. Main preparation
+can also supply this deterministic evidence when a feature receipt is missing.
+Corrupt or unverifiable metadata blocks and needs operator investigation.
+
+Finish a batch, then separately approve `prepare-main-ci` from clean, ahead-only
+main if needed. It publishes or reuses only the reserved exact-tip identity,
+persists the receipt, revalidates tips, and lease-deletes the temporary ref after
+real success. Retry the originally intended push separately. A later commit needs
+evidence for its new SHA. GitHub has no `pipeline-guard.override` bypass; GitLab
+job semantics and its explicit override remain unchanged. GitLab post-commit
+reminders, pre-rebase protection, and guarded `gpls` reconciliation do not activate
+for this GitHub policy.
+
+### Receipt cleanup
+
+From an attached main or feature worktree, preview with the authoritative helper:
+
+```sh
+"<main-worktree>/assets/agent-wt-merge" prune-evidence --json
+```
+
+Preview reports the store and eligibility reasons and may fetch main, but deletes
+nothing. Only after separate approval run the same command with `--apply --json`.
+Apply rechecks remote ancestry, local main, policy, record contents, and concurrent
+operations. Only receipts whose recorded landing is included in fresh remote main
+can be removed. Unassociated preparation, unpushed work, uncertain remote state,
+and active operations retain records. Age is not an expiry rule, and a successful
+pre-push check is not proof that the push succeeded. No Git refs, worktrees, or
+GitHub runs are deleted. Stale locks/active markers require operator review; do
+not break them automatically or hand-edit receipts to authorize a push.
+
+### Install the complete GitHub contract
+
+Copying only `agent-wt-merge` is sufficient for local-only mode, not GitHub gating.
+An opted-in repository needs these files from the same reviewed revision:
+
+- `assets/agent-wt-merge` and executable `assets/resolve-python3`;
+- `assets/check-pipeline.py`, `assets/pipeline_guard.py`;
+- `assets/pipeline_policy.py`, `assets/pipeline_runtime.py`;
+- `assets/github_pipeline.py`, `assets/pipeline_evidence.py`;
+- `assets/gitlab_pipeline_runtime.py` and `assets/check-gitlab-pipeline.py`, whose
+  shared exact-ref and topology primitives are reused without opting into GitLab;
+- `configs/schemas/pipeline-guard.v1.schema.json` and the repository's own policy.
+
+Keep the helper executable. Python 3, Git, and an authenticated `gh` with stored
+account selection support are runtime prerequisites. Install the reviewed managed
+`pre-push` template as well: source files alone do not enforce a clone's pushes.
+The existing `assets/git-template-hook-sync.py` reconciliation installs or updates
+owned template copies, preserves custom hooks and valid `core.hooksPath`, and
+reports cases needing manual integration. See
+[existing-repository hook installation](../git-ai-coauthor.md#existing-repositories).
+A normal dotfiles apply includes reconciliation and can affect several clones;
+do not run it merely to test source changes or without deployment approval.
+
+Agent skills are deployed through normal chezmoi-managed paths and mirrored
+container assets. Restart OpenCode after deploying changed skills. Do not infer
+GitHub enforcement from a global skill being present, an old installed hook, or
+a preserved custom hook that has not integrated the guard.
+
+The registered `github-pipeline` suite uses fake `gh`, synthetic tokens, and local
+bare Git remotes with a fixture SSH transport; default tests require no live
+GitHub access. It runs on POSIX lanes, not native Windows. A live consumer pilot
+requires separate approval of the clone, policy, account, hook installation,
+meaningful test commits, exact feature/temporary refs, and cleanup ownership.
+Beads-Kanban is a worked example, never a hardcoded repository or matrix contract.
 
 ## Platform matrix and gaps
 
