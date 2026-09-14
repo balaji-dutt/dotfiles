@@ -479,55 +479,5 @@ class PlannotatorWrapperTests(unittest.TestCase):
             self.assertIn("is not executable", refused.stderr)
 
 
-class CcrLauncherTests(unittest.TestCase):
-    def render(self, fixture) -> Path:
-        content = (BIN / "executable_ccr_launcher.sh.tmpl").read_text(encoding="utf-8")
-        return write_executable(
-            fixture.root / "ccr-launcher",
-            content.replace("{{ .ccr_port }}", "4312"),
-        )
-
-    def test_start_is_forwarded_and_failure_is_logged(self) -> None:
-        with isolated_environment(prefix="ccr launcher ") as fixture:
-            wrapper = self.render(fixture)
-            ccr_log = fixture.root / "ccr-calls.jsonl"
-            write_executable(
-                fixture.fake_bin / "lsof",
-                "#!/bin/sh\nexit 1\n",
-            )
-            write_executable(
-                fixture.fake_bin / "ccr",
-                f"#!{sys.executable}\n"
-                "import json, pathlib, sys\n"
-                f"path = pathlib.Path({str(ccr_log)!r})\n"
-                "path.write_text(json.dumps(sys.argv[1:]), encoding='utf-8')\n"
-                "raise SystemExit(17)\n",
-            )
-
-            result = run_script(wrapper, env=fixture.env)
-
-            self.assertEqual(result.returncode, 1)
-            self.assertEqual(json.loads(ccr_log.read_text(encoding="utf-8")), ["start"])
-            launcher_log = fixture.home / ".claude-code-router/logs/ccr-launcher.err"
-            self.assertIn("ccr start failed", launcher_log.read_text(encoding="utf-8"))
-
-    def test_bound_port_skips_start_idempotently(self) -> None:
-        with isolated_environment(prefix="ccr idempotent ") as fixture:
-            wrapper = self.render(fixture)
-            marker = fixture.root / "ccr-called"
-            write_executable(fixture.fake_bin / "lsof", "#!/bin/sh\nexit 0\n")
-            write_executable(
-                fixture.fake_bin / "ccr",
-                f"#!/bin/sh\ntouch {str(marker)!r}\nexit 0\n",
-            )
-
-            result = run_script(wrapper, env=fixture.env)
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertFalse(marker.exists())
-            launcher_log = fixture.home / ".claude-code-router/logs/ccr-launcher.err"
-            self.assertIn("already listening on port 4312", launcher_log.read_text(encoding="utf-8"))
-
-
 if __name__ == "__main__":
     unittest.main()

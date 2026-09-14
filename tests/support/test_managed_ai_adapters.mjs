@@ -3,14 +3,12 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const repoRoot = process.env.DOTFILES_TEST_REPO;
 if (!repoRoot) throw new Error("DOTFILES_TEST_REPO is required");
 
-const require = createRequire(import.meta.url);
 const managedPluginDir = path.join(repoRoot, "private_dot_config", "opencode", "plugins");
 let importSequence = 0;
 
@@ -243,51 +241,4 @@ test("quota compatibility caches usage without persisting bearer tokens", async 
 
   const third = await globalThis.fetch(endpoint, { headers: { Authorization: "Bearer different-token" } });
   assert.equal((await third.json()).call, 4);
-});
-
-test("CCR adapters normalize provider requests and reasoning presets", async () => {
-  const PerplexityFix = require(path.join(repoRoot, "dot_claude-code-router", "plugins", "perplexity-websearch-fix.js"));
-  const ReasoningPresets = require(path.join(repoRoot, "dot_claude-code-router", "plugins", "openai-reasoning-presets.js"));
-  const perplexity = new PerplexityFix();
-  const untouched = { tools: [1], messages: [{ role: "tool", content: "x" }] };
-  assert.equal(await perplexity.transformRequestIn(untouched, { name: "openai" }), untouched);
-  const request = {
-    tools: [1],
-    tool_choice: "auto",
-    parallel_tool_calls: true,
-    messages: [
-      { role: "tool", content: "drop" },
-      { role: "assistant", tool_calls: [1], tool_call_id: "id", content: [{ text: "a" }, "b", {}] },
-      { role: "user", content: 42 },
-    ],
-  };
-  const normalized = await perplexity.transformRequestIn(request, { name: "Perplexity" });
-  assert.equal(normalized.tools, undefined);
-  assert.deepEqual(normalized.messages, [
-    { role: "assistant", content: "ab" },
-    { role: "user", content: "42" },
-  ]);
-
-  const reasoning = new ReasoningPresets();
-  assert.deepEqual(await reasoning.transformRequestIn("not-json"), { body: "not-json" });
-  const { body } = await reasoning.transformRequestIn({
-    model: "gpt-5.2-xhigh",
-    max_tokens: 9000,
-    reasoning: { effort: "low" },
-    temperature: 0.2,
-    top_p: 0.9,
-    logprobs: true,
-    params: { reasoning: { effort: "medium" }, max_tokens: 8000, temperature: 0.3 },
-  });
-  assert.equal(body.model, "gpt-5.2");
-  assert.equal(body.reasoning_effort, "xhigh");
-  assert.equal(body.max_completion_tokens, 9000);
-  assert.equal(body.params.max_completion_tokens, 8000);
-  assert.equal(body.max_tokens, undefined);
-  assert.equal(body.temperature, undefined);
-  assert.equal(body.params.temperature, undefined);
-  const mini = (await reasoning.transformRequestIn({ model: "gpt-4o-mini", max_tokens: 50000 })).body;
-  assert.equal(mini.max_tokens, 16384);
-  const passthrough = { ok: true };
-  assert.equal(await reasoning.transformResponseOut(passthrough), passthrough);
 });
