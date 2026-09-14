@@ -898,22 +898,6 @@ install_and_patch_terraform_py() {
   fi
 }
 
-install_change() {
-  echo "==> Setting up change utility"
-  local url="https://raw.githubusercontent.com/adamtabrams/change/master/change"
-  local target_dir="$HOME/.local/bin"
-  local target_file="$target_dir/change"
-
-  mkdir -p "$target_dir"
-  if [ ! -f "$target_file" ]; then
-    echo "==> Downloading change..."
-    curl -fsSL -o "$target_file" "$url"
-    chmod +x "$target_file"
-  else
-    echo "==> change utility already present"
-  fi
-}
-
 configure_devcontainer_clipboard() {
   local mode local_bin helper
   mode="${DEVCONTAINER_CLIPBOARD_MODE:-off}"
@@ -974,7 +958,6 @@ if [ -d "$SRC" ]; then
   "$SRC/" "$HOME/"
   # Now, run the custom installer for terraform.py which needs the patch file from the source
   install_and_patch_terraform_py || echo "!! terraform.py setup failed; continuing"
-  install_change || echo "!! change setup failed; continuing"
 fi
 
 configure_devcontainer_clipboard
