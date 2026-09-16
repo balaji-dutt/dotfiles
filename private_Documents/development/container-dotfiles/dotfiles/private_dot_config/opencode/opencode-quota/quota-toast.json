@@ -5,7 +5,9 @@
     "opencode-go"
   ],
   "opencodeGoWindows": [
-    "rolling"
+    "rolling",
+    "weekly",
+    "monthly"
   ],
   "enableToast": false,
   "requestTimeoutMs": 12000,
@@ -14,7 +16,9 @@
   "tuiCommandDisplay": "dialog",
   "sessionTokenScope": "tree",
   "tuiSidebarPanel": {
-    "enabled": true
+    "enabled": true,
+    "formatStyle": "allWindows",
+    "opencodeGoPreferredWindow": "rolling"
   },
   "tuiCompactStatus": {
     "enabled": true,
