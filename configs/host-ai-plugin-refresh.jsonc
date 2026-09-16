@@ -24,7 +24,7 @@
       {
         "id": "cc-safety-net@cc-marketplace",
         "scope": "user",
-        "version": "2.3.3" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
+        "version": "2.3.4" // renovate: datasource=github-releases depName=kenryu42/cc-safety-net extractVersion=^v?(?<version>.*)$
       }
     ]
   },
@@ -52,7 +52,7 @@
       },
       {
         "package": "cc-safety-net",
-        "version": "2.3.3" // renovate: datasource=npm depName=cc-safety-net
+        "version": "2.3.4" // renovate: datasource=npm depName=cc-safety-net
       },
       {
         "package": "envsitter-guard",
