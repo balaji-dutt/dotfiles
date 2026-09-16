@@ -17,7 +17,6 @@
   "sessionTokenScope": "tree",
   "tuiSidebarPanel": {
     "enabled": true,
-    "formatStyle": "allWindows",
     "opencodeGoPreferredWindow": "rolling"
   },
   "tuiCompactStatus": {
