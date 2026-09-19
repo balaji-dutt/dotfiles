@@ -133,7 +133,7 @@
       // excludes the retired bd-fixes-v* prereleases, which cannot match.
       "extractVersionTemplate": "^v(?<version>.+)$",
       "matchStrings": [
-        "(?:^|\\r?\\n)[ \\t]*(?:\\$ForkVersion[ \\t]*=|FORK_VERSION=|fork_version=)[ \\t]*\\\"(?<currentValue>[0-9][^\\\"]*)\\\""
+        "(?:^|\\n)[ \\t]*(?:\\$ForkVersion[ \\t]*=|FORK_VERSION=|fork_version=)[ \\t]*\\\"(?<currentValue>[0-9][^\\\"]*)\\\""
       ]
     },
     {

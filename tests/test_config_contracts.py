@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
+import re
 import runpy
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BEADS_KANBAN_INSTALLS = {
+    ".chezmoiscripts/run_onchange_after_install_better_beads_kanban.sh.tmpl":
+        'FORK_VERSION="2.2.0"',
+    ".chezmoiscripts/run_onchange_after_install_better_beads_kanban.ps1.tmpl":
+        '$ForkVersion             = "2.2.0"',
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/"
+    "servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh":
+        '    fork_version="2.2.0"',
+}
 CONFIGS = REPO_ROOT / "configs"
 LOAD_JSON = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
 CONTRACTS = {
@@ -113,6 +123,64 @@ STANDALONE_SCHEMAS = {
 
 
 class ConfigContractTests(unittest.TestCase):
+    def beads_kanban_manager(self) -> tuple[dict, re.Pattern]:
+        config = LOAD_JSON(REPO_ROOT / "renovate.json5", jsonc=True)
+        managers = [
+            manager for manager in config["customManagers"]
+            if manager.get("depNameTemplate") == "balajidutt/better-beads-kanban"
+        ]
+        self.assertEqual(len(managers), 1)
+        manager = managers[0]
+        self.assertEqual(len(manager["matchStrings"]), 1)
+        # Python's named-group spelling differs from Renovate's RE2 syntax.
+        pattern = manager["matchStrings"][0].replace("(?<currentValue>", "(?P<currentValue>")
+        return manager, re.compile(pattern)
+
+    def test_beads_kanban_manager_covers_each_install_once(self) -> None:
+        manager, pattern = self.beads_kanban_manager()
+        self.assertEqual(len(manager["managerFilePatterns"]), 3)
+        for relative_path in BEADS_KANBAN_INSTALLS:
+            with self.subTest(path=relative_path):
+                self.assertEqual(sum(
+                    bool(re.search(file_pattern[1:-1], relative_path))
+                    for file_pattern in manager["managerFilePatterns"]
+                ), 1)
+                source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+                matches = list(pattern.finditer(source))
+                self.assertEqual(len(matches), 1)
+                self.assertRegex(matches[0]["currentValue"], r"^\d+\.\d+\.\d+$")
+
+    def test_beads_kanban_checkout_match_replaces_only_the_lf_blob_pin(self) -> None:
+        _, pattern = self.beads_kanban_manager()
+        for relative_path, assignment in BEADS_KANBAN_INSTALLS.items():
+            for newline in ("\n", "\r\n"):
+                for prefix in ("", 'unrelated="2.2.0"\n'):
+                    with self.subTest(path=relative_path, newline=repr(newline), prefix=prefix):
+                        suffix = '\nunrelated="2.2.0"\n'
+                        blob = prefix + assignment + suffix
+                        checkout = blob.replace("\n", newline)
+                        matches = list(pattern.finditer(checkout))
+                        self.assertEqual(len(matches), 1)
+                        match = matches[0]
+                        self.assertEqual(match["currentValue"], "2.2.0")
+                        replace_string = match[0]
+                        self.assertEqual(blob.count(replace_string), 1)
+                        updated = blob.replace(
+                            replace_string,
+                            replace_string.replace(match["currentValue"], "2.2.2", 1),
+                            1,
+                        )
+                        self.assertEqual(
+                            updated, prefix + assignment.replace("2.2.0", "2.2.2") + suffix
+                        )
+
+    def test_beads_kanban_manager_ignores_comments_and_unrelated_assignments(self) -> None:
+        _, pattern = self.beads_kanban_manager()
+        for assignment in BEADS_KANBAN_INSTALLS.values():
+            with self.subTest(assignment=assignment):
+                self.assertIsNone(pattern.search("# " + assignment))
+                self.assertIsNone(pattern.search("unrelated=" + assignment))
+
     def test_instances_link_to_immutable_draft_2020_12_schemas(self) -> None:
         for instance_name, contract in CONTRACTS.items():
             with self.subTest(instance=instance_name):
