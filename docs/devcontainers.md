@@ -818,6 +818,8 @@ intentionally unsupported.
 On Debian WSL2, the launcher prepends mise shims and requires a native Linux
 `devcontainer` CLI. Windows-mounted shims from `/mnt/<drive>/...` are rejected;
 `npm:@devcontainers/cli` is managed through `configs/mise_wsl2.toml`.
+All container actions, including `status`, require a native Docker CLI and a
+reachable daemon. `--list` and help do not contact Docker.
 
 Common commands:
 
@@ -830,16 +832,28 @@ devcontainer-launch homelab-IaC rebuild
 devcontainer-launch homelab-IaC rebuild-no-cache
 devcontainer-launch homelab-IaC stop
 devcontainer-launch homelab-IaC down
+devcontainer-launch homelab-IaC status
+devcontainer-launch homelab-IaC status --json
+devcontainer-launch homelab-IaC exec --existing -- opencode
 devcontainer-launch homelab-IaC exec -- opencode
 devcontainer-launch homelab exec -- claude
 ```
 
 The default action is `shell`, which runs `devcontainer up` and then execs the
-configured login shell in the running container. Rebuild actions are explicit so
-terminal profiles do not recreate containers accidentally. `stop` stops all
-matching launcher containers so they can be reused later, while `down` removes
-all matching launcher containers entirely so the next `up` or `shell` starts
-fresh.
+configured login shell in the running container. Ordinary `exec` also ensures the
+container is up. Rebuild actions are explicit so terminal profiles do not
+recreate containers accidentally. `stop` stops the unique matching container
+only when its state is `running`; other states are reported without a stop
+request. `down` removes the unique matching container entirely so the next `up`
+or `shell` starts fresh. Both are successful no-ops when no container exists.
+All lifecycle actions refuse ambiguous or conflicting identities, including
+duplicates that are stopped.
+
+`exec --existing -- <command> [args...]` requires one unconflicted, running
+container and pins execution to its full ID. It never creates, rebuilds, or
+starts a container, and returns the command's exit code unchanged. A missing or
+non-running container is an error; starting it requires a separate `up` action.
+Arguments after `--` are passed literally to the command.
 
 On macOS with OrbStack, the homelab devcontainer bind-mounts OrbStack's native
 `/run/host-services/ssh-auth.sock`, but OrbStack exposes that mounted socket as
@@ -858,20 +872,20 @@ relay. No separate host LaunchAgent or host-side `socat` relay is required.
 
 For `homelab-IaC`, the platform defaults are:
 
-- macOS workspace: `/Volumes/devdrive/homelab-IaC`
+- macOS workspace: `/Users/balaji/Documents/development/homelab-IaC`
 - macOS config:
   `~/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json`
 - Debian WSL2 workspace: `/mnt/devdrive/homelab-IaC`
 - Debian WSL2 config:
   `/mnt/devdrive/homelab-IaC/.devcontainer/personal-wsl/devcontainer.json`
 
-`devcontainer-launch` uses the native Debian WSL2 workspace path
-`/mnt/devdrive/homelab-IaC`. In practice, VS Code Dev Containers may still
-canonicalize the same repo to a UNC path such as
-`\\wsl.localhost\Debian\mnt\devdrive\homelab-IaC`, which creates a separate
-container identity from the terminal launcher. If you want VS Code to use the
-already-running launcher container, prefer **Dev Containers: Attach to Running
-Container...** instead of assuming **Reopen in Container** will reuse it.
+`devcontainer-launch` uses native paths for execution and explicit Docker labels
+for container identity. The Debian WSL2 homelab entry uses
+`\\wsl.localhost\Debian\mnt\devdrive\homelab-IaC` as its
+`devcontainer.local_folder` label and the native config path above as its
+`devcontainer.config_file` label. This pair matches the VS Code container;
+terminal sessions can reuse it without changing its labels. Different VS Code
+workspace/config spellings must be checked with `status` before assuming reuse.
 
 `devcontainer-launch` starts the container through the standalone Dev Container
 CLI and then execs a shell. It does not provide VS Code's automatic
@@ -886,6 +900,77 @@ HOMELAB_IAC_WORKSPACE=/path/to/workspace devcontainer-launch homelab-IaC
 HOMELAB_IAC_CONFIG=/path/to/devcontainer.json devcontainer-launch homelab-IaC
 HOMELAB_IAC_SHELL='zsh -l' devcontainer-launch homelab-IaC
 ```
+
+### Identity configuration and conflicts
+
+Each launcher's platform entry may set `identity_labels`. For Debian WSL2:
+
+```json
+{
+  "identity_labels": {
+    "devcontainer.local_folder": "\\\\wsl.localhost\\Debian{workspace_backslashes}",
+    "devcontainer.config_file": "{config}"
+  }
+}
+```
+
+Both keys are required when the object is present. If omitted, the native
+workspace/config pair is used. Extra labels further constrain selection. Labels
+must have nonempty string values without control characters; keys use letters,
+digits, dots, underscores, and hyphens, starting with a letter or digit.
+`devcontainer.metadata` is not an identity key. Do not put secrets in identity
+labels: status intentionally displays them.
+
+Label templates support `{home}`, `{workspace}`, `{config}`, and
+`{workspace_backslashes}`. Workspace/config overrides are resolved to absolute
+native paths relative to the caller's working directory before label expansion;
+symlinks are not resolved. The backslashes token replaces `/` with `\` in the
+workspace path. Label values themselves are not case-folded or normalized. On
+macOS the manifest uses `{workspace}` and `{config}` directly.
+
+Lookup includes stopped containers. On Debian WSL2 it also checks the native,
+`\\wsl.localhost\Debian\...`, and `\\wsl$\Debian\...` workspace/config
+spellings for conflicts. A container with the same workspace/config pair but
+missing a configured extra label is a conflict, not permission to create another.
+Alternate identities are never silently adopted or migrated.
+
+If selection is ambiguous or conflicting, inspect the full IDs and labels with
+`status --plain`. Correct the manifest if it describes the wrong identity, or
+explicitly resolve unwanted containers after checking their contents. The
+launcher will not choose or delete duplicates for you. Avoid simultaneous
+creation from VS Code and the launcher: these checks are snapshots, not an
+atomic lock shared with other tools.
+
+### Human and machine status
+
+`status` only inspects Docker. It does not require the Dev Container CLI or
+existing workspace/config files, and never changes container state.
+
+In a terminal, status optionally uses the mise-managed Gum to style its heading.
+Full IDs, paths, labels, states, and next steps remain visible as text.
+`status --plain`, redirected output, nonempty `NO_COLOR`, unset/empty/`dumb`
+`TERM`, or missing/failed Gum use plain text. There are no prompts or container
+pickers. `--json` never invokes Gum; `--json` and `--plain` are mutually exclusive.
+
+`status --json` writes one JSON document to stdout with these v1 fields:
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | Integer `1` |
+| `launcher`, `platform` | Canonical launcher name and platform key |
+| `workspace_folder`, `config` | Resolved native execution paths |
+| `identity_labels` | Resolved configured identity key/value pairs |
+| `matches`, `conflicts` | Arrays of `{id, state, labels}`; full IDs and only relevant identity labels |
+| `ambiguous` | Whether more than one exact match exists |
+| `selection` | `missing`, `unique`, `ambiguous`, or `conflict` |
+
+`ambiguous` takes precedence over `conflict`; `unique` means exactly one match
+and no conflicts, not necessarily a running container. Candidate label values
+may be empty or `null` when absent. Environment variables and devcontainer
+metadata labels are not included. A completed inspection returns 0 even when
+selection is missing, ambiguous, or conflicting; agents must inspect the fields.
+Docker/inspection failures return nonzero with diagnostics on stderr and no
+successful JSON report.
 
 ### Windows Terminal profile
 

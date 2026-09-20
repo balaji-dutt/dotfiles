@@ -137,11 +137,19 @@
         "platforms": {
           "darwin": {
             "workspace_folder": "/Users/balaji/Documents/development/homelab-IaC",
-            "config": "{home}/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json"
+            "config": "{home}/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json",
+            "identity_labels": {
+              "devcontainer.local_folder": "{workspace}",
+              "devcontainer.config_file": "{config}"
+            }
           },
           "wsl2-debian": {
             "workspace_folder": "/mnt/devdrive/homelab-IaC",
-            "config": "{workspace}/.devcontainer/personal-wsl/devcontainer.json"
+            "config": "{workspace}/.devcontainer/personal-wsl/devcontainer.json",
+            "identity_labels": {
+              "devcontainer.local_folder": "\\\\wsl.localhost\\Debian{workspace_backslashes}",
+              "devcontainer.config_file": "{config}"
+            }
           }
         }
       },
