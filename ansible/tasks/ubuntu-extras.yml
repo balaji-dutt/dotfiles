@@ -9,3 +9,11 @@
     name: "{{ ubuntu_apt_packages }}"
     state: present
 
+# apt state:present never uninstalls, so this needs its own task, and it must
+# stay is_ubuntu-gated: apt cannot resolve wslu on Debian, which has no candidate.
+- name: Remove wslu in favour of bin/wsl-open
+  become: true
+  ansible.builtin.apt:
+    name: wslu
+    state: absent
+

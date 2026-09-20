@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:3e7d7794a9a1b7de15fc2f1cf9e8043c37e2efde289627cea596bc118be27fac",
+  "candidate_digest": "sha256:9b22853da15505ef9c6b368cb6caa9eab702126e6bae3740c511510b4c2b63ea",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -286,11 +286,14 @@
           {"id": "failure-invalid-lifecycle-input", "kind": "failure", "description": "Reject invalid lifecycle and dependency configuration with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
           {"id": "failure-invalid-relay-input", "kind": "failure", "description": "Reject invalid relay arguments and unsafe socket state with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
           {"id": "failure-invalid-workspace-override-input", "kind": "failure", "description": "Reject malformed workspace override inputs without corrupting the active configuration.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]},
+          {"id": "failure-missing-claude-source", "kind": "failure", "description": "Warn and retain existing Claude skills when the managed source is unavailable.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
           {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep live lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "covered", "test_paths": ["tests/test_devcontainer_smoke.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "safety-host-isolation", "kind": "safety", "description": "Exercise lifecycle functions without running installers or mutating host paths.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "safety-local-skills", "kind": "safety", "description": "Preserve unrelated local skills for both clients and back up conflicting Claude skill directories before linking managed content.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
           {"id": "success-idempotent-lifecycle-runtime", "kind": "success", "description": "Repeat lifecycle persistence and materialization with the expected container state.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "success-idempotent-relay-runtime", "kind": "success", "description": "Relay concurrent bidirectional SSH-agent traffic and clean up sockets reliably.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
-          {"id": "success-idempotent-workspace-override", "kind": "success", "description": "Merge and remap workspace overrides repeatedly with stable output.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]}
+          {"id": "success-idempotent-workspace-override", "kind": "success", "description": "Merge and remap workspace overrides repeatedly with stable output.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]},
+          {"id": "success-managed-unslop-skills", "kind": "success", "description": "Provision all seven Unslop entrypoints and nested supporting files idempotently through Claude and OpenCode lifecycle helpers; keep Claude installation wired into create and start.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]}
         ]
       },
       "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Isolated suites cover lifecycle persistence and materialization, workspace override parsing and replacement, and concurrent socket relay behavior without installers or host mutation. The opt-in smoke uses a preloaded image, synthetic read-only inputs, no network, unique resources, bounded commands, and guaranteed cleanup to validate the safe production runtime phases across create, restart, and rerun. Package installers and optional network integrations remain outside the smoke boundary."
@@ -507,6 +510,7 @@
       "paths": [
         "dot_claude/hooks/executable_feature-ci-reminder.py",
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
+        "dot_claude/hooks/executable_resolve-python3",
         "private_dot_config/opencode/opencode-profile.sh",
         "private_dot_config/opencode/plugins/*.js"
       ],
@@ -520,13 +524,14 @@
         "suite_id": "managed-ai-adapters",
         "status": "covered",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"],
+        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_resolve_python3.py"],
         "behavior_requirements": [
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "failure-managed-adapter-fallbacks", "kind": "failure", "description": "Reject malformed requests and state, preserve conservative provider fallback behavior, and keep permission capture failures from changing permission decisions.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Enforce destructive Beads policy when hook prerequisites parse successfully, preserve fail-open behavior when they do not, and prevent adapters from exposing or using production secrets in tests.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "safety-python-interpreter-resolution", "kind": "safety", "description": "Reject a python3 that resolves in PATH but does not run, so a broken interpreter shim cannot silently skip the hook guards.", "status": "covered", "test_paths": ["tests/test_resolve_python3.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "success-managed-compatibility", "kind": "success", "description": "Map quota, cited-search, and permission-capture requests through their supported cache, citation, and redaction contracts.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
@@ -674,7 +679,8 @@
         "bin/executable_opencode-plannotator-custom.tmpl",
         "bin/executable_opencode-plannotator.tmpl",
         "bin/executable_promptfoo",
-        "bin/executable_vnc_monitor.sh"
+        "bin/executable_vnc_monitor.sh",
+        "bin/executable_wsl-open"
       ],
       "owner": {"kind": "repository", "name": "user-facing launchers and utilities"},
       "languages": ["bash", "python", "shell"],
@@ -689,7 +695,7 @@
         "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
     },
     {
       "id": "vendored-upstream",

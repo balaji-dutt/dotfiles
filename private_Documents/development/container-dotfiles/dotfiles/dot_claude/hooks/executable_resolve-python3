@@ -1,0 +1,33 @@
+#!/bin/sh
+# Execute a command with a working Python 3, rejecting broken command shims.
+set -eu
+
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
+# Claude Code treats hook exit 2 as "block the tool call", so a usage error
+# here reports 64 and leaves 2 to the Python hook's own blocking decision.
+if [ "$#" -eq 0 ]; then
+  echo "ERROR: resolve-python3 requires a Python script or arguments." >&2
+  exit 64
+fi
+
+# Native Windows ships a python3 app-execution alias that resolves in PATH but
+# exits 49 without running, so every candidate is executed before it is used.
+python3_works() {
+  "$@" -c 'import sys; raise SystemExit(sys.version_info[0] != 3)' \
+    >/dev/null 2>&1
+}
+
+if command -v python3 >/dev/null 2>&1 && python3_works python3; then
+  exec python3 "$@"
+fi
+if command -v py >/dev/null 2>&1 && python3_works py -3; then
+  exec py -3 "$@"
+fi
+if command -v python >/dev/null 2>&1 && python3_works python; then
+  exec python "$@"
+fi
+
+echo "ERROR: no working Python 3 interpreter was found in PATH." >&2
+exit 127

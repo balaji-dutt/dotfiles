@@ -335,11 +335,26 @@ state file. Managed user-level Claude assets come from dotfiles instead:
   this in with `@~/.claude/no-ai-isms.md`, so the link must exist or the
   import resolves to a missing file)
 - `dot_claude/agents/**` -> `~/.claude/agents/**`
+- `dot_claude/skills/**` -> `~/.claude/skills/**`
 
 `postCreate.sh` and `postStart.sh` prefer the read-only `/tmp/host-claude`
 bind mount and fall back to the mirrored container-dotfiles copy seeded by
 `configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
 `commit-docs.sh` helper are no longer installed.
+
+Claude's `skills/` directory contains per-skill links, including the Unslop
+family and its nested supporting files. Unrelated local skills are preserved;
+same-name non-symlink conflicts use the backup location below. OpenCode's
+`~/.config/opencode/skills/` uses writable managed copies, as described in the
+next section.
+
+To refresh skills in an existing container, publish the updated lifecycle helper
+and skill sources through the host chezmoi/overlay and container-dotfiles sync
+workflow, then stop/start the container so `postStart.sh` runs. An image rebuild
+is not required for this update. Fully quit and restart Claude Code and OpenCode,
+then verify that each fresh session advertises and can load `unslop-commit`.
+Lifecycle tests check installed files and local-content preservation; they do
+not verify live client discovery.
 
 Both hooks then call `register_claude_mcp_servers`, which registers the
 user-scope Claude MCP servers declared in the host's `configs/claude-mcp.json`

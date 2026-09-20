@@ -55,6 +55,7 @@ Authoritative per-machine list is still `chezmoi managed`.
 ## Bootstrap and Provisioning
 
 - WSL2 bootstrap deep dive: `docs/bootstrap/wsl2.md`
+- WSL2 browser, clipboard, and WSLg troubleshooting: `docs/wsl2-desktop-integration.md`
 - Devcontainer/container-dotfiles model: `docs/devcontainers.md`
 - Configuration/manifests reference: `docs/configs.md`
 

@@ -61,6 +61,14 @@ bin/code
 .gitignore_global
 {{ end }}
 
+{{/* ----------
+  bin/wsl-open backs $BROWSER, so this gate must stay $isWSL to match the
+  shell templates
+   ---------- */}}
+{{ if not $isWSL }}
+bin/wsl-open
+{{ end }}
+
 {{/* Devcontainer helpers should exist ONLY on macOS or Debian WSL2 */}}
 {{ if not $isDevcontainerHost }}
 bin/devcontainer-launch

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "usage: ${0##*/} <url>" >&2
+  exit 64
+fi
+
+# explorer.exe exits non-zero even when it opens the URL, so rundll32 is the
+# only interop entry point here that reports a usable exit status.
+handler="${WSL_OPEN_HANDLER:-/mnt/c/Windows/System32/rundll32.exe}"
+exec "$handler" url.dll,FileProtocolHandler "$1"

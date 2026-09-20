@@ -809,6 +809,9 @@
             state: absent
           when: (plannotator_tmp_dir.path | default('')) | length > 0
 
+    - name: Include WSL desktop integration
+      ansible.builtin.include_tasks: tasks/wsl-desktop.yml
+
     - name: Include Ubuntu extras
       ansible.builtin.include_tasks: tasks/ubuntu-extras.yml
       when: is_ubuntu | bool

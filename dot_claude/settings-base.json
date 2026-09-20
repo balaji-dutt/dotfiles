@@ -230,7 +230,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" pre",
+            "command": "\"$HOME/.claude/hooks/resolve-python3\" -- \"$HOME/.claude/hooks/feature-ci-reminder.py\" pre",
             "timeout": 5
           }
         ]
@@ -242,7 +242,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" post",
+            "command": "\"$HOME/.claude/hooks/resolve-python3\" -- \"$HOME/.claude/hooks/feature-ci-reminder.py\" post",
             "timeout": 5
           }
         ]
@@ -254,7 +254,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$HOME/.claude/hooks/feature-ci-reminder.py\" failure",
+            "command": "\"$HOME/.claude/hooks/resolve-python3\" -- \"$HOME/.claude/hooks/feature-ci-reminder.py\" failure",
             "timeout": 5
           }
         ]
@@ -293,5 +293,6 @@
   "alwaysThinkingEnabled": true,
   "awaySummaryEnabled": false,
   "effortLevel": "high",
-  "theme": "dark"
+  "theme": "dark",
+  "tui": "fullscreen"
 }

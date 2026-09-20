@@ -374,6 +374,42 @@ class CodeWrapperTests(unittest.TestCase):
             self.assertEqual(payload["argv"], ["name;not-shell"])
 
 
+class WslOpenWrapperTests(unittest.TestCase):
+    def test_handler_override_receives_url_verbatim_and_propagates_failure(self) -> None:
+        with isolated_environment(prefix="wsl open ") as fixture:
+            log = fixture.root / "handler.json"
+            handler = write_env_logger(fixture.root / "Windows Handler/rundll32.exe", log)
+            url = "https://example.com/?code=abc123&state=xyz;789"
+
+            result = run_script(
+                BIN / "executable_wsl-open",
+                url,
+                env=fixture.env | {"WSL_OPEN_HANDLER": str(handler), "FAKE_EXIT": "17"},
+            )
+
+            self.assertEqual(result.returncode, 17)
+            payload = json.loads(log.read_text(encoding="utf-8"))
+            self.assertEqual(payload["argv"], ["url.dll,FileProtocolHandler", url])
+
+    def test_default_handler_is_the_windows_interop_rundll32(self) -> None:
+        source = (BIN / "executable_wsl-open").read_text(encoding="utf-8")
+        self.assertIn("WSL_OPEN_HANDLER:-/mnt/c/Windows/System32/rundll32.exe", source)
+
+    def test_missing_url_fails_without_invoking_handler(self) -> None:
+        with isolated_environment(prefix="wsl open usage ") as fixture:
+            log = fixture.root / "handler.json"
+            handler = write_env_logger(fixture.root / "rundll32.exe", log)
+
+            result = run_script(
+                BIN / "executable_wsl-open",
+                env=fixture.env | {"WSL_OPEN_HANDLER": str(handler)},
+            )
+
+            self.assertEqual(result.returncode, 64)
+            self.assertFalse(log.exists())
+            self.assertIn("usage:", result.stderr)
+
+
 class PlannotatorWrapperTests(unittest.TestCase):
     @staticmethod
     def clean_port_environment(env: dict[str, str]) -> dict[str, str]:

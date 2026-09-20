@@ -394,6 +394,12 @@
       "requires": ["node"]
     },
     {
+      "id": "resolve-python3",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_resolve_python3"],
+      "covers": ["tests/test_resolve_python3.py"]
+    },
+    {
       "id": "retire-legacy-cbm-mise",
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_retire_legacy_cbm_mise"],
