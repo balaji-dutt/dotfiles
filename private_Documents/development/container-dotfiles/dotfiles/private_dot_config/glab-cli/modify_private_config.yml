@@ -15,7 +15,7 @@
 {{-   $_ = set $cfg "editor" "code --wait" -}}
 {{-   $_ = set $cfg "browser" "open -a Firefox" -}}
 {{- else if $isWSL -}}
-{{-   $_ = set $cfg "browser" "wslview" -}}
+{{-   $_ = set $cfg "browser" (printf "%s/bin/wsl-open" .chezmoi.homeDir) -}}
 {{- end -}}
 {{- $_ = set $cfg "no_prompt" false -}}
 {{- $_ = set $cfg "telemetry" false -}}
