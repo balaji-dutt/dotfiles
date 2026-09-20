@@ -25,8 +25,9 @@ and fails when a source, generated output, mirror, or vendored copy drifts.
   targets.
 - The Espanso policy records the canonical source, shared include template, and
   platform wrapper chain. Each wrapper must delegate to the expected authority.
-- The two statusline copies must remain byte- and version-identical, and the
-  tracked sync command must remain executable. Live upstream comparison stays
+- The two statusline copies must match after Git-confirmed EOL normalization,
+  and declare the same version. The tracked sync command must remain executable.
+  Live upstream comparison stays
   in `assets/sync-statusline.sh --check` and its targeted GitLab sync job.
 - The OpenCode unslop backend is the local canonical tree. Claude and container
   copies must match its membership and bytes, required CLI entrypoints must
@@ -39,7 +40,15 @@ and fails when a source, generated output, mirror, or vendored copy drifts.
 The mirror and unslop checks intentionally derive membership from the Git index,
 not an unrestricted filesystem walk. Ignored caches and untracked files are
 outside committed provenance; tracked stale targets are not. Git attributes pin
-the provenance-checked AI trees to LF so byte checks remain stable on Windows.
+the provenance-checked AI trees to LF. Generated outputs, statusline copies, and
+unslop trees use current working-tree bytes with CRLF converted to LF only when
+Git confirms that the LF candidate matches its cleaned content. Binary files and
+symlink targets retain their byte semantics, and unstaged content changes remain
+visible. General container mirror comparisons remain byte-exact.
+
+The checker reports the first failure from each independent check section in one
+run. A top-level policy or Git index discovery failure stops the run before those
+checks. Any reported failure produces a nonzero exit status.
 
 ## Run the checks
 

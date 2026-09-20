@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support.fixtures import init_git_repository, run_git, write_executable, write_json
 
@@ -16,6 +18,11 @@ from tests.support.fixtures import init_git_repository, run_git, write_executabl
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "assets/check-automation-provenance.py"
 STATUSLINE_SYNC = REPO_ROOT / "assets/sync-statusline.sh"
+CHECKER_SPEC = importlib.util.spec_from_file_location("automation_provenance", CHECKER)
+assert CHECKER_SPEC is not None and CHECKER_SPEC.loader is not None
+checker = importlib.util.module_from_spec(CHECKER_SPEC)
+sys.modules[CHECKER_SPEC.name] = checker
+CHECKER_SPEC.loader.exec_module(checker)
 
 
 def digest(payload: bytes) -> str:
@@ -33,7 +40,13 @@ def tree_digest(root: Path) -> str:
 
 class ProvenanceFixture:
     def __init__(self, root: Path) -> None:
-        self.root = init_git_repository(root)
+        self.env = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
+        self.env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+        self.root = init_git_repository(root, env=self.env)
+        self.git("config", "core.autocrlf", "false")
+        self.write(".gitattributes", "*.sh text eol=lf\nunslop/** text=auto eol=lf\n")
         self.write("configs/schemas/automation-provenance.v2.schema.json", "{}\n")
 
         generated = b"#!/bin/sh\necho generated\n"
@@ -127,15 +140,13 @@ class ProvenanceFixture:
             },
         )
         self.write_policy()
-        run_git(self.root, "add", "--all")
+        self.git("add", "--all")
+
+    def git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return run_git(self.root, *args, env=self.env)
 
     def write(self, relative: str, content: str, *, executable: bool = False) -> Path:
-        path = self.root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        if executable:
-            path.chmod(0o755)
-        return path
+        return self.write_bytes(relative, content.encode("utf-8"), executable=executable)
 
     def write_bytes(self, relative: str, content: bytes, *, executable: bool = False) -> Path:
         path = self.root / relative
@@ -198,6 +209,7 @@ class ProvenanceFixture:
                 str(self.root / "configs/automation-provenance.json"),
             ],
             check=False,
+            env=self.env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -220,18 +232,175 @@ class AutomationProvenanceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Automation provenance OK", result.stdout)
 
+    def convert_to_crlf(self, *relatives: str) -> None:
+        for relative in relatives:
+            path = self.fixture.root / relative
+            path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+
+    def set_generated_digest(self, payload: bytes) -> None:
+        path = self.fixture.root / ".agentic-tooling/generated-manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["files"][0]["digest"] = digest(payload)
+        write_json(path, manifest)
+
+    def test_generated_crlf_checkout_passes_without_mutation(self) -> None:
+        self.convert_to_crlf("generated/tool.sh")
+        path = self.fixture.root / "generated/tool.sh"
+        before = path.read_bytes()
+        index = self.fixture.git("ls-files", "--stage").stdout
+        for autocrlf in ("false", "true"):
+            with self.subTest(autocrlf=autocrlf):
+                self.fixture.git("config", "core.autocrlf", autocrlf)
+                result = self.fixture.run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(self.fixture.git("ls-files", "--stage").stdout, index)
+
+    def test_unslop_crlf_checkout_preserves_tree_digest(self) -> None:
+        self.convert_to_crlf("unslop/canonical/cli.py", "unslop/copy-a/__main__.py")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_statusline_normalizes_different_checkout_endings(self) -> None:
+        self.convert_to_crlf("container/statusline.sh")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_crlf_does_not_hide_unstaged_generated_drift(self) -> None:
+        self.convert_to_crlf("generated/tool.sh")
+        path = self.fixture.root / "generated/tool.sh"
+        path.write_bytes(path.read_bytes() + b"echo changed\r\n")
+        self.assert_failure("generated output drifted")
+
+    def test_crlf_does_not_mask_mirror_drift(self) -> None:
+        self.convert_to_crlf("generated/tool.sh")
+        self.fixture.write("container/tool.sh", "different\n")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mirror content drift", result.stderr)
+        self.assertNotIn("generated output drifted", result.stderr)
+
+    def test_independent_failures_are_reported_in_section_order(self) -> None:
+        self.fixture.write("generated/tool.sh", "different\n")
+        self.fixture.write("container/tool.sh", "different\n")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("generated output drifted", result.stderr)
+        self.assertIn("mirror content drift", result.stderr)
+        self.assertLess(
+            result.stderr.index("generated output drifted"),
+            result.stderr.index("mirror content drift"),
+        )
+        self.assertNotIn("Automation provenance OK", result.stdout)
+
+    def test_mirror_comparison_remains_byte_exact(self) -> None:
+        self.convert_to_crlf("container/tool.sh")
+        self.assert_failure("mirror content drift")
+
+    def test_raw_endings_remain_significant_when_git_does_not_normalize(self) -> None:
+        self.convert_to_crlf("generated/tool.sh")
+        for attributes in ("-text", "!text !eol"):
+            with self.subTest(attributes=attributes):
+                self.fixture.write(".gitattributes", f"generated/tool.sh {attributes}\n")
+                self.assert_failure("generated output drifted")
+
+    def test_unspecified_text_obeys_autocrlf(self) -> None:
+        self.fixture.write(".gitattributes", "generated/tool.sh !text !eol\n")
+        self.fixture.git("config", "core.autocrlf", "true")
+        self.convert_to_crlf("generated/tool.sh")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_auto_binary_and_explicit_binary_preserve_raw_bytes(self) -> None:
+        payload = b"binary\0data\r\n"
+        self.fixture.write_bytes("generated/tool.sh", payload)
+        self.set_generated_digest(payload)
+        for attributes in ("-text", "text=auto eol=lf"):
+            with self.subTest(attributes=attributes):
+                self.fixture.write(".gitattributes", f"generated/tool.sh {attributes}\n")
+                result = self.fixture.run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.set_generated_digest(payload.replace(b"\r\n", b"\n"))
+        self.assert_failure("generated output drifted")
+
+    def test_auto_uses_cleaned_worktree_not_existing_crlf_index(self) -> None:
+        self.fixture.write(".gitattributes", "generated/tool.sh -text\n")
+        self.convert_to_crlf("generated/tool.sh")
+        path = self.fixture.root / "generated/tool.sh"
+        self.fixture.git("add", "generated/tool.sh")
+        self.fixture.write(".gitattributes", "generated/tool.sh text=auto eol=lf\n")
+        cleaned = self.fixture.git("hash-object", "--path=generated/tool.sh", "generated/tool.sh")
+        staged = self.fixture.git("rev-parse", ":generated/tool.sh")
+        self.assertNotEqual(cleaned.stdout, staged.stdout)
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path.write_bytes(path.read_bytes() + b"echo changed\r\n")
+        self.assert_failure("generated output drifted")
+
+    def test_mixed_endings_preserve_lone_carriage_returns(self) -> None:
+        payload = b"first\r\nsecond\nthird\rfourth\r\n"
+        self.fixture.write_bytes("generated/tool.sh", payload)
+        self.set_generated_digest(payload.replace(b"\r\n", b"\n"))
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.set_generated_digest(payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n"))
+        self.assert_failure("generated output drifted")
+
+    @unittest.skipIf(os.name == "nt", "requires POSIX symlink creation")
+    def test_symlink_target_bytes_are_not_normalized(self) -> None:
+        path = self.fixture.root / "generated/tool.sh"
+        path.unlink()
+        path.symlink_to("target\r\nname")
+        self.fixture.git("add", "generated/tool.sh")
+        self.set_generated_digest(b"target\r\nname")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path.unlink()
+        path.write_bytes(b"target\r\nname")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_normalization_git_failure_is_reported(self) -> None:
+        self.convert_to_crlf("generated/tool.sh")
+        original = checker.run_git
+
+        def failing_git(
+            root: Path, *args: str, **kwargs: object
+        ) -> subprocess.CompletedProcess[bytes]:
+            if args[0] == "hash-object":
+                raise checker.CheckFailure("git hash-object failed: fixture failure")
+            return original(root, *args, **kwargs)
+
+        with (
+            mock.patch.dict(os.environ, self.fixture.env, clear=True),
+            mock.patch.object(checker, "run_git", side_effect=failing_git),
+        ):
+            result = checker.check_repository(self.fixture.root)
+        self.assertEqual(result.errors, ("git hash-object failed: fixture failure",))
+
+    def test_invalid_policy_is_a_fatal_prerequisite(self) -> None:
+        policy = self.fixture.policy_payload()
+        policy["schema_version"] = 999
+        self.fixture.write_policy(policy)
+        self.fixture.write("generated/tool.sh", "different\n")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("policy schema_version must be 2", result.stderr)
+        self.assertNotIn("generated output drifted", result.stderr)
+        self.assertNotIn("Automation provenance OK", result.stdout)
+
     def test_generated_drift_requires_an_exact_nonstale_exception(self) -> None:
         generated = self.fixture.root / "generated/tool.sh"
         manifest = json.loads(
             (self.fixture.root / ".agentic-tooling/generated-manifest.json").read_text()
         )
         source_digest = manifest["files"][0]["sourceDigest"]
-        generated.write_text(
+        self.fixture.write(
+            "generated/tool.sh",
             "#!/bin/sh\n"
             "# source: tools/tool.yaml\n"
             f"# sourceDigest: {source_digest}\n"
             "# local-adoption\n",
-            encoding="utf-8",
         )
         self.assert_failure("generated output drifted")
 
@@ -248,6 +417,10 @@ class AutomationProvenanceTests(unittest.TestCase):
         accepted = self.fixture.run()
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
+        self.convert_to_crlf("generated/tool.sh")
+        accepted = self.fixture.run()
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
         generated.write_bytes(b"#!/bin/sh\necho generated\n")
         self.assert_failure("exception is stale")
 
@@ -255,14 +428,14 @@ class AutomationProvenanceTests(unittest.TestCase):
         target = self.fixture.root / "container/tool.sh"
         target.write_text("different\n", encoding="utf-8")
         self.assert_failure("mirror content drift")
-        target.write_text("#!/bin/sh\necho mirror\n", encoding="utf-8")
+        self.fixture.write("container/tool.sh", "#!/bin/sh\necho mirror\n")
         target.chmod(0o644)
-        run_git(self.fixture.root, "add", "container/tool.sh")
+        self.fixture.git("add", "container/tool.sh")
         self.assert_failure("mirror mode drift")
         target.chmod(0o755)
-        run_git(self.fixture.root, "add", "container/tool.sh")
+        self.fixture.git("add", "container/tool.sh")
         self.fixture.write("container/tool-stale.sh", "stale\n")
-        run_git(self.fixture.root, "add", "container/tool-stale.sh")
+        self.fixture.git("add", "container/tool-stale.sh")
         self.assert_failure("stale tracked target")
 
     def test_mirror_manifest_contract_marker_fails_closed(self) -> None:
@@ -292,7 +465,7 @@ class AutomationProvenanceTests(unittest.TestCase):
 
     def test_unslop_tracks_nested_non_python_membership(self) -> None:
         self.fixture.write("unslop/copy-a/helpers/config.json", "{}\n")
-        run_git(self.fixture.root, "add", "unslop/copy-a/helpers/config.json")
+        self.fixture.git("add", "unslop/copy-a/helpers/config.json")
         self.assert_failure("unslop tree membership drift")
 
     def test_statusline_version_accepts_crlf_checkout(self) -> None:
