@@ -820,7 +820,7 @@ install_claude_managed_asset_links() {
   link_claude_managed_path "$source_dir/no-ai-isms.md" "$claude_config_dir/no-ai-isms.md"
   install_claude_managed_executable "$source_dir/executable_statusline.sh" "$claude_config_dir/statusline.sh"
 
-  for managed_name in agents hooks commands; do
+  for managed_name in agents hooks commands skills; do
     materialize_claude_managed_dir \
       "$source_dir/$managed_name" "$claude_config_dir/$managed_name"
   done
