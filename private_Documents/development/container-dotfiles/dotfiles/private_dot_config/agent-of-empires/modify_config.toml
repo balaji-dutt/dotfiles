@@ -75,6 +75,7 @@ confirm_before_quit = false
 default_attach_mode = "tmux"
 default_tool = "opencode"
 delete_to_trash = false
+host_tab_title = true
 row_tag = "none"
 
 [session.agent_command_override]

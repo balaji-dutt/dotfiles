@@ -151,19 +151,22 @@ again.
 server pushes a title to every terminal hosting a client, including the tab
 running the `aoe` TUI dashboard, and it has no idea which session that dashboard
 is previewing — so the tab ended up named after whichever session last triggered
-a write. AoE itself emits no OSC 0 or OSC 2, has no focus or preview hook
-(`on_create` / `on_launch` / `on_destroy` only), and its plugin workers are
-separate processes that do not own the TUI's stdout, so nothing outside AoE can
-name that tab correctly.
+a write.
 
-What names it instead: oh-my-zsh's `termsupport` `preexec`, which emits
-`\e]1;aoe\a`. The hook in `55-terminal-title.zsh` returns early for commands
-outside its allowlist, so that title survives, and no `precmd` fires while `aoe`
-is in the foreground. That is a real dependency — drop `ohmyzsh/ohmyzsh path:lib`
-from `dot_zsh_plugins.txt.tmpl`, or set `DISABLE_AUTO_TITLE=true`, and the
-dashboard tab loses its name.
+AoE 1.16.1's local TUI emits OSC 0 with `aoe: <selected session title>`, including
+in Live Mode, and reapplies its dashboard title after tmux detach. The overlay
+pins `session.host_tab_title = true`; the corresponding setting is **Interaction
+→ Host Tab Title**. This names the dashboard directly without server-wide tmux
+`set-titles`. It does not change a web page's title or cover the
+`AOE_DAEMON_URL` remote client.
 
-When AoE exits, `_agent_title_precmd` sends the idle cwd title through OSC 0,
+AoE's title setting is independent of `DISABLE_AUTO_TITLE`, which controls the
+shell hooks and `ai-wt`. When host-tab titles are disabled in AoE, oh-my-zsh's
+`termsupport` can still supply the plain `aoe` launch title if shell automatic
+titles are enabled.
+
+On exit, AoE restores `aoe` if it emitted a title. At the next shell prompt,
+`_agent_title_precmd` sends the idle cwd title through OSC 0,
 so the dashboard name does not remain stuck on the direct iTerm tab. Inside a
 tmux pane the same sequence only updates `pane_title`; with `set-titles` off it
 is not forwarded to the outer AoE dashboard tab.
@@ -173,6 +176,12 @@ changes, and AoE applies its per-session options at session creation. Restart
 the server (or kill all AoE sessions) before judging the result.
 
 ## Verification
+
+With AoE 1.16.1 or later and `session.host_tab_title = true`, select different
+sessions in Live Mode and check that the host tab reads `aoe: <selected session
+title>`. Attach to a session, detach back to the dashboard, and check that the
+selected session's title returns. This requires a terminal that honours OSC
+titles and a local TUI, not the remote client.
 
 ```sh
 # 1. iTerm2 honours OSC at all. Tab should read "probe".
