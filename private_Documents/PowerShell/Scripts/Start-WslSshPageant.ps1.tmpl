@@ -42,9 +42,13 @@ function Resolve-Exe([string]$Preferred, [string[]]$FallbackNames) {
   }
 
   foreach ($name in $FallbackNames) {
-    $cmd = Get-Command $name -ErrorAction SilentlyContinue
-    if ($cmd) {
-      return $cmd.Source
+    $sources = @(Get-Command $name -All -ErrorAction SilentlyContinue |
+      ForEach-Object Source | Where-Object { $_ } | Select-Object -Unique)
+    if ($sources.Count -gt 1) {
+      throw "Ambiguous executable '$name': $($sources -join ', ')"
+    }
+    if ($sources.Count -eq 1) {
+      return $sources[0]
     }
   }
 
@@ -93,6 +97,18 @@ function Start-DetachedProcess([string]$ExePath, [string[]]$Arguments) {
   $command = $parts -join " "
   Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $command | Out-Null
 }
+
+function Invoke-WslSshPageant {
+param(
+  [string]$PuttyDir,
+  [string]$WslSshPageantExe,
+  [string]$AgentSocket,
+  [string]$KeysDir,
+  [string]$AllowlistPath,
+  [switch]$RestartPageant,
+  [switch]$RestartBridge,
+  [switch]$AddKeysIndividually
+)
 
 if (-not $AllowlistPath) {
   throw "pageant allowlist path is not set."
@@ -191,14 +207,14 @@ if ($AddKeysIndividually) {
     Start-Sleep -Milliseconds 500
   }
 } else {
-  $args = @()
+  $keyArgs = @()
   foreach ($key in $keys) {
     $info = Get-FileInfo -Path $key
     Write-Log "Queueing key: $key ($info)"
     $escaped = $key.Replace('"', '`"')
-    $args += "`"$escaped`""
+    $keyArgs += "`"$escaped`""
   }
-  $proc = Start-Process -FilePath $pageantExe -ArgumentList ($args -join " ") -PassThru -Wait
+  $proc = Start-Process -FilePath $pageantExe -ArgumentList ($keyArgs -join " ") -PassThru -Wait
   if ($proc.ExitCode -ne 0) {
     Write-Log "Pageant returned exit code $($proc.ExitCode) when adding keys"
   }
@@ -212,8 +228,21 @@ if ($bridgeProc -and $RestartBridge) {
 
 if (-not $bridgeProc -or $RestartBridge) {
   Write-Log "Starting wsl-ssh-pageant"
-  $args = @("--force", "--systray", "--winssh", "ssh-pageant", "--wsl", $AgentSocket)
-  Start-DetachedProcess -ExePath $wslExe -Arguments $args
+  $bridgeArgs = @("--force", "--systray", "--winssh", "ssh-pageant", "--wsl", $AgentSocket)
+  Start-DetachedProcess -ExePath $wslExe -Arguments $bridgeArgs
 }
 
 Write-Log "Start-WslSshPageant completed"
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-WslSshPageant `
+    -PuttyDir $PuttyDir `
+    -WslSshPageantExe $WslSshPageantExe `
+    -AgentSocket $AgentSocket `
+    -KeysDir $KeysDir `
+    -AllowlistPath $AllowlistPath `
+    -RestartPageant:$RestartPageant `
+    -RestartBridge:$RestartBridge `
+    -AddKeysIndividually:$AddKeysIndividually
+}

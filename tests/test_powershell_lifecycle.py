@@ -17,12 +17,15 @@ from tests.test_chezmoi_lifecycle_render import render_template
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PWSH = resolve_powershell_runtime()
 PESTER = pester_version(PWSH) if PWSH else None
-PESTER_TESTS = tuple(sorted((REPO_ROOT / "tests" / "powershell").glob("*.Tests.ps1")))
 PESTER_TEST_NAMES = {
     "WindowsBootstrap.Tests.ps1",
     "WindowsFileLifecycle.Tests.ps1",
     "WindowsStartupTask.Tests.ps1",
 }
+PESTER_TESTS = tuple(
+    REPO_ROOT / "tests" / "powershell" / name
+    for name in sorted(PESTER_TEST_NAMES)
+)
 TEMPLATES = {
     "windows-bootstrap.ps1": ".chezmoiscripts/run_onchange_after_windows-bootstrap.ps1.tmpl",
     "windows-cleanup.ps1": ".chezmoiscripts/run_once_after_99-cleanup-wrong-apply.ps1.tmpl",
@@ -35,6 +38,8 @@ TEMPLATES = {
 class PowerShellLifecyclePesterTests(unittest.TestCase):
     def test_rendered_lifecycle_behavior(self) -> None:
         self.assertEqual({path.name for path in PESTER_TESTS}, PESTER_TEST_NAMES)
+        for path in PESTER_TESTS:
+            self.assertTrue(path.is_file(), path)
         with tempfile.TemporaryDirectory(prefix="powershell-lifecycle-") as temporary:
             render_dir = Path(temporary)
             for destination, template in TEMPLATES.items():

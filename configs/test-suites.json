@@ -455,6 +455,13 @@
       "requires": ["bash"]
     },
     {
+      "id": "windows-shell",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell"],
+      "covers": ["tests/test_windows_shell.py"],
+      "requires": ["chezmoi", "pester"]
+    },
+    {
       "id": "wsl-bootstrap",
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_bootstrap_wsl"],

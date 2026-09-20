@@ -2,24 +2,34 @@
 {{- /* not Windows */ -}}
 {{- else -}}
 
-# --- Repair PATH in hosts that don't load registry PATH correctly (e.g., VS Code) ---
-try {
-  $userPath    = [Environment]::GetEnvironmentVariable("Path","User")
-  $machinePath = [Environment]::GetEnvironmentVariable("Path","Machine")
+function Merge-PowerShellPath {
+  param(
+    [string]$MachinePath,
+    [string]$UserPath
+  )
 
-  # Merge machine + user, preserve order, de-dup
   $merged = @()
-  foreach ($p in (($machinePath, $userPath) -join ';' -split ';')) {
+  foreach ($p in (($MachinePath, $UserPath) -join ';' -split ';')) {
     $p = $p.Trim()
     if (-not $p) { continue }
     if ($merged -notcontains $p) { $merged += $p }
   }
 
-  if ($merged.Count -gt 0) {
-    $env:Path = ($merged -join ';')
-  }
-} catch {
-  # ignore
+  return ($merged -join ';')
 }
-# --- end PATH repair ---
+
+function Repair-ProcessPath {
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $merged = Merge-PowerShellPath -MachinePath $machinePath -UserPath $userPath
+
+  if ($merged) {
+    $env:Path = $merged
+  }
+}
+
+try {
+  Repair-ProcessPath
+} catch {
+}
 {{- end -}}

@@ -1,17 +1,34 @@
-$i=3
-while($True){
-    $error.clear()
-    $MappedDrives = Get-SmbMapping |where -property Status -Value Unavailable -EQ | select LocalPath,RemotePath
-    foreach( $MappedDrive in $MappedDrives)
-    {
-        try {
-            New-SmbMapping -LocalPath $MappedDrive.LocalPath -RemotePath $MappedDrive.RemotePath -Persistent $True
-        } catch {
-            Write-Host "There was an error mapping $MappedDrive.RemotePath to $MappedDrive.LocalPath"
-        }
-    }
-    $i = $i - 1
-    if($error.Count -eq 0 -Or $i -eq 0) {break}
+function Invoke-MapDrives {
+    param(
+        [ValidateRange(1, 10)][int]$MaxAttempts = 3,
+        [ValidateRange(0, 3600)][int]$RetryDelaySeconds = 30
+    )
 
-    Start-Sleep -Seconds 30
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $failures = 0
+        $mappedDrives = @(
+            Get-SmbMapping |
+                Where-Object -Property Status -Value Unavailable -EQ |
+                Select-Object LocalPath, RemotePath
+        )
+
+        foreach ($mappedDrive in $mappedDrives) {
+            try {
+                New-SmbMapping -LocalPath $mappedDrive.LocalPath -RemotePath $mappedDrive.RemotePath -Persistent $true -ErrorAction Stop
+            } catch {
+                $failures++
+                Write-Host "There was an error mapping $($mappedDrive.RemotePath) to $($mappedDrive.LocalPath)"
+            }
+        }
+
+        if ($failures -eq 0 -or $attempt -eq $MaxAttempts) {
+            return
+        }
+
+        Start-Sleep -Seconds $RetryDelaySeconds
+    }
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-MapDrives
 }

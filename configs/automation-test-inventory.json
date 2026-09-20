@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:04ae9920be7cb8ce43ce8122375706f4c5f20b9ac8ad9504feb360193cc5c8b1",
+  "candidate_digest": "sha256:3e7d7794a9a1b7de15fc2f1cf9e8043c37e2efde289627cea596bc118be27fac",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -730,10 +730,10 @@
         "suite_id": "windows-shell",
         "status": "partial",
         "work_item": "dots-4jy.10.5.5",
-        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_guarded_main_sync.py"],
+        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_guarded_main_sync.py", "tests/test_windows_shell.py"],
         "behavior_requirements": []
       },
-      "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Registered native-Windows cases cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state; profiles, drive mapping, Pageant, and environment fragments still need broader behavior coverage."
+      "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Native Pester covers profile and fragment loading, drive mapping retries, and Pageant input, process, quoting, and rerun boundaries with disposable files and mocked host integrations. Registered native-Windows cases also cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state. Live SMB mappings, Pageant IPC, scheduled profile startup, and other host integrations remain explicit platform-smoke gaps."
     },
     {
       "id": "wsl-provisioning",
