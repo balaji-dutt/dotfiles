@@ -147,6 +147,11 @@ to own both files outright, so the two fought on every release. Both are now
   any newly added keys survive. Since AoE 1.13.2, application state is stored
   separately in the AoE-owned sibling `state.toml`.
 
+The overlay deliberately pins `session.host_tab_title = true` (AoE 1.16.1),
+so the local TUI names its host terminal tab after the selected session. This
+matches the upstream default; if the live global value is `false`, chezmoi
+overrides it on apply. Profile overrides remain available in AoE.
+
 Consequence: on a fresh machine chezmoi writes base-only hooks, AoE prompts
 once on first launch, and its hooks stick from then on.
 
@@ -168,7 +173,7 @@ Check every key it declares still exists in the schema:
 ```sh
 for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
          session.confirm_before_quit session.default_attach_mode \
-         session.default_tool session.delete_to_trash \
+         session.default_tool session.delete_to_trash session.host_tab_title \
          session.row_tag session.agent_command_override \
          status_hooks.enabled status_hooks.on_error status_hooks.on_waiting \
          telemetry.enabled tmux.clipboard tmux.status_bar \
