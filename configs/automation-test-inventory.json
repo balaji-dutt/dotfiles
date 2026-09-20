@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:4611f1bfdd27f1cab12f2edf3b1a87b402bdad47a2029ebce101572d1401496c",
+  "candidate_digest": "sha256:4c743765bdb6ea4c10f92cc53aedf868e4a17f479479a37734347d69002569e2",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -662,7 +662,8 @@
         "bin/executable_opencode-plannotator-custom.tmpl",
         "bin/executable_opencode-plannotator.tmpl",
         "bin/executable_promptfoo",
-        "bin/executable_vnc_monitor.sh"
+        "bin/executable_vnc_monitor.sh",
+        "bin/executable_wsl-open"
       ],
       "owner": {"kind": "repository", "name": "user-facing launchers and utilities"},
       "languages": ["bash", "python", "shell"],
@@ -677,7 +678,7 @@
         "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
     },
     {
       "id": "vendored-upstream",

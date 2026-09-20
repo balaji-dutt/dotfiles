@@ -26,10 +26,8 @@ export LC_MONETARY=en_SG.UTF-8
 export LANGUAGE=en_GB:en_US
 
 {{- if $isWSL }}
-{{- if eq .chezmoi.osRelease.id "ubuntu" }}
 # Set Browser variable for WSL browser integration
-export BROWSER=wslview
-{{- end }}
+export BROWSER={{ .chezmoi.homeDir }}/bin/wsl-open
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}

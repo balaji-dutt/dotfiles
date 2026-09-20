@@ -57,6 +57,7 @@ Task files under `ansible/tasks/`:
 - `base-packages.yml`
 - `zsh-setup.yml`
 - `system-config.yml`
+- `wsl-desktop.yml`
 - `ubuntu-extras.yml`
 - `debian-dev-tools.yml`
 - `certificates.yml`

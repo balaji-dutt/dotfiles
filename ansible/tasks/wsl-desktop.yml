@@ -1,0 +1,10 @@
+---
+# =============================================================================
+# WSL2 Desktop Integration
+# =============================================================================
+
+- name: Install WSL desktop integration apt packages
+  become: true
+  ansible.builtin.apt:
+    name: "{{ wsl_desktop_apt_packages }}"
+    state: present

@@ -155,10 +155,8 @@ export LANGUAGE=en_GB:en_US
 # Update path for local binaries
 export PATH=~/.local/bin:$HOME/bin:$PATH
 
-{{- if and (eq .chezmoi.osRelease.id "ubuntu") $isWSL }}
 # Set Browser variable for WSL browser integration
-export BROWSER=wslview
-{{- end }}
+export BROWSER={{ .chezmoi.homeDir }}/bin/wsl-open
 
 # Set $EDITOR to nano if available else fallback to vi
 # else in a WSLg environment set $EDITOR & $VISUAL to VSCode

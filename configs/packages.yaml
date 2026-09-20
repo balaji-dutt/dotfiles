@@ -45,6 +45,18 @@ base_apt_packages:
   - libgl1
 
 # -----------------------------------------------------------------------------
+# Apt packages - WSL2 desktop integration (all distros)
+# -----------------------------------------------------------------------------
+# Both clipboard tools are required: callers pick wl-copy under Wayland and
+# xclip under X11, and WSLg exposes both.
+wsl_desktop_apt_packages:
+  - xdg-utils
+  - wl-clipboard
+  - xclip
+  - fonts-noto-core
+  - fonts-liberation
+
+# -----------------------------------------------------------------------------
 # Apt packages - Ubuntu only
 # -----------------------------------------------------------------------------
 ubuntu_apt_packages:
@@ -52,8 +64,6 @@ ubuntu_apt_packages:
   - nautilus
   - p7zip-full
   - p7zip-rar
-  - wslu
-  - xdg-utils
 
 # -----------------------------------------------------------------------------
 # Python CLI tools
