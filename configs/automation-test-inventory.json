@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:4c743765bdb6ea4c10f92cc53aedf868e4a17f479479a37734347d69002569e2",
+  "candidate_digest": "sha256:8e94ce86de8de4c8bbb6d24ef90af953bc9fb5627345ddeec318b4406465f378",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -501,6 +501,7 @@
       "paths": [
         "dot_claude/hooks/executable_feature-ci-reminder.py",
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
+        "dot_claude/hooks/executable_resolve-python3",
         "private_dot_config/opencode/opencode-profile.sh",
         "private_dot_config/opencode/plugins/*.js"
       ],
@@ -514,13 +515,14 @@
         "suite_id": "managed-ai-adapters",
         "status": "covered",
         "work_item": "dots-4jy.10.4.3",
-        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"],
+        "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_resolve_python3.py"],
         "behavior_requirements": [
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "failure-managed-adapter-fallbacks", "kind": "failure", "description": "Reject malformed requests and state, preserve conservative provider fallback behavior, and keep permission capture failures from changing permission decisions.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Enforce destructive Beads policy when hook prerequisites parse successfully, preserve fail-open behavior when they do not, and prevent adapters from exposing or using production secrets in tests.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "safety-python-interpreter-resolution", "kind": "safety", "description": "Reject a python3 that resolves in PATH but does not run, so a broken interpreter shim cannot silently skip the hook guards.", "status": "covered", "test_paths": ["tests/test_resolve_python3.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "success-managed-compatibility", "kind": "success", "description": "Map quota, cited-search, and permission-capture requests through their supported cache, citation, and redaction contracts.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
