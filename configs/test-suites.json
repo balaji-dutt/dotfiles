@@ -403,6 +403,14 @@
       "requires": ["bash", "chezmoi", "git"]
     },
     {
+      "id": "shell-startup",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_shell_startup"],
+      "covers": ["tests/test_shell_startup.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi", "zsh"]
+    },
+    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],

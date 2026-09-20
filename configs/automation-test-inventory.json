@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:7f8a9b446b97853d4c1a8d3a0eb100c163abfbbd3cabb713ba9270ccbe8ab52b",
+  "candidate_digest": "sha256:d9a0a5e6a0e04ea09b991b97901d4f92ec48dc7ea470566b461d9accde06d2ca",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -607,8 +607,14 @@
       "risk": "high",
       "side_effects": ["host-config", "process", "secrets"],
       "test_layers": ["contract", "platform-smoke", "render", "unit"],
-      "coverage": {"suite_id": "shell-startup", "status": "partial", "work_item": "dots-4jy.10.5.3", "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py"], "behavior_requirements": []},
-      "rationale": "Synthetic platform fixtures render and parse Bash and Zsh startup sources. Environment loading and real-repository gpls tests cover clean pulls, exact stash restoration, conflict recovery, temporary-worktree cleanup, paths with spaces, and argument refusal; broader startup ordering and remaining helpers are still planned."
+      "coverage": {
+        "suite_id": "shell-startup",
+        "status": "partial",
+        "work_item": "dots-4jy.10.5.3",
+        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Real Bash and Zsh subprocesses with synthetic homes cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS and WSL2 interactive smoke remains planned."
     },
     {
       "id": "sync-tooling",

@@ -156,6 +156,7 @@ def render_template(
     relative: str,
     platform: str,
     configure: Callable[[dict[str, object]], None] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> str:
     if CHEZMOI is None:
         raise RuntimeError("chezmoi is unavailable")
@@ -182,7 +183,10 @@ def render_template(
                 str(REPO_ROOT / relative),
             ],
             cwd=REPO_ROOT,
-            env={**os.environ, "CHEZMOI_NO_TTY": "1"},
+            env={
+                **(environment if environment is not None else os.environ),
+                "CHEZMOI_NO_TTY": "1",
+            },
             check=False,
             text=True,
             stdout=subprocess.PIPE,

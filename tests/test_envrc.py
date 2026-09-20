@@ -155,5 +155,41 @@ class EnvrcDoltPortPinTests(EnvrcHarness):
         self.assertFalse(self.local_config.exists())
 
 
+@unittest.skipUnless(BASH, "bash is required to evaluate .envrc")
+class EnvrcIntegrationTests(EnvrcHarness):
+    def test_repo_paths_and_sync_hint_are_exported(self) -> None:
+        path_log = self.workdir / "path-add.log"
+        env = {
+            "HOME": str(self.workdir),
+            "PATH": os.environ["PATH"],
+            "PATH_LOG": str(path_log),
+        }
+        result = subprocess.run(
+            [
+                BASH,
+                "-c",
+                r"""
+                PATH_add() { printf '%s\n' "$1" > "$PATH_LOG"; }
+                source "$1"
+                printf '%s\n%s\n' "$DOTFILES_DEVCONTAINER_SYNC_ALL_CMD" "$BEADS_DOLT_CLI_DIR"
+                """,
+                "envrc-test",
+                str(ENVRC),
+            ],
+            cwd=self.workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path_log.read_text(encoding="utf-8"), f"{self.workdir}/assets\n")
+        self.assertEqual(
+            result.stdout.splitlines(),
+            ["sync-devcontainer-all.sh", f"{self.workdir}/.beads/dolt"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

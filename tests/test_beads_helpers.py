@@ -230,6 +230,33 @@ class BeadsShellDispatchTests(unittest.TestCase):
                     )
                     self.assertNotIn("balaji", "\n".join(self.read_log()))
 
+    def test_global_options_preserve_posix_shell_parity(self) -> None:
+        observed: dict[str, tuple[int, list[str]]] = {}
+        for shell in SHELL_HELPERS:
+            self.clear_log()
+            result = self.run_wrapper(
+                shell,
+                "--actor",
+                "OpenCode",
+                "update",
+                "dots-1",
+                "--title",
+                "value with spaces",
+            )
+            observed[shell] = (result.returncode, self.read_log())
+
+        self.assertEqual(observed["bash"], observed["zsh"])
+        self.assertEqual(
+            observed["bash"],
+            (
+                0,
+                [
+                    "native:--actor OpenCode update dots-1 --title value with spaces",
+                    "sync:snapshot --if-due",
+                ],
+            ),
+        )
+
     def test_mutation_classifier_distinguishes_mixed_commands(self) -> None:
         writes = (
             ("update", "dots-1", "--title", "changed"),
