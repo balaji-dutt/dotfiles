@@ -123,6 +123,30 @@ STANDALONE_SCHEMAS = {
 
 
 class ConfigContractTests(unittest.TestCase):
+    def test_devcontainer_identity_contract_and_platform_defaults(self):
+        schema = LOAD_JSON(CONFIGS / "schemas/devcontainer-sync.v1.schema.json")
+        platform = schema["$defs"]["platform"]
+        self.assertNotIn("identity_labels", platform["required"])
+        labels = platform["properties"]["identity_labels"]
+        self.assertEqual(set(labels["required"]), {"devcontainer.local_folder", "devcontainer.config_file"})
+        key_pattern = labels["propertyNames"]["pattern"]
+        for key in ("devcontainer.local_folder", "custom-owner_1"):
+            self.assertIsNotNone(re.search(key_pattern, key))
+        for key in ("", "bad=key", "bad\n", "bad key"):
+            self.assertIsNone(re.search(key_pattern, key))
+        value_contract = labels["additionalProperties"]
+        self.assertEqual(value_contract["type"], "string")
+        self.assertEqual(value_contract["minLength"], 1)
+        self.assertIsNotNone(re.search(value_contract["not"]["pattern"], "unsafe\n"))
+        self.assertIsNone(re.search(value_contract["not"]["pattern"], r"\\wsl.localhost\Debian\space = one"))
+        manifest = LOAD_JSON(CONFIGS / "devcontainer-sync.jsonc", jsonc=True)
+        platforms = manifest["devcontainers"]["homelab-IaC"]["launcher"]["platforms"]
+        self.assertEqual(platforms["darwin"]["identity_labels"]["devcontainer.local_folder"], "{workspace}")
+        self.assertEqual(platforms["wsl2-debian"]["identity_labels"]["devcontainer.local_folder"],
+                         r"\\wsl.localhost\Debian{workspace_backslashes}")
+        for spec in platforms.values():
+            self.assertEqual(spec["identity_labels"]["devcontainer.config_file"], "{config}")
+
     def beads_kanban_manager(self) -> tuple[dict, re.Pattern]:
         config = LOAD_JSON(REPO_ROOT / "renovate.json5", jsonc=True)
         managers = [

@@ -8,7 +8,8 @@ usage() {
 Usage:
   devcontainer-launch --list
   devcontainer-launch <name-or-alias> [shell|up|rebuild|rebuild-no-cache|stop|down]
-  devcontainer-launch <name-or-alias> exec -- <command> [args...]
+  devcontainer-launch <name-or-alias> status [--json | --plain]
+  devcontainer-launch <name-or-alias> exec [--existing] -- <command> [args...]
 
 Environment overrides use each launcher's env_prefix, for example:
   HOMELAB_IAC_WORKSPACE=/path/to/workspace
@@ -90,7 +91,10 @@ RESOLVED_NATIVE_PATH=""
 NATIVE_PATH_WINDOWS_CANDIDATES=""
 DEVCONTAINER_CMD=()
 DOCKER_CMD=()
-MATCHING_CONTAINERS=()
+IDENTITY_LABELS=()
+DISCOVERY=""
+SELECTED_ID=""
+SELECTED_STATE=""
 
 is_windows_mounted_path() {
   local platform path
@@ -201,28 +205,167 @@ resolve_docker_command() {
     die "only Windows-mounted docker CLI candidates were found on WSL2: $docker_windows_candidates. Install a native Docker CLI in Debian WSL2."
   fi
 
-  die "docker CLI is required for stop/down actions"
+  die "docker CLI is required for container discovery"
 }
 
-collect_matching_containers() {
-  local ps_flags output container_id
-  MATCHING_CONTAINERS=()
-  ps_flags="-q"
+discover_containers() {
+  DISCOVERY="$(python3 - "${DOCKER_CMD[0]}" "$1" "$LAUNCHER_NAME" \
+    "$WORKSPACE_FOLDER" "$CONFIG_PATH" "${IDENTITY_LABELS[@]}" <<'PY'
+import json
+import re
+import subprocess
+import sys
 
-  if [[ "$1" == "all" ]]; then
-    ps_flags="-aq"
+docker, platform, name, workspace, config = sys.argv[1:6]
+labels = dict(item.split("=", 1) for item in sys.argv[6:])
+folder_key = "devcontainer.local_folder"
+config_key = "devcontainer.config_file"
+
+
+def docker_output(*args):
+    try:
+        result = subprocess.run([docker, *args], capture_output=True, text=True)
+    except OSError:
+        raise SystemExit("devcontainer-launch: failed to execute Docker")
+    if result.returncode:
+        raise SystemExit(f"devcontainer-launch: Docker {args[0]} failed (exit {result.returncode}); inspect Docker connectivity/container state")
+    return result.stdout
+
+
+def path_aliases(native, configured):
+    values = {native, configured}
+    if platform == "wsl2-debian":
+        for authority in ("wsl.localhost", "wsl$"):
+            values.add("\\\\" + authority + "\\Debian" + native.replace("/", "\\"))
+    return values
+
+
+folders = path_aliases(workspace, labels[folder_key])
+configs = path_aliases(config, labels[config_key])
+queries = [labels] + [{folder_key: folder} for folder in sorted(folders)]
+ids = set()
+for query in queries:
+    args = ["ps", "-aq", "--no-trunc"]
+    for key, value in query.items():
+        args += ["--filter", f"label={key}={value}"]
+    for container_id in docker_output(*args).splitlines():
+        if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+            raise SystemExit("devcontainer-launch: invalid full container ID from Docker")
+        ids.add(container_id)
+
+
+def expression(value):
+    return "{" * 2 + value + "}" * 2
+
+
+label_fields = [json.dumps(key) + ":" + expression("json (index .Config.Labels " + json.dumps(key) + ")") for key in labels]
+template = ('{"id":' + expression("json .Id") + ',"state":' + expression("json .State.Status")
+            + ',"labels":{' + ",".join(label_fields) + '}}')
+matches, conflicts = [], []
+for container_id in sorted(ids):
+    try:
+        container = json.loads(docker_output("inspect", "--type", "container", "--format", template, container_id))
+        observed = container["labels"]
+        if container["id"] != container_id or not isinstance(container["state"], str) or not container["state"]:
+            raise ValueError("invalid container state")
+        if not isinstance(observed, dict) or any(value is not None and not isinstance(value, str) for value in observed.values()):
+            raise ValueError("invalid labels")
+    except (ValueError, KeyError, TypeError):
+        raise SystemExit("devcontainer-launch: invalid container inspection from Docker")
+    safe = {"id": container_id, "state": container["state"],
+            "labels": {key: observed.get(key) for key in labels}}
+    if all(observed.get(key) == value for key, value in labels.items()):
+        matches.append(safe)
+    elif observed.get(folder_key) in folders and observed.get(config_key) in configs:
+        conflicts.append(safe)
+
+ambiguous = len(matches) > 1
+selection = "ambiguous" if ambiguous else "conflict" if conflicts else "unique" if matches else "missing"
+print(json.dumps({"schema_version": 1, "launcher": name, "platform": platform,
+                  "workspace_folder": workspace, "config": config, "identity_labels": labels,
+                  "matches": matches, "conflicts": conflicts, "ambiguous": ambiguous, "selection": selection}))
+PY
+  )" || return 1
+}
+
+select_container() {
+  local selection
+  selection="$(python3 - "$DISCOVERY" <<'PY'
+import json
+import sys
+
+report = json.loads(sys.argv[1])
+if report["selection"] in ("ambiguous", "conflict"):
+    ids = ", ".join(item["id"] for item in report["matches"] + report["conflicts"])
+    raise SystemExit(f"devcontainer-launch: {report['selection']} identity: {ids}. Run status --plain; inspect/correct identity or explicitly resolve duplicates before retrying.")
+if report["matches"]:
+    match = report["matches"][0]
+    if match["state"] not in ("created", "running", "paused", "restarting", "removing", "exited", "dead"):
+        raise SystemExit("devcontainer-launch: unknown container state")
+    print(match["id"], match["state"])
+PY
+  )" || return 1
+  SELECTED_ID="${selection%% *}"
+  SELECTED_STATE="${selection#* }"
+}
+
+require_running_container() {
+  [[ -n "$SELECTED_ID" ]] || die "no existing container found; run up separately to create/start it"
+  [[ "$SELECTED_STATE" == "running" ]] || die "existing container $SELECTED_ID is $SELECTED_STATE; run up separately to start it"
+}
+
+render_status() {
+  local platform mode plain heading details styled gum_bin
+  platform="$1"
+  mode="$2"
+  if [[ "$mode" == "--json" ]]; then
+    printf '%s\n' "$DISCOVERY"
+    return 0
   fi
+  plain="$(python3 - "$DISCOVERY" <<'PY'
+import json
+import sys
+import unicodedata
 
-  if ! output="$("${DOCKER_CMD[@]}" ps "$ps_flags" \
-    --filter "label=devcontainer.local_folder=$WORKSPACE_FOLDER" \
-    --filter "label=devcontainer.config_file=$CONFIG_PATH")"; then
-    die "failed to query docker containers for $LAUNCHER_NAME"
+report = json.loads(sys.argv[1])
+
+
+def text(value):
+    return "".join(char if not unicodedata.category(char).startswith("C") else f"\\u{ord(char):04x}" for char in str(value))
+
+
+print(f"{text(report['launcher'])}: {report['selection']}")
+print(f"Platform: {text(report['platform'])}")
+print(f"Workspace: {text(report['workspace_folder'])}")
+print(f"Config: {text(report['config'])}")
+print("Identity:")
+for key, value in report["identity_labels"].items():
+    print(f"  {text(key)}={text(value)}")
+for field in ("matches", "conflicts"):
+    print(f"{field.capitalize()}: {len(report[field])}")
+    for item in report[field]:
+        print(f"  {item['id']}  {text(item['state'])}")
+        for key, value in item["labels"].items():
+            print(f"    {text(key)}={text(value)}")
+if report["selection"] in ("ambiguous", "conflict"):
+    print("Next: inspect/correct identity or explicitly resolve duplicates; lifecycle actions are refused.")
+elif report["selection"] == "missing" or report["matches"][0]["state"] != "running":
+    print("Next: run up separately to create/start the container.")
+else:
+    print("Next: exec --existing -- <command> runs without starting or creating a container.")
+PY
+  )" || return 1
+  if [[ "$mode" != "--plain" && -t 1 && -n "${TERM:-}" && "${TERM:-}" != "dumb" && -z "${NO_COLOR:-}" ]] && \
+    resolve_native_path_command "$platform" gum; then
+    gum_bin="$RESOLVED_NATIVE_PATH"
+    heading="${plain%%$'\n'*}"
+    details="${plain#*$'\n'}"
+    if styled="$(CLICOLOR_FORCE=1 "$gum_bin" style --bold -- "$heading" </dev/null 2>/dev/null)"; then
+      printf '%s\n%s\n' "$styled" "$details"
+      return 0
+    fi
   fi
-
-  while IFS= read -r container_id; do
-    [[ -n "$container_id" ]] || continue
-    MATCHING_CONTAINERS+=("$container_id")
-  done <<<"$output"
+  printf '%s\n' "$plain"
 }
 
 prepare_devcontainer_action() {
@@ -232,31 +375,11 @@ prepare_devcontainer_action() {
   require_dir "$WORKSPACE_FOLDER" "workspace folder"
   require_file "$CONFIG_PATH" "devcontainer config"
   resolve_devcontainer_command "$platform"
-  devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH")
-}
-
-stop_matching_containers() {
-  collect_matching_containers "running"
-
-  if [[ ${#MATCHING_CONTAINERS[@]} -eq 0 ]]; then
-    printf 'devcontainer-launch: no running container found for %s\n' "$LAUNCHER_NAME" >&2
-    return 0
-  fi
-
-  printf 'devcontainer-launch: stopping %d container(s) for %s\n' "${#MATCHING_CONTAINERS[@]}" "$LAUNCHER_NAME" >&2
-  "${DOCKER_CMD[@]}" stop "${MATCHING_CONTAINERS[@]}"
-}
-
-remove_matching_containers() {
-  collect_matching_containers "all"
-
-  if [[ ${#MATCHING_CONTAINERS[@]} -eq 0 ]]; then
-    printf 'devcontainer-launch: no container found for %s\n' "$LAUNCHER_NAME" >&2
-    return 0
-  fi
-
-  printf 'devcontainer-launch: removing %d container(s) for %s\n' "${#MATCHING_CONTAINERS[@]}" "$LAUNCHER_NAME" >&2
-  "${DOCKER_CMD[@]}" rm -f "${MATCHING_CONTAINERS[@]}"
+  devcontainer_args=(--workspace-folder "$WORKSPACE_FOLDER" --config "$CONFIG_PATH" --docker-path "${DOCKER_CMD[0]}")
+  local label
+  for label in "${IDENTITY_LABELS[@]}"; do
+    devcontainer_args+=(--id-label "$label")
+  done
 }
 
 list_launchers() {
@@ -521,8 +644,27 @@ prefix = env_prefix_for(name, launcher)
 
 workspace = expand_path(platform_spec["workspace_folder"], home, "")
 workspace = os.environ.get(f"{prefix}_WORKSPACE", workspace)
+workspace = os.path.abspath(workspace)
 config = expand_path(platform_spec["config"], home, workspace)
 config = os.environ.get(f"{prefix}_CONFIG", config)
+config = os.path.abspath(config)
+
+labels = platform_spec.get("identity_labels", {
+    "devcontainer.local_folder": "{workspace}", "devcontainer.config_file": "{config}"})
+if not isinstance(labels, dict) or not {"devcontainer.local_folder", "devcontainer.config_file"} <= labels.keys():
+    raise SystemExit("identity_labels must contain devcontainer.local_folder and devcontainer.config_file")
+tokens = {"home": home, "workspace": workspace, "config": config,
+          "workspace_backslashes": workspace.replace("/", "\\")}
+expanded_labels = []
+for key, value in labels.items():
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key) or key == "devcontainer.metadata":
+        raise SystemExit("Invalid identity label key")
+    if not isinstance(value, str):
+        raise SystemExit("Identity label values must be strings")
+    value = re.sub(r"\{(home|workspace|config|workspace_backslashes)\}", lambda match: tokens[match[1]], value)
+    if not value or re.search(r"[\x00-\x1f\x7f-\x9f]", value):
+        raise SystemExit("Identity label values must be nonempty and contain no control characters")
+    expanded_labels.append(f"{key}={value}")
 
 shell_spec = os.environ.get(f"{prefix}_SHELL")
 if shell_spec:
@@ -539,11 +681,12 @@ print(f"LAUNCHER_ENV_PREFIX={shlex.quote(prefix)}")
 print(f"WORKSPACE_FOLDER={shlex.quote(workspace)}")
 print(f"CONFIG_PATH={shlex.quote(config)}")
 print(shell_array("SHELL_CMD", shell))
+print(shell_array("IDENTITY_LABELS", expanded_labels))
 PY
 }
 
 main() {
-  local platform action requested resolved
+  local platform action requested resolved mode existing
 
   platform="$(detect_platform)" || die "unsupported platform; supported platforms are macOS and Debian WSL2"
 
@@ -572,12 +715,48 @@ main() {
   eval "$resolved"
 
   local -a devcontainer_args=()
+  existing=false
+  mode=""
+  case "$action" in
+    exec)
+      if [[ "${1:-}" == "--existing" ]]; then
+        existing=true
+        shift
+      fi
+      if [[ "${1:-}" == "--" ]]; then shift; fi
+      [[ $# -gt 0 ]] || die "exec action requires a command"
+      ;;
+    status)
+      [[ $# -le 1 ]] || die "status accepts only one of --json or --plain"
+      mode="${1:-}"
+      [[ -z "$mode" || "$mode" == "--json" || "$mode" == "--plain" ]] || die "unknown status option: $mode"
+      ;;
+    shell|up|rebuild|rebuild-no-cache|stop|down)
+      [[ $# -eq 0 ]] || die "unexpected arguments for $action"
+      ;;
+    -h|--help|help) usage; return 0 ;;
+    *) usage; die "unknown action: $action" ;;
+  esac
+
+  resolve_docker_command "$platform"
+  discover_containers "$platform"
+  if [[ "$action" == "status" ]]; then
+    render_status "$platform" "$mode"
+    return 0
+  fi
+  select_container
 
   case "$action" in
-    shell)
+    shell|exec)
       prepare_devcontainer_action "$platform"
-      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
-      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "${SHELL_CMD[@]}"
+      if [[ "$existing" == false ]]; then
+        "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
+        discover_containers "$platform"
+        select_container
+      fi
+      require_running_container
+      if [[ "$action" == "shell" ]]; then set -- "${SHELL_CMD[@]}"; fi
+      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" --container-id "$SELECTED_ID" -- "$@"
       ;;
     up)
       prepare_devcontainer_action "$platform"
@@ -591,29 +770,21 @@ main() {
       prepare_devcontainer_action "$platform"
       exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --remove-existing-container --build-no-cache
       ;;
-    exec)
-      prepare_devcontainer_action "$platform"
-      if [[ "${1:-}" == "--" ]]; then
-        shift
-      fi
-      [[ $# -gt 0 ]] || die "exec action requires a command"
-      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
-      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" "$@"
-      ;;
     stop)
-      resolve_docker_command "$platform"
-      stop_matching_containers
+      if [[ -n "$SELECTED_ID" && "$SELECTED_STATE" == "running" ]]; then
+        "${DOCKER_CMD[@]}" stop "$SELECTED_ID"
+      elif [[ -n "$SELECTED_ID" ]]; then
+        printf 'devcontainer-launch: container %s for %s is %s; no stop requested\n' "$SELECTED_ID" "$LAUNCHER_NAME" "$SELECTED_STATE" >&2
+      else
+        printf 'devcontainer-launch: no container to stop for %s\n' "$LAUNCHER_NAME" >&2
+      fi
       ;;
     down)
-      resolve_docker_command "$platform"
-      remove_matching_containers
-      ;;
-    -h|--help|help)
-      usage
-      ;;
-    *)
-      usage
-      die "unknown action: $action"
+      if [[ -n "$SELECTED_ID" ]]; then
+        "${DOCKER_CMD[@]}" rm -f "$SELECTED_ID"
+      else
+        printf 'devcontainer-launch: no container to remove for %s\n' "$LAUNCHER_NAME" >&2
+      fi
       ;;
   esac
 }

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import pty
 import subprocess
 import sys
 import unittest
@@ -11,6 +13,15 @@ from tests.support.fixtures import isolated_environment, read_json_lines, write_
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPO_ROOT / "bin/executable_devcontainer-launch.tmpl"
+CONTAINER_ID = "a" * 64
+SECOND_ID = "b" * 64
+FOLDER = "devcontainer.local_folder"
+CONFIG = "devcontainer.config_file"
+
+
+def container(workspace, config, *, identifier=CONTAINER_ID, state="running", extra=None):
+    return {"id": identifier, "state": state,
+            "labels": {FOLDER: str(workspace), CONFIG: str(config)} | (extra or {})}
 
 
 def run_launcher(
@@ -36,7 +47,10 @@ def write_append_logger(path: Path, log: Path) -> Path:
         f"log = pathlib.Path({str(log)!r})\n"
         "with log.open('a', encoding='utf-8') as stream:\n"
         "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "raise SystemExit(int(os.environ.get('FAKE_CLI_EXIT', '0')))\n",
+        "if sys.argv[1] == 'up' and 'FAKE_AFTER_UP' in os.environ:\n"
+        "    pathlib.Path(os.environ['FAKE_CONTAINERS']).write_text(os.environ['FAKE_AFTER_UP'])\n"
+        "code = os.environ.get('FAKE_' + sys.argv[1].upper() + '_EXIT', os.environ.get('FAKE_CLI_EXIT', '0'))\n"
+        "raise SystemExit(int(code))\n",
     )
 
 
@@ -90,8 +104,69 @@ class DevcontainerLaunchTests(unittest.TestCase):
             + "\n// trailing JSONC comment\n",
             encoding="utf-8",
         )
-        env = fixture.env | {"DEVCONTAINER_LAUNCH_MANIFEST": str(manifest)}
+        docker = write_executable(
+            fixture.fake_bin / "docker",
+            f"#!{sys.executable}\n" + r'''
+import json, os, pathlib, re, sys
+args = sys.argv[1:]
+with pathlib.Path(os.environ['FAKE_DOCKER_LOG']).open('a') as stream:
+    stream.write(json.dumps(args) + '\n')
+if os.environ.get('FAKE_DOCKER_FAIL') == args[0]:
+    print('SECRET-DOCKER-ERROR', file=sys.stderr)
+    sys.exit(42)
+data = json.loads(pathlib.Path(os.environ['FAKE_CONTAINERS']).read_text())
+if data is None:
+    data = [{'id': 'a' * 64, 'state': 'running', 'labels': {
+        'devcontainer.local_folder': os.environ.get('SAMPLE_TOOL_WORKSPACE', os.environ['FAKE_WORKSPACE']),
+        'devcontainer.config_file': os.environ.get('SAMPLE_TOOL_CONFIG', os.environ['FAKE_CONFIG'])}}]
+if args[0] == 'ps':
+    filters = [args[index + 1][6:].split('=', 1) for index, value in enumerate(args) if value == '--filter']
+    for item in data:
+        if all(item['labels'].get(key) == value for key, value in filters):
+            print(item['id'])
+elif args[0] == 'inspect':
+    item = next(item for item in data if item['id'] == args[-1])
+    template = args[args.index('--format') + 1]
+    keys = re.findall(r'index .Config.Labels "([^"]+)"', template)
+    print(json.dumps({'id': item['id'], 'state': item['state'],
+                      'labels': {key: item['labels'].get(key) for key in keys}}))
+elif args[0] not in ('stop', 'rm'):
+    sys.exit(99)
+''',
+        )
+        data = fixture.root / "containers.json"
+        data.write_text("null")
+        cli = write_append_logger(fixture.fake_bin / "devcontainer", fixture.root / "devcontainer.jsonl")
+        env = {key: value for key, value in fixture.env.items()
+               if not key.startswith(("FAKE_", "SAMPLE_TOOL_"))}
+        env.update({"DEVCONTAINER_LAUNCH_MANIFEST": str(manifest),
+                    "DOCKER_CLI": str(docker), "DEVCONTAINER_CLI": str(cli),
+                    "FAKE_DOCKER_LOG": str(fixture.root / "docker.jsonl"),
+                    "FAKE_CONTAINERS": str(data), "FAKE_WORKSPACE": str(workspace),
+                    "FAKE_CONFIG": str(config)})
         return script, workspace, config, env
+
+    def base_args(self, workspace, config, env, labels=None):
+        labels = labels or {FOLDER: str(workspace), CONFIG: str(config)}
+        return ["--workspace-folder", str(workspace), "--config", str(config),
+                "--docker-path", env["DOCKER_CLI"],
+                *[arg for key, value in labels.items() for arg in ("--id-label", f"{key}={value}")]]
+
+    def configure_identity(self, env, labels, platform="darwin"):
+        manifest = Path(env["DEVCONTAINER_LAUNCH_MANIFEST"])
+        payload = json.loads(manifest.read_text().split("\n//")[0])
+        platforms = payload["devcontainers"]["sample-tool"]["launcher"]["platforms"]
+        spec = platforms.pop(next(iter(platforms)))
+        spec["identity_labels"] = labels
+        platforms[platform] = spec
+        manifest.write_text(json.dumps(payload))
+
+    def set_containers(self, env, data):
+        Path(env["FAKE_CONTAINERS"]).write_text(json.dumps(data))
+
+    def assert_no_mutation(self, fixture):
+        self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"), [])
+        self.assertTrue(all(call[0] in ("ps", "inspect") for call in read_json_lines(fixture.root / "docker.jsonl")))
 
     def test_list_parses_jsonc_and_reports_aliases(self) -> None:
         with isolated_environment(prefix="devcontainer list ") as fixture:
@@ -116,10 +191,10 @@ class DevcontainerLaunchTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            base = ["--workspace-folder", str(workspace), "--config", str(config)]
+            base = self.base_args(workspace, config, env)
             self.assertEqual(
                 read_json_lines(log),
-                [["up", *base], ["exec", *base, "zsh", "-l"]],
+                [["up", *base], ["exec", *base, "--container-id", CONTAINER_ID, "--", "zsh", "-l"]],
             )
 
     def test_environment_overrides_paths_and_shell_without_word_loss(self) -> None:
@@ -147,10 +222,10 @@ class DevcontainerLaunchTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            base = ["--workspace-folder", str(workspace), "--config", str(config)]
+            base = self.base_args(workspace, config, env)
             self.assertEqual(
                 read_json_lines(log),
-                [["up", *base], ["exec", *base, "bash", "-lc", "printf literal; value"]],
+                [["up", *base], ["exec", *base, "--container-id", CONTAINER_ID, "--", "bash", "-lc", "printf literal; value"]],
             )
 
     def test_exec_and_rebuild_preserve_arguments_flags_and_exit_status(self) -> None:
@@ -158,7 +233,7 @@ class DevcontainerLaunchTests(unittest.TestCase):
             script, workspace, config, env = self.prepare(fixture)
             log = fixture.root / "devcontainer.jsonl"
             cli = write_append_logger(fixture.root / "devcontainer", log)
-            base = ["--workspace-folder", str(workspace), "--config", str(config)]
+            base = self.base_args(workspace, config, env)
 
             exec_result = run_launcher(
                 script,
@@ -183,7 +258,7 @@ class DevcontainerLaunchTests(unittest.TestCase):
                 read_json_lines(log),
                 [
                     ["up", *base],
-                    ["exec", *base, "python3", "argument with spaces", "semi;literal"],
+                    ["exec", *base, "--container-id", CONTAINER_ID, "--", "python3", "argument with spaces", "semi;literal"],
                     ["up", *base, "--remove-existing-container", "--build-no-cache"],
                 ],
             )
@@ -192,32 +267,18 @@ class DevcontainerLaunchTests(unittest.TestCase):
         with isolated_environment(prefix="devcontainer docker ") as fixture:
             script, workspace, config, env = self.prepare(fixture)
             log = fixture.root / "docker.jsonl"
-            docker = write_executable(
-                fixture.root / "docker tools/docker",
-                f"#!{sys.executable}\n"
-                "import json, pathlib, sys\n"
-                f"log = pathlib.Path({str(log)!r})\n"
-                "with log.open('a', encoding='utf-8') as stream:\n"
-                "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-                "if sys.argv[1:2] == ['ps']:\n"
-                "    print('container-one')\n"
-                "    print('container two')\n",
-            )
-            expected_filters = [
-                f"label=devcontainer.local_folder={workspace}",
-                f"label=devcontainer.config_file={config}",
-            ]
-
-            stop = run_launcher(script, "sample", "stop", env=env | {"DOCKER_CLI": str(docker)})
-            down = run_launcher(script, "sample", "down", env=env | {"DOCKER_CLI": str(docker)})
+            self.set_containers(env, [container(workspace, config),
+                                     container(workspace, "/other/config", identifier=SECOND_ID)])
+            stop = run_launcher(script, "sample", "stop", env=env)
+            down = run_launcher(script, "sample", "down", env=env)
 
             self.assertEqual(stop.returncode, 0, stop.stderr)
             self.assertEqual(down.returncode, 0, down.stderr)
             calls = read_json_lines(log)
-            self.assertEqual(calls[0], ["ps", "-q", "--filter", expected_filters[0], "--filter", expected_filters[1]])
-            self.assertEqual(calls[1], ["stop", "container-one", "container two"])
-            self.assertEqual(calls[2], ["ps", "-aq", "--filter", expected_filters[0], "--filter", expected_filters[1]])
-            self.assertEqual(calls[3], ["rm", "-f", "container-one", "container two"])
+            self.assertEqual([call for call in calls if call[0] in ("stop", "rm")],
+                             [["stop", CONTAINER_ID], ["rm", "-f", CONTAINER_ID]])
+            self.assertEqual(calls[0], ["ps", "-aq", "--no-trunc", "--filter",
+                                       f"label={FOLDER}={workspace}", "--filter", f"label={CONFIG}={config}"])
 
     def test_invalid_launcher_and_cli_fail_before_external_execution(self) -> None:
         with isolated_environment(prefix="devcontainer refusal ") as fixture:
@@ -244,6 +305,295 @@ class DevcontainerLaunchTests(unittest.TestCase):
             self.assertIn("DEVCONTAINER_CLI is not executable", missing_cli.stderr)
             self.assertEqual(missing_command.returncode, 1)
             self.assertIn("exec action requires a command", missing_command.stderr)
+
+    def test_identity_templates_follow_overrides_and_preserve_literals(self):
+        with isolated_environment(prefix="devcontainer identity ") as fixture:
+            script, _, _, env = self.prepare(fixture)
+            workspace = fixture.root / "space = ' $(touch injected) {config}"
+            workspace.mkdir()
+            config = workspace / "devcontainer.json"
+            config.write_text("{}")
+            templates = {FOLDER: "{workspace}", CONFIG: "{config}",
+                         "custom.owner": "{home}/value=one; $(false) ' \\ two"}
+            self.configure_identity(env, templates)
+            labels = {FOLDER: str(workspace), CONFIG: str(config),
+                      "custom.owner": str(fixture.home) + "/value=one; $(false) ' \\ two"}
+            self.set_containers(env, [container(workspace, config, extra={"custom.owner": labels["custom.owner"]})])
+            env |= {"SAMPLE_TOOL_WORKSPACE": str(workspace), "SAMPLE_TOOL_CONFIG": str(config)}
+            result = run_launcher(script, "sample", "exec", "--existing", "--", "printf", "--existing", "a=b;literal", env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"), [
+                ["exec", *self.base_args(workspace, config, env, labels), "--container-id", CONTAINER_ID,
+                 "--", "printf", "--existing", "a=b;literal"]])
+            self.assertFalse((workspace / "injected").exists())
+
+    def test_invalid_identity_fails_before_docker(self):
+        invalid = [None, [], {}, {FOLDER: "x"}, {FOLDER: "", CONFIG: "x"},
+                   {FOLDER: "x\n", CONFIG: "x"}, {FOLDER: 3, CONFIG: "x"},
+                   {FOLDER: "x", CONFIG: "x", "bad=key": "x"},
+                   {FOLDER: "x", CONFIG: "x", "devcontainer.metadata": "SECRET"}]
+        for labels in invalid:
+            with self.subTest(labels=labels), isolated_environment() as fixture:
+                script, _, _, env = self.prepare(fixture)
+                self.configure_identity(env, labels)
+                result = run_launcher(script, "sample", "up", env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(read_json_lines(fixture.root / "docker.jsonl"), [])
+                self.assert_no_mutation(fixture)
+
+    def test_status_selection_matrix_is_observational(self):
+        for states, outcome in (([], "missing"), (["running"], "unique"),
+                                (["exited"], "unique"), (["running", "exited"], "ambiguous")):
+            with self.subTest(states=states), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                self.set_containers(env, [container(workspace, config, state=state, identifier=identifier)
+                                         for state, identifier in zip(states, (CONTAINER_ID, SECOND_ID))])
+                config.unlink()
+                result = run_launcher(script, "sample", "status", "--json",
+                                      env=env | {"DEVCONTAINER_CLI": "/not-installed"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertEqual(report["schema_version"], 1)
+                self.assertEqual(report["selection"], outcome)
+                self.assertEqual(report["ambiguous"], len(states) > 1)
+                self.assertEqual(len(report["matches"]), len(states))
+                self.assertEqual(report["identity_labels"], {FOLDER: str(workspace), CONFIG: str(config)})
+                self.assertEqual(result.stderr, "")
+                plain = run_launcher(script, "sample", "status", "--plain", env=env)
+                self.assertEqual(plain.returncode, 0, plain.stderr)
+                self.assertIn(outcome, plain.stdout)
+                self.assertNotIn("\x1b", plain.stdout)
+                self.assert_no_mutation(fixture)
+
+    def test_all_lifecycle_actions_refuse_running_plus_stopped_duplicates(self):
+        for action in ("up", "shell", "rebuild", "rebuild-no-cache", "stop", "down", "exec"):
+            with self.subTest(action=action), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                self.set_containers(env, [container(workspace, config),
+                                         container(workspace, config, identifier=SECOND_ID, state="exited")])
+                args = ("--", "true") if action == "exec" else ()
+                result = run_launcher(script, "sample", action, *args, env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("ambiguous identity", result.stderr)
+                self.assertIn(SECOND_ID, result.stderr)
+                self.assert_no_mutation(fixture)
+
+    def test_missing_and_stopped_existing_exec_never_ensures_up(self):
+        for state in (None, "exited", "paused", "restarting"):
+            with self.subTest(state=state), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                self.set_containers(env, [] if state is None else [container(workspace, config, state=state)])
+                result = run_launcher(script, "sample", "exec", "--existing", "--", "true", env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("run up separately", result.stderr)
+                self.assert_no_mutation(fixture)
+
+    def test_existing_exec_preserves_failure_and_no_fallback(self):
+        for code in (17, 125):
+            with self.subTest(code=code), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                result = run_launcher(script, "sample", "exec", "--existing", "--", "sh", "-c", "exit 17",
+                                      env=env | {"FAKE_EXEC_EXIT": str(code)})
+                self.assertEqual(result.returncode, code)
+                calls = read_json_lines(fixture.root / "devcontainer.jsonl")
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0], ["exec", *self.base_args(workspace, config, env),
+                                            "--container-id", CONTAINER_ID, "--", "sh", "-c", "exit 17"])
+                self.assertTrue(all(call[0] in ("ps", "inspect") for call in read_json_lines(fixture.root / "docker.jsonl")))
+
+    def test_ensure_up_transitions_and_failure(self):
+        for after in ("running", "exited", "missing", "duplicate", "up-failure"):
+            with self.subTest(after=after), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                self.set_containers(env, [])
+                data = [] if after == "missing" else [container(workspace, config, state="exited" if after == "exited" else "running")]
+                if after == "duplicate":
+                    data.append(container(workspace, config, identifier=SECOND_ID))
+                env |= {"FAKE_AFTER_UP": json.dumps(data)}
+                if after == "up-failure":
+                    env["FAKE_UP_EXIT"] = "23"
+                result = run_launcher(script, "sample", "exec", "true", env=env)
+                calls = read_json_lines(fixture.root / "devcontainer.jsonl")
+                self.assertEqual([call[0] for call in calls], ["up", "exec"] if after == "running" else ["up"])
+                if after == "running":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                if after == "up-failure":
+                    self.assertEqual(result.returncode, 23)
+
+    def test_up_and_rebuild_share_identity_even_when_missing_or_stopped(self):
+        for action, flags in (("up", []), ("rebuild", ["--remove-existing-container"]),
+                              ("rebuild-no-cache", ["--remove-existing-container", "--build-no-cache"])):
+            for state in (None, "exited"):
+                with self.subTest(action=action, state=state), isolated_environment() as fixture:
+                    script, workspace, config, env = self.prepare(fixture)
+                    self.set_containers(env, [] if state is None else [container(workspace, config, state=state)])
+                    result = run_launcher(script, "sample", action, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"),
+                                     [["up", *self.base_args(workspace, config, env), *flags]])
+
+    def test_stop_and_down_missing_noops_and_stopped_behavior(self):
+        for state in (None, "exited", "paused", "restarting"):
+            with self.subTest(state=state), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                self.set_containers(env, [] if state is None else [container(workspace, config, state=state)])
+                for action in ("stop", "down"):
+                    result = run_launcher(script, "sample", action, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if action == "stop":
+                        self.assertIn("sample-tool", result.stderr)
+                        if state is not None:
+                            self.assertIn(f"is {state}; no stop requested", result.stderr)
+                calls = read_json_lines(fixture.root / "docker.jsonl")
+                self.assertEqual([call for call in calls if call[0] not in ("ps", "inspect")],
+                                 [] if state is None else [["rm", "-f", CONTAINER_ID]])
+
+    def test_wsl_unc_identity_and_narrow_conflicts(self):
+        for variant in ("exact", "native", "legacy-unc", "unc-config", "other-config", "other-workspace", "extra-label"):
+            with self.subTest(variant=variant), isolated_environment() as fixture:
+                script, workspace, config, env = self.prepare(fixture)
+                script.write_text(script.read_text().replace('platform="$(detect_platform)"', 'platform="wsl2-debian"'))
+                unc = "\\\\wsl.localhost\\Debian" + str(workspace).replace("/", "\\")
+                self.configure_identity(env, {FOLDER: "\\\\wsl.localhost\\Debian{workspace_backslashes}",
+                                              CONFIG: "{config}", "custom.owner": "terminal"}, "wsl2-debian")
+                item = container(unc, config, extra={"custom.owner": "terminal"})
+                if variant == "native": item["labels"][FOLDER] = str(workspace)
+                if variant == "legacy-unc": item["labels"][FOLDER] = unc.replace("wsl.localhost", "wsl$")
+                if variant == "unc-config": item["labels"][CONFIG] = "\\\\wsl$\\Debian" + str(config).replace("/", "\\")
+                if variant == "other-config": item["labels"][CONFIG] = "/other/config"
+                if variant == "other-workspace": item["labels"][FOLDER] = "/another/Workspace with spaces"
+                if variant == "extra-label": item["labels"].pop("custom.owner")
+                self.set_containers(env, [item])
+                result = run_launcher(script, "sample", "status", "--json", env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report = json.loads(result.stdout)
+                expected = "unique" if variant == "exact" else "missing" if variant.startswith("other-") else "conflict"
+                self.assertEqual(report["selection"], expected)
+                self.assertEqual(report["identity_labels"][FOLDER], unc)
+                if expected == "conflict":
+                    for action, args in (("up", ()), ("stop", ()), ("down", ()), ("exec", ("--existing", "--", "true"))):
+                        refused = run_launcher(script, "sample", action, *args, env=env)
+                        self.assertNotEqual(refused.returncode, 0)
+                        self.assertIn("conflict identity", refused.stderr)
+                    self.assert_no_mutation(fixture)
+                elif expected == "unique":
+                    existing = run_launcher(script, "sample", "exec", "--existing", "--", "true", env=env)
+                    self.assertEqual(existing.returncode, 0, existing.stderr)
+                    calls = read_json_lines(fixture.root / "devcontainer.jsonl")
+                    self.assertIn(f"{FOLDER}={unc}", calls[0])
+                    self.assertEqual(len(report["matches"]), 1)
+
+    def test_docker_errors_and_disappearance_fail_closed(self):
+        for operation in ("ps", "inspect"):
+            for action, args in (("status", ("--json",)), ("exec", ("--existing", "--", "true")), ("up", ())):
+                with self.subTest(operation=operation, action=action), isolated_environment() as fixture:
+                    script, _, _, env = self.prepare(fixture)
+                    result = run_launcher(script, "sample", action, *args, env=env | {"FAKE_DOCKER_FAIL": operation})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn("SECRET", result.stderr)
+                    self.assert_no_mutation(fixture)
+
+    def test_status_only_exposes_identity_and_escapes_terminal_controls(self):
+        with isolated_environment() as fixture:
+            script, workspace, config, env = self.prepare(fixture)
+            self.configure_identity(env, {FOLDER: "{workspace}", CONFIG: "{config}", "custom.owner": "expected"})
+            item = container(workspace, config, extra={"custom.owner": "\x1b]2;unsafe\x07",
+                                                       "devcontainer.metadata": "SECRET-METADATA", "unrelated": "SECRET-LABEL"})
+            item["env"] = ["SECRET=ENV"]
+            self.set_containers(env, [item])
+            for mode in ("--json", "--plain"):
+                result = run_launcher(script, "sample", "status", mode, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("\x1b", result.stdout)
+                self.assertNotIn("SECRET", result.stdout + result.stderr)
+            inspect = next(call for call in read_json_lines(fixture.root / "docker.jsonl") if call[0] == "inspect")
+            self.assertNotIn(".Config.Env", inspect[4])
+            self.assertNotIn("devcontainer.metadata", inspect[4])
+
+    def test_status_presentation_matrix(self):
+        for mode, tty, term, no_color, gum_state, styled in (
+            (None, True, "xterm", "", "ok", True),
+            (None, False, "xterm", "", "ok", False),
+            ("--json", True, "xterm", "", "ok", False),
+            ("--plain", True, "xterm", "", "ok", False),
+            (None, True, "xterm", "1", "ok", False),
+            (None, True, "dumb", "", "ok", False),
+            (None, True, "", "", "ok", False),
+            (None, True, None, "", "ok", False),
+            (None, True, "xterm", "", "fail", False),
+            (None, True, "xterm", "", "missing", False),
+        ):
+            with self.subTest(mode=mode, tty=tty, term=term, gum=gum_state), isolated_environment() as fixture:
+                script, workspace, _, env = self.prepare(fixture)
+                gum_log = fixture.root / "gum.jsonl"
+                write_executable(fixture.fake_bin / "gum", f"#!{sys.executable}\n"
+                                 "import json, pathlib, sys\n"
+                                 f"pathlib.Path({str(gum_log)!r}).write_text(json.dumps(sys.argv[1:]) + '\\n')\n"
+                                 "assert sys.stdin.read() == ''\n"
+                                 "print('STYLED ' + sys.argv[-1])\n"
+                                 f"sys.exit({1 if gum_state == 'fail' else 0})\n")
+                if gum_state == "missing":
+                    script.write_text(script.read_text().replace('resolve_native_path_command "$platform" gum;', 'false;'))
+                env |= {"NO_COLOR": no_color}
+                if term is None: env.pop("TERM", None)
+                else: env["TERM"] = term
+                args = ["sample", "status"] + ([mode] if mode else [])
+                if tty:
+                    master, slave = pty.openpty()
+                    try:
+                        result = subprocess.run(["/bin/bash", str(script), *args], env=env,
+                                                stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.PIPE, text=True, timeout=10)
+                        os.close(slave)
+                        slave = None
+                        chunks = []
+                        while True:
+                            try: chunk = os.read(master, 65536)
+                            except OSError: break
+                            if not chunk: break
+                            chunks.append(chunk)
+                        output = b"".join(chunks).decode().replace("\r\n", "\n")
+                    finally:
+                        os.close(master)
+                        if slave is not None: os.close(slave)
+                else:
+                    result = run_launcher(script, *args, env=env)
+                    output = result.stdout
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("STYLED" in output, styled)
+                invoked = styled or gum_state == "fail"
+                self.assertEqual(bool(read_json_lines(gum_log)), invoked)
+                self.assertIn(str(workspace), output)
+                self.assertIn(CONTAINER_ID, output)
+                if mode == "--json": self.assertEqual(json.loads(output)["selection"], "unique")
+                self.assert_no_mutation(fixture)
+
+    def test_output_flags_are_exclusive(self):
+        with isolated_environment() as fixture:
+            script, _, _, env = self.prepare(fixture)
+            result = run_launcher(script, "sample", "status", "--json", "--plain", env=env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(read_json_lines(fixture.root / "docker.jsonl"), [])
+
+    def test_native_path_classification_and_resolution(self):
+        with isolated_environment() as fixture:
+            script, _, _, env = self.prepare(fixture)
+            source = script.read_text().rsplit('main "$@"', 1)[0]
+            script.write_text(source + '''
+is_windows_mounted_path wsl2-debian /mnt/c/tools/docker
+! is_windows_mounted_path wsl2-debian /mnt/devdrive/docker
+! is_windows_mounted_path darwin /mnt/c/tools/docker
+resolve_native_path_command wsl2-debian docker
+[[ "$RESOLVED_NATIVE_PATH" == "$DOCKER_CLI" ]]
+resolve_docker_command wsl2-debian
+[[ "${DOCKER_CMD[0]}" == "$DOCKER_CLI" ]]
+resolve_devcontainer_command wsl2-debian
+[[ "${DEVCONTAINER_CMD[0]}" == "$DEVCONTAINER_CLI" ]]
+''')
+            result = run_launcher(script, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
