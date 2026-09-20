@@ -23,6 +23,11 @@ POST_START = RUNTIME_DIR / "postStart.sh"
 DEVCONTAINER_CONFIG = RUNTIME_DIR / "devcontainer.json.tmpl"
 PROMPTFOO_SOURCE = RUNTIME_DIR.parent / "configs/promptfoo-runtime"
 BASH = shutil.which("bash")
+UNSLOP_SKILLS = (
+    "unslop", "unslop-commit", "unslop-file", "unslop-file-voice",
+    "unslop-help", "unslop-reasoning", "unslop-review",
+)
+CONTAINER_DOTFILES = REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles"
 
 
 @unittest.skipUnless(os.name != "nt" and BASH, "POSIX bash is required")
@@ -333,6 +338,93 @@ printf '%s:%s:%s\n' "$state" "$LIFECYCLE_EXPORTED" "$(printenv LIFECYCLE_EXPORTE
         self.assertEqual(stat.S_IMODE((target / "hook.sh").stat().st_mode), 0o755)
         self.assertTrue((target / ".config.json").is_symlink())
         self.assertEqual(os.readlink(target / ".config.json"), str(normal))
+
+    def test_claude_installer_provisions_skills_and_preserves_local_content(self) -> None:
+        for index, root in enumerate((REPO_ROOT, CONTAINER_DOTFILES)):
+            with self.subTest(source=root):
+                source = self.fixture.root / f"claude source {index}"
+                home = self.fixture.root / f"claude home {index}"
+                target = home / ".claude" / "skills"
+                backup = self.fixture.root / f"claude backups {index}"
+                for name in UNSLOP_SKILLS:
+                    shutil.copytree(root / "dot_claude/skills" / name, source / "skills" / name)
+                (target / "local-only").mkdir(parents=True)
+                (target / "local-only/SKILL.md").write_text("local\n", encoding="utf-8")
+                (target / "unslop-commit").mkdir()
+                (target / "unslop-commit/SKILL.md").write_text("conflict\n", encoding="utf-8")
+                env = dict(self.env, HOME=str(home), CLAUDE_MANAGED_BACKUP_ROOT=str(backup))
+                script = '''
+set -e
+source "$1"
+fixture_source="$2"
+claude_managed_source_dir() { printf '%s\\n' "$fixture_source"; }
+install_claude_managed_asset_links
+install_claude_managed_asset_links
+'''
+                self.assert_success(self.run_bash(script, str(COMMON), str(source), env=env))
+                self.assertFalse(target.is_symlink())
+                for name in UNSLOP_SKILLS:
+                    self.assertTrue((target / name).is_symlink())
+                    self.assertEqual((target / name / "SKILL.md").read_bytes(),
+                                     (source / "skills" / name / "SKILL.md").read_bytes())
+                nested = Path("unslop-file/scripts/cli.py")
+                self.assertEqual((target / nested).read_bytes(), (source / "skills" / nested).read_bytes())
+                (source / "skills/unslop-commit/SKILL.md").write_text("updated\n", encoding="utf-8")
+                self.assertEqual((target / "unslop-commit/SKILL.md").read_text(), "updated\n")
+                self.assertEqual((target / "local-only/SKILL.md").read_text(), "local\n")
+                backups = list(backup.rglob("SKILL.md"))
+                self.assertEqual(len(backups), 1)
+                self.assertEqual(backups[0].read_text(), "conflict\n")
+
+    def test_claude_installer_keeps_skills_when_source_is_missing(self) -> None:
+        skill = self.fixture.home / ".claude/skills/unslop-commit/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("keep\n", encoding="utf-8")
+        result = self.run_bash(
+            'set -e; source "$1"; claude_managed_source_dir() { return 1; }; install_claude_managed_asset_links',
+            str(COMMON),
+        )
+        self.assert_success(result)
+        self.assertIn("WARN: Claude managed source not found", result.stderr)
+        self.assertEqual(skill.read_text(), "keep\n")
+
+    def test_both_persistence_phases_install_claude_assets(self) -> None:
+        for source, phase in ((POST_CREATE, "post_create_persistence_phase"),
+                              (POST_START, "post_start_persistence_phase")):
+            with self.subTest(source=source):
+                result = self.run_bash(
+                    'source "$1"; declare -f "$2"', str(source), phase,
+                )
+                self.assert_success(result)
+                self.assertRegex(result.stdout, r"(?m)^\s*install_claude_managed_asset_links\s*;?$")
+
+    def test_opencode_materializes_unslop_skills_and_preserves_local_content(self) -> None:
+        source = self.fixture.root / "opencode source"
+        target = self.fixture.root / "opencode target"
+        state_dir = self.fixture.root / "opencode state"
+        for name in UNSLOP_SKILLS:
+            shutil.copytree(CONTAINER_DOTFILES / "private_dot_config/opencode/skills" / name,
+                            source / "skills" / name)
+        local_skill = target / "skills/local-only/SKILL.md"
+        local_skill.parent.mkdir(parents=True)
+        local_skill.write_text("local\n", encoding="utf-8")
+        script = 'set -e; source "$1"; materialize_opencode_managed_assets_from "$2" "$3" "$4"'
+        args = (str(COMMON), str(source), str(target), str(state_dir))
+        self.assert_success(self.run_bash(script, *args))
+        manifest = (state_dir / "managed-assets.tsv").read_bytes()
+        self.assert_success(self.run_bash(script, *args))
+        self.assertEqual((state_dir / "managed-assets.tsv").read_bytes(), manifest)
+        for name in UNSLOP_SKILLS:
+            installed = target / "skills" / name / "SKILL.md"
+            self.assertFalse(installed.is_symlink())
+            self.assertEqual(installed.read_bytes(), (source / "skills" / name / "SKILL.md").read_bytes())
+        nested = Path("skills/unslop-file/scripts/cli.py")
+        self.assertFalse((target / nested).is_symlink())
+        self.assertEqual((target / nested).read_bytes(), (source / nested).read_bytes())
+        (source / "skills/unslop-commit/SKILL.md").write_text("updated\n", encoding="utf-8")
+        self.assert_success(self.run_bash(script, *args))
+        self.assertEqual((target / "skills/unslop-commit/SKILL.md").read_text(), "updated\n")
+        self.assertEqual(local_skill.read_text(), "local\n")
 
     def test_post_create_helpers_handle_git_env_profiles_and_mnemo(self) -> None:
         repository = init_git_repository(self.fixture.root / "seed repository", env=self.env)
