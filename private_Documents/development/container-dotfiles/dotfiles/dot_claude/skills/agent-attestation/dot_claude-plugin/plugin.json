@@ -1,0 +1,5 @@
+{
+  "name": "agent-attestation",
+  "version": "1.0.0",
+  "description": "Collect session participant metadata for invocation-local commit attestations."
+}

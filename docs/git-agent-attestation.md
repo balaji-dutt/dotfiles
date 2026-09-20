@@ -202,6 +202,121 @@ Handoff data MUST NOT contain prompts, source contents, secrets, or unrelated
 session context. Exact OpenCode plugin APIs, Claude hook APIs, wrapper language
 choices, and trailer injection code are outside this specification.
 
+## Producer plugins
+
+The managed OpenCode entry point is
+`~/.config/opencode/plugins/opencode-agent-attestation.js`, with support modules
+under `attestation/`. The Claude Code plugin is
+`~/.claude/skills/agent-attestation/`; its rendered `.claude-plugin/plugin.json`
+enables skills-directory plugin discovery as `agent-attestation@skills-dir`.
+It owns its lifecycle hooks and has no `SKILL.md` or loose settings hooks.
+On Windows, these paths are relative to the native user profile, not a WSL home.
+
+Preview the relevant chezmoi targets before applying them. Apply only with
+approval, then restart OpenCode and restart Claude Code or use `/reload-plugins`.
+Both integrations require Node.js and Git. Source resolution additionally uses
+chezmoi. Native Windows commit commands require PowerShell 7 and the `.ps1`
+wrappers; the refusing `.cmd` stubs are not supported. No Bash, WSL, `jq`, or
+Unix hashing utility is required by the native Windows plugins themselves.
+
+OpenCode supplies `AI_ATTESTATION_JSON` through its invocation-local `shell.env`
+hook. Claude uses `PreToolUse` to rewrite a recognized wrapper invocation,
+preserving other tool inputs without granting permission. Supported forms
+include `command cc-commit -m 'message'` in Bash and
+`& 'C:\path with spaces\cc-commit.ps1' -m 'message'` in PowerShell. PowerShell
+transport restores the prior environment and preserves wrapper exit status.
+Claude's Bash tool also supports a literal `pwsh` or `pwsh.exe` bridge:
+
+```sh
+cd "C:/repo" && pwsh -NoProfile -Command "& 'C:\repo\cc-commit.ps1' -m 'message'"
+```
+
+The optional prefix is one literal `cd` (optionally with `--`) followed by `&&`.
+The bridge accepts `-NoProfile`, `-NonInteractive`, and `-NoLogo` before
+`-Command`, whose single literal argument must invoke the wrapper directly.
+Quoted executable paths are supported. The payload is scoped to the `pwsh`
+process; the directory change and original command text are preserved. This
+route does not require enabling Claude's native PowerShell tool. Encoded
+commands, execution-policy flags, additional commands, and dynamic PowerShell
+arguments such as splats are not recognized.
+
+Compounds such as `cd repo && cc-commit`, dynamic executable expressions,
+substitutions, redirects, and ambiguous commands are left unchanged with a
+partial diagnostic. Explicit caller payloads are not overwritten. Run the
+wrapper directly with the shell tool's working directory set to the repository.
+
+### Evidence and limits
+
+Records describe cumulative observed participation in one harness session and
+its explicitly linked descendants, not proof of contribution to each committed
+diff. Runtime responses supply models; selected defaults and launch-only or
+synthetic messages do not. OpenCode excludes its housekeeping agents. A model
+switch can produce another participant record. Unknown agent names and roles
+are omitted. Complete identical records are deduplicated, and only the first
+eight distinct records are emitted; overflow produces a partial diagnostic.
+
+OpenCode source pairs currently require an unambiguous explicit `{file:...}`
+prompt reference, matching loaded and effective prompt bytes, and an exact
+chezmoi source mapping. Generated matches use the manifest's canonical source
+pair; hand-authored definitions use their exact source bytes. Built-in, inline,
+historically reconciled, and unresolved Markdown-agent definitions may lack
+source pairs. Claude hooks do not establish the loaded definition path and
+bytes, so its plugin currently omits source pairs rather than guessing from an
+agent name. These omissions do not discard verified agent/model metadata.
+
+OpenCode sends diagnostics to its structured logs under service
+`agent-attestation`, once per code per plugin instance, without writing to the
+terminal. `source-evidence-unavailable` uses debug level; collection failures
+and limits use warning level. Source configuration codes distinguish oversized
+files (`source-config-limit`), read or parse failures
+(`source-config-unreadable`), and unexpected resolver failures
+(`source-config-unavailable`). Logging failures do not block commits and have
+no terminal fallback. Claude hook diagnostics use the hook runner's stderr.
+
+Local state lives under `$XDG_STATE_HOME/agent-attestation` (falling back to
+`~/.local/state/agent-attestation`) on POSIX and
+`%LOCALAPPDATA%\agent-attestation` (falling back to the native profile's
+`AppData\Local`) on Windows. It contains participant metadata and, for Claude,
+explicit transcript paths and cursors, not transcript contents or prompts.
+Windows directories inherit the user's ACL; POSIX modes do not establish a
+Windows privacy boundary. Keep this state on private local storage supporting
+hard links and atomic rename. Unsupported storage fails open with a diagnostic.
+
+Collection has soft ceilings of 256 ledger sessions per harness and 2,048
+records per ledger; Claude also limits session metadata to 256 entries. History
+reconciliation limits descendants to 32, reads bounded pages or transcript
+chunks, and stops scheduling work after its time budget. Caps and read failures
+can yield partial or tool-only trailers. State is retained for resumed sessions;
+there is no automatic eviction of potentially active sessions. To reclaim it,
+stop all affected harness sessions before removing their attestation state.
+That reset loses provenance history for later resumes. WSL and native Windows
+state are independent and must not be translated or combined.
+
+### Verification
+
+Run `python3 -m unittest tests.test_agent_attestation` on POSIX. On native
+Windows, run `pwsh -NoProfile -File tests/support/run_agent_attestation_windows.ps1
+-SourceRoot <native-checkout>` as one command. The Windows runner stages a
+temporary native-local fixture, runs Node tests and actual `.ps1` wrapper
+commits, then cleans up. Use a native checkout rather than executing an unsigned
+script over a WSL UNC path; do not change execution policy for this test.
+
+Fixture validation has passed with Node 24.21, OpenCode's 1.18.31 API contract,
+and native PowerShell 7.6.6/Git 2.55. Claude manifest validation passed on WSL
+2.1.278 and Windows 2.1.268. Native fixtures also exercise Git Bash through
+`pwsh` to the real `.ps1` wrapper. These checks do not establish live plugin
+behavior. Live primary-plus-delegate commits passed for both harnesses on WSL
+and native Windows, including Claude's default Bash-to-PowerShell route.
+Model-switch and fresh-session isolation checks passed for both harnesses on
+both platforms. Live source-pair evidence remains pending; Claude's documented
+hook metadata does not establish the loaded definition. After approved
+activation, use an isolated repository to have a primary agent and a returned
+delegate contribute, commit through the wrapper, and inspect trailers with the
+command below. Repeat
+after a model switch and in a separate session to check isolation; verify a
+managed custom agent's source pair against the manifest or exact source bytes.
+Do not count missing source evidence as a successful source-pair check.
+
 ## Examples
 
 All digests below are illustrative values, not approved hashes or registry

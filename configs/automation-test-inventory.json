@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:73d7c40d63c470c5445ebe0ca48169c47213deb2c4686884cf7929764899a8b9",
+  "candidate_digest": "sha256:11dfb45fd3e4e485e494a294adcbf1d4aa5a7ec48b9b6548261e361ac209ecff",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -522,7 +522,10 @@
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
         "dot_claude/hooks/executable_resolve-python3",
         "private_dot_config/opencode/opencode-profile.sh",
-        "private_dot_config/opencode/plugins/*.js"
+        "private_dot_config/opencode/plugins/opencode-feature-ci-reminder.js",
+        "private_dot_config/opencode/plugins/opencode-permission-capture.js",
+        "private_dot_config/opencode/plugins/opencode-quota-anthropic-compat.js",
+        "private_dot_config/opencode/plugins/opencode-websearch-cited-compat.js"
       ],
       "owner": {"kind": "repository", "name": "managed AI adapters and destructive guards"},
       "languages": ["bash", "javascript", "python", "shell"],
@@ -550,6 +553,43 @@
       "rationale": "Registered offline suites cover managed OpenCode compatibility, destructive Beads policy, feature-CI reminders, profiles, and dependency guards without live credentials, network, or Beads mutations."
     },
     {
+      "id": "managed-ai-attestation",
+      "classification": "owned",
+      "paths": ["dot_claude/skills/agent-attestation/lib/**", "dot_claude/skills/agent-attestation/scripts/**", "private_dot_config/opencode/attestation/collector.mjs", "private_dot_config/opencode/attestation/diagnostics.mjs", "private_dot_config/opencode/attestation/sources.mjs", "private_dot_config/opencode/plugins/opencode-agent-attestation.js"],
+      "owner": {"kind": "repository", "name": "agent attestation producers"},
+      "languages": ["javascript"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "process"],
+      "test_layers": ["contract", "integration", "platform-smoke", "unit"],
+      "coverage": {
+        "suite_id": "agent-attestation",
+        "status": "partial",
+        "work_item": "dots-qt9",
+        "test_paths": ["tests/test_agent_attestation.py"],
+        "behavior_requirements": [
+          {"id": "failure-malformed-and-bounded-state", "kind": "failure", "description": "Bound malformed transcripts, pagination and sharing failures without blocking commits.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]},
+          {"id": "safety-session-and-source-evidence", "kind": "safety", "description": "Keep session trees and explicit payloads isolated, omit unverified source fields and persist metadata only.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]},
+          {"id": "success-live-harness-provenance", "kind": "success", "description": "Verify loaded plugins and returned delegates in live WSL and native Windows harnesses; Claude source evidence remains unresolved.", "status": "planned", "test_paths": []},
+          {"id": "success-native-wrapper-handoff", "kind": "success", "description": "Feed runtime provenance through real POSIX and native PowerShell wrappers with exit and environment preservation.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]}
+        ]
+      },
+      "rationale": "Offline fixtures exercise both producers and real wrapper commits; live harness acceptance is tracked in dots-qt9."
+    },
+    {
+      "id": "mirrored-attestation-shared",
+      "classification": "mirrored",
+      "paths": ["private_dot_config/opencode/attestation/shared/**"],
+      "owner": {"kind": "mirror-source", "name": "Claude canonical shared attestation modules", "source": "configs/devcontainer-sync.jsonc"},
+      "languages": ["javascript"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "high",
+      "side_effects": ["filesystem", "process"],
+      "test_layers": ["provenance"],
+      "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-qt9", "test_paths": ["tests/test_automation_provenance.py"], "behavior_requirements": []},
+      "rationale": "Shared modules are mirrored before container copies and checked against canonical bytes."
+    },
+    {
       "id": "mirrored-container-assets",
       "classification": "mirrored",
       "paths": [
@@ -567,6 +607,7 @@
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/beads-helpers.zsh",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/zsh-modern-cli-hints.zsh",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/**",
+        "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/**",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/plugins/**",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/skills/**"
       ],

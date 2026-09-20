@@ -165,6 +165,8 @@ Documents/PowerShell
 !/.config/opencode/opencode.jsonc
 !/.config/opencode/plugins/
 !/.config/opencode/plugins/**
+!/.config/opencode/attestation/
+!/.config/opencode/attestation/**
 !/.config/opencode/profiles/
 !/.config/opencode/profiles/**
 !/.config/opencode/prompts/

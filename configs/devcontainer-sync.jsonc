@@ -10,6 +10,14 @@
   "shared": {
     "mirrors": [
       {
+        "name": "agent-attestation-shared",
+        "source_root": "dot_claude/skills/agent-attestation/lib/shared",
+        "target_root": "private_dot_config/opencode/attestation/shared",
+        "cleanup_managed": true,
+        "include": ["*.mjs"],
+        "exclude": []
+      },
+      {
         "name": "opencode-user-config",
         "source_root": "private_dot_config/opencode",
         "target_root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode",
@@ -17,6 +25,7 @@
         "include": [
           "AGENTS.md",
           "agents/**",
+          "attestation/**",
           "commands/**",
           "modes/**",
           "plugins/**",
