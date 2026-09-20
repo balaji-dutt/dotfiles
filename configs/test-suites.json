@@ -411,7 +411,8 @@
       "id": "resolve-python3",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_resolve_python3"],
-      "covers": ["tests/test_resolve_python3.py"]
+      "covers": ["tests/test_resolve_python3.py"],
+      "requires": ["sh"]
     },
     {
       "id": "retire-legacy-cbm-mise",

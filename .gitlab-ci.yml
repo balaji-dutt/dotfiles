@@ -178,9 +178,17 @@ linux-fast:
   needs: []
   interruptible: true
   timeout: 10m
+  before_script:
+    - |
+      set -eu
+      test "$(uname -m)" = x86_64
+      curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 60 https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz -o /tmp/node.tar.xz
+      printf '%s\n' 'fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6  /tmp/node.tar.xz' | sha256sum --check --strict
+      tar -xJf /tmp/node.tar.xz --strip-components=2 -C /usr/local/bin node-v24.21.0-linux-x64/bin/node
+      node --version
   script:
     - mkdir -p ci-artifacts
-    - ./assets/run-tests.sh fast --require-capability git --require-capability sh --report-file ci-artifacts/linux-fast.json
+    - ./assets/run-tests.sh fast --require-capabilities --report-file ci-artifacts/linux-fast.json
   artifacts:
     when: always
     expire_in: 7 days

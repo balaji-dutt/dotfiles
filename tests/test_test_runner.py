@@ -405,6 +405,35 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(agent["argv"][-1], "tests.test_agent_wt_merge")
         self.assertEqual(agent["covers"], ["tests/test_agent_wt_merge.py"])
 
+    def test_fast_node_steps_and_shell_resolver_declare_capabilities(self) -> None:
+        payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        fast = {step["id"]: step for step in payload["steps"] if "fast" in step["suites"]}
+        for step_id in ("feature-ci-reminders", "managed-ai-adapters", "repo-opencode-plugins"):
+            with self.subTest(step=step_id):
+                self.assertIn("node", fast[step_id]["requires"])
+        self.assertIn("sh", fast["resolve-python3"]["requires"])
+        self.assertEqual(payload["capabilities"]["node"], {"command": "node"})
+
+    def test_fast_node_steps_fail_in_strict_mode_when_node_is_missing(self) -> None:
+        payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        node_steps = [
+            step for step in payload["steps"]
+            if "fast" in step["suites"] and "node" in step.get("requires", [])
+        ]
+        self.assertTrue(node_steps)
+        self.fixture.capabilities = {"node": {"command": "definitely-not-a-real-node"}}
+        self.fixture.steps = [
+            self.fixture.step(step["id"], ["fast"], "pass.py", requires=["node"])
+            for step in node_steps
+        ]
+        self.fixture.write_registry()
+        result = self.fixture.run("fast", "--require-capabilities")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for step in node_steps:
+            self.assertIn(f"FAIL {step['id']}: missing capability node", result.stdout)
+        self.assertNotIn("SKIP ", result.stdout)
+        self.assertNotIn("RUN  ", result.stdout)
+
     def test_posix_wrapper_delegates_to_runner(self) -> None:
         result = subprocess.run(
             ["bash", str(POSIX_WRAPPER), "--list", "fast"],

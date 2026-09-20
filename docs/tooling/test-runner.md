@@ -53,11 +53,12 @@ repeatable `--require-capability NAME`, so other optional tools remain visible
 skips. Unknown capability names are configuration errors. A step for another
 operating system remains a platform skip.
 
-CI can request a deterministic suite-registration report:
+The GitLab `linux-fast` job requires all declared Linux capabilities and requests
+a deterministic suite-registration report:
 
 ```sh
 ./assets/run-tests.sh fast \
-  --require-capability git \
+  --require-capabilities \
   --report-file ci-artifacts/linux-fast.json
 ```
 

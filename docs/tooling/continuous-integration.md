@@ -182,12 +182,16 @@ existing MR/push behavior, including on their Renovate branches.
 ## Jobs and artifacts
 
 `linux-fast` and `linux-all` use the pinned full Debian image
-`python:3.13.7-bookworm`. They run without package installation:
+`python:3.13.7-bookworm`. Before running tests, `linux-fast` downloads Node
+24.21.0 for Linux x64 from nodejs.org, verifies the SHA-256 pinned in
+`.gitlab-ci.yml`, and extracts only the Node executable. It requires every
+declared capability of the selected Linux steps, including Node; a missing tool
+fails rather than skipping its steps. `linux-all` installs no additional tools
+and requires only the capabilities named below:
 
 ```sh
 ./assets/run-tests.sh fast \
-  --require-capability git \
-  --require-capability sh \
+  --require-capabilities \
   --report-file ci-artifacts/linux-fast.json
 
 ./assets/run-tests.sh all \
@@ -234,10 +238,16 @@ coverage. The automatic fast suite also enforces the automation inventory's
 classification, risk, and critical-behavior declarations; see
 `docs/tooling/automation-coverage-policy.md`.
 
-No CI cache is configured. The current suites use repository and standard-library
-inputs and have no dependency-download phase, so caching would add stale-state
-risk without reducing setup work. Default test jobs require no credentials,
-production Beads database, or live network.
+No CI cache is configured. `linux-fast` setup requires network access to
+nodejs.org; the tests themselves require no credentials, production Beads
+database, or live network.
+
+The Node-only trial retains the 22 registered fast steps. Further admissions
+require representative hosted timing within a provisional 75-second whole-job
+target and a combined namespace forecast of at most 320 compute minutes per
+month, including the separate Renovate runner. This reserves 80 of the shared
+400 minutes. Setup and retries count toward the budget; local container timing
+does not establish hosted performance. The hard job timeout remains 10 minutes.
 
 ## Main-push guard
 
