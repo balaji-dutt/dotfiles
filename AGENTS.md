@@ -86,7 +86,7 @@ The following tools may be available, so check for their availability before exe
 - **Modifications:** When updating `README.md`, you are authorized to update/commit the changes, but follow this protocol:
   1. Perform the edits.
   2. Propose a descriptive summary of the change following the **50/72 rule**:
-     - **Subject:** A single line under 44 characters (the script adds the "docs: " prefix automatically).
+     - **Subject:** Write the `docs: ` prefix explicitly. Keep the complete subject, including the prefix, at 50 characters or fewer.
      - **Body:** Detailed explanation, with each line wrapped at 72 characters.
   3. **Ask for my approval** of the draft message before proceeding.
   4. Do not auto-commit the change. Include the approved docs commit message in
