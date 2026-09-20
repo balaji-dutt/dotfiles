@@ -134,10 +134,13 @@ def load_jsonc(path: Path) -> Any:
         fail(f"cannot read JSONC manifest {path}: {error}")
 
 
-def run_git(repo_root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
+def run_git(
+    repo_root: Path, *arguments: str, input: bytes | None = None
+) -> subprocess.CompletedProcess[bytes]:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), *arguments],
+            input=input,
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -231,6 +234,21 @@ def file_payload(path: Path) -> bytes:
         fail(f"cannot read {path}: {error}")
 
 
+def normalized_payload(repo_root: Path, tracked: TrackedFile) -> bytes:
+    path = repo_root / tracked.path
+    payload = file_payload(path)
+    if tracked.mode == "120000" or path.is_symlink() or b"\r\n" not in payload:
+        return payload
+    normalized = payload.replace(b"\r\n", b"\n")
+    cleaned_id = run_git(
+        repo_root, "hash-object", f"--path={tracked.path}", "--stdin", input=payload
+    ).stdout
+    normalized_id = run_git(
+        repo_root, "hash-object", "--no-filters", "--stdin", input=normalized
+    ).stdout
+    return normalized if cleaned_id == normalized_id else payload
+
+
 def load_policy(repo_root: Path, policy_path: Path) -> dict[str, Any]:
     payload = object_value(load_json(policy_path, label="provenance policy"), "policy")
     require_keys(
@@ -322,7 +340,7 @@ def check_generated(
             fail(f"generated manifest sourceDigest is invalid for {path}")
         if not isinstance(entry["source"], str) or not entry["source"]:
             fail(f"generated manifest source is invalid for {path}")
-        payload = file_payload(repo_root / path)
+        payload = normalized_payload(repo_root, tracked[path])
         actual = digest_bytes(payload)
         exception = exceptions.get(path)
         if actual == expected:
@@ -466,7 +484,7 @@ def check_statusline(repo_root: Path, tracked: dict[str, TrackedFile], section: 
     for path in copies:
         if path not in tracked:
             fail(f"statusline copy is not tracked: {path}")
-        payload = file_payload(repo_root / path)
+        payload = normalized_payload(repo_root, tracked[path])
         payloads.append(payload)
         matches = version_pattern.findall(payload)
         if len(matches) != 1:
@@ -499,7 +517,7 @@ def tracked_tree(
     digest = hashlib.sha256()
     for tracked_path in files:
         name = tracked_path[len(prefix) :]
-        payload = file_payload(repo_root / tracked_path)
+        payload = normalized_payload(repo_root, tracked[tracked_path])
         payloads[name] = payload
         digest.update((name + "\0").encode("utf-8"))
         digest.update(payload)
@@ -600,17 +618,23 @@ def check_repository(repo_root: Path, policy_path: Path | None = None) -> CheckR
     try:
         tracked = tracked_files(root)
         policy = load_policy(root, selected_policy)
-        summaries = (
-            check_generated(root, tracked, policy["generated"]),
-            check_mirrors(root, tracked, policy["mirrors"]),
-            check_espanso(root, tracked, policy["espanso"]),
-            check_statusline(root, tracked, policy["statusline"]),
-            check_unslop(root, tracked, policy["unslop"]),
-            check_forbidden_roots(root, tracked, policy["forbidden_behavioral_roots"]),
-        )
     except CheckFailure as error:
         return CheckResult((str(error),), ())
-    return CheckResult((), summaries)
+    errors: list[str] = []
+    summaries: list[str] = []
+    for check, section in (
+        (check_generated, "generated"),
+        (check_mirrors, "mirrors"),
+        (check_espanso, "espanso"),
+        (check_statusline, "statusline"),
+        (check_unslop, "unslop"),
+        (check_forbidden_roots, "forbidden_behavioral_roots"),
+    ):
+        try:
+            summaries.append(check(root, tracked, policy[section]))
+        except CheckFailure as error:
+            errors.append(str(error))
+    return CheckResult(tuple(errors), tuple(summaries))
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

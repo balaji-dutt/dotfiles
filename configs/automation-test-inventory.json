@@ -580,7 +580,7 @@
       "side_effects": ["none"],
       "test_layers": ["contract", "provenance", "unit"],
       "coverage": {"suite_id": "automation-provenance", "status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py"], "behavior_requirements": []},
-      "rationale": "Fixture tests cover authority derivation, exact divergence locks, mirror drift, and behavioral-suite exclusions."
+      "rationale": "Fixture tests cover authority derivation, exact divergence locks, Git-confirmed CRLF normalization, unstaged drift, byte-exact mirrors, independent section errors, and behavioral-suite exclusions."
     },
     {
       "id": "repo-opencode-plugins",
