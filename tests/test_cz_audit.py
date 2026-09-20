@@ -494,6 +494,15 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
             if resolved is None:
                 self.fail(f"required fixture command is unavailable: {command}")
             (tools / command).symlink_to(resolved)
+        grep_command = os.readlink(tools / "grep")
+        write_executable(
+            self.fixture.fake_bin / "grep",
+            "#!/bin/sh\n"
+            "case \"$*\" in\n"
+            "  *'/proc/sys/kernel/osrelease'*) exit 1 ;;\n"
+            "esac\n"
+            f"exec {shlex.quote(grep_command)} \"$@\"\n",
+        )
         unavailable_env = dict(self.env)
         write_executable(self.fixture.fake_bin / "grep", "#!/bin/sh\nexit 1\n")
         unavailable_env["PATH"] = f"{self.fixture.fake_bin}{os.pathsep}{tools}"

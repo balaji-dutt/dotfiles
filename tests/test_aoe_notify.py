@@ -176,6 +176,7 @@ class AoeNotifyTests(unittest.TestCase):
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
             write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
+            write_executable(fixture.fake_bin / "powershell.exe", "#!/bin/sh\nexit 1\n")
             log = fixture.root / "notify-send.json"
             write_argv_logger(fixture.fake_bin / "notify-send", log)
 
@@ -192,6 +193,7 @@ class AoeNotifyTests(unittest.TestCase):
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
             write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
+            write_executable(fixture.fake_bin / "powershell.exe", "#!/bin/sh\nexit 1\n")
             write_executable(fixture.fake_bin / "notify-send", "#!/bin/sh\nexit 8\n")
 
             result = run_notify(script, "waiting", env=env | {"AOE_NOTIFY_DEBUG": "yes"})
