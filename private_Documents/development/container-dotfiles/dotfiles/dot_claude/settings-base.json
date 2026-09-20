@@ -293,5 +293,6 @@
   "alwaysThinkingEnabled": true,
   "awaySummaryEnabled": false,
   "effortLevel": "high",
-  "theme": "dark"
+  "theme": "dark",
+  "tui": "fullscreen"
 }
