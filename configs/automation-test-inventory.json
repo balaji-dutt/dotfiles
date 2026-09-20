@@ -111,8 +111,11 @@
         "work_item": "dots-4jy.10.2.1",
         "test_paths": ["tests/test_cz_audit.py"],
         "behavior_requirements": [
+          {"id": "failure-ansible-task-syntax", "kind": "failure", "description": "Block task syntax failures and unavailable validators in normal and strict modes.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
           {"id": "failure-blocking-diagnostics", "kind": "failure", "description": "Return nonzero and preserve actionable ERROR diagnostics for required audit failures.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
+          {"id": "safety-ansible-task-wrapper", "kind": "safety", "description": "Use syntax-only static imports without executing tasks or changing sources, and clean per-invocation wrappers on success and failure.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
           {"id": "safety-dry-run-boundary", "kind": "safety", "description": "Keep managed-target validation dry-run only and avoid applying repository or host changes.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
+          {"id": "success-ansible-task-dispatch", "kind": "success", "description": "Wrap ansible/tasks YAML for local and container syntax checks on both entrypoints while checking playbooks directly and linting original inputs.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]},
           {"id": "success-cross-platform-dispatch", "kind": "success", "description": "Dispatch managed, repository-only, template, shell, PowerShell, and config checks consistently.", "status": "covered", "test_paths": ["tests/test_cz_audit.py"]}
         ]
       },

@@ -53,6 +53,36 @@ Chezmoi scripts are classified before managed-target lookup so their source is
 always rendered and syntax-checked. PowerShell hooks are parsed but never
 executed. Runtime behavior and PSScriptAnalyzer are outside this audit.
 
+### Ansible task files and playbooks
+
+Both entrypoints select task-file validation when the normalized repo-relative
+path starts with `ansible/tasks/` and ends in `.yml` or `.yaml`. Matching is
+case-sensitive and includes nested directories. This is a repository layout
+convention, not YAML-content inspection or a filename containing `playbook`.
+The public classification remains `ansible:<path>`.
+
+| Input | Syntax-check subject |
+| :--- | :--- |
+| `ansible/tasks/base-packages.yml` | Temporary playbook importing the task file |
+| `ansible/tasks/subdir/example.yaml` | Temporary playbook importing the task file |
+| `ansible/wsl-playbook.yml` | Original file directly |
+| `ansible/tasks-example.yml` | Original file directly |
+
+The temporary playbook uses `hosts: localhost`, `gather_facts: false`, and a
+static `ansible.builtin.import_tasks` with the original file's relative path.
+It lives in a unique directory beneath the repository's `.cz-audit/`, regardless
+of `CZ_AUDIT_LOGDIR`, so the container's `/work` mount can access it. The invocation
+removes its temporary directory on success or failure. Both local and container
+validation use only `ansible-playbook --syntax-check`; syntax containers need no
+TTY. `ansible-lint` still checks the original file and remains advisory unless
+strict mode is enabled.
+
+Static imports parse the selected file and its nested static imports without
+executing tasks or evaluating ordinary runtime variables. Dynamic `include_tasks`
+contents are not recursively checked; variables used in static import filenames
+must resolve at parse time. Other Ansible inputs retain direct syntax checking;
+this does not imply that inventory, requirements, or role files are playbooks.
+
 ## Dependency Contract
 
 The entrypoint itself and `chezmoi` are required:
