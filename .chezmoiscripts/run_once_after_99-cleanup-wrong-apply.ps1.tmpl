@@ -15,7 +15,7 @@ function Remove-RelPath {
   if ([IO.Path]::IsPathRooted($Rel)) {
     throw "Refusing rooted path: $Rel"
   }
-  if ($Rel -match '(^|[\\/])\.\.([\\/]|$)') {
+  if (($Rel -split '[\\/]') -contains '..') {
     throw "Refusing traversal path: $Rel"
   }
 
@@ -77,6 +77,12 @@ $PlatformCleanup = @(
   # "Documents\development\container-dotfiles"
 )
 
-foreach ($p in $RepoMetadata)     { Remove-RelPath $p }
-foreach ($p in $PlatformCleanup)  { Remove-RelPath $p }
+function Invoke-WrongApplyCleanup {
+  foreach ($p in $RepoMetadata)     { Remove-RelPath $p }
+  foreach ($p in $PlatformCleanup)  { Remove-RelPath $p }
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-WrongApplyCleanup
+}
 {{- end -}}

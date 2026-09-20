@@ -511,6 +511,17 @@ class PowerShellSupportTests(unittest.TestCase):
         self.assertEqual(result, 0)
         ensure_image.assert_not_called()
 
+    def test_container_parser_does_not_make_pester_available(self) -> None:
+        with (
+            mock.patch.object(powershell, "resolve_powershell_runtime", return_value=None),
+            mock.patch.object(powershell, "_container_runtime", return_value="/usr/bin/docker"),
+            mock.patch.object(powershell.subprocess, "run") as run,
+        ):
+            version = powershell.pester_version(environ={"PATH": "/fixture"})
+
+        self.assertIsNone(version)
+        run.assert_not_called()
+
     def test_pester_launcher_adapts_versions_without_installing(self) -> None:
         completed = subprocess.CompletedProcess([], 0, "ok", "")
         for version, parameter in (((3, 4, 0), "-Script"), ((5, 7, 1), "-Path")):

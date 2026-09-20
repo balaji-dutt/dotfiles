@@ -16,21 +16,7 @@ if ("{{ $scriptsDirOverride }}") {
 
 $scriptPath = Join-Path $scriptsDir "Start-WslSshPageant.ps1"
 
-if (-not (Test-Path -LiteralPath $scriptPath)) {
-  Write-Warning "Startup script not found: $scriptPath"
-  Write-Warning "Run 'chezmoi apply' after Windows sync completes."
-  exit 0
-}
-
-$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$scriptPath`" -RestartPageant"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden
-$task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
-
-function Remove-StartupFallback() {
-  $startupDir = [Environment]::GetFolderPath("Startup")
+function Remove-StartupFallback([string]$StartupDir = [Environment]::GetFolderPath("Startup")) {
   $legacyCmdPath = Join-Path $startupDir "Start-WslSshPageant.cmd"
   $vbsPath = Join-Path $startupDir "Start-WslSshPageant.vbs"
 
@@ -43,8 +29,10 @@ function Remove-StartupFallback() {
   }
 }
 
-function Write-StartupVbs([string]$TargetScript) {
-  $startupDir = [Environment]::GetFolderPath("Startup")
+function Write-StartupVbs(
+  [string]$TargetScript,
+  [string]$StartupDir = [Environment]::GetFolderPath("Startup")
+) {
   if (-not (Test-Path -LiteralPath $startupDir)) {
     New-Item -ItemType Directory -Force -Path $startupDir | Out-Null
   }
@@ -70,23 +58,55 @@ function Write-StartupVbs([string]$TargetScript) {
   Write-Warning "Created Startup folder entry: $vbsPath"
 }
 
-$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-try {
-  if ($existing) {
-    Register-ScheduledTask -TaskName $taskName -InputObject $task -Force -ErrorAction Stop | Out-Null
-  } else {
-    Register-ScheduledTask -TaskName $taskName -InputObject $task -ErrorAction Stop | Out-Null
+function New-StartupTaskDefinition([string]$TargetScript, [string]$CurrentUser) {
+  $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File `"$TargetScript`" -RestartPageant"
+  $trigger = New-ScheduledTaskTrigger -AtLogOn
+  $principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Limited
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -Hidden
+  return New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
+}
+
+function Get-StartupTask([string]$Name) {
+  return Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+}
+
+function Register-StartupTask([string]$Name, $Task, [switch]$Force) {
+  Register-ScheduledTask -TaskName $Name -InputObject $Task -Force:$Force -ErrorAction Stop | Out-Null
+}
+
+function Invoke-StartupTaskRegistration(
+  [Parameter(Mandatory)][string]$ScriptPath,
+  [string]$StartupDir = [Environment]::GetFolderPath("Startup"),
+  [string]$CurrentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+) {
+  if (-not (Test-Path -LiteralPath $ScriptPath)) {
+    Write-Warning "Startup script not found: $ScriptPath"
+    Write-Warning "Run 'chezmoi apply' after Windows sync completes."
+    return
   }
-  Remove-StartupFallback
-} catch {
-  $message = $_.Exception.Message
-  $fqid = $_.FullyQualifiedErrorId
-  if ($message -match "Access is denied" -or $fqid -match "0x80070005") {
-    Write-Warning "Access denied registering Scheduled Task '$taskName'."
-    Write-Warning "Creating Startup folder entry as fallback."
-    Write-StartupVbs -TargetScript $scriptPath
-    exit 0
+
+  $task = New-StartupTaskDefinition -TargetScript $ScriptPath -CurrentUser $CurrentUser
+  try {
+    Register-StartupTask -Name $taskName -Task $task -Force:([bool](Get-StartupTask -Name $taskName))
+    Remove-StartupFallback -StartupDir $StartupDir
+  } catch {
+    $message = $_.Exception.Message
+    $fqid = $_.FullyQualifiedErrorId
+    if ($message -match "Access is denied" -or $fqid -match "0x80070005") {
+      Write-Warning "Access denied registering Scheduled Task '$taskName'."
+      Write-Warning "Creating Startup folder entry as fallback."
+      Write-StartupVbs -TargetScript $ScriptPath -StartupDir $StartupDir
+      return
+    }
+    throw
   }
-  throw
+}
+
+function Invoke-WindowsStartupTaskEntrypoint {
+  Invoke-StartupTaskRegistration -ScriptPath $scriptPath
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-WindowsStartupTaskEntrypoint
 }
 {{- end -}}

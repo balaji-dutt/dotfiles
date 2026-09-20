@@ -49,7 +49,7 @@ function Ensure-Directory {
 function Update-PathString {
   # Pure function: takes a PATH string and returns an updated PATH string
   param(
-    [Parameter(Mandatory)][string] $CurrentPath,
+    [Parameter(Mandatory)][AllowEmptyString()][string] $CurrentPath,
     [Parameter(Mandatory)][object[]] $Entries,
     [switch] $SkipMissing
   )
@@ -104,6 +104,14 @@ function Update-PathString {
   return (@($toPrepend.ToArray()) + $parts + @($toAppend.ToArray())) -join ';'
 }
 
+function Get-EnvironmentPath([string]$Scope) {
+  return [Environment]::GetEnvironmentVariable('Path', $Scope)
+}
+
+function Set-EnvironmentPath([string]$Value, [string]$Scope) {
+  [Environment]::SetEnvironmentVariable('Path', $Value, $Scope)
+}
+
 function Add-ToEnvPath {
   [CmdletBinding(SupportsShouldProcess)]
   param(
@@ -123,14 +131,14 @@ function Add-ToEnvPath {
   )
 
   # 1) Update persistent PATH (User or Machine)
-  $currentPersistent = [Environment]::GetEnvironmentVariable('Path', $Scope)
+  $currentPersistent = Get-EnvironmentPath -Scope $Scope
   if ([string]::IsNullOrWhiteSpace($currentPersistent)) { $currentPersistent = '' }
 
   $newPersistent = Update-PathString -CurrentPath $currentPersistent -Entries $Entries -SkipMissing:$SkipMissing
 
   if ($newPersistent -ne $currentPersistent) {
     if ($PSCmdlet.ShouldProcess("$Scope PATH", "Set PATH")) {
-      [Environment]::SetEnvironmentVariable('Path', $newPersistent, $Scope)
+      Set-EnvironmentPath -Value $newPersistent -Scope $Scope
       Write-Host "Updated $Scope PATH (persistent)."
     }
   } else {
@@ -139,7 +147,7 @@ function Add-ToEnvPath {
 
   # 2) Update current session PATH immediately (Process)
   if ($UpdateSession) {
-    $currentProcess = [Environment]::GetEnvironmentVariable('Path', 'Process')
+    $currentProcess = Get-EnvironmentPath -Scope Process
 
     if ([string]::IsNullOrWhiteSpace($currentProcess)) {
       # PS 5.1 compatible replacement for: $env:Path ?? ''
@@ -150,7 +158,7 @@ function Add-ToEnvPath {
     $newProcess = Update-PathString -CurrentPath $currentProcess -Entries $Entries -SkipMissing:$SkipMissing
 
     if ($newProcess -ne $currentProcess) {
-      [Environment]::SetEnvironmentVariable('Path', $newProcess, 'Process')
+      Set-EnvironmentPath -Value $newProcess -Scope Process
       $env:Path = $newProcess
       Write-Host "Updated current session PATH (immediate; no restart needed for this session)."
     } else {
@@ -161,16 +169,10 @@ function Add-ToEnvPath {
   }
 }
 
-# =========================
-# Apply
-# =========================
-Add-ToEnvPath -Scope User -Entries $DesiredUserPathEntries
-# Or: Add-ToEnvPath -Scope User -Entries $DesiredUserPathEntries -SkipMissing
+function Update-PowerShellProfile {
+  param([Parameter(Mandatory)][string] $ProfilePath)
 
-# 3) (Optional) Ensure pwsh profile sources ~/.config/powershell/claude-env.ps1 if present
-#    This does NOT set secrets; it just loads your repo-managed env defaults.
-$profilePath = $PROFILE.CurrentUserCurrentHost
-$snippet = @'
+  $snippet = @'
 # Load Claude Code Environment variables (chezmoi-managed)
 $globalEnv = Join-Path $HOME ".config\powershell\claude-env.ps1"
 if (Test-Path -LiteralPath $globalEnv) { . $globalEnv }
@@ -180,19 +182,28 @@ $localEnv = Join-Path $HOME ".config\powershell\claude-env.local.ps1"
 if (Test-Path -LiteralPath $localEnv) { . $localEnv }
 '@
 
-$profileDir = Split-Path -Parent $profilePath
-New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
-if (-not (Test-Path -LiteralPath $profilePath)) {
-  New-Item -ItemType File -Force -Path $profilePath | Out-Null
+  $profileDir = Split-Path -Parent $ProfilePath
+  New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+  if (-not (Test-Path -LiteralPath $ProfilePath)) {
+    New-Item -ItemType File -Force -Path $ProfilePath | Out-Null
+  }
+
+  $profileText = [string](Get-Content -LiteralPath $ProfilePath -Raw)
+  if ($profileText -notmatch [regex]::Escape("claude-env.ps1")) {
+    Add-Content -LiteralPath $ProfilePath -Value "`r`n$snippet`r`n"
+    Write-Host "Updated pwsh profile to source claude env: $ProfilePath"
+  } else {
+    Write-Host "pwsh profile already sources claude env: $ProfilePath"
+  }
 }
 
-$profileText = Get-Content -LiteralPath $profilePath -Raw
-if ($profileText -notmatch [regex]::Escape("claude-env.ps1")) {
-  Add-Content -LiteralPath $profilePath -Value "`r`n$snippet`r`n"
-  Write-Host "Updated pwsh profile to source claude env: $profilePath"
-} else {
-  Write-Host "pwsh profile already sources claude env: $profilePath"
+function Invoke-WindowsBootstrap {
+  Add-ToEnvPath -Scope User -Entries $DesiredUserPathEntries
+  Update-PowerShellProfile -ProfilePath $PROFILE.CurrentUserCurrentHost
+  Write-Host "== Done =="
 }
 
-Write-Host "== Done =="
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-WindowsBootstrap
+}
 {{- end -}}
