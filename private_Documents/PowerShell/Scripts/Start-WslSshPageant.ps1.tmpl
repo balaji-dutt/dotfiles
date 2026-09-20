@@ -44,10 +44,7 @@ function Resolve-Exe([string]$Preferred, [string[]]$FallbackNames) {
   foreach ($name in $FallbackNames) {
     $sources = @(Get-Command $name -All -ErrorAction SilentlyContinue |
       ForEach-Object Source | Where-Object { $_ } | Select-Object -Unique)
-    if ($sources.Count -gt 1) {
-      throw "Ambiguous executable '$name': $($sources -join ', ')"
-    }
-    if ($sources.Count -eq 1) {
+    if ($sources.Count -ge 1) {
       return $sources[0]
     }
   }

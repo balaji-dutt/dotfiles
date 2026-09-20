@@ -16,16 +16,15 @@ Describe 'WSL Pageant helpers' {
     Assert-Equal (Resolve-Exe -Preferred '' -FallbackNames @('pageant.exe')) $null
   }
 
-  It 'reports distinct ambiguous fallback executables' {
+  It 'uses PATH order for distinct fallback executables' {
     Mock Get-Command {
       @(
         [pscustomobject]@{ Source = 'C:\one\pageant.exe' },
         [pscustomobject]@{ Source = 'C:\two\pageant.exe' }
       )
     }
-    $threw = $false
-    try { Resolve-Exe -Preferred '' -FallbackNames @('pageant.exe') } catch { $threw = $true }
-    Assert-Equal $threw $true
+
+    Assert-Equal (Resolve-Exe -Preferred '' -FallbackNames @('pageant.exe')) 'C:\one\pageant.exe'
   }
 
   It 'accepts duplicate resolutions of the same executable' {
