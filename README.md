@@ -10,6 +10,20 @@
 
 This repository contains my cross-platform dotfiles and provisioning flows, with [chezmoi](https://www.chezmoi.io/) as the source-of-truth manager.
 
+## Licensing
+
+The following files are licensed under the MIT License, with the complete notice
+embedded in each file:
+
+- [review-loop-enforcer.js](.opencode/plugins/review-loop-enforcer.js)
+- [review-loop-gate.js](.opencode/plugins/review-loop-gate.js)
+- [review-loop-marker.js](.opencode/plugins/review-loop-marker.js)
+
+Retain the copyright and permission notice in copies or substantial portions of
+these files. This is not a repository-wide MIT grant: other files are not covered
+by this grant, and any separately stated licenses continue to apply. Dependencies
+retain their own license terms.
+
 ## Supported Platforms
 
 - macOS

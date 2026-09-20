@@ -2,7 +2,6 @@
 name: refresh-docs
 description: Assess and refresh stale docs after review PASS with minimal,
   deterministic edits
-license: Proprietary
 compatibility: opencode
 metadata:
   audience: dotfiles-maintainers

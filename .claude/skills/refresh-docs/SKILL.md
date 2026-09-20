@@ -5,7 +5,6 @@ description: Assess and refresh stale docs after a dotfiles review PASS with
   decide docs impact (none/human/agent/both) and update only the stale files.
   Triggered by "refresh docs", "are the docs stale", "/refresh-docs", or the
   post-review docs-impact assessment.
-license: Proprietary
 compatibility: claude-code
 metadata:
   audience: dotfiles-maintainers
