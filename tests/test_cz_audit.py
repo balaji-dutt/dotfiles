@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -155,8 +157,250 @@ class CzAuditFixture:
             }
         )
 
+    def write_ansible_fake(self, name: str) -> None:
+        script = self.fixture.fake_bin / name
+        write_executable(
+            script,
+            r"""#!/bin/sh
+{
+  printf '%s\n' CALL
+  for argument do printf 'ARG=%s\n' "$argument"; done
+  printf '%s\n' END
+} >>"$AUDIT_ANSIBLE_LOG"
+[ "${1:-}" != image ] || exit 0
+syntax=0
+for argument do
+  [ "$argument" != --syntax-check ] || syntax=1
+  last=$argument
+done
+if [ "$syntax" = 1 ]; then
+  cp -- "$last" "$AUDIT_WRAPPER_LOG" || exit 98
+  printf '%s\n' 'fixture syntax diagnostic'
+  exit "${AUDIT_SYNTAX_RC:-0}"
+fi
+printf '%s\n' 'fixture lint diagnostic'
+exit "${AUDIT_LINT_RC:-0}"
+""",
+        )
+        if os.name == "nt":
+            python_script = script.with_suffix(".py")
+            python_script.write_text(
+                "import os, pathlib, shutil, sys\n"
+                "args = sys.argv[1:]\n"
+                "with open(os.environ['AUDIT_ANSIBLE_LOG'], 'a', encoding='utf-8') as log:\n"
+                "    log.write('CALL\\n' + ''.join('ARG=' + a + '\\n' for a in args) + 'END\\n')\n"
+                "if args[0] == 'image': sys.exit(0)\n"
+                "syntax = '--syntax-check' in args\n"
+                "if syntax: shutil.copyfile(args[-1], os.environ['AUDIT_WRAPPER_LOG'])\n"
+                "print('fixture syntax diagnostic' if syntax else 'fixture lint diagnostic')\n"
+                "sys.exit(int(os.environ.get('AUDIT_SYNTAX_RC' if syntax else 'AUDIT_LINT_RC', '0')))\n",
+                encoding="utf-8",
+            )
+            script.with_suffix(".cmd").write_text(
+                f'@"{sys.executable}" "{python_script}" %*\r\n@exit /b %ERRORLEVEL%\r\n',
+                encoding="utf-8",
+            )
+
+    def prepare_ansible(self, *, runtime: str | None = None) -> None:
+        self.ansible_log = self.fixture.root / "ansible-calls.log"
+        self.wrapper_log = self.fixture.root / "wrapper.yml"
+        self.env.update({
+            "AUDIT_ANSIBLE_LOG": str(self.ansible_log),
+            "AUDIT_WRAPPER_LOG": str(self.wrapper_log),
+        })
+        self.write_ansible_fake(runtime or "ansible-playbook")
+        self.write_ansible_fake("ansible-lint")
+
+    def assert_ansible_cleanup(self) -> None:
+        scratch = self.repo / ".cz-audit"
+        self.assertEqual(list(scratch.iterdir()) if scratch.exists() else [], [])
+        self.assertFalse(any(
+            "apply" in call or "diff" in call for call in _read_calls(self.call_log)
+        ))
+
+    def test_ansible_task_dispatch_and_lint_subject(self) -> None:
+        self.prepare_ansible()
+        for relsrc in ("ansible/tasks/example.yml", "ansible/tasks/sub dir/it's a task.yaml"):
+            with self.subTest(relsrc=relsrc):
+                task = self.repo / relsrc
+                task.parent.mkdir(parents=True, exist_ok=True)
+                content = "- name: Example\n  ansible.builtin.debug:\n    msg: example\n"
+                task.write_text(content, encoding="utf-8")
+                result = self.run_audit("check", ".\\" + relsrc.replace("/", "\\"))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = _read_calls(self.ansible_log)
+                syntax_call, lint_call = calls[-2:]
+                wrapper = syntax_call[-1]
+                self.assertNotEqual(wrapper, relsrc)
+                self.assertFalse(Path(wrapper).is_absolute())
+                self.assertIn("--syntax-check", syntax_call)
+                text = self.wrapper_log.read_text(encoding="utf-8-sig")
+                self.assertIn("hosts: localhost", text)
+                self.assertIn("gather_facts: false", text)
+                self.assertIn("ansible.builtin.import_tasks:", text)
+                quoted = text.split("file:", 1)[1].strip()
+                self.assertTrue(quoted.startswith("'") and quoted.endswith("'"), quoted)
+                imported = quoted[1:-1].replace("''", "'")
+                self.assertEqual((self.repo / wrapper).parent.joinpath(imported).resolve(), task.resolve())
+                self.assertEqual(lint_call[-1], relsrc)
+                self.assertEqual(task.read_text(encoding="utf-8"), content)
+                self.assert_ansible_cleanup()
+
+    def test_ansible_playbooks_stay_direct(self) -> None:
+        self.prepare_ansible()
+        for relsrc in (
+            "ansible/wsl-playbook.yml", "ansible/tasks-example.yml",
+            "ansible/Tasks/example.yml", "ansible/tasks/example.YML",
+        ):
+            with self.subTest(relsrc=relsrc):
+                playbook = self.repo / relsrc
+                playbook.parent.mkdir(parents=True, exist_ok=True)
+                playbook.write_text("- hosts: localhost\n  tasks: []\n", encoding="utf-8")
+                result = self.run_audit("check", relsrc)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(_read_calls(self.ansible_log)[-2], ["-i", "localhost,", "--syntax-check", relsrc])
+                self.assertFalse((self.repo / ".cz-audit").exists())
+                self.assert_ansible_cleanup()
+
+    def test_ansible_container_task_dispatch(self) -> None:
+        for runtime in ("docker", "podman"):
+            with self.subTest(runtime=runtime):
+                self.prepare_ansible(runtime=runtime)
+                task = self.repo / "ansible/tasks/example.yml"
+                task.parent.mkdir(parents=True, exist_ok=True)
+                task.write_text("- ansible.builtin.debug: {}\n", encoding="utf-8")
+                result = self.run_audit("check", "ansible/tasks/example.yml")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = _read_calls(self.ansible_log)
+                syntax = [call for call in calls if "--syntax-check" in call][-1]
+                self.assertIn("local/ansible-syntax:repo", syntax)
+                self.assertIn("/work", syntax)
+                self.assertTrue(any(arg.endswith(":/work") for arg in syntax))
+                self.assertNotIn("-t", syntax)
+                self.assertNotEqual(syntax[-1], "ansible/tasks/example.yml")
+                self.assertIn("ansible.builtin.import_tasks:", self.wrapper_log.read_text(encoding="utf-8-sig"))
+                self.assert_ansible_cleanup()
+                for suffix in ("", ".cmd", ".py"):
+                    (self.fixture.fake_bin / (runtime + suffix)).unlink(missing_ok=True)
+
+    def test_ansible_syntax_failures_and_cleanup(self) -> None:
+        self.prepare_ansible()
+        task = self.repo / "ansible/tasks/example.yml"
+        task.parent.mkdir(parents=True)
+        task.write_text("- ansible.builtin.debug: {}\n", encoding="utf-8")
+        for rc in (2, 127):
+            for strict in ("0", "1"):
+                with self.subTest(rc=rc, strict=strict):
+                    self.env.update({"AUDIT_SYNTAX_RC": str(rc), "CZ_AUDIT_STRICT": strict})
+                    result = self.run_audit("check", "ansible/tasks/example.yml")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("fixture syntax diagnostic", result.stderr)
+                    self.assertTrue(all("--syntax-check" in call for call in _read_calls(self.ansible_log)))
+                    self.assert_ansible_cleanup()
+
+    def test_ansible_task_lint_advisory_and_strict(self) -> None:
+        self.prepare_ansible()
+        task = self.repo / "ansible/tasks/example.yml"
+        task.parent.mkdir(parents=True)
+        task.write_text("- ansible.builtin.debug: {}\n", encoding="utf-8")
+        self.env["AUDIT_LINT_RC"] = "3"
+        advisory = self.run_audit("check", "ansible/tasks/example.yml")
+        self.assertEqual(advisory.returncode, 0, advisory.stderr)
+        self.assertIn("ANSIBLE_LINT found issues (advisory)", advisory.stderr)
+        self.env["CZ_AUDIT_STRICT_ANSIBLE_LINT"] = "1"
+        strict = self.run_audit("check", "ansible/tasks/example.yml")
+        self.assertNotEqual(strict.returncode, 0)
+        self.assertIn("fixture lint diagnostic", strict.stderr)
+        self.assert_ansible_cleanup()
+
+    def test_ansible_wrapper_creation_failure_blocks_validation(self) -> None:
+        self.prepare_ansible()
+        task = self.repo / "ansible/tasks/example.yml"
+        task.parent.mkdir(parents=True)
+        task.write_text("- ansible.builtin.debug: {}\n", encoding="utf-8")
+        scratch = self.repo / ".cz-audit"
+        scratch.write_text("not a directory\n", encoding="utf-8")
+        result = self.run_audit("check", "ansible/tasks/example.yml")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(_read_calls(self.ansible_log), [])
+        self.assertEqual(scratch.read_text(encoding="utf-8"), "not a directory\n")
+
+    def test_ansible_cleanup_preserves_other_invocations(self) -> None:
+        self.prepare_ansible()
+        task = self.repo / "ansible/tasks/example.yml"
+        task.parent.mkdir(parents=True)
+        task.write_text("- ansible.builtin.debug: {}\n", encoding="utf-8")
+        other = self.repo / ".cz-audit/ansible.other/playbook.yml"
+        other.parent.mkdir(parents=True)
+        other.write_text("other invocation\n", encoding="utf-8")
+        for rc in (0, 2):
+            with self.subTest(rc=rc):
+                self.env["AUDIT_SYNTAX_RC"] = str(rc)
+                result = self.run_audit("check", "ansible/tasks/example.yml")
+                self.assertEqual(result.returncode == 0, rc == 0, result.stderr)
+                self.assertEqual(list(other.parent.parent.iterdir()), [other.parent])
+                self.assertEqual(other.read_text(encoding="utf-8"), "other invocation\n")
+
 
 class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
+    def test_real_ansible_task_syntax_without_execution(self) -> None:
+        validator = shutil.which("ansible-playbook")
+        if validator:
+            command = [validator]
+        else:
+            runtime = shutil.which("docker") or shutil.which("podman")
+            image = "local/ansible-syntax:repo"
+            if not runtime or subprocess.run(
+                [runtime, "image", "inspect", image],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode:
+                self.skipTest("local Ansible and retained syntax image are unavailable")
+            command = [runtime, "run", "--rm", "--network", "none", "-v", f"{self.repo}:/work", "-w", "/work", image, "ansible-playbook"]
+
+        self.prepare_ansible()
+        write_executable(
+            self.fixture.fake_bin / "ansible-playbook",
+            "#!/bin/sh\nexec " + shlex.join(command) + ' "$@"\n',
+        )
+        task = self.repo / "ansible/tasks/sub dir/it's a task.yaml"
+        task.parent.mkdir(parents=True)
+        sentinel = self.repo / "must-not-exist"
+        sentinel_path = str(sentinel) if validator else "/work/must-not-exist"
+        child = task.parent / "child.yml"
+        child.write_text(
+            "- name: Do not execute\n"
+            "  ansible.builtin.copy:\n"
+            "    content: unexpected execution\n"
+            f"    dest: '{sentinel_path.replace(chr(39), chr(39) * 2)}'\n",
+            encoding="utf-8",
+        )
+        cases = (
+            ("- ansible.builtin.debug:\n    msg: '{{ runtime_only_variable }}'\n", True),
+            ("- ansible.builtin.import_tasks: child.yml\n", True),
+            ("- name: [broken YAML\n", False),
+            ("- name: Unknown action\n  nonexistent_audit_module: {}\n", False),
+        )
+        for content, valid in cases:
+            with self.subTest(content=content):
+                task.write_text(content, encoding="utf-8")
+                result = self.run_audit("check", task.relative_to(self.repo).as_posix())
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
+                if not valid:
+                    self.assertIn(task.name, result.stderr)
+                self.assertEqual(task.read_text(encoding="utf-8"), content)
+                self.assertFalse(sentinel.exists())
+                self.assert_ansible_cleanup()
+
+        child.write_text("- nonexistent_audit_module: {}\n", encoding="utf-8")
+        task.write_text("- ansible.builtin.import_tasks: child.yml\n", encoding="utf-8")
+        result = self.run_audit("check", task.relative_to(self.repo).as_posix())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(child.name, result.stderr)
+        self.assertFalse(sentinel.exists())
+        self.assert_ansible_cleanup()
+
     def run_audit(
         self, command: str, relsrc: str, *, env: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
@@ -251,6 +495,7 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
                 self.fail(f"required fixture command is unavailable: {command}")
             (tools / command).symlink_to(resolved)
         unavailable_env = dict(self.env)
+        write_executable(self.fixture.fake_bin / "grep", "#!/bin/sh\nexit 1\n")
         unavailable_env["PATH"] = f"{self.fixture.fake_bin}{os.pathsep}{tools}"
         result = self.run_audit("check", ".chezmoiscripts/hook.ps1", env=unavailable_env)
         self.assertEqual(result.returncode, 127)

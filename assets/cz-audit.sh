@@ -231,10 +231,34 @@ ansible_container_syntax() {
   local file_rel="$1"
   local rt; rt="$(runtime)" || { printf 'ansible-playbook and docker/podman are unavailable\n' >&2; return 127; }
   ensure_container_image "$rt" "$ANSIBLE_IMAGE" "assets/Dockerfile.ansible-syntax" || return 127
-  "$rt" run --rm -t \
+  "$rt" run --rm \
     -v "$ROOT:/work" -w /work \
     "$ANSIBLE_IMAGE" ansible-playbook -i localhost, --syntax-check "$file_rel"
 }
+
+ansible_syntax() (
+  local file_rel="$1" syntax_file="$1" tmpdir import_path
+  case "$file_rel" in
+    ansible/tasks/*.yml|ansible/tasks/*.yaml)
+      mkdir -p "$ROOT/.cz-audit" || return
+      tmpdir="$(mktemp -d "$ROOT/.cz-audit/ansible.XXXXXX")" || return
+      trap 'rm -rf -- "$tmpdir"' EXIT
+      trap 'exit 129' HUP
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      syntax_file="${tmpdir#"$ROOT/"}/playbook.yml"
+      import_path="../../${file_rel//\'/\'\'}"
+      printf '%s\n' '- hosts: localhost' '  gather_facts: false' '  tasks:' \
+        '    - ansible.builtin.import_tasks:' "        file: '$import_path'" >"$syntax_file" || return
+      ;;
+  esac
+
+  if have ansible-playbook; then
+    ansible-playbook -i localhost, --syntax-check "$syntax_file"
+  else
+    ansible_container_syntax "$syntax_file"
+  fi
+)
 
 ansible_container_lint() {
   local file_rel="$1"
@@ -417,11 +441,7 @@ check_ansible_file_rel() {
   local file_rel="$1"
 
   # Enforced: syntax-check should be clean; suppress warnings unless failing.
-  if have ansible-playbook; then
-    audit_capture ansible-playbook -i localhost, --syntax-check "$file_rel"
-  else
-    audit_capture ansible_container_syntax "$file_rel"
-  fi
+  audit_capture ansible_syntax "$file_rel"
   # advisory=0 (enforced)
   audit_finish "ANSIBLE_SYNTAX" "$file_rel" 0
 

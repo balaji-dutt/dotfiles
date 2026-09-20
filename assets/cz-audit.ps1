@@ -409,7 +409,7 @@ function Invoke-AnsibleContainerSyntax([string]$fileRel) {
   $image = 'local/ansible-syntax:repo'
   $ready = Ensure-ContainerImage -Runtime $rt -Image $image -Dockerfile 'assets/Dockerfile.ansible-syntax'
   if (-not $ready) { return }
-  & $rt run --rm -t -v "$($script:ROOT):/work" -w /work $image ansible-playbook -i localhost, --syntax-check $fileRel
+  & $rt run --rm -v "$($script:ROOT):/work" -w /work $image ansible-playbook -i localhost, --syntax-check $fileRel
 }
 
 function Invoke-AnsibleContainerLint([string]$fileRel) {
@@ -431,12 +431,34 @@ function Invoke-AnsibleContainerLint([string]$fileRel) {
 }
 
 function Invoke-AnsibleSyntax([string]$fileRel) {
-  if (HaveCmd 'ansible-playbook') {
-    ansible-playbook -i localhost, --syntax-check $fileRel
-    return
-  }
+  $syntaxFile = $fileRel
+  $tempDir = $null
+  try {
+    if ($fileRel -clike 'ansible/tasks/*.yml' -or $fileRel -clike 'ansible/tasks/*.yaml') {
+      $tempRel = '.cz-audit/ansible.' + [guid]::NewGuid().ToString('N')
+      $created = New-Item -ItemType Directory -Path (Join-Path $script:ROOT $tempRel) -ErrorAction Stop
+      $tempDir = $created.FullName
+      $syntaxFile = "$tempRel/playbook.yml"
+      $importPath = '../../' + $fileRel.Replace("'", "''")
+      @(
+        '- hosts: localhost'
+        '  gather_facts: false'
+        '  tasks:'
+        '    - ansible.builtin.import_tasks:'
+        "        file: '$importPath'"
+      ) | Set-Content -LiteralPath $syntaxFile -Encoding utf8NoBOM -ErrorAction Stop
+    }
 
-  Invoke-AnsibleContainerSyntax $fileRel
+    if (HaveCmd 'ansible-playbook') {
+      ansible-playbook -i localhost, --syntax-check $syntaxFile
+    } else {
+      Invoke-AnsibleContainerSyntax $syntaxFile
+    }
+  } finally {
+    if ($tempDir) {
+      Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction Stop
+    }
+  }
 }
 
 function Invoke-AnsibleLint([string]$fileRel) {
