@@ -182,7 +182,8 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
 
 - The repository-wide release quarantine is 7 days. A final Beads-specific
   package rule raises that to 14 days for both `gastownhall/beads` and
-  `@beads/bd` and blocks the known bad versions `1.0.5`, `1.2.0`, and `1.2.1`.
+  `@beads/bd` and blocks the known bad versions `1.0.5`, `1.2.0`, `1.2.1`, and
+  `1.3.0`.
 - That rule groups the `.chezmoidata.yaml` `beads_version` pin with the
   homelab-IaC `npm_packages.txt` `@beads/bd` pin and requires both updates before
   creating a `renovate/beads-core-*` branch. The release-note check also refuses

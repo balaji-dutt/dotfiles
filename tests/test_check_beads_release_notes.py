@@ -350,10 +350,25 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
         self.assertIn('"additionalBranchPrefix": "beads-core-"', rule)
         self.assertIn('"platformAutomerge": false', rule)
         self.assertIn(
-            '"allowedVersions": "!/^(1\\\\.0\\\\.5|1\\\\.2\\\\.0|1\\\\.2\\\\.1)$/"',
+            '"allowedVersions": "!/^(1\\\\.0\\\\.5|1\\\\.2\\\\.0|1\\\\.2\\\\.1|1\\\\.3\\\\.0)$/"',
             rule,
         )
         self.assertNotIn('"allowedVersions": "!/^1\\\\.0\\\\.5$/"', renovate)
+
+        allowed_versions_match = re.search(
+            r'"allowedVersions":\s*("(?:\\.|[^"\\])*")', rule
+        )
+        self.assertIsNotNone(allowed_versions_match)
+        allowed_versions = json.loads(allowed_versions_match.group(1))
+        self.assertTrue(allowed_versions.startswith("!/"))
+        self.assertTrue(allowed_versions.endswith("/"))
+        excluded_versions = re.compile(allowed_versions[2:-1])
+        for version in ("1.0.5", "1.2.0", "1.2.1", "1.3.0"):
+            with self.subTest(blocked_version=version):
+                self.assertRegex(version, excluded_versions)
+        for version in ("1.2.2", "1.3.1", "1.3.10"):
+            with self.subTest(allowed_version=version):
+                self.assertNotRegex(version, excluded_versions)
 
     def test_ci_dispatch_is_narrow_and_excludes_beads_kanban(self) -> None:
         pipeline = (REPO_ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")

@@ -490,7 +490,7 @@
       // the dispatch contract for the Beads release-note CI guard.
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["@beads/bd", "gastownhall/beads"],
-      "allowedVersions": "!/^(1\\.0\\.5|1\\.2\\.0|1\\.2\\.1)$/",
+      "allowedVersions": "!/^(1\\.0\\.5|1\\.2\\.0|1\\.2\\.1|1\\.3\\.0)$/",
       "minimumReleaseAge": "14 days",
       "minimumGroupSize": 2,
       "groupName": "beads clients",
