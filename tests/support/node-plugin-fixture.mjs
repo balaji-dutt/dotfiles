@@ -1,4 +1,6 @@
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -70,4 +72,50 @@ export async function createPluginFixture(names, config = {}) {
 
 export async function wait(milliseconds) {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+export async function startEditorPlugin(editor, context) {
+  const watchers = [];
+  const originalWatch = fs.watch;
+  const close = () => watchers.forEach(({ watcher }) => watcher.close());
+  try {
+    try {
+      fs.watch = (dir, ...args) => {
+        const watcher = originalWatch(dir, ...args);
+        watchers.push({ dir, watcher });
+        return watcher;
+      };
+      syncBuiltinESMExports();
+      await editor(context);
+    } finally {
+      fs.watch = originalWatch;
+      syncBuiltinESMExports();
+    }
+    if (process.platform === "linux") return close;
+
+    const dir = fs.realpathSync(os.tmpdir());
+    const watcher = watchers.find((entry) => entry.dir === dir)?.watcher;
+    if (!watcher) throw new Error("editor did not watch the fixture temp directory");
+    const name = `editor-ready-${process.pid}-${Date.now()}-${Math.random()}.txt`;
+    const probe = path.join(dir, name);
+    let ready = false;
+    const onChange = (_event, filename) => { if (filename === name) ready = true; };
+    watcher.on("change", onChange);
+    try {
+      // fs.watch has no readiness event: https://github.com/nodejs/node/issues/52601
+      const deadline = Date.now() + 2000;
+      while (!ready && Date.now() < deadline) {
+        await writeFile(probe, "ready\n");
+        await wait(20);
+      }
+      if (!ready) throw new Error("editor watcher did not observe the readiness probe");
+    } finally {
+      watcher.off("change", onChange);
+      await rm(probe, { force: true });
+    }
+    return close;
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
