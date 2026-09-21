@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import fs, { watch } from "node:fs";
+import promises from "node:fs/promises";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
-import { createPluginFixture, wait } from "./node-plugin-fixture.mjs";
+import { createPluginFixture, startEditorPlugin, wait } from "./node-plugin-fixture.mjs";
 
 const editorName = "editor-markdownlint-suppress.js";
 const tapName = "event-tap.js";
@@ -78,6 +82,51 @@ async function runChild(source, env) {
   return stdout;
 }
 
+test("editor startup restores watch bindings and closes watchers on failure", async (t) => {
+  const watcher = { close: t.mock.fn() };
+  t.mock.method(fs, "watch", () => watcher);
+  const originalWatch = fs.watch;
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  await assert.rejects(startEditorPlugin(async () => {
+    watch(os.tmpdir());
+    throw new Error("startup failed");
+  }, {}), /startup failed/);
+  assert.equal(fs.watch, originalWatch);
+  assert.equal(watch, originalWatch);
+  assert.equal(watcher.close.mock.callCount(), 1);
+});
+
+test("editor startup waits for an observed probe before returning", async (t) => {
+  const watcher = new EventEmitter();
+  watcher.close = t.mock.fn();
+  t.mock.method(fs, "watch", () => watcher);
+  const originalWatch = fs.watch;
+  let attempts = 0;
+  let probe;
+  t.mock.method(promises, "writeFile", async (filePath) => {
+    probe = filePath;
+    assert.equal(path.extname(probe), ".txt");
+    assert.equal(watch, originalWatch);
+    if (++attempts === 2) watcher.emit("change", "change", path.basename(probe));
+  });
+  const remove = t.mock.method(promises, "rm", async () => {});
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const close = await startEditorPlugin(async () => {
+    watch(fs.realpathSync(os.tmpdir()));
+  }, {});
+  if (process.platform === "linux") {
+    assert.equal(attempts, 0);
+    assert.equal(remove.mock.callCount(), 0);
+  } else {
+    assert.equal(attempts, 2);
+    assert.deepEqual(remove.mock.calls[0].arguments, [probe, { force: true }]);
+  }
+  assert.equal(watcher.listenerCount("change"), 0);
+  assert.equal(watcher.close.mock.callCount(), 0);
+  close();
+  assert.equal(watcher.close.mock.callCount(), 1);
+});
+
 test("editor suppression handles new, existing, configured, and disabled files", async (t) => {
   t.after(() => { delete process.env.OPENCODE_EDITOR_MD_SUPPRESS; });
   process.env.OPENCODE_EDITOR_MD_SUPPRESS = "0";
@@ -98,7 +147,7 @@ test("editor suppression handles new, existing, configured, and disabled files",
   const fixture = await createPluginFixture([editorName], { editorSuppressHeader: "<!-- custom -->" });
   t.after(() => fixture.cleanup());
   const { default: editor } = await importFresh(fixture, editorName);
-  await editor({ worktree: fixture.root });
+  t.after(await startEditorPlugin(editor, { worktree: fixture.root }));
   const fresh = path.join(os.tmpdir(), `fresh-${process.pid}-${Date.now()}.md`);
   const ignored = path.join(os.tmpdir(), `fresh-${process.pid}-${Date.now()}.txt`);
   const suppressed = path.join(os.tmpdir(), `suppressed-${process.pid}-${Date.now()}.md`);
@@ -107,6 +156,7 @@ test("editor suppression handles new, existing, configured, and disabled files",
   await writeFile(ignored, "plain\n");
   await writeFile(suppressed, "<!-- markdownlint-disable MD001 -->\nbody\n");
   await assertFileContentEventually(fresh, "<!-- custom -->\nbody\n");
+  await assertFileContentRemains(fresh, "<!-- custom -->\nbody\n");
   assert.equal(await readFile(ignored, "utf8"), "plain\n");
   assert.equal(await readFile(suppressed, "utf8"), "<!-- markdownlint-disable MD001 -->\nbody\n");
   assert.equal(await readFile(seeded, "utf8"), "seeded\n");
@@ -156,6 +206,7 @@ test("editor watcher debounce does not keep a child process alive", { skip: proc
   const source = `
     import assert from "node:assert/strict";
     import { writeFile } from "node:fs/promises";
+    import { startEditorPlugin } from ${JSON.stringify(new URL("./node-plugin-fixture.mjs", import.meta.url).href)};
     import plugin from ${JSON.stringify(pathToFileURL(pluginPath).href)};
     const originalSetTimeout = globalThis.setTimeout;
     let resolveDebounce;
@@ -165,7 +216,7 @@ test("editor watcher debounce does not keep a child process alive", { skip: proc
       if (delay === 250) resolveDebounce(timer);
       return timer;
     };
-    await plugin({ worktree: ${JSON.stringify(fixture.root)} });
+    await startEditorPlugin(plugin, { worktree: ${JSON.stringify(fixture.root)} });
     await writeFile(${JSON.stringify(markdownPath)}, "body\\n");
     let deadlineTimer;
     const debounceTimer = await Promise.race([
