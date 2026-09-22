@@ -1,0 +1,39 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+brew_bin=$(type -P brew || true)
+if [[ -z "$brew_bin" ]]; then
+  printf '%s\n' 'INFO: Homebrew absent; OpenCode hold not established. See docs/automation/opencode-v1.md.'
+  exit 0
+fi
+
+formulas=$("$brew_bin" list --formula) || fail 'Cannot query installed Homebrew formulae'
+if ! [[ $'\n'"$formulas"$'\n' == *$'\n'opencode$'\n'* ]]; then
+  printf '%s\n' 'INFO: Homebrew OpenCode absent; hold not established. See docs/automation/opencode-v1.md.'
+  exit 0
+fi
+installed=$("$brew_bin" list --versions opencode) || fail 'Cannot query installed OpenCode version'
+[[ "$installed" =~ ^opencode\ (1\.[0-9]+\.[0-9]+)$ ]] || fail "Expected one stable v1 Homebrew OpenCode version; found: $installed"
+version=${BASH_REMATCH[1]}
+prefix=$("$brew_bin" --prefix opencode) || fail 'Cannot resolve Homebrew OpenCode prefix'
+expected="$prefix/bin/opencode"
+[[ -x "$expected" ]] || fail "Missing Homebrew executable: $expected"
+executables=$(type -ap opencode) || fail 'OpenCode is missing from PATH'
+while IFS= read -r executable; do
+  [[ "$executable" -ef "$expected" ]] || fail "OpenCode PATH conflict: $executable is not $expected"
+done <<< "$executables"
+actual=$("$expected" --version) || fail 'Cannot query OpenCode executable version'
+[[ "$actual" == "$version" ]] || fail "OpenCode executable reports $actual; Homebrew reports $version"
+
+pins=$("$brew_bin" list --pinned) || fail 'Cannot query Homebrew pins'
+if ! [[ $'\n'"$pins"$'\n' == *$'\n'opencode$'\n'* ]]; then
+  "$brew_bin" pin opencode || fail 'Cannot pin OpenCode; run command brew pin opencode manually'
+fi
+pins=$("$brew_bin" list --pinned) || fail 'Cannot verify Homebrew pins'
+[[ $'\n'"$pins"$'\n' == *$'\n'opencode$'\n'* ]] || fail 'Homebrew OpenCode hold was not established'
+current=$("$brew_bin" list --versions opencode) || fail 'Cannot verify installed OpenCode version'
+[[ "$current" == "$installed" ]] || fail 'OpenCode changed during pinning; inspect the installation and hold manually'
+printf 'INFO: Homebrew OpenCode %s is held; upgrades remain manual.\n' "$version"
+{{- end }}

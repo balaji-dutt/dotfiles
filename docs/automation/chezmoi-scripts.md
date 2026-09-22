@@ -35,10 +35,12 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_20-git-template-hooks.ps1.tmpl` | after | Windows existing repository Git hook reconciliation |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
 | `run_after_macos-nfs-config.sh.tmpl` | after | macOS system NFSv4 client default reconciliation |
+| `run_after_macos-opencode-pin.sh.tmpl` | after | hold an installed stable OpenCode v1 with Homebrew |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
 | `run_after_windows-beads-client.ps1.tmpl` | after | Windows Beads client environment wiring |
 | `run_after_windows-beads-pin.ps1.tmpl` | after | Windows Beads Winget pin reconciliation |
+| `run_after_windows-opencode-pin.ps1.tmpl` | after | hold an installed stable OpenCode v1 with Chocolatey |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_after_zz-configure-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL cache-local CBM auto-index configuration |
@@ -77,6 +79,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.
+- OpenCode holds freeze the installed host version, not a shared fleet version.
+  Missing packages are not protected; see [OpenCode v1](opencode-v1.md) for
+  installation, reviewed upgrades, pin verification, and retirement.
 
 ## Host AI Plugin Refresh
 
