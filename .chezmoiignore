@@ -133,6 +133,7 @@ Documents/PowerShell
 !/.chezmoiscripts/install_plannotator.ps1
 !/.chezmoiscripts/windows-beads-client.ps1
 !/.chezmoiscripts/windows-beads-pin.ps1
+!/.chezmoiscripts/windows-opencode-pin.ps1
 !/.chezmoiscripts/98-migrate-opencode-quota.ps1
 
 # Windows specific paths

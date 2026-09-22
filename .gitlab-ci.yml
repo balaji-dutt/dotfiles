@@ -160,6 +160,18 @@ beads-release-notes:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^renovate\/beads-core-/'
     - when: never
 
+opencode-v1-policy:
+  stage: test
+  image: python:3.13.7-bookworm
+  needs: []
+  interruptible: true
+  timeout: 5m
+  script:
+    - python3 -m unittest tests.test_opencode_v1.OpenCodePolicyTests
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
 linux-fast:
   stage: test
   image: python:3.13.7-bookworm

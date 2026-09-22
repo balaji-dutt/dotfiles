@@ -532,9 +532,11 @@ fingerprinted under `node_modules`, so subsequent launches do not rerun npm.
 The guard verifies that npm left both tracked files byte-for-byte unchanged and
 blocks startup rather than allowing OpenCode to rewrite them.
 
-The devcontainer keeps `opencode-ai@latest` in `npm_packages.txt`; rebuilding a
-container can therefore expose a project pin that needs an intentional update.
-From the owning repository, update and review its tracked metadata separately:
+The devcontainer pins `opencode-ai` to an exact stable v1 in `npm_packages.txt`,
+aligned with the WSL mise pin. Renovate proposes reviewed v1 updates without a
+release-age delay; see [OpenCode v1](automation/opencode-v1.md). Rebuilding after
+a CLI pin update can expose project metadata that needs an intentional update.
+From the owning repository, update and review that metadata separately:
 
 ```sh
 plugin_version="$(opencode --version)"

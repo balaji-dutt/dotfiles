@@ -31,6 +31,17 @@
   "customManagers": [
     {
       "customType": "regex",
+      "managerFilePatterns": ["/^configs\\/mise_wsl2\\.toml$/"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "anomalyco/opencode",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "versioningTemplate": "semver",
+      "matchStrings": [
+        "(?:^|\\r?\\n)opencode[ \\t]*=[ \\t]*\"(?<currentValue>[^\"]+)\""
+      ]
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": [
         "/^configs\\/browser-policies\\/justthebrowser\\/manifest\\.json$/"
       ],
@@ -484,6 +495,20 @@
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["anomalyco/opencode", "opencode-ai"],
+      "matchFileNames": [
+        "configs/mise_wsl2.toml",
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
+      ],
+      "allowedVersions": ">=1.0.0 <2.0.0",
+      "ignoreUnstable": true,
+      "minimumReleaseAge": null,
+      "minimumGroupSize": 2,
+      "groupName": "opencode v1 cli",
+      "automerge": false
     },
     {
       // Keep the host and devcontainer clients together. The branch prefix is
