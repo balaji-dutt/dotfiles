@@ -109,63 +109,10 @@ not from `npm_packages.txt`. Renovate still tracks the upstream release with an
 inline `datasource=npm` comment because the npm package version matches the
 Claude Code release version.
 
-## Host AI Plugin Refresh Signals
+Host plugin refreshes are separate from container lifecycle updates; see
+[Host AI Plugin Refresh](automation/chezmoi-scripts.md#host-ai-plugin-refresh).
 
-Host Claude Code and OpenCode plugin refreshes are normally tracked separately
-from container package pins in `configs/host-ai-plugin-refresh.jsonc`.
-
-- The file is a Renovate trigger/sentinel only; host runtime configs may still
-  use `@latest`.
-- OpenCode sentinel versions should come from the host package cache (or npm
-  latest), not from devcontainer pins.
-- `@slkiser/opencode-quota` is the exception: keep its host and container
-  OpenCode/TUI registrations and refresh sentinel on the same exact version.
-  Renovate groups all five references so native Windows does not reuse stale
-  package content behind an unchanged `@latest` cache key.
-- `@tarquinen/opencode-dcp` is also grouped across the same five references:
-  both runtime configs, both TUI configs, and the refresh sentinel. This keeps
-  dependency fixes and required cache refreshes together.
-- Update the manifest when host Claude/OpenCode plugin entries change; runtime
-  config edits alone do not trigger plugin refreshes.
-- Claude plugin ids must match between the manifest and the `enabledPlugins`
-  keys in `dot_claude/settings-base.json`. The refresh script reads that file at
-  runtime rather than via `include`, so settings edits do not re-trigger a
-  refresh, and aborts before any `claude plugin` call when the two disagree. An
-  upstream plugin rename therefore needs both files updated together.
-- The refresh installs manifest plugins that have no install record on the host
-  and updates the rest, so it no longer depends on a Claude Code launch to
-  auto-install from `enabledPlugins`. `claude plugin update` rejects an unknown
-  id, so a rename or a fresh host used to fail the whole apply until Claude Code
-  had started once. If Claude lists a stale install record but then rejects its
-  update, the refresh falls back to installation.
-- Each canonical plugin id also selects its marketplace. The hook updates each
-  required marketplace by name under Claude's preserve-on-failure environment,
-  then verifies that the CLI-reported catalog exists and publishes the expected
-  plugin. A valid preserved catalog can serve plugin operations after a failed
-  remote update, but the final nonzero result retains the onchange retry. An
-  invalid catalog skips only that marketplace while other marketplaces and the
-  OpenCode phase continue.
-- Keep each manifest `version` and its `// renovate:` comment on one line so
-  Renovate can match it.
-- The Unix-host chezmoi onchange script refreshes Claude plugins and clears the
-  OpenCode packages cache when no blocking OpenCode session is detected. A
-  plugin can declare a staged npm cache install for a pinned compatibility
-  workaround; while OpenCode is running, the script may add a new versioned
-  cache key but never replace an existing one. Detached or zombie OpenCode
-  server processes are logged and ignored.
-- Native Windows admits the analogous hook with platform-specific cache safety.
-  Claude marketplace and plugin commands always run first. An apply launched
-  from an interactive OpenCode client then defers all npm/cache mutation and
-  exits nonzero, preserving the onchange retry and stopping later hooks in that
-  apply. A CIM-identified explicit `opencode serve` process is logged and
-  ignored, matching the detached-server behavior on POSIX; ambiguous process
-  details remain blocking. Close blocking OpenCode clients and rerun
-  `chezmoi apply` from standalone PowerShell. Windows accepts only its normalized
-  default or explicit XDG cache root, removes the validated `packages` child,
-  and rechecks process state before removal and staged publication.
-- Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.
-
-`@ansible/ansible-mcp-server` is installed from this npm package list. During
+`@ansible/ansible-mcp-server` is installed from `npm_packages.txt`. During
 `postCreate`, the devcontainer also installs `ansible-mcp-server-fixed`, which
 resolves the package's `dist/cli.cjs` from the global npm root and runs it with
 `node`. Configure MCP clients to use the fixed wrapper if the upstream
@@ -200,67 +147,52 @@ rules:
 - Ubuntu WSL2: ignored
 - Generic Linux (non-WSL2): ignored
 
-## homelab-IaC: macOS Git metadata isolation
+## homelab-IaC: workspace storage
 
-For `homelab-IaC`, macOS uses a local Docker volume for `${containerWorkspaceFolder}/.git`.
-
-- Working-tree files still come from the shared workspace mount.
-- Git metadata (`.git/objects`, refs, index, stash, local branches) lives on
-  machine-local container storage.
-- On first start, container bootstrap seeds the local `.git` volume from the
-  shared workspace `.git` mount.
-
-This avoids NFS-backed Git metadata write issues on macOS while keeping file
-edits shared.
+On macOS, the workspace is `~/Documents/development/homelab-IaC` on local SSD.
+Working-tree files and Git metadata use the workspace bind mount; the template
+does not enable a separate `.git` volume.
 
 ## homelab-IaC: Terraform/OpenTofu local working data
 
-For `homelab-IaC`, Terraform/OpenTofu working data is intentionally kept off the
-shared workspace mount.
+For `homelab-IaC`, Terraform/OpenTofu working data is kept in persistent
+container storage rather than the workspace bind mount.
 
 - `TF_DATA_ROOT` is set in the devcontainer to:
   `/home/vscode/persistent-data/terraform-data`
 - the `tf` shell function derives a module-specific `TF_DATA_DIR` beneath that
   root (based on the nearest `.terraform.lock.hcl`)
 
-This keeps provider/cache/backend metadata in persistent container storage and
-prevents cross-host or cross-architecture `.terraform` reuse on shared NFS
-paths.
+This isolates provider/cache/backend metadata from host-side working data and
+avoids reusing a host's `.terraform` directory inside the container.
 
 `tf` remains the supported command for switching between OpenTofu and
 Terraform (`TF_CMD=tofu|opentofu|terraform`).
 
-## homelab-IaC: Beads Dolt shared-server state
+## homelab-IaC: Beads and Dolt
 
-For `homelab-IaC`, Beads is configured to use the Dolt shared-server backend.
-Runtime state is split between workspace files and a container-local named
-volume:
+The homelab project configures Beads for a project-local Dolt server
+(`dolt.mode: server`, `dolt.shared-server: false`) with database `hliac`.
+Its `.beads/config.yaml` and `.beads/metadata.json` belong to the workspace,
+not to container-dotfiles. The template does not mount a Beads shared-server
+volume.
 
-- `/home/vscode/.beads/shared-server` is mounted on the
-  `homelab-iac-beads-shared-server` Docker volume.
-- `.beads/config.yaml` and `.beads/metadata.json` remain in the workspace as
-  project state.
-- `.beads/issues.jsonl` is ignored by git. Treat it as a disposable local
-  export only; remove or quarantine it before Beads sync/push workflows so Dolt
-  remains the source of truth.
+The devcontainer installs `bd` from the pinned `@beads/bd` npm package and the
+external `dolt` binary separately. Lifecycle hooks check tool availability and
+prepare the workspace `.beads` directory; they do not initialize or migrate the
+database. Follow homelab-IaC's own Beads instructions for database storage,
+backup, synchronization, and schema upgrades. The dotfiles `dots` database and
+its host/client setup are separate.
 
-The named volume survives normal container restart, rebuild, and reopen cycles.
-It does not survive deliberate Docker volume deletion. To exercise the terminal
-rebuild path, use `devcontainer-launch.sh homelab-IaC rebuild`; if VS Code later
-prompts for its own rebuild or reopen, treat that as a human-operator follow-up.
+Dolt is the source of truth. Homelab disables JSONL auto-export and ignores
+`.beads/issues.jsonl` in Git; treat that file as a disposable local export, not
+as database state to commit.
 
-The devcontainer installs the external `dolt` CLI explicitly because the
-`@beads/bd` npm package provides `bd`, not the separate Dolt server binary.
-Migrating existing embedded-Dolt state into the shared server remains a separate
-human-operated step; the bootstrap scripts only verify that `bd` and `dolt` are
-available.
+Workspace files survive container recreation through the bind mount; running
+Dolt processes do not. Do not treat container recreation or the general
+persistent-data volume as a database backup.
 
-Upgrading the pinned `@beads/bd` version can advance the Dolt schema version
-(for example, 1.0.4 -> 1.1.0 moves `hliac` from schema v32 to v53). Because the
-`hliac` database is remote-backed, `bd` will not auto-migrate it. Migrate once
-from a single designated clone with `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate`
-followed by `bd dolt push`, then re-bootstrap any other clones. Back up first
-with a Dolt branch and `bd export --all -o ~/hliac-backup.jsonl`.
+### Better Beads Kanban
 
 Better Beads Kanban (`balaji-dutt.better-beads-kanban`) is installed from a
 pinned GitHub release VSIX in `postCreate.sh` and retried by `postStart.sh`.
@@ -277,9 +209,7 @@ code --list-extensions --show-versions | grep beads-kanban
 
 Only the version is hand-pinned. `assets/sync-beads-kanban-pin.sh --check`
 verifies the checksum in all three install sites against the release; CI runs
-it on every branch. The cache directory moved from `dotfiles/beads-kanban-vsix`
-to `dotfiles/better-beads-kanban-vsix` — the old one holds a stale VSIX and
-markers and can be deleted by hand.
+it on every branch.
 
 ## Runtime-Generated Files
 
@@ -339,8 +269,7 @@ state file. Managed user-level Claude assets come from dotfiles instead:
 
 `postCreate.sh` and `postStart.sh` prefer the read-only `/tmp/host-claude`
 bind mount and fall back to the mirrored container-dotfiles copy seeded by
-`configs/devcontainer-sync.jsonc`. The old Claude `/todo` command and
-`commit-docs.sh` helper are no longer installed.
+`configs/devcontainer-sync.jsonc`.
 
 Claude's `skills/` directory contains per-skill links, including the Unslop
 family and its nested supporting files. Unrelated local skills are preserved;
@@ -372,7 +301,7 @@ behaviour: `docs/automation/claude-mcp.md`.
 `postCreate.sh` installs the Claude Code CLI from Anthropic's signed apt repo at
 the `CLAUDE_CODE_VERSION` pin from `devcontainer.json.tmpl`. It removes any old
 global npm `@anthropic-ai/claude-code` install first so an npm shim cannot shadow
-the apt-managed binary. `dot_claude/private_settings.json` sets
+the apt-managed binary. `dot_claude/settings-base.json` sets
 `DISABLE_UPDATES=1` so Claude sessions do not drift away from the devcontainer
 pin through background or manual updates.
 
@@ -493,34 +422,33 @@ Workspace `.opencode` sync is template-whitelist based:
 - Template-managed local-only files are mirrored into a managed block in
   `.git/info/exclude` so repo `.opencode/.gitignore` can stay repo-owned.
 
-- `PLANNOTATOR_REMOTE=1`
-- `PLANNOTATOR_PORT=9999` as the direct plain-session fallback
-- `PLANNOTATOR_PORTS_BUILD=9993-9998`
-- `PLANNOTATOR_PORTS_CLAUDE=10014-10019`
-- `PLANNOTATOR_PORTS_CUSTOM=10004-10009`
+### Plannotator review UI
 
-The template intentionally avoids fixed `forwardPorts` and Docker-published
-`appPort` mappings for Plannotator. A fixed published port does not cover the
-native ranges used for concurrent reviews.
+The template sets `PLANNOTATOR_REMOTE=1` and a direct plain-session fallback
+port of `9999`. Wrapper ranges come from `.chezmoidata.yaml` under
+`plannotator_ports.devcontainer`; see [Plannotator Port Ranges](plannotator.md)
+for the complete host/container table and wrapper selection.
 
-If the browser does not open automatically when `submit_plan` runs, forward the
-port reported by Plannotator after review starts and open:
-
-- a build-handoff range URL: `http://localhost:9993` through
-  `http://localhost:9998`
-- or a stay-current custom range URL: `http://localhost:10004` through
-  `http://localhost:10009`
-- or a Claude Code range URL: `http://localhost:10014` through
-  `http://localhost:10019`
-
-During this experiment, VS Code auto-forwarding or manual forwarding may be
-required. Terminal-only `devcontainer-launch` sessions should not assume the
-review UI is reachable through pre-published localhost ports.
+The template does not configure fixed `forwardPorts` or Docker-published
+`appPort` mappings for Plannotator. Forward the port reported when review starts
+and open its localhost URL. VS Code attach can provide forwarding;
+terminal-only `devcontainer-launch` sessions need an explicit forwarding path.
 
 Container-installed `opencode-plannotator*` and `claude-plannotator` wrappers
 are verbose by default so terminal sessions show the configured profile and
 range before the agent starts. Plannotator reports the selected port later when
-review begins; the wrappers no longer pause before launching the agent.
+review begins.
+
+Managed OpenCode launch paths default `ANTHROPIC_SYSTEM_PROMPT_PATH` to
+`/dev/null` unless a non-empty override is set. This keeps the configured
+`opencode-claude-bridge` plugin from loading a validator-captured system prompt.
+Direct non-shell launches that bypass those paths must set the variable
+explicitly for the same behavior. See
+[Wrapper commands](plannotator.md#wrapper-commands) for launch behavior.
+
+If the validator has been used, `opencode-claude-bridge-validate --clean-artifacts`
+removes its `tmp/validate-*` artifacts, which can contain sensitive request
+metadata.
 
 The container-only `opencode-plannotator*` wrappers also run
 `opencode-project-deps-guard` before OpenCode. For a Git worktree with tracked
@@ -550,21 +478,15 @@ Commit that owning-repository change after review. The guard never updates or
 commits tracked project metadata. Installing a matching older OpenCode CLI is a
 temporary rollback option, not the default update policy.
 
-Keep fixed Docker-published host ports disabled unless there is a specific
-reason to re-test them.
-
 See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
 setup, and manual smoke tests.
 
 ## Agent of Empires in Devcontainers
 
-For the `homelab-IaC` template, AoE state is persisted under:
-
-- `/home/vscode/persistent-data/agent-of-empires`
-
-`postCreate.sh` and `postStart.sh` link `~/.config/agent-of-empires` to this
-location so profile/session metadata survives container rebuild/recreate
-cycles.
+The `homelab-IaC` template pins the release in `AOE_VERSION`. AoE metadata is
+persisted under `/home/vscode/persistent-data/agent-of-empires`;
+`postCreate.sh` and `postStart.sh` link `~/.config/agent-of-empires` there so
+profile/session metadata survives container rebuild/recreate cycles.
 
 If `~/.config/agent-of-empires` already exists as a real directory, startup
 scripts migrate its current contents into persistent storage before replacing it
@@ -575,49 +497,30 @@ Runtime-managed files (for example `state.toml`, `profiles/*/sessions.json`,
 `trusted_repos.toml`, and logs) are left intact.
 
 The managed config pins `tmux.clipboard = "enabled"` and
-`tmux.status_bar = "enabled"`. Both default to `"auto"`, which opts out as soon
-as a user tmux config exists, so pinning them makes the behavior independent of
-whether one appears.
-
-With AoE 1.13.2, `clipboard` turns on tmux's `set-clipboard` and
-`allow-passthrough` options. OpenCode OSC 52 copy sequences can then cross the
-AoE tmux session and reach VS Code's host clipboard. The tradeoff is that
-programs inside the session, including model-generated terminal output, can pass
-terminal escape sequences through to the outer terminal.
-
-`status_bar` keeps AoE styling the tmux status bar. Under `"auto"` a user tmux
-config costs the themed bar and tmux falls back to its own `bg=green,fg=black`
-default, which is unreadable.
+`tmux.status_bar = "enabled"` for OSC 52 clipboard forwarding and AoE's themed
+status bar. Clipboard passthrough allows programs inside the session, including
+model-generated terminal output, to pass terminal escape sequences to the outer
+terminal.
 
 AoE applies the tmux options when it creates a session. After the managed config
 is refreshed, quit and recreate existing AoE sessions before testing clipboard
 copying or checking the status bar.
 
-AoE 1.13.2 reads first-run application state from the sibling `state.toml`. If
-that file is missing, the lifecycle helper creates the minimal native AoE state
-`has_seen_welcome = true` before the first launch. This skips the intro because
-the devcontainer already supplies a managed attach mode; otherwise the intro
-can replace `session.default_attach_mode = "tmux"` with Live mode. The helper
-uses no-clobber creation and never reads, rewrites, or changes permissions on an
-existing `state.toml`; after initialization, AoE owns the file.
-
-If an existing container already completed the intro with Live mode, quit AoE
-and reopen or restart the container. `postStart.sh` will refresh `config.toml`
-and restore full tmux attach behavior for Enter/double-click. A rebuild is not
-required; single-click Live mode remains controlled separately by AoE's
-`session.click_action` default.
+The lifecycle helper initializes a missing `state.toml` with
+`has_seen_welcome = true`. It uses no-clobber creation and leaves existing state
+untouched; AoE owns the file after initialization. The managed config sets
+`session.default_attach_mode = "tmux"`. Restarting the container refreshes that
+config without requiring an image rebuild.
 
 The managed AoE config enables status hooks for `waiting` and `error` events.
 Those hooks call `~/bin/aoe-notify`, which first tries an optional host-side
 `dev-notify-bridge` endpoint at `http://host.docker.internal:6789/notify` and
-then exits successfully if no bridge is reachable. Host bridge autostart is
-tracked separately in Beads issue `dots-vlk`; until then, start the bridge
-manually on the Docker Desktop host when container desktop notifications are
-needed.
+then exits successfully if no bridge is reachable. Container desktop
+notifications require a reachable host bridge; see
+[AoE notification wiring](agents/aoe-notifications.md).
 
 The template sets `terminal.integrated.allowChords` to `false` so AoE receives
-Ctrl+K for its command palette in non-live mode. The pinned AoE release does not
-provide a configurable command-palette binding. VS Code Ctrl+K chords continue
+Ctrl+K for its command palette in non-live mode. VS Code Ctrl+K chords continue
 to work when the editor has focus; when the integrated terminal has focus,
 chord-prefix shortcuts are sent to the terminal instead. Reopen or rebuild an
 existing devcontainer if the customization has not taken effect.
@@ -627,21 +530,11 @@ container architecture. WSL2/amd64 containers use `aoe-linux-amd64.tar.gz`, and
 OrbStack on Apple ARM still uses `aoe-linux-arm64.tar.gz` because the process is
 running inside a Linux `aarch64` container, not on Darwin.
 
-Earlier devcontainer builds compiled AoE from source to avoid upstream glibc
-version mismatches. Upstream now publishes Linux releases from `manylinux_2_28`
-builders with a glibc `2.28` floor, so this bookworm-based container can use the
-release binaries and avoid the long Rust/web build during rebuilds.
-
 Set `AOE_INSTALL_MODE=source` only as an explicit escape hatch when debugging a
 release-binary issue. Source builds isolate Rust/npm toolchains and caches to a
 temporary build root and remove them after successful install, keeping long-lived
 `$HOME` paths (for example `~/.cargo` and `~/.rustup`) from accumulating AoE
 bootstrap residue.
-
-This source-build isolation does not provide native Windows support. AoE relies
-on tmux and POSIX process handling, so Windows use remains limited to WSL2 or a
-Linux devcontainer; a native port would require upstream runtime changes rather
-than a different build package.
 
 Persistence keeps AoE metadata, but not live `tmux`/agent processes from a
 destroyed container.
@@ -657,71 +550,6 @@ When `postCreate.sh` encounters the former `~/.mnemo` symlink pointing to that
 directory, it removes only the symlink. It does not remove a real `~/.mnemo`
 directory, a differently targeted symlink, or the persistent data. Recover or
 delete the retained index manually when it is no longer needed.
-
-## opencode-claude-bridge Validation
-
-The `opencode-claude-bridge` validator can be run inside the devcontainer to
-compare OpenCode wire traffic against Claude Code. It requires TypeScript only
-as a project-local dev dependency — no global TypeScript install is needed.
-
-A helper command is available after the devcontainer is created:
-
-```sh
-opencode-claude-bridge-validate
-```
-
-The bridge source is cloned or updated under persistent storage on first use:
-
-- `/home/vscode/persistent-data/src/opencode-claude-bridge`
-
-`npm install` installs project-local dependencies including `tsc`. Validation
-output streams directly to stdout/stderr.
-
-To clean validator artifacts (which may contain sensitive request metadata):
-
-```sh
-opencode-claude-bridge-validate --clean-artifacts
-```
-
-To run validation from the host using the `devcontainer` CLI:
-
-```sh
-devcontainer exec \
-  --workspace-folder "/Volumes/devdrive/homelab-IaC" \
-  --config "/Users/balaji/Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/.devcontainer/devcontainer.json" \
-  opencode-claude-bridge-validate
-```
-
-Do not clone the bridge or store `node_modules` inside the mounted workspace
-repo. The persistent volume path keeps all bridge state separate.
-
-## opencode-claude-bridge Compatibility Shim
-
-The local `opencode-claude-bridge-compat.js` plugin is retired. Host and
-devcontainer OpenCode configs now use `opencode-claude-bridge@1.10.12`, which
-strips Anthropic system-block `cache_control` markers upstream. The old local
-request-body rewrite, keep-last-cache-marker policy, broad legacy stub-tool
-filter, `WebSearch` scrubber, stale `content-length` cleanup, and related shim
-runtime toggles are no longer active.
-
-The `WebSearch` guard was not kept as a standalone fetch wrapper. It only
-removed the Claude `WebSearch` schema; it did not map calls to this setup's
-custom `websearch_cited` tool. With `opencode-claude-bridge@1.10.12`, the
-bridge should advertise only active OpenCode tools, so a future `WebSearch`
-reappearance should be fixed in bridge/tool mapping rather than with local
-fetch-body scrubbing.
-
-The managed OpenCode shell profile, `opencode-plannotator*` wrappers, and
-OpenCode children launched through `ai-wt` also default
-`ANTHROPIC_SYSTEM_PROMPT_PATH` to `/dev/null` before OpenCode starts. This
-prevents the bridge from reusing a stale Claude Code system prompt captured by
-the validator cache. Other direct non-shell launches must set the same
-environment variable explicitly if they bypass the managed launch paths.
-
-Remaining runtime override:
-
-- Set `ANTHROPIC_SYSTEM_PROMPT_PATH` to a non-empty alternate path before launch
-  to intentionally use a custom captured system prompt cache.
 
 ## opencode-quota Anthropic Compatibility Shim
 
@@ -889,9 +717,9 @@ workspace/config spellings must be checked with `status` before assuming reuse.
 
 `devcontainer-launch` starts the container through the standalone Dev Container
 CLI and then execs a shell. It does not provide VS Code's automatic
-port-forwarding service. The homelab template currently has fixed Plannotator
-port publishing commented out, so terminal-only sessions need VS Code attach or
-another explicit forwarding mechanism for the review UI.
+port-forwarding service. The homelab template does not publish fixed Plannotator
+ports, so terminal-only sessions need VS Code attach or another explicit
+forwarding mechanism for the review UI.
 
 Per-machine overrides use the manifest `env_prefix`:
 
