@@ -145,6 +145,26 @@ that minimize permission prompts. Never source shell rc files or
 - Run probe commands separately. Avoid permission-prompt-heavy pipelines,
   heredocs, and command chains.
 
+## Partial outcomes and retries
+
+- Track each create, update, link, priority/status/close, and readback outcome
+  separately. Distinguish command success from readback-confirmed fields.
+- On a command failure, permission denial, or missing result, stop further
+  writes. Read-only reconciliation is allowed; do not bypass the denial.
+- Report confirmed completed, failed, unknown, and not-attempted steps. A later
+  failure does not undo an earlier mutation. Do not imply rollback.
+- Use “not changed” only when no mutation was attempted or readback confirms
+  that no change occurred. A failed readback leaves the outcome unknown.
+- On retry, reconcile the known issue IDs with `<bd> show <id>` before any
+  additional mutation. Resume only missing, still-authorized steps; do not
+  reapply confirmed updates, duplicate links, or append the same notes twice.
+- Never repeat a confirmed successful create. If creation may have succeeded
+  but the ID or outcome is unknown, stop for caller-assisted reconciliation;
+  do not create a replacement speculatively.
+- If creation succeeds but linking fails, report the created ID separately
+  from the failed or unknown relationship. Retries never authorize claiming
+  issues, writing handoff state, or exceeding the approved issue count.
+
 ## Workflow
 
 1. Preflight:
@@ -202,6 +222,9 @@ that minimize permission prompts. Never source shell rc files or
 
 ## Output format
 
+Use `Done` only when all required steps are confirmed. Report current
+readback-confirmed fields, not an intermediate snapshot.
+
 ```markdown
 Done — Beads backlog change applied.
 
@@ -213,7 +236,7 @@ Done — Beads backlog change applied.
 - Notes: <important assumptions or preserved fields>
 ```
 
-If blocked, return:
+For a confirmed no-change stop, return:
 
 ```markdown
 Blocked — Beads backlog was not changed.
@@ -221,6 +244,21 @@ Blocked — Beads backlog was not changed.
 - Reason: <missing handoff | missing issue ID | issue not found | bd unavailable |
   needs body transport decision>
 - Needed from caller: <specific next step>
+```
+
+For a partial or unknown outcome, return:
+
+```markdown
+Partial or unknown — Beads backlog change is incomplete.
+
+- Issues: <known IDs | unknown, reconciliation required>
+- Confirmed completed: <steps and evidence | none>
+- Failed: <steps and errors | none confirmed>
+- Unknown: <unconfirmed outcomes or fields | none>
+- Not attempted: <remaining steps | none>
+- Claimed: no
+- State file: not written
+- Needed from caller: <specific reconciliation or authorized next step>
 ```
 
 For large content, return:
