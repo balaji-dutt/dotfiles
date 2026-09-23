@@ -85,6 +85,12 @@
       "requires": ["git"]
     },
     {
+      "id": "beads-agent-source-contracts",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_agent_contracts"],
+      "covers": ["tests/test_beads_agent_contracts.py"]
+    },
+    {
       "id": "beads-helpers-posix",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers"],

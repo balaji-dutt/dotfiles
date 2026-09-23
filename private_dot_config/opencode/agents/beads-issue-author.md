@@ -113,6 +113,25 @@ files or `beads-helpers.*` in a non-interactive shell.
   to issues that do not exist. This subagent must not create follow-up issues
   or close issues.
 
+## Partial outcomes and retries
+
+- Track each create, attach/update, claim, readback, and state-write outcome
+  separately. Distinguish command success from readback-confirmed fields.
+- On a command failure, permission denial, or missing result, stop further
+  writes. Read-only reconciliation is allowed; do not bypass the denial.
+- Report confirmed completed, failed, unknown, and not-attempted steps. A later
+  failure does not undo an earlier mutation. Do not imply rollback.
+- Use “not changed” only when no mutation was attempted or readback confirms
+  that no change occurred. A failed readback leaves the outcome unknown.
+- On retry, reconcile the known issue ID with `<bd> show <id>` before any
+  additional mutation. Resume only missing, still-authorized steps; do not
+  reapply confirmed updates or append the same design twice.
+- Never repeat a confirmed successful create. If creation may have succeeded
+  but the ID or outcome is unknown, stop for caller-assisted reconciliation;
+  do not create a replacement speculatively.
+- Claim and state-file outcomes require their own evidence. Report a late
+  collision or failed state write as partial when the issue was already changed.
+
 ## Workflow
 
 1. Preflight:
@@ -134,6 +153,10 @@ files or `beads-helpers.*` in a non-interactive shell.
    - Confirm the repo has Beads metadata. For a bare ID, use
      the Read tool on `.beads/metadata.json`; use `dolt_database` as the prefix
      when present.
+   - Before any Beads mutation, check `.beads/in-progress-opencode.json`.
+     If present, require explicit caller selection and matching issue, branch,
+     and worktree metadata; otherwise stop for collision resolution. Existing
+     state does not authorize creating another issue.
 2. Resolve the plan source:
    - Use passed plan text directly, or use the Read tool on only the confirmed
      file path.
@@ -182,10 +205,13 @@ files or `beads-helpers.*` in a non-interactive shell.
    - Run
      `<bd> update <id> --claim --actor "OpenCode" --assignee "OpenCode"`
      after create/attach succeeds.
+   - Verify current status and assignee with `<bd> show <id>` before confirming
+     the claim. A failed readback is an unknown outcome, not a failed claim.
 6. Write tracking state only after the issue update succeeds:
    - Use `.beads/in-progress-opencode.json`.
-   - If it already exists for a different issue, branch, or worktree, stop and
-     return a collision result instead of overwriting.
+   - Recheck for a collision immediately before writing state. If it exists
+     for a different issue, branch, or worktree, stop without overwriting and
+     report any already-completed issue mutations as partial.
    - Include at least: `id`, `agent`, `started_sha`, `started_at`, `branch`,
      `worktree_path`, and plan source/fingerprint when available.
    - Use the Git-derived state metadata from preflight. `branch` is the actual
@@ -199,6 +225,9 @@ files or `beads-helpers.*` in a non-interactive shell.
 
 ## Output format
 
+Use `Done` only when all required steps are confirmed. Report current
+readback-confirmed fields, not an intermediate snapshot.
+
 ```markdown
 Done — Beads issue `<id>` is ready.
 
@@ -209,11 +238,24 @@ Done — Beads issue `<id>` is ready.
 - Notes: <only important assumptions or collisions>
 ```
 
-If blocked, return:
+For a confirmed no-change stop, return:
 
 ```markdown
 Blocked — Beads issue was not changed.
 
 - Reason: <missing plan source | state collision | issue not found | bd unavailable>
 - Needed from user: <specific next step>
+```
+
+For a partial or unknown outcome, return:
+
+```markdown
+Partial or unknown — Beads handoff is not ready.
+
+- Issue: <known ID | unknown, reconciliation required>
+- Confirmed completed: <steps and evidence | none>
+- Failed: <steps and errors | none confirmed>
+- Unknown: <unconfirmed outcomes or fields | none>
+- Not attempted: <remaining steps | none>
+- Needed from caller: <specific reconciliation or authorized next step>
 ```
