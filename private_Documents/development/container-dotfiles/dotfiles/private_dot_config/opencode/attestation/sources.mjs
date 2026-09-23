@@ -83,11 +83,12 @@ export function sourceResolver({ client, directory, worktree }, {
           const target = paths[0];
           if ((await fs.stat(target)).size > 1024 * 1024) continue;
           const bytes = await fs.readFile(target);
-          if (bytes.toString('utf8') !== config.agent[name].prompt) continue;
+          const expanded = bytes.toString('utf8').trim();
+          if (expanded !== config.agent[name].prompt) continue;
           sourceRoot ??= await execute('chezmoi', ['source-path'], directory);
           const sourceFile = await execute('chezmoi', ['source-path', target], directory);
           const snapshot = await sourceSnapshot({ sourceRoot, sourceFile, loadedBytes: bytes });
-          snapshots.set(name, { snapshot, promptDigest: digest(bytes) });
+          snapshots.set(name, { snapshot, promptDigest: digest(expanded) });
         } catch {}
       }
     },

@@ -198,20 +198,49 @@ test('OpenCode source references must match both loaded config and effective age
   const prompt = 'Exact prompt\r\n';
   await fs.writeFile(path.join(configDirectory, 'prompt.md'), prompt);
   await fs.writeFile(path.join(configDirectory, 'opencode.jsonc'), '{// fixture\n"agent":{"custom":{"prompt":"{file:./prompt.md}"}},}');
-  let effective = prompt;
+  let effective = prompt.trim();
   const resolver = sourceResolver({ directory, worktree: directory, client: { app: { agents: async () => ({ data: [{ name: 'custom', prompt: effective }] }) } } }, {
     configDirectory, env: {}, execute: async (_exe, args) => args.length === 1 ? root : path.join(configDirectory, 'prompt.md'),
   });
-  await resolver.config({ agent: { custom: { prompt } } });
+  await resolver.config({ agent: { custom: { prompt: prompt.trim() } } });
   assert.equal((await resolver.source({ agent: 'custom' })).sourceDigest, digest(prompt));
   effective = 'Override';
   assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
   assert.deepEqual(await resolver.source({ agent: 'different' }), {});
   await fs.writeFile(path.join(directory, 'opencode.json'), JSON.stringify({ agent: { custom: { prompt: 'inline' } } }));
-  effective = prompt;
-  await resolver.config({ agent: { custom: { prompt } } });
+  effective = prompt.trim();
+  await resolver.config({ agent: { custom: { prompt: prompt.trim() } } });
   assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
   assert.deepEqual(parseJsonc('{"url":"https://example.test/",/* comment */"comma":",}",}'), { url: 'https://example.test/', comma: ',}' });
+});
+
+test('OpenCode file expansion trims boundaries but source digests retain every byte', async t => {
+  const prompts = ['Definition\n', ' \tDefinition\r\n', '\ufeff\u00a0Definition\nline two\u2003', 'Definition\r\nline two'];
+  for (const [index, prompt] of prompts.entries()) await t.test(`expansion ${index}`, async subtest => {
+    const root = await temporary(subtest), directory = path.join(root, 'project'), configDirectory = path.join(root, 'config');
+    await fs.mkdir(directory); await fs.mkdir(configDirectory);
+    const target = path.join(configDirectory, 'prompt.md');
+    await fs.writeFile(target, prompt);
+    await fs.writeFile(path.join(configDirectory, 'opencode.json'), JSON.stringify({ agent: { custom: { prompt: '{file:./prompt.md}' } } }));
+    const expanded = prompt.trim();
+    let effective = expanded;
+    const resolver = sourceResolver({ directory, worktree: directory, client: { app: { agents: async () => ({ data: [{ name: 'custom', prompt: effective }] }) } } }, {
+      configDirectory, env: {}, execute: async (_exe, args) => args.length === 1 ? root : target,
+    });
+    await resolver.config({ agent: { custom: { prompt: expanded } } });
+    const expected = { sourceDefinition: 'config/prompt.md', sourceDigest: digest(prompt) };
+    assert.deepEqual(await resolver.source({ agent: 'custom' }), expected);
+    if (prompt !== expanded) assert.notEqual(expected.sourceDigest, digest(expanded));
+    effective = expanded + '\n';
+    assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
+    effective = expanded.replace('Definition', 'Different');
+    assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
+    effective = expanded;
+    await resolver.config({ agent: { custom: { prompt: expanded + '\n' } } });
+    assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
+    await resolver.config({ agent: { custom: { prompt: expanded.replace('Definition', 'Different') } } });
+    assert.deepEqual(await resolver.source({ agent: 'custom' }), {});
+  });
 });
 
 const claudeRecord = (id, model = 'claude-observed', agentId) => ({

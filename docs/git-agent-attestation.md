@@ -256,10 +256,15 @@ are omitted. Complete identical records are deduplicated, and only the first
 eight distinct records are emitted; overflow produces a partial diagnostic.
 
 OpenCode source pairs currently require an unambiguous explicit `{file:...}`
-prompt reference, matching loaded and effective prompt bytes, and an exact
-chezmoi source mapping. Generated matches use the manifest's canonical source
-pair; hand-authored definitions use their exact source bytes. Built-in, inline,
-historically reconciled, and unresolved Markdown-agent definitions may lack
+prompt reference, matching loaded and effective prompt text, and an exact
+chezmoi source mapping. OpenCode 1.18.31 and 1.18.32 expand file references by
+decoding UTF-8 and applying JavaScript `.trim()`; the resolver compares that
+expansion exactly against both runtime values, without normalizing either.
+Generated matches use the manifest's canonical source pair; hand-authored
+definitions hash the unmodified source bytes, including boundary whitespace
+and line endings. LF and CRLF checkouts can therefore have different digests.
+Built-in, inline, historically reconciled, and unresolved Markdown-agent
+definitions may lack
 source pairs. Claude hooks do not establish the loaded definition path and
 bytes, so its plugin currently omits source pairs rather than guessing from an
 agent name. These omissions do not discard verified agent/model metadata.
@@ -308,9 +313,15 @@ and native PowerShell 7.6.6/Git 2.55. Claude manifest validation passed on WSL
 behavior. Live primary-plus-delegate commits passed for both harnesses on WSL
 and native Windows, including Claude's default Bash-to-PowerShell route.
 Model-switch and fresh-session isolation checks passed for both harnesses on
-both platforms. Live source-pair evidence remains pending; Claude's documented
-hook metadata does not establish the loaded definition. After approved
-activation, use an isolated repository to have a primary agent and a returned
+both platforms. OpenCode live source-pair checks passed on both platforms for
+the hand-authored Plan prompt, matching each checkout's exact source-byte digest.
+Claude source-pair emission is an explicitly deferred limitation of `dots-qt9`:
+its documented hook metadata does not establish the loaded definition. Verified
+Claude agent/model records remain available; both source fields are omitted
+until a verifiable loaded-definition mechanism exists. This deferral is not a
+successful source-pair check.
+
+After approved activation, use an isolated repository to have a primary agent and a returned
 delegate contribute, commit through the wrapper, and inspect trailers with the
 command below. Repeat
 after a model switch and in a separate session to check isolation; verify a
