@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import fnmatch
 import json
 import os
@@ -144,7 +145,7 @@ printf '%s\n' "$*" >> "$FIXTURE/calls"
 case "$*" in
   'list --exact opencode --limit-output') printf '%s\n' "$INSTALLED" ;;
   'pin list --limit-output') /bin/cat "$FIXTURE/pins" ;;
-  'pin add --name=opencode')
+  'pin add --name=opencode --yes')
     [ "$PIN_RC" = 0 ] || [ "$PIN_RC" = 2 ] || exit "$PIN_RC"
     [ "$NO_PIN" = 1 ] || printf '%s\n' "$INSTALLED" >> "$FIXTURE/pins"
     exit "$PIN_RC" ;;
@@ -168,7 +169,8 @@ class FixtureTests(unittest.TestCase):
         (self.root / 'pins').write_text('unrelated|4.0.0\n' if self.windows else 'unrelated\n')
         self.env = dict(os.environ, FIXTURE=str(self.root), FORMULAS='opencode',
                         INSTALLED='opencode|1.18.31' if self.windows else 'opencode 1.18.31',
-                        ACTUAL='1.18.31', FAIL_QUERY='', PIN_RC='0', NO_PIN='0', CLI_RC='0')
+                        ACTUAL='1.18.31', FAIL_QUERY='', PIN_RC='0', NO_PIN='0', CLI_RC='0',
+                        ELEVATED='1')
         self.env.pop('BASH_ENV', None)
 
     def executable(self, relpath, text):
@@ -184,7 +186,7 @@ class FixtureTests(unittest.TestCase):
     def assert_result(self, success=True):
         result = self.run_hook()
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
-        allowed = ({'list --exact opencode --limit-output', 'pin list --limit-output', 'pin add --name=opencode'}
+        allowed = ({'list --exact opencode --limit-output', 'pin list --limit-output', 'pin add --name=opencode --yes'}
                    if self.windows else {'list --formula', 'list --versions opencode', '--prefix opencode', 'list --pinned', 'pin opencode'})
         self.assertTrue(set(self.calls()) <= allowed, self.calls())
         self.assertIn('unrelated', (self.root / 'pins').read_text())
@@ -193,7 +195,7 @@ class FixtureTests(unittest.TestCase):
     def check_idempotency(self):
         self.assert_result()
         self.assert_result()
-        pin_call = 'pin add --name=opencode' if self.windows else 'pin opencode'
+        pin_call = 'pin add --name=opencode --yes' if self.windows else 'pin opencode'
         self.assertEqual(self.calls().count(pin_call), 1)
         (self.root / 'pins').write_text('unrelated\n')
         self.assert_result()
@@ -271,6 +273,7 @@ class WindowsHoldTests(FixtureTests):
         (self.root / 'hook.ps1').write_text(render(WINDOWS, 'windows'))
         (self.root / 'harness.ps1').write_text(r'''
 . "$env:FIXTURE/hook.ps1"
+function Test-IsElevated { $env:ELEVATED -eq '1' }
 function Get-Command {
   param($Name, $CommandType, [switch]$All, $ErrorAction)
   if ($Name -eq 'choco.exe') {
@@ -288,7 +291,7 @@ Set-OpenCodeV1Hold
             argv = [self.pwsh, '-NoProfile', '-File', str(self.root / 'harness.ps1')]
         else:
             argv = [self.docker, 'run', '--rm', '--network=none', '-v', f'{self.root}:/fixture', '--entrypoint', 'pwsh']
-            for key in ('INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW'):
+            for key in ('INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED'):
                 argv += ['-e', f'{key}={self.env.get(key, "")}']
             argv += ['-e', 'FIXTURE=/fixture', POWERSHELL_AUDIT_IMAGE, '-NoProfile', '-File', '/fixture/harness.ps1']
         return subprocess.run(argv, env=self.env, text=True, capture_output=True, timeout=60)
@@ -320,7 +323,35 @@ Set-OpenCodeV1Hold
     def test_conflicting_existing_pin_is_not_removed(self):
         (self.root / 'pins').write_text('unrelated\nopencode|1.18.30\n')
         self.assert_result(False)
-        self.assertNotIn('pin add --name=opencode', self.calls())
+        self.assertNotIn('pin add --name=opencode --yes', self.calls())
+
+    def test_unelevated_missing_pin_hands_off_instead_of_writing(self):
+        self.env['ELEVATED'] = ''
+        result = self.assert_result()
+        self.assertFalse(any(call.startswith('pin add') for call in self.calls()), self.calls())
+        self.assertEqual((self.root / 'pins').read_text(), 'unrelated|4.0.0\n')
+        self.assertIn('not established', result.stdout + result.stderr)
+        encoded = re.search(r"'-EncodedCommand','([A-Za-z0-9+/=]+)'", result.stdout)
+        self.assertIsNotNone(encoded, result.stdout)
+        decoded = base64.b64decode(encoded.group(1)).decode('utf-16-le')
+        self.assertIn('pin add --name=opencode --yes', decoded)
+        self.assertIn('/bin/choco.exe', decoded)
+        self.assertIn('pin list --limit-output', decoded)
+        self.assertIn('$LASTEXITCODE -notin 0, 2', decoded)
+
+    def test_unelevated_established_pin_needs_no_handoff(self):
+        self.env['ELEVATED'] = ''
+        (self.root / 'pins').write_text('unrelated|4.0.0\nopencode|1.18.31\n')
+        result = self.assert_result()
+        self.assertFalse(any(call.startswith('pin add') for call in self.calls()), self.calls())
+        self.assertNotIn('-EncodedCommand', result.stdout)
+        self.assertIn('is held', result.stdout)
+
+    def test_unelevated_conflicting_pin_still_fails(self):
+        self.env['ELEVATED'] = ''
+        (self.root / 'pins').write_text('unrelated|4.0.0\nopencode|1.18.30\n')
+        result = self.assert_result(False)
+        self.assertNotIn('-EncodedCommand', result.stdout)
 
 
 if __name__ == '__main__':
