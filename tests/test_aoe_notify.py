@@ -42,6 +42,12 @@ class AoeNotifyTests(unittest.TestCase):
 
     def prepare(self, fixture) -> tuple[Path, dict[str, str]]:
         script = write_executable(fixture.root / "aoe-notify", self.source)
+        for name in ("curl", "terminal-notifier", "osascript", "powershell.exe", "notify-send"):
+            write_argv_logger(
+                fixture.fake_bin / name,
+                fixture.root / f"backend-{name}.json",
+                exit_code=1,
+            )
         env = fixture.env.copy()
         for key in tuple(env):
             if key.startswith("AOE_") or key in {"DEVCONTAINER", "DEV_NOTIFY_BRIDGE"}:
@@ -185,6 +191,7 @@ class AoeNotifyTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             argv = json.loads(log.read_text(encoding="utf-8"))
             self.assertIn("--urgency=critical", argv)
+            self.assertTrue((fixture.root / "backend-powershell.exe.json").is_file())
             self.assertEqual(argv[-2:], ["AoE: Error", "An Agent of Empires session hit an error"])
             self.assertIn("backend=notify-send rc=0", self.read_log(fixture))
 
@@ -199,6 +206,7 @@ class AoeNotifyTests(unittest.TestCase):
             result = run_notify(script, "waiting", env=env | {"AOE_NOTIFY_DEBUG": "yes"})
 
             self.assertEqual(result.returncode, 0)
+            self.assertTrue((fixture.root / "backend-powershell.exe.json").is_file())
             self.assertIn("no notification backend succeeded", result.stderr)
             self.assertIn("status=waiting backend=none rc=1", self.read_log(fixture))
 
