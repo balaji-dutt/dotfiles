@@ -203,7 +203,13 @@ class GitLabCiContractTests(unittest.TestCase):
 
         self.assertIn("  image: python:3.13.7-bookworm\n", linux_fast)
         self.assertIn("./assets/run-tests.sh fast", linux_fast)
-        self.assertIn("--require-capability git --require-capability sh", linux_fast)
+        self.assertIn(
+            "./assets/run-tests.sh fast --require-capabilities "
+            "--report-file ci-artifacts/linux-fast.json",
+            linux_fast,
+        )
+        self.assertIn("  timeout: 10m\n", linux_fast)
+        self.assertNotIn("  allow_failure:", linux_fast)
         self.assertIn("  allow_failure: true\n", linux_all)
         self.assertIn("./assets/run-tests.sh all", linux_all)
         self.assertIn("  allow_failure: true\n", devcontainer_smoke)
@@ -216,6 +222,34 @@ class GitLabCiContractTests(unittest.TestCase):
         self.assertIn("    - saas-windows-medium-amd64\n", windows_all)
         self.assertNotIn("  image:", windows_all)
         self.assertIn("assets/run-tests.ps1 all", windows_all)
+
+    def test_linux_fast_verifies_pinned_node_before_extraction(self) -> None:
+        block = top_level_block(self.text, "linux-fast")
+        setup = block.split("  before_script:\n", 1)[1].split("  script:\n", 1)[0]
+        self.assertIn("      set -eu\n", setup)
+        self.assertIn('test "$(uname -m)" = x86_64', setup)
+        match = re.search(
+            r"https://nodejs\.org/dist/(v\d+\.\d+\.\d+)/"
+            r"node-\1-linux-x64\.tar\.xz -o /tmp/node\.tar\.xz",
+            setup,
+        )
+        self.assertIsNotNone(match)
+        version = match.group(1)
+        self.assertIn("curl --fail --silent --show-error --location", setup)
+        self.assertIn("--retry 2 --connect-timeout 10 --max-time 60", setup)
+        self.assertRegex(
+            setup,
+            r"printf '%s\\n' '[0-9a-f]{64}  /tmp/node\.tar\.xz' "
+            r"\| sha256sum --check --strict",
+        )
+        self.assertIn(
+            "tar -xJf /tmp/node.tar.xz --strip-components=2 -C /usr/local/bin "
+            f"node-{version}-linux-x64/bin/node",
+            setup,
+        )
+        self.assertLess(setup.index("curl "), setup.index("sha256sum "))
+        self.assertLess(setup.index("sha256sum "), setup.index("tar -xJf "))
+        self.assertLess(setup.index("tar -xJf "), setup.index("node --version"))
 
     def test_existing_sync_job_dispatch_contract_is_unchanged(self) -> None:
         expected_rules = [
