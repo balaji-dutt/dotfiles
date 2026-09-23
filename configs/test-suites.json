@@ -359,6 +359,20 @@
       "requires": ["pwsh"]
     },
     {
+      "id": "opencode-v1-holds",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_v1.OpenCodeRenderTests", "tests.test_opencode_v1.MacHoldTests", "tests.test_opencode_v1.WindowsHoldTests"],
+      "covers": ["tests/test_opencode_v1.py"],
+      "requires": ["chezmoi"],
+      "platforms": ["linux", "macos", "wsl2"]
+    },
+    {
+      "id": "opencode-v1-policy",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_v1.OpenCodePolicyTests"],
+      "covers": ["tests/test_opencode_v1.py"]
+    },
+    {
       "id": "opencode-workspace-overrides",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_workspace_overrides"],

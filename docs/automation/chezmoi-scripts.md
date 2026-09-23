@@ -35,10 +35,12 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_20-git-template-hooks.ps1.tmpl` | after | Windows existing repository Git hook reconciliation |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
 | `run_after_macos-nfs-config.sh.tmpl` | after | macOS system NFSv4 client default reconciliation |
+| `run_after_macos-opencode-pin.sh.tmpl` | after | hold an installed stable OpenCode v1 with Homebrew |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
 | `run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl` | after | Debian WSL2 devcontainer overlays |
 | `run_after_windows-beads-client.ps1.tmpl` | after | Windows Beads client environment wiring |
 | `run_after_windows-beads-pin.ps1.tmpl` | after | Windows Beads Winget pin reconciliation |
+| `run_after_windows-opencode-pin.ps1.tmpl` | after | hold an installed stable OpenCode v1 with Chocolatey |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_after_zz-configure-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL cache-local CBM auto-index configuration |
@@ -74,9 +76,41 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 - The CBM UBI retirement hook requires an inactive UBI backend and a healthy
   GitHub-backed CBM before uninstalling each fully qualified UBI version it
   discovers. It never prunes mise or deletes install directories directly.
-- The host plugin refresh hook reads `configs/host-ai-plugin-refresh.jsonc` and
-  `dot_claude/settings-base.json`, but only the former is hashed into its
-  onchange trigger; see `docs/devcontainers.md`.
+- Citrix Workspace and Zoom VDI are handled outside Homebrew; see
+  `docs/automation/macos-vdi-apps.md`.
+- Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.
+- OpenCode holds freeze the installed host version, not a shared fleet version.
+  Missing packages are not protected; see [OpenCode v1](opencode-v1.md) for
+  installation, reviewed upgrades, pin verification, and retirement.
+
+## Host AI Plugin Refresh
+
+The POSIX and Windows host plugin refresh hooks use
+`configs/host-ai-plugin-refresh.jsonc` as a Renovate trigger/sentinel, separate
+from devcontainer package installation and lifecycle updates.
+
+### Manifest and version ownership
+
+- Host runtime configs may use `@latest`. OpenCode sentinel versions should
+  come from the host package cache or npm latest, not devcontainer package pins.
+- `@slkiser/opencode-quota` and `@tarquinen/opencode-dcp` each use a coordinated
+  exact version across five references: host/container runtime configs,
+  host/container TUI configs, and the refresh sentinel. Renovate groups each
+  plugin's references so version changes and cache refreshes stay together.
+- Update the manifest when host Claude/OpenCode plugin entries change. Only
+  the manifest is hashed into the onchange trigger; edits to runtime configs or
+  `settings-base.json` alone do not trigger a refresh.
+- Claude plugin ids must match the `enabledPlugins` keys in
+  `dot_claude/settings-base.json`. The hook reads that file at runtime and
+  aborts before any `claude plugin` call if the ids disagree. A plugin rename
+  therefore requires both files to be updated.
+- Keep each manifest `version` and its `// renovate:` comment on one line so
+  Renovate can match it.
+
+### Refresh and retry behavior
+
+- The hook installs manifest plugins without an install record and updates the
+  rest; it does not require a prior Claude Code launch to install them.
 - The host plugin hook derives required marketplace names from canonical
   `<plugin>@<marketplace>` ids, updates each required marketplace by name, and
   gives only Claude mutation children
@@ -98,6 +132,11 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   still runs and the hook exits nonzero for retry. A listed plugin whose update
   hits a stale install record falls back to installation, while other update
   failures do not trigger reinstall.
+- On POSIX, the hook clears the OpenCode packages cache when no blocking
+  OpenCode session is detected. A plugin can declare a staged npm cache install
+  for a pinned compatibility workaround; while OpenCode is running, the hook
+  may add a new versioned cache key but never replace an existing one. Detached
+  or zombie OpenCode server processes are logged and ignored.
 - On Windows, Claude refresh commands run before OpenCode process gating. An
   interactive, ambiguous, or uninspectable OpenCode process defers only cache
   mutation and exits nonzero so the onchange hook retries after OpenCode closes.
@@ -105,11 +144,12 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   ignored, matching the detached-server behavior on POSIX. The cache root is
   restricted to the normalized default or explicit XDG location, and recursive
   removal accepts only validated paths under its direct `packages` child.
+  Process state is rechecked before removal and staged publication.
 - A Windows deferral stops the current apply, so later hooks wait for the
   successful standalone-PowerShell retry; it is not a successful partial apply.
+  Close blocking OpenCode clients and rerun `chezmoi apply` from standalone
+  PowerShell.
 - Use a directly rendered script with `HOST_AI_PLUGIN_REFRESH_DRY_RUN=1` for a
   state-preserving Windows preview. Do not use `chezmoi apply` only as a preview;
   see `docs/inventory/windows.md` for the command and standalone retry flow.
-- Citrix Workspace and Zoom VDI are handled outside Homebrew; see
-  `docs/automation/macos-vdi-apps.md`.
-- Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.
+- Restart Claude Code/OpenCode after a refresh so the new plugin code is loaded.

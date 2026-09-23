@@ -1,7 +1,7 @@
 {
   "$schema": "./schemas/automation-test-inventory.v2.schema.json",
   "schema_version": 2,
-  "candidate_digest": "sha256:9b22853da15505ef9c6b368cb6caa9eab702126e6bae3740c511510b4c2b63ea",
+  "candidate_digest": "sha256:73d7c40d63c470c5445ebe0ca48169c47213deb2c4686884cf7929764899a8b9",
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -461,15 +461,18 @@
         "suite_id": "lifecycle-posix",
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py"],
+        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_opencode_v1.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py"],
         "behavior_requirements": [
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Homebrew holds.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
           {"id": "failure-shell-lifecycle-errors", "kind": "failure", "description": "Propagate commit-template writes, installer checksum validation, and selected lifecycle command failures without replacing valid state.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Prevent unsupported-host mutation, unrelated formula or tap removal in untested retirement hooks, installer side effects, and production secret access across untested lifecycle hooks.", "status": "planned", "test_paths": []},
           {"id": "safety-legacy-cbm-retirement-scope", "kind": "safety", "description": "Retire only fully qualified versions discovered under the exact UBI backend on Darwin or WSL2 while preserving unrelated installs and unsupported hosts.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "safety-opencode-pin-only", "kind": "safety", "description": "Limit Homebrew mutation to pinning installed OpenCode, preserve unrelated pins, and no-op without a manager or package.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "safety-selected-fixture-boundaries", "kind": "safety", "description": "Keep selected cleanup, installer, optional-tool, and platform-dispatch tests inside temporary filesystems with fake network and host commands.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "success-legacy-cbm-retirement", "kind": "success", "description": "Remove all inactive legacy UBI CBM versions, reshim, verify the active GitHub replacement, and no-op idempotently when the backend is absent.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "success-opencode-hold", "kind": "success", "description": "Establish and reassert a stable-v1 Homebrew pin idempotently against synthetic package state.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Linux, macOS, Windows, and WSL2 data and parse non-empty POSIX outputs.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected host refresh, commit-template, cleanup, installer, and retirement hooks idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py", "tests/test_shell_lifecycle.py"]}
         ]
@@ -490,22 +493,25 @@
         "suite_id": "lifecycle-windows",
         "status": "partial",
         "work_item": "dots-4jy.10.5.4",
-        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py", "tests/test_powershell_lifecycle.py"],
+        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py", "tests/test_opencode_v1.py", "tests/test_powershell_lifecycle.py"],
         "behavior_requirements": [
           {"id": "failure-claude-git-transport-diagnostics", "kind": "failure", "description": "Fail before launch when OpenSSH is unavailable and report fingerprint-verification and known_hosts remediation for SSH host-key failures.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "failure-claude-mutation-timeout-retry", "kind": "failure", "description": "Preserve timeout classification through cleanup, stop later Claude mutations after the first timeout, continue OpenCode work, and return nonzero for a later retry.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "failure-lifecycle-command-boundaries", "kind": "failure", "description": "Propagate PowerShell template rendering, invalid path, and scheduled-task registration failures without writing fallback or destination state for unrelated errors.", "status": "covered", "test_paths": ["tests/test_powershell_lifecycle.py"]},
+          {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Chocolatey holds in PowerShell fixtures.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "failure-selected-installer-errors", "kind": "failure", "description": "Propagate selected installer, parser, and refresh failures without reporting success.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-claude-noninteractive-git-transport", "kind": "safety", "description": "Override interactive Git SSH transport only in Claude mutation children with strict OpenSSH host-key checking and no terminal prompts, without changing caller environment.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-claude-process-tree-containment", "kind": "safety", "description": "Contain each Claude mutation, reap descendants after normal exit or timeout, fail closed before an uncontained launch, and preserve unrelated processes.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Keep broad lifecycle tests from mutating the real Windows profile, installers, or production secrets.", "status": "planned", "test_paths": []},
+          {"id": "safety-opencode-pin-only", "kind": "safety", "description": "Limit Chocolatey fixture mutation to pinning installed OpenCode, preserve unrelated pins, and no-op without a manager or package.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "safety-selected-lifecycle-boundaries", "kind": "safety", "description": "Exercise PATH, profile, file-sync, cleanup, and scheduled-task behavior through temporary paths and mocked persistence or task boundaries without mutating the host.", "status": "covered", "test_paths": ["tests/test_powershell_lifecycle.py"]},
           {"id": "success-bounded-claude-mutations", "kind": "success", "description": "Complete bounded Claude mutation commands with compatible output, exit status, and child-local environment behavior.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
+          {"id": "success-opencode-hold", "kind": "success", "description": "Establish and reassert stable-v1 Chocolatey pins idempotently using a local PowerShell runtime or retained Linux audit image with mocked Windows discovery.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Windows data and parse non-empty PowerShell outputs without host mutation.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected Windows bootstrap, file-sync, cleanup, startup-task, installer, and refresh paths idempotently in synthetic state.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py", "tests/test_powershell_lifecycle.py"]}
         ]
       },
-      "rationale": "All lifecycle templates render under synthetic Windows data and pass PowerShell AST parsing. Native Pester covers selected bootstrap, first-run empty PATH, profile, file-sync, cleanup, and startup-task behavior, while existing suites cover selected installer and refresh paths. Untested lifecycle hooks and live Windows host mutation remain planned."
+      "rationale": "All lifecycle templates render under synthetic Windows data and pass PowerShell AST parsing. Native Pester covers selected bootstrap, first-run empty PATH, profile, file-sync, cleanup, and startup-task behavior, while existing suites cover selected installer and refresh paths. Untested lifecycle hooks and live Windows host mutation remain planned. OpenCode pin fixtures mock Windows command discovery; native Chocolatey shim and permission verification remains pending under dots-6f8z for an approved rollout."
     },
     {
       "id": "managed-ai-adapters",

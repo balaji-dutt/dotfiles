@@ -5,7 +5,7 @@
 # cannot read a migrated remote; see docs/beads.md "Schema migrations".
 beads_version: "1.2.2" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
 codebase_memory_mcp_version: "0.10.8" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
-dolt_version: "2.3.3" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
+dolt_version: "2.3.4" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
 lazygit_version: "0.65.1" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).
 # wsl_repo_rel is relative to the WSL2 $HOME, which is resolved at runtime so
@@ -38,4 +38,4 @@ plannotator_ports:
     build: "9993-9998"
     claude: "10014-10019"
     custom: "10004-10009"
-plannotator_version: "0.27.14" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$
+plannotator_version: "0.27.15" # renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v(?<version>.*)$

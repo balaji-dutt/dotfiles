@@ -1,0 +1,67 @@
+{{- if eq .chezmoi.os "windows" }}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Invoke-OpenCodePinNative {
+  param([string] $Executable, [string[]] $Arguments, [int[]] $AllowedCodes = @(0))
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = $null
+    $output = @(& $Executable @Arguments)
+    $exitCode = $global:LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($null -eq $exitCode -or $exitCode -notin $AllowedCodes) {
+    throw "$Executable $($Arguments -join ' ') failed (exit $exitCode). For a pin permission failure, use an elevated profile-free PowerShell: choco.exe pin add --name=opencode"
+  }
+  return ($output -join "`n").Trim()
+}
+
+function Set-OpenCodeV1Hold {
+  $choco = Get-Command choco.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $choco) {
+    Write-Host 'INFO: Chocolatey absent; OpenCode hold not established. See docs/automation/opencode-v1.md.'
+    return
+  }
+  $installed = Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output')
+  if ([string]::IsNullOrWhiteSpace($installed)) {
+    Write-Host 'INFO: Chocolatey OpenCode absent; hold not established. See docs/automation/opencode-v1.md.'
+    return
+  }
+  if ($installed -cnotmatch '\Aopencode\|(1\.[0-9]+\.[0-9]+)\z') {
+    throw "Expected one stable v1 Chocolatey OpenCode version; found: $installed"
+  }
+  $version = $Matches[1]
+  $expected = Join-Path (Split-Path $choco.Source -Parent) 'opencode.exe'
+  $executables = @(Get-Command opencode -All -CommandType Application -ErrorAction SilentlyContinue)
+  if ($executables.Count -eq 0) { throw 'OpenCode is missing from PATH' }
+  foreach ($executable in $executables) {
+    if ($executable.Source -ine $expected) {
+      throw "OpenCode PATH conflict: $($executable.Source) is not $expected"
+    }
+  }
+  $actual = Invoke-OpenCodePinNative $expected @('--version')
+  if ($actual -cne $version) { throw "OpenCode executable reports $actual; Chocolatey reports $version" }
+
+  $pinArguments = @('pin', 'list', '--limit-output')
+  $pins = Invoke-OpenCodePinNative $choco.Source $pinArguments
+  $matchesForPackage = @($pins -split '\r?\n' | Where-Object { $_ -match '^opencode(?:\||$)' })
+  if ($matchesForPackage.Count -eq 0) {
+    $null = Invoke-OpenCodePinNative $choco.Source @('pin', 'add', '--name=opencode') @(0, 2)
+  } elseif ($matchesForPackage.Count -ne 1 -or $matchesForPackage[0] -cne "opencode|$version") {
+    throw 'Conflicting Chocolatey OpenCode pin; inspect it manually without unpinning other packages'
+  }
+  $pins = Invoke-OpenCodePinNative $choco.Source $pinArguments
+  $matchesForPackage = @($pins -split '\r?\n' | Where-Object { $_ -match '^opencode(?:\||$)' })
+  if ($matchesForPackage.Count -ne 1 -or $matchesForPackage[0] -cne "opencode|$version") {
+    throw 'Chocolatey OpenCode hold was not established'
+  }
+  $current = Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output')
+  if ($current -cne $installed) { throw 'OpenCode changed during pinning; inspect the installation and hold manually' }
+  Write-Host "INFO: Chocolatey OpenCode $version is held; upgrades remain manual."
+}
+
+if ($MyInvocation.InvocationName -ne '.') { Set-OpenCodeV1Hold }
+{{- end }}

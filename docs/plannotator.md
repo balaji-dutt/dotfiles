@@ -13,7 +13,10 @@ Containers make random localhost ports inconvenient because Multi-Account
 Containers can only pin by host/port. A single fixed port keeps settings stable
 but blocks concurrent agent sessions.
 
-This repo uses bounded native ranges instead:
+This repo uses bounded native ranges. The canonical definitions are in
+[`.chezmoidata.yaml`](../.chezmoidata.yaml)
+under `plannotator_ports.host` and `plannotator_ports.devcontainer`. Templates
+consume those values for the corresponding `PLANNOTATOR_PORTS_*` variables.
 
 | Environment | Workflow | Ports | Plannotator setting |
 | :--- | :--- | :--- | :--- |
@@ -29,6 +32,11 @@ direct host fallback. Devcontainers have the same direct fallback behavior on
 `9999`. Those direct fallback ports are intentionally outside the native
 ranges. Plain sessions still share one fixed port per environment, so two plain
 sessions cannot host review UIs concurrently on that fallback.
+
+The host fallback comes from the separate top-level `plannotator_port` in
+`.chezmoidata.yaml`. The container fallback is set directly as
+`PLANNOTATOR_PORT` in the homelab `devcontainer.json.tmpl`; it does not use the
+host fallback value.
 
 ## Wrapper commands
 
