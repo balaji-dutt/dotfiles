@@ -251,6 +251,16 @@ class GitLabCiContractTests(unittest.TestCase):
         self.assertLess(setup.index("sha256sum "), setup.index("tar -xJf "))
         self.assertLess(setup.index("tar -xJf "), setup.index("node --version"))
 
+    def test_linux_fast_installs_jq_before_attestation_tests(self) -> None:
+        block = top_level_block(self.text, "linux-fast")
+        setup = block.split("  before_script:\n", 1)[1].split("  script:\n", 1)[0]
+        self.assertIn("      set -eu\n", setup)
+        self.assertIn("apt-get update -qq", setup)
+        self.assertIn("apt-get install -y --no-install-recommends jq", setup)
+        self.assertIn("jq --version", setup)
+        self.assertLess(setup.index("apt-get update"), setup.index("apt-get install"))
+        self.assertLess(setup.index("apt-get install"), setup.index("jq --version"))
+
     def test_existing_sync_job_dispatch_contract_is_unchanged(self) -> None:
         expected_rules = [
             ('$CI_PIPELINE_SOURCE == "merge_request_event"', "on_success"),

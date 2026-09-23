@@ -414,6 +414,36 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn("sh", fast["resolve-python3"]["requires"])
         self.assertEqual(payload["capabilities"]["node"], {"command": "node"})
 
+    def test_attestation_dependencies_follow_the_native_wrapper_platform(self) -> None:
+        payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        steps = {step["id"]: step for step in payload["steps"]}
+        posix = steps["agent-attestation"]
+        windows = steps["agent-attestation-windows"]
+        self.assertEqual(set(posix["platforms"]), {"linux", "macos", "wsl2"})
+        self.assertEqual(windows["platforms"], ["windows"])
+        self.assertEqual(set(posix["requires"]), {"node", "git", "bash", "jq"})
+        self.assertEqual(set(windows["requires"]), {"node", "git", "pwsh"})
+        self.assertEqual(posix["argv"], windows["argv"])
+        self.assertEqual(posix["covers"], windows["covers"])
+        self.assertEqual(posix["suites"], windows["suites"])
+        self.assertEqual(payload["capabilities"]["jq"], {"command": "jq"})
+
+    def test_attestation_fails_in_strict_mode_when_jq_is_missing(self) -> None:
+        payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        step = next(step for step in payload["steps"] if step["id"] == "agent-attestation")
+        self.fixture.capabilities = {
+            name: {"command": "definitely-not-a-real-jq" if name == "jq" else sys.executable}
+            for name in step["requires"]
+        }
+        self.fixture.steps = [
+            self.fixture.step(step["id"], ["fast"], "pass.py", requires=step["requires"])
+        ]
+        self.fixture.write_registry()
+        result = self.fixture.run("fast", "--require-capabilities")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("FAIL agent-attestation: missing capability jq", result.stdout)
+        self.assertNotIn("RUN  agent-attestation", result.stdout)
+
     def test_fast_node_steps_fail_in_strict_mode_when_node_is_missing(self) -> None:
         payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
         node_steps = [

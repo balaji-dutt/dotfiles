@@ -181,6 +181,9 @@ linux-fast:
   before_script:
     - |
       set -eu
+      apt-get update -qq
+      apt-get install -y --no-install-recommends jq
+      jq --version
       test "$(uname -m)" = x86_64
       curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 60 https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz -o /tmp/node.tar.xz
       printf '%s\n' 'fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6  /tmp/node.tar.xz' | sha256sum --check --strict

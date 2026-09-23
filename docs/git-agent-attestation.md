@@ -215,7 +215,10 @@ On Windows, these paths are relative to the native user profile, not a WSL home.
 Preview the relevant chezmoi targets before applying them. Apply only with
 approval, then restart OpenCode and restart Claude Code or use `/reload-plugins`.
 Both integrations require Node.js and Git. Source resolution additionally uses
-chezmoi. Native Windows commit commands require PowerShell 7 and the `.ps1`
+chezmoi. POSIX commit wrappers need `jq` to consume rich handoffs; without it,
+they commit with tool-only provenance. The POSIX attestation test step declares
+`jq` as a required capability, and `linux-fast` installs it before running tests.
+Native Windows commit commands require PowerShell 7 and the `.ps1`
 wrappers; the refusing `.cmd` stubs are not supported. No Bash, WSL, `jq`, or
 Unix hashing utility is required by the native Windows plugins themselves.
 

@@ -6,6 +6,7 @@
     "devcontainer-smoke": {"command": "python3", "probe": ["python3", "assets/devcontainer-smoke.py", "--probe"]},
     "chezmoi": {"command": "chezmoi"},
     "git": {"command": "git"},
+    "jq": {"command": "jq"},
     "node": {"command": "node"},
     "pester": {
       "command": "{python}",
@@ -26,7 +27,16 @@
       "suites": ["fast", "integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_agent_attestation"],
       "covers": ["tests/test_agent_attestation.py"],
-      "requires": ["node", "git"]
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["node", "git", "bash", "jq"]
+    },
+    {
+      "id": "agent-attestation-windows",
+      "suites": ["fast", "integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_agent_attestation"],
+      "covers": ["tests/test_agent_attestation.py"],
+      "platforms": ["windows"],
+      "requires": ["node", "git", "pwsh"]
     },
     {
       "id": "agent-worktree-merge",
