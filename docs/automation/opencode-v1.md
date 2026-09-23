@@ -39,6 +39,17 @@ message, not proof of protection. Non-v1, ambiguous versions, PATH conflicts,
 query failures, and failed pin verification stop the hook. Resolve those
 conditions before retrying. Native Windows needs Chocolatey 2.x list semantics.
 
+Chocolatey writes pins under `C:\ProgramData\chocolatey\lib\<package>`, where
+`BUILTIN\Users` holds only read and execute rights, so the pin write needs an
+elevated session. A non-elevated apply therefore skips the write, reports
+**hold not established**, and prints a `Start-Process pwsh -Verb RunAs`
+command carrying the pin and its verification as `-EncodedCommand`. Copy that
+line into a terminal to establish the hold without re-running chezmoi apply.
+This mirrors `run_onchange_after_browser-policies.ps1.tmpl`. Every Chocolatey
+mutation passes `--yes`; without it Chocolatey stops on its non-elevated
+confirmation prompt, and because the hook captures command output that prompt
+is invisible and blocks the apply indefinitely.
+
 Before rollout, inspect the installed binary and pin state:
 
 ```sh
@@ -58,10 +69,10 @@ choco.exe pin list --limit-output
 ```
 
 For an installed, verified stable v1, establish the host hold manually with
-`command brew pin opencode` or `choco.exe pin add --name=opencode`, then repeat
-the read-only checks. If Chocolatey denies the pin write, run only that pin
-command in elevated profile-free PowerShell, then verify again. Do not run an
-entire chezmoi apply elevated just to establish a hold.
+`command brew pin opencode` or `choco.exe pin add --name=opencode --yes`, then
+repeat the read-only checks. Run only that pin command in elevated profile-free
+PowerShell, then verify again. Do not run an entire chezmoi apply elevated just
+to establish a hold.
 
 On a fresh Mac, inspect `brew info anomalyco/tap/opencode` before installing;
 the ordinary formula installs its current published version, not an arbitrary
@@ -102,8 +113,10 @@ WSL/rebuild containers deliberately. Host upgrades are separate manual actions:
 2. Close OpenCode sessions and perform the maintenance window without a
    concurrent chezmoi apply (the always-run hook reasserts holds).
 3. macOS: `command brew unpin opencode`, then `command brew upgrade opencode`.
-   Windows: in profile-free PowerShell, `choco.exe pin remove --name=opencode`,
-   then `choco.exe upgrade opencode --version=<approved-v1>`.
+   Windows: in elevated profile-free PowerShell,
+   `choco.exe pin remove --name=opencode --yes`, then
+   `choco.exe upgrade opencode --version=<approved-v1> --yes`. Both mutate and
+   need `--yes`, or Chocolatey waits on a confirmation prompt.
 4. Verify package and executable versions, re-pin, and query pin state again.
    Re-pin the remaining installed stable v1 even if the upgrade fails. A failed
    upgrade is not evidence that the hold survived. If an unexpected version or
@@ -145,6 +158,16 @@ a pin alone is temporary: the next apply recreates it.
 `tests/test_opencode_v1.py` covers extraction, rule precedence, manifest parity,
 platform rendering, and pin-only behavior using fake managers and executables.
 PowerShell fixtures run locally or in the retained Linux audit image; they mock
-Windows command discovery. Native Chocolatey shim resolution, permissions, and
-end-to-end host rollout still need a Windows smoke check under `dots-6f8z`.
-No test installs/upgrades OpenCode or mutates real package-manager pins.
+Windows command discovery and elevation. Native Chocolatey shim resolution,
+permissions, prompting behavior, and end-to-end host rollout still need a
+Windows smoke check under `dots-6f8z`. No test installs/upgrades OpenCode or
+mutates real package-manager pins.
+
+The fixtures cannot reach real Chocolatey, so they prove which arguments the
+hook passes and which branch it takes, not that Chocolatey accepts them. The
+fake Chocolatey matches argument strings exactly and exits 99 otherwise, which
+is what pins `--yes` in place. Run `WindowsHoldTests` where a POSIX PowerShell
+exists: under WSL with Windows interop on `PATH`,
+`resolve_powershell_runtime` selects `pwsh.exe`, which can neither read `/tmp`
+nor execute the `/bin/sh` fakes. Clear `WSL_DISTRO_NAME` and `WSL_INTEROP` to
+force the retained Linux audit image.
