@@ -57,7 +57,7 @@
     ],
     "entrypoints": ["__init__.py", "__main__.py", "cli.py"],
     "snapshot": "docs/unslop-fork-status.md",
-    "tree_digest": "sha256:557e5becce1041b8eb290088429ba47934d90a9034191d9e39837e530211e427"
+    "tree_digest": "sha256:076ffe22199f65e253c013ebffed8049d82531182c0d0c6ec91f9b128c6f19b3"
   },
   "forbidden_behavioral_roots": [".opencode/node_modules/", "archive/"]
 }

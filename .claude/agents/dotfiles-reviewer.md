@@ -2,7 +2,7 @@
 name: dotfiles-reviewer
 description: Lightweight reviewer for chezmoi templates + bash + PowerShell 7 dotfiles. Proactively review diffs/snippets to simplify logic and catch mistakes. Avoid heavyweight refactors.
 tools: Bash, Read
-model: claude-opus-5
+model: claude-opus-5-5
 effort: max
 ---
 

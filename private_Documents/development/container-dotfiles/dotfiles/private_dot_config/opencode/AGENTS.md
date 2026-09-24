@@ -43,7 +43,7 @@ These rules apply to all OpenCode sessions regardless of repository.
 - Use a human-readable attribution. Include the model when verified, for
   example `OpenCode (Qwen-3.7 Max)`. Add the reasoning level only when runtime
   metadata explicitly provides it, for example
-  `OpenCode (GPT-6 Astra / High)`. Never infer metadata from configuration,
+  `OpenCode (GPT-6 Sol / High)`. Never infer metadata from configuration,
   defaults, or aliases. If the model cannot be verified, use `OpenCode` without
   parentheses.
 - Use `agent_attribution` when current-session history is useful for verifying

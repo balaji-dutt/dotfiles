@@ -147,7 +147,7 @@ Both transports use the same JSON shape:
       "tool": "opencode",
       "agent": "special-builder",
       "role": "editor",
-      "model": "openai/gpt-5.5",
+      "model": "openai/gpt-6-sol",
       "sourceDefinition": "agents/special-builder.yaml",
       "sourceDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
@@ -339,7 +339,7 @@ entries.
 ### Generated agent
 
 ```text
-AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-5.5
+AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-sol
 Source-Definition: agents/special-builder.yaml
 Source-Digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
@@ -347,7 +347,7 @@ Source-Digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ### Hand-authored definition
 
 ```text
-AI-Participant: tool=claude-code; agent=release-reviewer; role=reviewer; model=anthropic/claude-opus-4-1
+AI-Participant: tool=claude-code; agent=release-reviewer; role=reviewer; model=anthropic/claude-opus-5-5
 Source-Definition: dot_claude/agents/release-reviewer.md
 Source-Digest: sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 ```
@@ -361,13 +361,13 @@ AI-Participant: tool=opencode
 ### Multiple participants
 
 ```text
-AI-Participant: tool=opencode; agent=plan-GPT-xhigh; role=planner; model=openai/gpt-5.5
+AI-Participant: tool=opencode; agent=plan-GPT-xhigh; role=planner; model=openai/gpt-6-sol
 Source-Definition: agents/plan-GPT-xhigh.yaml
 Source-Digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
-AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-5.5
+AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-sol
 Source-Definition: agents/special-builder.yaml
 Source-Digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
-AI-Participant: tool=claude-code; role=verifier; model=anthropic/claude-sonnet-4-5
+AI-Participant: tool=claude-code; role=verifier; model=anthropic/claude-sonnet-5
 ```
 
 Inspect the final trailer block with:

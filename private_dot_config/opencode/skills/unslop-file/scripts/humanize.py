@@ -1375,7 +1375,7 @@ def _call_anthropic_sdk(prompt: str) -> str | None:
         return None
     client = Anthropic()
     msg = client.messages.create(
-        model=os.environ.get("UNSLOP_MODEL", "claude-sonnet-4-5"),
+        model=os.environ.get("UNSLOP_MODEL", "claude-sonnet-5"),
         max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
     )
