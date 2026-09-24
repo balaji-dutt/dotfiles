@@ -11,7 +11,7 @@
 
   // Default model (agents override this).
   // OpenCode selects models as `provider_id/model_id`.
-  "model": "openai/gpt-6-astra",
+  "model": "openai/gpt-6-sol",
   "small_model": "openai/gpt-6-luna",
 
   // ----------------------------
@@ -266,7 +266,7 @@
         // Required by the local websearch_cited compatibility shim:
         // This tells the shim which OpenAI model to use when it runs the tool.
         "websearch_cited": {
-          "model": "gpt-6-astra"
+          "model": "gpt-6-luna"
         }
       }
     },
@@ -523,7 +523,7 @@
     "plan": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "temperature": 0.4,
@@ -541,7 +541,7 @@
     "plan-GPT-xhigh": {
       "mode": "primary",
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
@@ -560,7 +560,7 @@
     "build": {
       "mode": "primary",
       "description": "Default editing agent",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "reasoningEffort": "high",
       "temperature": 0.2,
       "prompt": "You are the default interactive build agent. Repo-level instructions (AGENTS.md or equivalent) take precedence over any global defaults. When no repo-specific guidance exists, apply good judgment for correctness, safety, and maintainability.",
@@ -576,7 +576,7 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "permission": {
@@ -594,7 +594,7 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
       "temperature": 0.2,
       "permission": {
