@@ -147,7 +147,7 @@ Both transports use the same JSON shape:
       "tool": "opencode",
       "agent": "special-builder",
       "role": "editor",
-      "model": "openai/gpt-6-astra",
+      "model": "openai/gpt-6-sol",
       "sourceDefinition": "agents/special-builder.yaml",
       "sourceDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
@@ -210,7 +210,7 @@ entries.
 ### Generated agent
 
 ```text
-AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-astra
+AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-sol
 Source-Definition: agents/special-builder.yaml
 Source-Digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
@@ -232,10 +232,10 @@ AI-Participant: tool=opencode
 ### Multiple participants
 
 ```text
-AI-Participant: tool=opencode; agent=plan-GPT-xhigh; role=planner; model=openai/gpt-6-astra
+AI-Participant: tool=opencode; agent=plan-GPT-xhigh; role=planner; model=openai/gpt-6-sol
 Source-Definition: agents/plan-GPT-xhigh.yaml
 Source-Digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
-AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-astra
+AI-Participant: tool=opencode; agent=special-builder; role=editor; model=openai/gpt-6-sol
 Source-Definition: agents/special-builder.yaml
 Source-Digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
 AI-Participant: tool=claude-code; role=verifier; model=anthropic/claude-sonnet-5
