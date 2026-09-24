@@ -179,11 +179,13 @@ rebuild CBM cache or database files.
 
 The separate always-run `zz-configure-codebase-memory-mcp.ps1` hook executes
 after the installer and reconciles `auto_index=true` in the active cache. Its
-bounded short-lived `config get` / conditional `config set` / `config get`
-sequence reads `_config.db` directly and works when the installer has stopped or
-force-stopped the coordination daemon. It intentionally does not restart the
-daemon; the next OpenCode or Claude Code MCP process starts normally and reads
-the setting.
+bounded short-lived `config get`, followed by a `config set` and a second
+`config get` only when the first read is not already `true`, runs once the
+installer has stopped or force-stopped the coordination daemon. While another
+CBM process still holds the daemon admission gate, the CLI refuses to start at
+all, so the hook warns that `auto_index` went unverified and exits 0 instead of
+failing the apply; with no CBM process running, a CLI failure is still fatal. It intentionally does not restart the daemon; the next OpenCode
+or Claude Code MCP process starts normally and reads the setting.
 
 `windows-bootstrap.ps1` owns `~/.local` in the persistent user `PATH`. Restart
 OpenCode, Claude Code, and any terminal that predates the installation before

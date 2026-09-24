@@ -72,7 +72,11 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   refresh hooks; see `docs/inventory/windows.md`.
 - The two always-run CBM configuration hooks execute after platform installers,
   set `auto_index=true` only when needed, and verify the cache-local value. They
-  never call CBM's native installer or export a repository graph.
+  never call CBM's native installer or export a repository graph. CBM refuses to
+  start its CLI while another CBM process holds the daemon admission gate, so
+  when one is running the hooks warn that `auto_index` went unverified and exit
+  0 rather than failing the apply. With no CBM process running, a CLI failure is
+  still fatal.
 - The CBM UBI retirement hook requires an inactive UBI backend and a healthy
   GitHub-backed CBM before uninstalling each fully qualified UBI version it
   discovers. It never prunes mise or deletes install directories directly.

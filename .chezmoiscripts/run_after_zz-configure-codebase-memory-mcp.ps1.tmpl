@@ -8,7 +8,8 @@ function Invoke-CbmNative {
   param(
     [Parameter(Mandatory)][string] $Path,
     [Parameter(Mandatory)][AllowEmptyCollection()][string[]] $Arguments,
-    [Parameter(Mandatory)][ValidateRange(1, 300)][int] $TimeoutSeconds
+    [Parameter(Mandatory)][ValidateRange(1, 300)][int] $TimeoutSeconds,
+    [switch] $AllowFailure
   )
 
   $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -42,6 +43,15 @@ function Invoke-CbmNative {
 
     $stdout = $stdoutTask.GetAwaiter().GetResult()
     $stderr = $stderrTask.GetAwaiter().GetResult()
+
+    if ($AllowFailure) {
+      return [pscustomobject]@{
+        ExitCode = $process.ExitCode
+        Stdout   = $stdout.Trim()
+        Stderr   = $stderr.Trim()
+      }
+    }
+
     if ($process.ExitCode -ne 0) {
       $detail = @($stdout, $stderr) |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
@@ -55,21 +65,43 @@ function Invoke-CbmNative {
   }
 }
 
+# The CBM CLI refuses to start while any other CBM process holds the daemon
+# admission gate, so a failure is only conclusive once none are running.
+function Invoke-CbmConfigOrSkip {
+  param(
+    [Parameter(Mandatory)][string[]] $Arguments
+  )
+
+  $result = Invoke-CbmNative -Path $CbmPath -Arguments $Arguments -TimeoutSeconds $TimeoutSeconds -AllowFailure
+  if ($result.ExitCode -eq 0) {
+    return $result.Stdout
+  }
+
+  $detail = @($result.Stdout, $result.Stderr) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Join-String -Separator " "
+
+  if (Get-Process -Name "codebase-memory-mcp" -ErrorAction SilentlyContinue) {
+    Write-Warning "codebase-memory-mcp CLI would not start while CBM sessions are active; auto_index was not verified this run. CBM reported: $detail"
+    exit 0
+  }
+
+  throw "codebase-memory-mcp $($Arguments -join ' ') exited with code $($result.ExitCode): $detail"
+}
+
 if (-not (Test-Path -LiteralPath $CbmPath -PathType Leaf)) {
   throw "codebase-memory-mcp is not installed at '$CbmPath'."
 }
 
-# The config CLI reads and writes the cache-local _config.db directly. It does
-# not require or restart the coordination daemon that the installer may stop.
-$autoIndex = Invoke-CbmNative -Path $CbmPath -Arguments @("config", "get", "auto_index") -TimeoutSeconds $TimeoutSeconds
+$autoIndex = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index")
 if ($autoIndex -ne "true") {
-  [void] (Invoke-CbmNative -Path $CbmPath -Arguments @("config", "set", "auto_index", "true") -TimeoutSeconds $TimeoutSeconds)
+  [void] (Invoke-CbmConfigOrSkip -Arguments @("config", "set", "auto_index", "true"))
+  $autoIndex = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index")
 }
 
-$autoIndex = Invoke-CbmNative -Path $CbmPath -Arguments @("config", "get", "auto_index") -TimeoutSeconds $TimeoutSeconds
 if ($autoIndex -ne "true") {
   throw "codebase-memory-mcp auto_index verification failed."
 }
 
-Write-Host "codebase-memory-mcp auto_index is enabled for the active cache."
+Write-Host "INFO: codebase-memory-mcp auto_index is enabled for the active cache."
 {{- end -}}

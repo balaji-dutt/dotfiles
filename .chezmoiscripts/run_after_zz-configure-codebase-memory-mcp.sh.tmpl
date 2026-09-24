@@ -55,18 +55,45 @@ cbm_bin="$(resolve_cbm)" || {
   exit 1
 }
 
-auto_index="$("$cbm_bin" config get auto_index)"
-auto_index="${auto_index//$'\r'/}"
+err_file="$(mktemp)"
+trap 'command rm -f -- "$err_file"' EXIT
+
+cbm_stdout=""
+
+# The CBM CLI refuses to start while any other CBM process holds the daemon
+# admission gate, so a failure is only conclusive once none are running. The
+# probe pattern stops at 15 characters because Linux truncates comm to that.
+cbm_or_skip() {
+  local rc=0
+
+  cbm_stdout="$("$cbm_bin" "$@" 2>"$err_file")" || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    return 0
+  fi
+
+  if pgrep codebase-memory >/dev/null 2>&1; then
+    printf 'WARNING: codebase-memory-mcp CLI would not start while CBM sessions are active; auto_index was not verified this run. CBM reported: %s\n' \
+      "$(cat "$err_file")" >&2
+    exit 0
+  fi
+
+  printf 'ERROR: codebase-memory-mcp %s failed: %s\n' "$*" "$(cat "$err_file")" >&2
+  exit 1
+}
+
+cbm_or_skip config get auto_index
+auto_index="${cbm_stdout//$'\r'/}"
+
 if [[ "$auto_index" != "true" ]]; then
-  "$cbm_bin" config set auto_index true
+  cbm_or_skip config set auto_index true
+  cbm_or_skip config get auto_index
+  auto_index="${cbm_stdout//$'\r'/}"
 fi
 
-auto_index="$("$cbm_bin" config get auto_index)"
-auto_index="${auto_index//$'\r'/}"
 if [[ "$auto_index" != "true" ]]; then
   echo "ERROR: codebase-memory-mcp auto_index verification failed." >&2
   exit 1
 fi
 
-echo "codebase-memory-mcp auto_index is enabled for the active cache."
+echo "INFO: codebase-memory-mcp auto_index is enabled for the active cache."
 {{- end -}}

@@ -134,8 +134,12 @@ version has one Renovate-managed source in `.chezmoidata.yaml`:
 
 Each environment has its own CBM cache and configuration. Chezmoi's POSIX and
 Windows `run_after_zz-configure-codebase-memory-mcp.*.tmpl` hooks reconcile
-`auto_index=true` after binary provisioning. The homelab devcontainer performs
-the same get/set/get verification in `postCreate.sh`, using its persistent
+`auto_index=true` after binary provisioning. CBM will not start its CLI while
+another CBM process holds the daemon admission gate — an editor or agent session
+with the MCP server attached is enough — so those hooks warn and exit 0 in that
+case instead of failing the apply. Close the sessions and apply again to get the
+setting verified. The homelab devcontainer performs its own unconditional
+get/set/get verification in `postCreate.sh`, using its persistent
 `CBM_CACHE_DIR`. These paths configure the standard binary directly; they never
 run the upstream installer or export `.codebase-memory` into a repository.
 

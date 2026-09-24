@@ -150,6 +150,14 @@
       "covers": ["tests/test_sync_browser_policies.py"]
     },
     {
+      "id": "cbm-auto-index-hook",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_cbm_auto_index_hook"],
+      "covers": ["tests/test_cbm_auto_index_hook.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "claude-review-gate",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_claude_review_gate", "tests.test_claude_review_hook_wrappers"],
