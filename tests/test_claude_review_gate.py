@@ -94,6 +94,37 @@ class ReviewGatePureTests(unittest.TestCase):
                 handle.write(json.dumps({"timestamp": "2099-01-01T00:00:00Z", "message": {"content": [{"type": "text", "text": "done\nDOTFILES_REVIEWER_RESULT=PASS"}]}}) + "\n")
             self.assertTrue(review_gate.transcript_has_pass(transcript, time.time(), "DOTFILES_REVIEWER_RESULT"))
 
+    def test_handback_verdicts_and_last_decisive_record_win(self) -> None:
+        fresh = "2099-01-01T00:00:00Z"
+
+        def text(body: str, timestamp: str | None = fresh) -> dict[str, object]:
+            record: dict[str, object] = {"message": {"content": [{"type": "text", "text": body}]}}
+            if timestamp:
+                record["timestamp"] = timestamp
+            return record
+
+        def handback(body: object, name: str = "SubagentHandback") -> dict[str, object]:
+            block = {"type": "tool_use", "name": name, "input": {"message": body}}
+            return {"timestamp": fresh, "message": {"content": [block]}}
+
+        cases = (
+            ("handback PASS then prose", [handback("review\nRESULT=PASS"), text("Report delivered.")], True),
+            ("handback FAIL", [handback("review\nRESULT=FAIL")], False),
+            ("other tool", [handback("RESULT=PASS", name="Bash")], False),
+            ("non-string handback", [handback(["RESULT=PASS"])], False),
+            ("PASS then FAIL", [text("RESULT=PASS"), text("RESULT=FAIL")], False),
+            ("FAIL then PASS", [text("RESULT=FAIL"), text("RESULT=PASS")], True),
+            ("PASS then INVALID", [text("RESULT=PASS"), text("RESULT=PASS\nmore")], False),
+            ("PASS then undated FAIL", [text("RESULT=PASS"), text("RESULT=FAIL", timestamp=None)], False),
+            ("PASS then stale PASS", [text("RESULT=PASS"), text("RESULT=PASS", timestamp="2000-01-01T00:00:00Z")], False),
+        )
+        with isolated_environment(prefix="review-handback-") as isolated:
+            transcript = isolated.root / "transcript.jsonl"
+            for label, records, expected in cases:
+                with self.subTest(label):
+                    transcript.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+                    self.assertIs(review_gate.transcript_has_pass(transcript, time.time(), "RESULT"), expected)
+
 
 class ReviewGateRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -136,6 +167,42 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         with mock.patch.object(review_gate.sys, "stdout", output):
             self.assertEqual(review_gate.cmd_enforce({"session_id": session_id}, str(self.repo)), 0)
         return output.getvalue()
+
+    def inflight(self, agent_id: str, session_id: str = "session/one") -> Path:
+        return Path(review_gate.inflight_path(str(self.repo), session_id, agent_id))
+
+    def put_inflight(self, agent_id: str, started: float | str) -> Path:
+        path = self.inflight(agent_id)
+        path.write_text(f"{started}\n", encoding="utf-8")
+        return path
+
+    def rewrite_gate(self, gate: Path, **fields: object) -> None:
+        data = review_gate.read_gate(gate)
+        data.update(fields)
+        data = {key: value for key, value in data.items() if value is not None}
+        gate.write_text(json.dumps(data), encoding="utf-8")
+
+    def rewind(self, gate: Path, seconds: float = 60) -> float:
+        marked_at = time.time() - seconds
+        self.rewrite_gate(gate, timestamp=int(marked_at), markedAt=marked_at)
+        return marked_at
+
+    def transcript(self, name: str, *bodies: str, timestamp: str = "2099-01-01T00:00:00Z") -> Path:
+        path = self.isolated.root / name
+        path.write_text(
+            "".join(json.dumps({"timestamp": timestamp, "message": {"content": [{"type": "text", "text": body}]}}) + "\n" for body in bodies),
+            encoding="utf-8",
+        )
+        return path
+
+    def clear(self, transcript: Path | None, agent_id: str = "a1", agent_type: str | None = "review bot", **extra: object) -> None:
+        payload: dict[str, object] = {"session_id": "session/one", "agent_id": agent_id, **extra}
+        if agent_type is not None:
+            payload["agent_type"] = agent_type
+        if transcript is not None:
+            payload["agent_transcript_path"] = str(transcript)
+        with mock.patch.object(review_gate.time, "sleep"):
+            self.assertEqual(review_gate.cmd_clear(payload, str(self.repo)), 0)
 
     def test_mark_merges_files_and_absorbs_legacy_gate(self) -> None:
         legacy = self.gate("")
@@ -206,19 +273,23 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.assertEqual(self.enforce(), "")
         self.assertFalse(gate.exists())
 
-    def test_clear_requires_current_pass_and_removes_all_gate_formats(self) -> None:
+    def test_clear_uses_main_transcript_only_without_agent_path(self) -> None:
         now = int(time.time())
-        for gate in (self.gate(), self.gate(""), self.repo / ".opencode/.needs_dotfiles_review"):
+        gates = (self.gate(), self.gate(""), self.repo / ".opencode/.needs_dotfiles_review")
+        for gate in gates:
             gate.parent.mkdir(parents=True, exist_ok=True)
             gate.write_text(json.dumps({"timestamp": now, "files": ["x"]}), encoding="utf-8")
         stale = self.isolated.root / "stale.jsonl"
         stale.write_text(json.dumps({"timestamp": "2000-01-01T00:00:00Z", "message": {"content": "RESULT=PASS"}}) + "\n", encoding="utf-8")
         current = self.isolated.root / "current.jsonl"
         current.write_text(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "message": {"content": "done\nRESULT=PASS"}}) + "\n", encoding="utf-8")
-        payload = {"session_id": "session/one", "agent_transcript_path": str(stale), "transcript_path": str(current)}
-        with mock.patch.object(review_gate.time, "sleep"):
-            review_gate.cmd_clear(payload, str(self.repo))
-        for gate in (self.gate(), self.gate(""), self.repo / ".opencode/.needs_dotfiles_review"):
+
+        self.clear(stale, transcript_path=str(current))
+        for gate in gates:
+            self.assertTrue(gate.exists(), gate)
+
+        self.clear(None, transcript_path=str(current))
+        for gate in gates:
             self.assertFalse(gate.exists(), gate)
 
     def test_clear_retains_gate_for_invalid_or_stale_verdicts(self) -> None:
@@ -237,6 +308,127 @@ class ReviewGateRepositoryTests(unittest.TestCase):
                 with mock.patch.object(review_gate.time, "sleep"):
                     review_gate.cmd_clear({"session_id": "session/one", "agent_transcript_path": str(transcript)}, str(self.repo))
                 self.assertTrue(gate.exists())
+
+
+    def test_start_records_only_the_configured_reviewer(self) -> None:
+        base = {"session_id": "session/one", "agent_id": "a1", "agent_type": "review bot"}
+        self.assertEqual(review_gate.cmd_start(base, str(self.repo)), 0)
+        started = review_gate.read_inflight(self.inflight("a1"))
+        self.assertIsNotNone(started)
+        self.assertLessEqual(abs(time.time() - started), 60)
+        for payload in (
+            {**base, "agent_id": "a2", "agent_type": "Explore"},
+            {**base, "agent_id": ""},
+            {**base, "session_id": ""},
+            {**base, "agent_id": ["a3"]},
+        ):
+            with self.subTest(payload=payload):
+                review_gate.cmd_start(payload, str(self.repo))
+        self.assertEqual(sorted(p.name for p in (self.repo / ".claude").glob(".dotfiles_review_inflight*")), [self.inflight("a1").name])
+
+    def test_enforce_allows_stop_while_a_fresh_reviewer_runs(self) -> None:
+        gate = self.mark("tracked.txt")
+        marked_at = self.rewind(gate)
+        self.put_inflight("a1", marked_at + 0.5)
+        output = json.loads(self.enforce())
+        self.assertNotIn("decision", output)
+        self.assertIn("review bot started less than a minute ago", output["systemMessage"])
+        self.assertTrue(gate.exists())
+        self.assertTrue(self.inflight("a1").exists())
+
+        self.rewind(gate, 200)
+        self.put_inflight("a1", time.time() - 150)
+        self.assertIn("started 2 min ago", json.loads(self.enforce())["systemMessage"])
+
+        self.rewind(self.mark("other.txt", "session/other"), 300)
+        self.assertEqual(json.loads(self.enforce("session/other"))["decision"], "block")
+
+    def test_enforce_blocks_for_expired_predating_or_malformed_reviewers(self) -> None:
+        gate = self.mark("tracked.txt")
+        now = time.time()
+        base = int(now) - 30
+
+        def blocked() -> str:
+            output = json.loads(self.enforce())
+            self.assertEqual(output["decision"], "block")
+            return output["reason"]
+
+        self.rewrite_gate(gate, timestamp=base - review_gate.INFLIGHT_TTL_SECONDS - 100, markedAt=base - review_gate.INFLIGHT_TTL_SECONDS - 99.5)
+        expired = self.put_inflight("expired", now - review_gate.INFLIGHT_TTL_SECONDS - 1)
+        self.assertIn("does not count as in flight", blocked())
+        self.assertFalse(expired.exists())
+
+        self.rewrite_gate(gate, timestamp=base, markedAt=base + 0.7)
+        predating = self.put_inflight("predating", base + 0.2)
+        self.assertIn("does not count as in flight", blocked())
+        self.assertTrue(predating.exists())
+        predating.unlink()
+
+        self.rewrite_gate(gate, timestamp=base, markedAt=None)
+        same_second = self.put_inflight("same-second", base + 0.5)
+        self.assertIn("does not count as in flight", blocked())
+        same_second.unlink()
+
+        for label, started in (("future", now + 3600), ("infinite", "inf"), ("nan", "nan")):
+            with self.subTest(label):
+                record = self.put_inflight(label, started)
+                self.assertIn("does not count as in flight", blocked())
+                self.assertFalse(record.exists())
+
+        self.put_inflight("malformed", "not-a-number")
+        self.assertNotIn("does not count as in flight", blocked())
+
+    def test_enforce_and_clear_agree_on_the_newest_gate(self) -> None:
+        gate = self.mark("tracked.txt")
+        marked_at = self.rewind(gate)
+        self.gate("").write_text(str(int(marked_at) + 5), encoding="utf-8")
+        record = self.put_inflight("a1", marked_at + 2)
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        self.clear(self.transcript("pass.jsonl", "done\nRESULT=PASS"))
+        self.assertTrue(gate.exists())
+        self.assertFalse(record.exists())
+
+    def test_clear_fail_drops_record_and_keeps_blocking(self) -> None:
+        gate = self.mark("tracked.txt")
+        record = self.put_inflight("a1", self.rewind(gate) + 0.5)
+        self.assertIn("systemMessage", json.loads(self.enforce()))
+        self.clear(self.transcript("fail.jsonl", "issues\nRESULT=FAIL"))
+        self.assertFalse(record.exists())
+        self.assertTrue(gate.exists())
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+
+    def test_clear_handback_pass_drops_record_and_gate(self) -> None:
+        gate = self.mark("tracked.txt")
+        record = self.put_inflight("a1", self.rewind(gate) + 0.5)
+        transcript = self.isolated.root / "handback.jsonl"
+        records = (
+            {"timestamp": "2099-01-01T00:00:00Z", "message": {"content": [{"type": "tool_use", "name": "SubagentHandback", "input": {"message": "ok\n\nRESULT=PASS"}}]}},
+            {"type": "user", "timestamp": "2099-01-01T00:00:01Z", "message": {"content": [{"type": "tool_result", "content": "delivered"}]}},
+            {"timestamp": "2099-01-01T00:00:02Z", "message": {"content": [{"type": "text", "text": "Report delivered via SubagentHandback."}]}},
+        )
+        transcript.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        self.clear(transcript)
+        self.assertFalse(record.exists())
+        self.assertFalse(gate.exists())
+
+    def test_clear_keeps_gate_for_reviewer_started_before_last_mark(self) -> None:
+        gate = self.mark("tracked.txt")
+        record = self.put_inflight("a1", review_gate.read_gate(gate)["markedAt"] - 1)
+        self.clear(self.transcript("pass.jsonl", "RESULT=PASS"))
+        self.assertFalse(record.exists())
+        self.assertTrue(gate.exists())
+
+    def test_clear_ignores_other_subagents(self) -> None:
+        gate = self.mark("tracked.txt")
+        self.clear(self.transcript("pass.jsonl", "RESULT=PASS"), agent_type="Explore")
+        self.assertTrue(gate.exists())
+        self.clear(self.transcript("pass.jsonl", "RESULT=PASS"), agent_type=None)
+        self.assertFalse(gate.exists())
+
+    def test_clear_without_gate_still_drops_record(self) -> None:
+        record = self.put_inflight("a1", time.time())
+        self.clear(None)
+        self.assertFalse(record.exists())
 
 
 if __name__ == "__main__":

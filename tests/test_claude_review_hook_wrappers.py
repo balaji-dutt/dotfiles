@@ -150,6 +150,20 @@ class ReviewHookWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(gate.exists())
 
+    def test_start_records_nothing_when_python_or_helper_fails(self) -> None:
+        payload = {"session_id": "session", "agent_id": "rev1", "agent_type": "dotfiles-reviewer"}
+        for name in ("python3", "python", "py"):
+            self.fake_python(name, probe=1)
+        result = self.run_hook("record-reviewer-start.sh", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+        self.fake_python("python3", probe=0, helper=8)
+        result = self.run_hook("record-reviewer-start.sh", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(list((self.repo / ".claude").glob(".dotfiles_review_inflight*")), [])
+
     def test_wrappers_drive_real_helper_lifecycle(self) -> None:
         env = self.real_helper_env()
         init_git_repository(self.repo, env=env)
@@ -174,12 +188,30 @@ class ReviewHookWrapperTests(unittest.TestCase):
         self.assertEqual(enforce.returncode, 0, enforce.stderr)
         self.assertEqual(json.loads(enforce.stdout)["decision"], "block")
 
+        reviewer = {"session_id": session_id, "agent_id": "rev1", "agent_type": "dotfiles-reviewer"}
+        start = self.run_hook("record-reviewer-start.sh", reviewer, env=env)
+        self.assertEqual(start.returncode, 0, start.stderr)
+        self.assertEqual(start.stdout, "")
+        record = self.repo / f".claude/.dotfiles_review_inflight.{session_id}.rev1"
+        self.assertTrue(record.exists())
+
+        enforce = self.run_hook("enforce-review-on-stop.sh", {"session_id": session_id}, env=env)
+        self.assertEqual(enforce.returncode, 0, enforce.stderr)
+        in_flight = json.loads(enforce.stdout)
+        self.assertNotIn("decision", in_flight)
+        self.assertIn("dotfiles-reviewer", in_flight["systemMessage"])
+
         transcript = self.isolated.root / "review.jsonl"
+        handback = {
+            "type": "tool_use",
+            "name": "SubagentHandback",
+            "input": {"message": "reviewed\n\nDOTFILES_REVIEWER_RESULT=PASS"},
+        }
         transcript.write_text(
             json.dumps(
                 {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "message": {"content": "reviewed\nDOTFILES_REVIEWER_RESULT=PASS"},
+                    "message": {"content": [handback]},
                 }
             )
             + "\n",
@@ -187,18 +219,21 @@ class ReviewHookWrapperTests(unittest.TestCase):
         )
         clear = self.run_hook(
             "clear-needs-review-on-pass.sh",
-            {"session_id": session_id, "agent_transcript_path": str(transcript)},
+            {**reviewer, "agent_transcript_path": str(transcript)},
             env=env,
         )
         self.assertEqual(clear.returncode, 0, clear.stderr)
         self.assertFalse(gate.exists())
+        self.assertFalse(record.exists())
 
-    def test_clear_without_project_context_exits_harmlessly(self) -> None:
+    def test_subagent_hooks_without_project_context_exit_harmlessly(self) -> None:
         env = self.env.copy()
         env.pop("CLAUDE_PROJECT_DIR")
-        result = self.run_hook("clear-needs-review-on-pass.sh", env=env)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
+        for name in ("clear-needs-review-on-pass.sh", "record-reviewer-start.sh"):
+            with self.subTest(name=name):
+                result = self.run_hook(name, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
 
 
 if __name__ == "__main__":

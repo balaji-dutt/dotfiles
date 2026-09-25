@@ -15,6 +15,7 @@ __pycache__/
 
 # Ignore coding harness files
 .claude/.needs_dotfiles_review*
+.claude/.dotfiles_review_inflight*
 .cz-audit
 .opencode/*dotfiles*
 .opencode/review-loop.seed.json

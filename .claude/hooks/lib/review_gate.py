@@ -5,16 +5,26 @@ Subcommands (the Claude hook payload JSON is read from stdin):
 
   mark     PostToolUse (Write|Edit): raise a session-scoped gate when the
            edited file is a reviewable file inside this checkout.
+  start    SubagentStart: record that a reviewer subagent is in flight.
   enforce  Stop: block stopping while the session's gate still has pending
-           work; clear the gate if the gated edits no longer exist.
-  clear    SubagentStop: clear the gate when a reviewer transcript ends with
-           DOTFILES_REVIEWER_RESULT=PASS as its final meaningful line.
+           work, unless a reviewer started after the last mark is still in
+           flight; clear the gate if the gated edits no longer exist.
+  clear    SubagentStop: drop the reviewer's in-flight record, then clear the
+           gate when its last verdict is DOTFILES_REVIEWER_RESULT=PASS as the
+           final meaningful line of a text block or SubagentHandback message.
 
 Gate file: .claude/.needs_dotfiles_review.<sanitized session_id>, JSON:
   {"timestamp": <last mark>, "firstTimestamp": <first mark>,
-   "sessionID": "...", "files": ["repo/relative", ...]}
+   "markedAt": <last mark, float>, "sessionID": "...",
+   "files": ["repo/relative", ...]}
 An unsuffixed .claude/.needs_dotfiles_review (legacy epoch-int format) is
 accepted as a fallback and merged/cleared during migration.
+
+In-flight file, one per running reviewer:
+  .claude/.dotfiles_review_inflight.<sanitized session_id>.<sanitized agent_id>
+containing the reviewer's start epoch (float). Records outside the
+INFLIGHT_TTL_SECONDS window are deleted so a reviewer that never reports
+cannot disable the gate.
 
 Path policy comes from the config shared with the OpenCode plugins
 (.opencode/plugins/review-loop-*.js): .opencode/opencode-tooling.config.jsonc.
@@ -26,6 +36,7 @@ the git toplevel of the current working directory, which in a git worktree
 is the worktree root (each worktree gates only its own edits).
 """
 
+import glob
 import json
 import os
 import re
@@ -38,6 +49,8 @@ from datetime import datetime
 
 GATE_DIR = ".claude"
 GATE_BASE = ".needs_dotfiles_review"
+INFLIGHT_BASE = ".dotfiles_review_inflight"
+HANDBACK_TOOL = "SubagentHandback"
 LEGACY_OPENCODE_SENTINEL = os.path.join(".opencode", ".needs_dotfiles_review")
 CONFIG_PATHS = (
     os.path.join(".opencode", "opencode-tooling.config.jsonc"),
@@ -49,6 +62,7 @@ DEFAULT_REVIEWER = "dotfiles-reviewer"
 # Runtime artifacts of the review loop itself must never re-raise the gate.
 RUNTIME_PREFIXES = (
     ".claude/.needs_dotfiles_review",
+    ".claude/.dotfiles_review_inflight",
     ".opencode/.needs_dotfiles_review",
     ".opencode/.dotfiles_review_enforcer_state",
     ".opencode/node_modules/",
@@ -61,6 +75,7 @@ RUNTIME_SUFFIXES = (
 
 PASS_SLACK_SECONDS = 3.0
 COMMIT_SLACK_SECONDS = 5
+INFLIGHT_TTL_SECONDS = 45 * 60
 
 
 def run_git(root, args):
@@ -237,6 +252,62 @@ def gate_epoch(path):
         return 0
 
 
+def gate_candidates(root, session_id):
+    paths = []
+    for candidate in (
+        gate_path(root, session_id) if session_id else None,
+        gate_path(root, ""),
+        os.path.join(root, LEGACY_OPENCODE_SENTINEL),
+    ):
+        if candidate and candidate not in paths and os.path.exists(candidate):
+            paths.append(candidate)
+    return paths
+
+
+def mark_epoch(path):
+    data = read_gate(path) or {}
+    marked_at = data.get("markedAt")
+    if isinstance(marked_at, (int, float)) and not isinstance(marked_at, bool):
+        return float(marked_at)
+    # Whole-second stamps round up so a same-second launch never counts as
+    # starting after the edit.
+    return float(gate_epoch(path) + 1)
+
+
+def last_mark_epoch(root, session_id):
+    return max((mark_epoch(p) for p in gate_candidates(root, session_id)), default=0.0)
+
+
+def inflight_prefix(root, session_id):
+    return os.path.join(
+        root, GATE_DIR, INFLIGHT_BASE + "." + sanitize_session_id(session_id) + "."
+    )
+
+
+def inflight_path(root, session_id, agent_id):
+    return inflight_prefix(root, session_id) + sanitize_session_id(agent_id)
+
+
+def read_inflight(path):
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as fh:
+            return float(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def inflight_records(root, session_id):
+    prefix = inflight_prefix(root, session_id)
+    return {path: read_inflight(path) for path in glob.glob(glob.escape(prefix) + "*")}
+
+
+def remove_quietly(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def normalize_host_path(path):
     if not path:
         return ""
@@ -304,7 +375,8 @@ def cmd_mark(payload, root):
 
 def write_gate(root, session_id, rel):
     path = gate_path(root, session_id)
-    now = int(time.time())
+    marked_at = time.time()
+    now = int(marked_at)
     files = set()
     first = now
 
@@ -335,12 +407,30 @@ def write_gate(root, session_id, rel):
     data = {
         "timestamp": now,
         "firstTimestamp": first,
+        "markedAt": marked_at,
         "sessionID": session_id,
         "files": sorted(files),
     }
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
+
+
+# --------------------------------------------------------------- start ----
+
+
+def cmd_start(payload, root):
+    session_id = payload.get("session_id")
+    agent_id = payload.get("agent_id")
+    if not all(isinstance(v, str) and v for v in (session_id, agent_id)):
+        return 0
+    if payload.get("agent_type") != load_config(root)["reviewer"]:
+        return 0
+    path = inflight_path(root, session_id, agent_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("%.6f\n" % time.time())
+    return 0
 
 
 # ------------------------------------------------------------- enforce ----
@@ -381,7 +471,27 @@ def committed_since(root, files, first_ts):
         return False
 
 
-def build_reason(files, cfg):
+def classify_inflight(root, session_id, last_mark, now):
+    """Return (active start epochs, whether a stale record was seen).
+    Records outside the TTL window are deleted; unparseable ones are ignored."""
+    active = []
+    stale = False
+    if not session_id:
+        return active, stale
+    for path, started in inflight_records(root, session_id).items():
+        if started is None:
+            continue
+        if not 0 <= now - started < INFLIGHT_TTL_SECONDS:
+            stale = True
+            remove_quietly(path)
+        elif started > last_mark:
+            active.append(started)
+        else:
+            stale = True
+    return active, stale
+
+
+def build_reason(files, cfg, stale_reviewer=False):
     prefix = cfg["marker_prefix"]
     reviewer = cfg["reviewer"]
     if files:
@@ -397,19 +507,26 @@ def build_reason(files, cfg):
             "Review the latest git changes "
             "(git diff, git diff --cached, git status --short).\n"
         )
+    stale = ""
+    if stale_reviewer:
+        stale = (
+            "A {r} run that started before the latest gated edit, or more "
+            "than {m} minutes ago, does not count as in flight.\n\n"
+        ).format(r=reviewer, m=INFLIGHT_TTL_SECONDS // 60)
     return (
-        "Dotfiles review required before stopping.\n\n"
+        "Dotfiles review required before stopping.\n\n{t}"
         "Run the {r} subagent now.\n{s}"
         "\nThe reviewer's FINAL line must be exactly one of:\n"
         "{p}=PASS\n{p}=FAIL\n\n"
         "If FAIL: fix the Must-fix issues and rerun the reviewer. Once PASS "
         "is recorded, the SubagentStop hook clears the review gate "
         "automatically.\n"
-    ).format(r=reviewer, s=scope, p=prefix)
+    ).format(r=reviewer, s=scope, p=prefix, t=stale)
 
 
 def cmd_enforce(payload, root):
-    path = find_gate(root, payload.get("session_id") or "")
+    session_id = payload.get("session_id") or ""
+    path = find_gate(root, session_id)
     if not path:
         return 0
 
@@ -438,7 +555,19 @@ def cmd_enforce(payload, root):
             pass
         return 0
 
-    json.dump({"decision": "block", "reason": build_reason(files, cfg)}, sys.stdout)
+    now = time.time()
+    active, stale = classify_inflight(root, session_id, last_mark_epoch(root, session_id), now)
+    if active:
+        minutes = int((now - min(active)) // 60)
+        age = "less than a minute" if minutes < 1 else "{m} min".format(m=minutes)
+        message = (
+            "Dotfiles review in flight ({r} started {a} ago); the gate "
+            "re-checks when it reports."
+        ).format(r=cfg["reviewer"], a=age)
+        out = {"systemMessage": message}
+    else:
+        out = {"decision": "block", "reason": build_reason(files, cfg, stale_reviewer=stale)}
+    json.dump(out, sys.stdout)
     print()
     return 0
 
@@ -454,10 +583,19 @@ def extract_texts(content):
         for block in content:
             if isinstance(block, str):
                 texts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
+            elif not isinstance(block, dict):
+                continue
+            elif block.get("type") == "text":
                 text = block.get("text")
                 if isinstance(text, str):
                     texts.append(text)
+            elif block.get("type") == "tool_use" and block.get("name") == HANDBACK_TOOL:
+                # Background subagents report to their caller through this
+                # tool call, so the verdict can exist only in its input.
+                tool_input = block.get("input")
+                message = tool_input.get("message") if isinstance(tool_input, dict) else None
+                if isinstance(message, str):
+                    texts.append(message)
     return texts
 
 
@@ -475,6 +613,8 @@ def marker_from_text(text, pass_token, fail_token):
 
 
 def transcript_has_pass(path, min_epoch, marker_prefix):
+    """True when the last record carrying a marker is a fresh, lone PASS.
+    A later FAIL, malformed marker, or stale PASS outranks an earlier PASS."""
     pass_token = marker_prefix + "=PASS"
     fail_token = marker_prefix + "=FAIL"
     try:
@@ -483,64 +623,74 @@ def transcript_has_pass(path, min_epoch, marker_prefix):
     except OSError:
         return False
 
+    passed = False
     for line in lines:
         try:
             obj = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(obj, dict):
+            continue
         if obj.get("isMeta") is True or obj.get("type") == "user":
+            continue
+        message = obj.get("message")
+        if not isinstance(message, dict):
             continue
 
         verdicts = set()
-        for text in extract_texts((obj.get("message") or {}).get("content")):
+        for text in extract_texts(message.get("content")):
             verdict = marker_from_text(text, pass_token, fail_token)
             if verdict:
                 verdicts.add(verdict)
-        if verdicts != {"PASS"}:
+        if not verdicts:
             continue
 
         epoch = parse_iso_to_epoch(obj.get("timestamp") or "")
-        if epoch is not None and epoch + PASS_SLACK_SECONDS >= min_epoch:
-            return True
-    return False
+        passed = (
+            verdicts == {"PASS"}
+            and epoch is not None
+            and epoch + PASS_SLACK_SECONDS >= min_epoch
+        )
+    return passed
 
 
 def cmd_clear(payload, root):
     session_id = payload.get("session_id") or ""
-    gates = []
-    for candidate in (
-        gate_path(root, session_id) if session_id else None,
-        gate_path(root, ""),
-        os.path.join(root, LEGACY_OPENCODE_SENTINEL),
-    ):
-        if candidate and candidate not in gates and os.path.exists(candidate):
-            gates.append(candidate)
+    agent_id = payload.get("agent_id")
+    started = None
+    if session_id and isinstance(agent_id, str) and agent_id:
+        record = inflight_path(root, session_id, agent_id)
+        started = read_inflight(record)
+        remove_quietly(record)
+
+    gates = gate_candidates(root, session_id)
     if not gates:
         return 0
 
-    min_epoch = max(gate_epoch(g) for g in gates)
-    marker_prefix = load_config(root)["marker_prefix"]
-    transcripts = [
-        t
-        for t in (
-            normalize_host_path(payload.get("agent_transcript_path") or ""),
-            normalize_host_path(payload.get("transcript_path") or ""),
-        )
-        if t
-    ]
-    if not transcripts:
+    cfg = load_config(root)
+    agent_type = payload.get("agent_type")
+    if agent_type and agent_type != cfg["reviewer"]:
         return 0
 
-    # Retry briefly to allow transcript flush; agent transcript first.
+    min_epoch = last_mark_epoch(root, session_id)
+    if started is not None and started <= min_epoch:
+        # This reviewer began before the latest gated edit and never saw it.
+        return 0
+
+    # The main transcript is only a fallback for payloads that name no agent
+    # transcript; otherwise its text could override the reviewer's verdict.
+    transcript = normalize_host_path(
+        payload.get("agent_transcript_path") or payload.get("transcript_path") or ""
+    )
+    if not transcript:
+        return 0
+
+    # Retry briefly to allow transcript flush.
     for _ in range(15):
-        for transcript in transcripts:
-            if transcript_has_pass(transcript, min_epoch, marker_prefix):
-                for gate in gates:
-                    try:
-                        os.remove(gate)
-                    except OSError:
-                        pass
-                return 0
+        if transcript_has_pass(transcript, min_epoch, cfg["marker_prefix"]):
+            for gate in gates:
+                remove_quietly(gate)
+            return 0
         time.sleep(0.2)
     return 0
 
@@ -563,6 +713,8 @@ def main():
 
     if command == "mark":
         return cmd_mark(payload, root)
+    if command == "start":
+        return cmd_start(payload, root)
     if command == "enforce":
         return cmd_enforce(payload, root)
     if command == "clear":

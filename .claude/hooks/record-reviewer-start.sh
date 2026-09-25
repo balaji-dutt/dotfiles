@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SubagentStop hook: drop the reviewer's in-flight record, then clear the
-# session's review gate when its last verdict is DOTFILES_REVIEWER_RESULT=PASS
-# as a final meaningful line. Detection logic lives in lib/review_gate.py.
+# SubagentStart hook: record that a reviewer subagent is in flight so the
+# Stop hook does not re-block while it runs. Only the configured reviewer is
+# recorded; the logic lives in lib/review_gate.py.
 
 # If run manually (stdin is a TTY), don't block waiting for JSON.
 if [[ -t 0 ]]; then
   exit 0
 fi
 
-# Claude-only: OpenCode clears its gates via .opencode/plugins/review-loop-gate.js.
+# Claude-only: OpenCode has no equivalent Stop block to suppress.
 if [[ -z "${CLAUDE_PROJECT_DIR:-}" ]]; then
   exit 0
 fi
@@ -31,9 +31,9 @@ if [[ -f "$HELPER" && -f "$RESOLVER" ]]; then
   # shellcheck source=lib/resolve-python.sh disable=SC1091
   . "$RESOLVER"
   if resolve_python; then
-    # Failing to clear leaves the gate raised, which is the conservative
-    # direction, so the exit status is deliberately ignored.
-    "${PY_CMD[@]}" "$HELPER" clear || true
+    # Failing to record leaves Stop blocking as usual, which is the
+    # conservative direction, so the exit status is deliberately ignored.
+    "${PY_CMD[@]}" "$HELPER" start || true
   fi
 fi
 
