@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -18,7 +17,9 @@ from typing import Any
 CLASSIFICATIONS = frozenset(
     {"archived", "excluded", "generated", "mirrored", "owned", "vendored-upstream"}
 )
-SCHEMA_REF = "./schemas/automation-test-inventory.v2.schema.json"
+SCHEMA_REF = "./schemas/automation-test-inventory.v3.schema.json"
+SCHEMA_VERSION = 3
+CANDIDATES_PATH = Path("configs/automation-candidates.txt")
 COVERAGE_STATUSES = frozenset({"covered", "not-applicable", "partial", "planned"})
 BEHAVIOR_KINDS = frozenset({"failure", "safety", "success"})
 BEHAVIOR_STATUSES = frozenset({"covered", "planned"})
@@ -104,6 +105,7 @@ ANSIBLE_COMMAND_RE = re.compile(
     r"(?:command|raw|script|shell)\s*:",
     re.MULTILINE,
 )
+CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7}|\|{7})(?: |$)")
 SHEBANG_RE = re.compile(
     r"^#!.*(?:\b(?:ba|z|fi)?sh\b|node|python|pwsh|powershell)", re.MULTILINE
 )
@@ -227,11 +229,56 @@ def discover_candidates(repo_root: Path, tracked: tuple[TrackedFile, ...]) -> tu
     return tuple(candidates)
 
 
-def candidate_digest(candidates: tuple[Candidate, ...]) -> str:
-    payload = "".join(
-        f"{candidate.path}\t{','.join(candidate.reasons)}\n" for candidate in candidates
-    )
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def candidate_line(candidate: Candidate) -> str:
+    return f"{candidate.path}\t{','.join(candidate.reasons)}"
+
+
+def load_reviewed_candidates(path: Path) -> tuple[str, ...]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise CheckFailure(f"cannot read file: {error}") from error
+    lines = text.splitlines()
+    previous = ""
+    for number, line in enumerate(lines, start=1):
+        if CONFLICT_MARKER_RE.match(line):
+            raise CheckFailure(
+                f"line {number} is a merge conflict marker; both sides were reviewed on "
+                "their branches, so run --update-candidates to regenerate the list"
+            )
+        if not line.strip():
+            raise CheckFailure(f"line {number} is blank")
+        if line.count("\t") != 1 or not all(line.split("\t")):
+            raise CheckFailure(f"line {number} must be '<path><TAB><reasons>': {line!r}")
+        if line == previous:
+            raise CheckFailure(f"line {number} duplicates {line!r}")
+        if line < previous:
+            raise CheckFailure(f"line {number} must be sorted after {previous!r}")
+        previous = line
+    return tuple(lines)
+
+
+def resolve_candidates_path(root: Path, candidates_path: Path | None) -> Path:
+    return root / (candidates_path or CANDIDATES_PATH)
+
+
+def update_reviewed_candidates(path: Path, candidates: tuple[Candidate, ...]) -> tuple[list[str], list[str]]:
+    lines = [candidate_line(candidate) for candidate in candidates]
+    try:
+        previous = {
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line and not CONFLICT_MARKER_RE.match(line)
+        }
+    except FileNotFoundError:
+        previous = set()
+    except OSError as error:
+        raise CheckFailure(f"cannot read file: {error}") from error
+    current = set(lines)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("".join(f"{line}\n" for line in lines))
+    return sorted(current - previous), sorted(previous - current)
 
 
 def selector_regex(selector: str) -> re.Pattern[str]:
@@ -314,6 +361,7 @@ def check_repository(
     repo_root: Path,
     manifest_path: Path | None = None,
     registry_path: Path | None = None,
+    candidates_path: Path | None = None,
 ) -> CheckResult:
     root = repo_root.resolve()
     selected_manifest = manifest_path or root / "configs/automation-test-inventory.json"
@@ -342,15 +390,33 @@ def check_repository(
         return CheckResult((f"{selected_manifest}: manifest root must be an object",), candidates, ())
     if manifest.get("$schema") != SCHEMA_REF:
         errors.append(f"{selected_manifest}: $schema must be {SCHEMA_REF!r}")
-    if manifest.get("schema_version") != 2:
-        errors.append(f"{selected_manifest}: schema_version must be 2")
-    expected_digest = manifest.get("candidate_digest")
-    actual_digest = candidate_digest(candidates)
-    if expected_digest != actual_digest:
+    if manifest.get("schema_version") != SCHEMA_VERSION:
+        errors.append(f"{selected_manifest}: schema_version must be {SCHEMA_VERSION}")
+    if "candidate_digest" in manifest:
         errors.append(
-            f"{selected_manifest}: candidate_digest must be {actual_digest!r}; "
-            "review --list-candidates before updating the snapshot"
+            f"{selected_manifest}: candidate_digest is not part of schema v{SCHEMA_VERSION}; "
+            f"reviewed candidates live in {CANDIDATES_PATH.as_posix()}"
         )
+    selected_candidates = resolve_candidates_path(root, candidates_path)
+    try:
+        reviewed = set(load_reviewed_candidates(selected_candidates))
+    except CheckFailure as error:
+        errors.append(f"{selected_candidates}: {error}")
+    else:
+        discovered = {candidate_line(candidate) for candidate in candidates}
+        drift = [
+            f"{selected_candidates}: unreviewed candidate {line!r}"
+            for line in sorted(discovered - reviewed)
+        ] + [
+            f"{selected_candidates}: stale reviewed candidate {line!r}"
+            for line in sorted(reviewed - discovered)
+        ]
+        if drift:
+            errors.extend(drift)
+            errors.append(
+                f"{selected_candidates}: review the lines above, then run "
+                "--update-candidates and commit the result"
+            )
     entries = manifest.get("entries")
     if not isinstance(entries, list):
         return CheckResult(tuple(errors + [f"{selected_manifest}: entries must be a list"]), candidates, ())
@@ -669,9 +735,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="suite registry path, absolute or relative to --repo-root",
     )
     parser.add_argument(
+        "--candidates",
+        type=Path,
+        help="reviewed candidate list, absolute or relative to --repo-root",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--list-candidates",
         action="store_true",
         help="list tracked candidates and discovery reasons without reading the manifest",
+    )
+    mode.add_argument(
+        "--update-candidates",
+        action="store_true",
+        help="rewrite the reviewed candidate list from discovery and print the changed lines",
     )
     return parser.parse_args(argv)
 
@@ -686,12 +763,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
             return 1
         for candidate in candidates:
-            print(f"{candidate.path}\t{','.join(candidate.reasons)}")
+            print(candidate_line(candidate))
         print(f"Automation inventory candidates: {len(candidates)}")
-        print(f"Candidate digest: {candidate_digest(candidates)}")
         return 0
 
-    result = check_repository(root, args.manifest, args.registry)
+    if args.update_candidates:
+        selected = resolve_candidates_path(root, args.candidates)
+        try:
+            candidates = discover_candidates(root, tracked_files(root))
+            added, removed = update_reviewed_candidates(selected, candidates)
+        except CheckFailure as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        for line in added:
+            print(f"+ {line}")
+        for line in removed:
+            print(f"- {line}")
+        print(
+            f"Reviewed candidates updated: {len(candidates)} total, "
+            f"{len(added)} added, {len(removed)} removed"
+        )
+        return 0
+
+    result = check_repository(root, args.manifest, args.registry, args.candidates)
     if result.errors:
         for error in result.errors:
             print(f"ERROR: {error}", file=sys.stderr)

@@ -1,7 +1,6 @@
 {
-  "$schema": "./schemas/automation-test-inventory.v2.schema.json",
-  "schema_version": 2,
-  "candidate_digest": "sha256:9750f1f66254fef48319113605e99cc2bc9ef92076e6bb5b22a403bc33683700",
+  "$schema": "./schemas/automation-test-inventory.v3.schema.json",
+  "schema_version": 3,
   "entries": [
     {
       "id": "agent-worktree-merge",
@@ -442,10 +441,10 @@
       "languages": ["python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "high",
-      "side_effects": ["none"],
-      "test_layers": ["contract", "unit"],
+      "side_effects": ["filesystem"],
+      "test_layers": ["contract", "integration", "unit"],
       "coverage": {"suite_id": "automation-test-inventory", "status": "covered", "work_item": "dots-4jy.10.1.1", "test_paths": ["tests/test_automation_test_inventory.py"], "behavior_requirements": []},
-      "rationale": "Fixture tests cover discovery, schema validation, exact-once classification, and drift."
+      "rationale": "Fixture tests cover discovery, schema validation, exact-once classification, drift, candidate-list updates, and concurrent-branch merges in temporary Git repositories."
     },
     {
       "id": "lifecycle-posix",

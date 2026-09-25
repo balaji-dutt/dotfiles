@@ -47,7 +47,8 @@ Adding, renaming, or removing production automation also requires an update to
 `configs/automation-test-inventory.json`:
 
 1. Run `python3 assets/check-automation-test-inventory.py --list-candidates`
-   and review the changed candidate paths and digest.
+   and review the changed candidate paths, then record them with
+   `--update-candidates` in `configs/automation-candidates.txt`.
 2. Classify each path exactly once with its repository owner, risk, platforms,
    side effects, and required test layers.
 3. Register behavioral evidence in `configs/test-suites.json`, or record a

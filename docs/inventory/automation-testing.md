@@ -41,10 +41,16 @@ Manifest path selectors are root-relative. `*` stays within one path segment;
 Every candidate must match exactly one entry, and every selector must match at
 least one candidate.
 
-The top-level `candidate_digest` snapshots the sorted path and discovery-reason
-pairs. This means a new file still causes drift when an existing glob would
-otherwise classify it automatically. Review the candidate list before updating
-the digest.
+`configs/automation-candidates.txt` records the reviewed candidate set, one
+sorted `path<TAB>reasons` line per candidate. A new file, a removed file, or a
+changed discovery reason causes drift even when an existing glob would
+otherwise classify it automatically. The checker names each unreviewed or stale
+line. Branches that add different candidates change different lines, so Git
+merges them without a recompute. Additions that sort into the same gap, or
+next to a line the other branch changed, conflict in the list. To resolve that
+conflict, run `--update-candidates` after the rest of the merge is resolved.
+Both sides were reviewed on their branches, so any `+` line it prints was
+reviewed on neither and needs review before the merge is committed.
 
 ## Classification and ownership
 
@@ -108,11 +114,12 @@ py -3 assets/check-automation-test-inventory.py
 py -3 -m unittest tests.test_automation_test_inventory
 ```
 
-To inspect the discovered census and its replacement digest without reading the
-manifest:
+To inspect the discovered census without reading the manifest, or to rewrite
+the reviewed list from it:
 
 ```sh
 python3 assets/check-automation-test-inventory.py --list-candidates
+python3 assets/check-automation-test-inventory.py --update-candidates
 ```
 
 ## Update workflow
@@ -125,7 +132,8 @@ When adding, removing, renaming, generating, or mirroring automation:
    record registered test evidence, and apply the risk policy. Critical entries
    must list success, failure, and safety requirements. Do not mark planned
    coverage as covered.
-4. Update `candidate_digest` to the reviewed value printed by the checker.
+4. Run `--update-candidates`, then review the `+`/`-` lines it prints and the
+   resulting diff of `configs/automation-candidates.txt`.
 5. Run the checker and its fixture-driven unit tests.
 
 Do not weaken discovery merely to make an unexpected candidate disappear. Do

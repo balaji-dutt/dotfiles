@@ -19,7 +19,7 @@ cross-file references, and runtime capability rules.
 | Instance | Schema | Semantic consumer |
 | :--- | :--- | :--- |
 | `configs/automation-provenance.json` | `configs/schemas/automation-provenance.v2.schema.json` | `assets/check-automation-provenance.py` |
-| `configs/automation-test-inventory.json` | `configs/schemas/automation-test-inventory.v2.schema.json` | `assets/check-automation-test-inventory.py` |
+| `configs/automation-test-inventory.json` | `configs/schemas/automation-test-inventory.v3.schema.json` | `assets/check-automation-test-inventory.py` |
 | `configs/ai-tooling-support.json` | `configs/schemas/ai-tooling-support.v1.schema.json` | `assets/check-ai-tooling.py` |
 | `configs/claude-mcp.json` | `configs/schemas/claude-mcp.v1.schema.json` | `assets/check-ai-tooling.py`; `assets/claude-mcp-apply.py`; `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl` |
 | `configs/devcontainer-sync.jsonc` | `configs/schemas/devcontainer-sync.v1.schema.json` | `assets/check-automation-provenance.py`; `assets/sync-devcontainer-assets.sh`; `bin/executable_devcontainer-launch.tmpl` |
@@ -97,9 +97,11 @@ get a new schema file and a new `$id` suffix. Managed instances also
 receive a matching `schema_version`; standalone payloads carry the version
 marker their schema defines. Update the instance or payload producer, consumer,
 tests, migration notes, and this catalog in the same change. Retain published
-schemas as historical contracts; the automation provenance and automation
-inventory v1 schemas remain immutable while their active v2 contracts carry
-the breaking changes.
+schemas as historical contracts; the automation provenance v1 and automation
+inventory v1 and v2 schemas remain immutable while their active successors
+carry the breaking changes. Automation inventory v3 dropped the stored
+`candidate_digest`; the reviewed candidate set now lives line by line in
+`configs/automation-candidates.txt` so most concurrent additions merge cleanly.
 
 Compatible semantic tightening can remain within the consumer when the JSON
 shape is unchanged. Document the new rule and add a consumer test rather than

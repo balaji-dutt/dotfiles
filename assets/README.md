@@ -128,7 +128,8 @@ python3 assets/check-automation-test-inventory.py
 py -3 assets/check-automation-test-inventory.py
 ```
 
-Use `--list-candidates` to review the tracked census and replacement digest.
+Use `--list-candidates` to review the tracked census and `--update-candidates`
+to record it in `configs/automation-candidates.txt`.
 See `docs/inventory/automation-testing.md` for discovery rules, classifications,
 and the update workflow. Risk tiers, critical branch matrices, and new-script
 review criteria are documented in `docs/tooling/automation-coverage-policy.md`.

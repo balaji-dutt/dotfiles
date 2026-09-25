@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dotfiles:schema:automation-test-inventory:v3",
+  "title": "Owned automation test inventory v3",
+  "description": "Exact-once automation classification with risk-based coverage requirements.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "entries", "schema_version"],
+  "properties": {
+    "$schema": {"const": "./schemas/automation-test-inventory.v3.schema.json"},
+    "schema_version": {"const": 3},
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {"enum": ["archive", "generator", "mirror-source", "none", "repository", "upstream"]},
+        "name": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "behaviorRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "id", "kind", "status", "test_paths"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "kind": {"enum": ["failure", "safety", "success"]},
+        "description": {"type": "string", "minLength": 1},
+        "status": {"enum": ["covered", "planned"]},
+        "test_paths": {"$ref": "#/$defs/stringSet"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["behavior_requirements", "status", "suite_id", "test_paths", "work_item"],
+      "properties": {
+        "suite_id": {"type": ["string", "null"]},
+        "status": {"enum": ["covered", "not-applicable", "partial", "planned"]},
+        "work_item": {"type": ["string", "null"]},
+        "test_paths": {"$ref": "#/$defs/stringSet"},
+        "behavior_requirements": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/behaviorRequirement"}
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "coverage",
+        "id",
+        "languages",
+        "owner",
+        "paths",
+        "platforms",
+        "rationale",
+        "risk",
+        "side_effects",
+        "test_layers"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "classification": {"enum": ["archived", "excluded", "generated", "mirrored", "owned", "vendored-upstream"]},
+        "paths": {"allOf": [{"$ref": "#/$defs/stringSet"}, {"minItems": 1}]},
+        "owner": {"$ref": "#/$defs/owner"},
+        "languages": {"allOf": [{"$ref": "#/$defs/stringSet"}, {"minItems": 1}]},
+        "platforms": {"allOf": [{"$ref": "#/$defs/stringSet"}, {"minItems": 1}]},
+        "risk": {"enum": ["critical", "high", "low", "medium"]},
+        "side_effects": {"$ref": "#/$defs/stringSet"},
+        "test_layers": {"$ref": "#/$defs/stringSet"},
+        "coverage": {"$ref": "#/$defs/coverage"},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

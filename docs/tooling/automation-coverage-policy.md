@@ -47,7 +47,7 @@ and test evidence.
   `planned`; a mixture makes it `partial`.
 
 The matrix is a family-level minimum, not permission to ignore a newly added
-command. Candidate-digest review and the scoped reviewer checklist require each
+command. Candidate-list review and the scoped reviewer checklist require each
 addition or behavior change to revisit the relevant entry. Existing truthful
 planned and partial gaps do not block unrelated changes or require downstream
 testing epics to land first.
@@ -79,7 +79,8 @@ command-bearing template:
    explicit planned/partial gap under a durable work item and rationale.
 4. For critical automation, update all affected success, failure, and safety
    requirements. Claim only evidence that the named tests exercise.
-5. Update `candidate_digest` only to the reviewed value printed by the checker.
+5. Run `--update-candidates` only after reviewing the candidate changes, and
+   commit the resulting `configs/automation-candidates.txt` lines.
 6. Run `fast`, the relevant integration/render/platform suite, and the required
    repository audit.
 

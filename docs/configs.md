@@ -26,6 +26,7 @@
 | `configs/devcontainer-sync.jsonc` | manifest for mirrored/generated container-dotfiles inputs |
 | `configs/automation-provenance.json` | non-derivable provenance authorities and accepted generated divergences |
 | `configs/automation-test-inventory.json` | owned automation classification, risk, and behavioral coverage mapping |
+| `configs/automation-candidates.txt` | reviewed automation candidate paths and discovery reasons |
 | `configs/gitlab-pipeline-guard.json` | main-push GitLab pipeline guard policy |
 | `configs/test-suites.json` | canonical test suite, command, platform, and capability registry |
 | `configs/schemas/*.schema.json` | immutable JSON Schema contracts for custom repository policies and transient payloads |

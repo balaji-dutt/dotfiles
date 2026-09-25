@@ -194,7 +194,7 @@ test module rather than growing the shared file into a second test framework.
    lane explicitly claims. Use `--require-capabilities` only for a lane that
    promises every applicable step requirement.
 5. If production automation or nested test support changed, update the
-   automation inventory, apply the risk policy, and review its candidate digest.
+   automation inventory, apply the risk policy, and review its candidate list.
 
 The current GitLab lanes, artifacts, rules, and platform gaps are documented in
 `docs/tooling/continuous-integration.md`. Provenance authorities and accepted

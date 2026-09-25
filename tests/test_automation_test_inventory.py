@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -11,6 +12,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "assets/check-automation-test-inventory.py"
+CANDIDATES = "configs/automation-candidates.txt"
+ISOLATED_GIT = (
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "commit.gpgsign=false",
+    "-c", "user.name=Fixture",
+    "-c", "user.email=fixture@example.invalid",
+    "-c", "init.defaultBranch=main",
+)
+ISOLATED_ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
 
 def owned_entry(entry_id: str, paths: list[str]) -> dict:
@@ -76,7 +86,7 @@ def behavior_requirement(
 class InventoryFixture:
     def __init__(self, root: Path) -> None:
         self.root = root
-        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", *ISOLATED_GIT, "init", "-q", str(root)], check=True, env=ISOLATED_ENV)
         self.write("scripts/tool.py", "#!/usr/bin/env python3\nprint('ok')\n")
         self.entries = [owned_entry("tool", ["scripts/tool.py"])]
         self.write_registry()
@@ -90,30 +100,40 @@ class InventoryFixture:
         path = self.root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.root), "add", "--", relative], check=True)
+        self.git("add", "--", relative)
         if executable:
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
-            subprocess.run(
-                ["git", "-C", str(self.root), "update-index", "--chmod=+x", "--", relative],
-                check=True,
-            )
+            self.git("update-index", "--chmod=+x", "--", relative)
 
-    def write_manifest(self) -> None:
-        listing = self.run("--list-candidates")
-        if listing.returncode != 0:
-            raise RuntimeError(listing.stderr)
-        digest = next(
-            line.removeprefix("Candidate digest: ")
-            for line in listing.stdout.splitlines()
-            if line.startswith("Candidate digest: ")
+    @property
+    def candidates_path(self) -> Path:
+        return self.root / CANDIDATES
+
+    def git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", *ISOLATED_GIT, "-C", str(self.root), *args],
+            check=check,
+            env=ISOLATED_ENV,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
+
+    def update_candidates(self) -> subprocess.CompletedProcess[str]:
+        result = self.run("--update-candidates")
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
+        self.git("add", "--", CANDIDATES)
+        return result
+
+    def write_manifest(self, *, extra: dict | None = None) -> None:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
             json.dumps(
                 {
-                    "$schema": "./schemas/automation-test-inventory.v2.schema.json",
-                    "schema_version": 2,
-                    "candidate_digest": digest,
+                    "$schema": "./schemas/automation-test-inventory.v3.schema.json",
+                    "schema_version": 3,
+                    **(extra or {}),
                     "entries": self.entries,
                 },
                 indent=2,
@@ -121,10 +141,11 @@ class InventoryFixture:
             + "\n",
             encoding="utf-8",
         )
-        subprocess.run(
-            ["git", "-C", str(self.root), "add", "--", "configs/automation-test-inventory.json"],
-            check=True,
-        )
+        self.git("add", "--", "configs/automation-test-inventory.json")
+        self.update_candidates()
+
+    def commit(self, message: str) -> None:
+        self.git("commit", "-q", "--no-verify", "-m", message)
 
     def write_registry(
         self,
@@ -150,15 +171,13 @@ class InventoryFixture:
             + "\n",
             encoding="utf-8",
         )
-        subprocess.run(
-            ["git", "-C", str(self.root), "add", "--", "configs/test-suites.json"],
-            check=True,
-        )
+        self.git("add", "--", "configs/test-suites.json")
 
     def run(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(CHECKER), "--repo-root", str(self.root), *extra],
             check=False,
+            env=ISOLATED_ENV,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -216,7 +235,10 @@ class AutomationInventoryTests(unittest.TestCase):
         self.fixture.write("scripts/new.sh", "#!/bin/sh\n")
         result = self.fixture.run()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("candidate_digest must be", result.stderr)
+        self.assertIn(
+            "unreviewed candidate 'scripts/new.sh\\tscript-extension,shebang'", result.stderr
+        )
+        self.assertIn("--update-candidates", result.stderr)
         self.assertIn("unclassified automation candidate 'scripts/new.sh'", result.stderr)
 
     def test_snapshot_catches_new_candidate_matched_by_existing_glob(self) -> None:
@@ -227,8 +249,109 @@ class AutomationInventoryTests(unittest.TestCase):
         result = self.fixture.run()
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("candidate_digest must be", result.stderr)
+        self.assertIn("unreviewed candidate 'scripts/new.py\\tscript-extension'", result.stderr)
         self.assertNotIn("unclassified automation candidate", result.stderr)
+
+    def test_reason_change_on_reviewed_path_fails(self) -> None:
+        self.fixture.git("update-index", "--chmod=+x", "--", "scripts/tool.py")
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "unreviewed candidate 'scripts/tool.py\\texecutable-mode,script-extension,shebang'",
+            result.stderr,
+        )
+        self.assertIn(
+            "stale reviewed candidate 'scripts/tool.py\\tscript-extension,shebang'", result.stderr
+        )
+
+    def test_removed_candidate_reports_stale_line(self) -> None:
+        self.fixture.write("scripts/extra.sh", "#!/bin/sh\n")
+        self.fixture.entries.append(owned_entry("extra", ["scripts/extra.sh"]))
+        self.fixture.entries.sort(key=lambda entry: entry["id"])
+        self.fixture.write_manifest()
+        self.fixture.entries = [entry for entry in self.fixture.entries if entry["id"] != "extra"]
+        self.fixture.git("rm", "-q", "--cached", "--", "scripts/extra.sh")
+        manifest = json.loads(self.fixture.manifest_path.read_text(encoding="utf-8"))
+        manifest["entries"] = self.fixture.entries
+        self.fixture.manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "stale reviewed candidate 'scripts/extra.sh\\tscript-extension,shebang'", result.stderr
+        )
+        self.assertNotIn("unreviewed candidate", result.stderr)
+
+    def test_missing_candidate_list_fails(self) -> None:
+        self.fixture.candidates_path.unlink()
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("automation-candidates.txt: cannot read file", result.stderr)
+
+    def test_malformed_candidate_list_fails(self) -> None:
+        cases = {
+            "blank": ("scripts/tool.py\tscript-extension,shebang\n\n", "line 2 is blank"),
+            "missing-tab": ("scripts/tool.py script-extension\n", "line 1 must be '<path><TAB><reasons>'"),
+            "empty-reasons": ("scripts/tool.py\t\n", "line 1 must be '<path><TAB><reasons>'"),
+            "duplicate": (
+                "scripts/tool.py\tscript-extension,shebang\n" * 2,
+                "line 2 duplicates",
+            ),
+            "unsorted": (
+                "scripts/z.py\tscript-extension\nscripts/a.py\tscript-extension\n",
+                "line 2 must be sorted after",
+            ),
+        }
+        for name, (content, message) in cases.items():
+            with self.subTest(case=name):
+                self.fixture.candidates_path.write_text(content, encoding="utf-8")
+                result = self.fixture.run()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+    def test_crlf_candidate_list_passes(self) -> None:
+        text = self.fixture.candidates_path.read_text(encoding="utf-8")
+        self.fixture.candidates_path.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+
+        result = self.fixture.run()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_manifest_with_candidate_digest_fails(self) -> None:
+        self.fixture.write_manifest(extra={"candidate_digest": "sha256:" + "0" * 64})
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("candidate_digest is not part of schema v3", result.stderr)
+
+    def test_update_candidates_reports_changes_and_clears_drift(self) -> None:
+        self.fixture.entries[0]["paths"] = ["scripts/*.py"]
+        self.fixture.write_manifest()
+        self.fixture.write("scripts/new.py", "print('new')\n")
+        self.assertNotEqual(self.fixture.run().returncode, 0)
+
+        update = self.fixture.run("--update-candidates")
+
+        self.assertEqual(update.returncode, 0, update.stderr)
+        self.assertIn("+ scripts/new.py\tscript-extension", update.stdout)
+        self.assertIn("2 total, 1 added, 0 removed", update.stdout)
+        self.assertEqual(
+            self.fixture.candidates_path.read_bytes(),
+            b"scripts/new.py\tscript-extension\nscripts/tool.py\tscript-extension,shebang\n",
+        )
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_listing_and_update_are_mutually_exclusive(self) -> None:
+        result = self.fixture.run("--list-candidates", "--update-candidates")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not allowed with argument", result.stderr)
 
     def test_duplicate_candidate_fails(self) -> None:
         self.fixture.entries.append(owned_entry("tool-copy", ["scripts/tool.py"]))
@@ -500,6 +623,80 @@ class AutomationInventoryTests(unittest.TestCase):
             self.assertIn("configs/automation-test-inventory.json", reviewer)
             for term in ("failure", "owner", "rationale", "safety", "success"):
                 self.assertIn(term, reviewer)
+
+
+class ConcurrentBranchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.fixture = InventoryFixture(Path(self.temporary.name))
+        self.fixture.entries[0]["paths"] = ["scripts/*.py"]
+        self.fixture.write_manifest()
+        self.fixture.commit("base")
+        self.fixture.git("branch", "feature")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def land(self, branch: str, path: str, *, review: bool = True) -> None:
+        self.fixture.git("checkout", "-q", branch)
+        self.fixture.write(path, "print('added')\n")
+        if review:
+            self.fixture.update_candidates()
+        self.fixture.commit(f"add {path}")
+
+    def merge_feature(self) -> subprocess.CompletedProcess[str]:
+        self.fixture.git("checkout", "-q", "main")
+        return self.fixture.git("merge", "--no-ff", "--no-edit", "--no-verify", "feature", check=False)
+
+    def test_reviewed_additions_on_both_branches_merge_cleanly_and_pass(self) -> None:
+        self.land("feature", "scripts/a.py")
+        self.land("main", "scripts/z.py")
+
+        merge = self.merge_feature()
+
+        self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.fixture.candidates_path.read_text(encoding="utf-8").splitlines(),
+            [
+                "scripts/a.py\tscript-extension",
+                "scripts/tool.py\tscript-extension,shebang",
+                "scripts/z.py\tscript-extension",
+            ],
+        )
+
+    def test_additions_in_the_same_slot_conflict_at_merge_time(self) -> None:
+        self.land("feature", "scripts/b.py")
+        self.land("main", "scripts/c.py")
+
+        merge = self.merge_feature()
+
+        self.assertNotEqual(merge.returncode, 0)
+        unmerged = self.fixture.git("diff", "--name-only", "--diff-filter=U").stdout.split()
+        self.assertEqual(unmerged, [CANDIDATES])
+        conflicted = self.fixture.run()
+        self.assertNotEqual(conflicted.returncode, 0)
+        self.assertIn("merge conflict marker", conflicted.stderr)
+
+        update = self.fixture.run("--update-candidates")
+
+        self.assertEqual(update.returncode, 0, update.stderr)
+        self.assertIn("3 total, 0 added, 0 removed", update.stdout)
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unreviewed_branch_fails_after_clean_merge(self) -> None:
+        self.land("feature", "scripts/a.py", review=False)
+        self.land("main", "scripts/z.py")
+
+        merge = self.merge_feature()
+
+        self.assertEqual(merge.returncode, 0, merge.stdout + merge.stderr)
+        result = self.fixture.run()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unreviewed candidate 'scripts/a.py\\tscript-extension'", result.stderr)
+        self.assertNotIn("scripts/z.py", result.stderr)
 
 
 if __name__ == "__main__":

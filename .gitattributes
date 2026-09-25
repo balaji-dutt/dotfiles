@@ -16,6 +16,7 @@ private_Documents/development/container-dotfiles/dotfiles/dot_claude/agents/** t
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/** text=auto eol=lf
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/agents/** text=auto eol=lf
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/skills/** text=auto eol=lf
+configs/automation-candidates.txt text eol=lf
 
 # Shell scripts must remain LF to be valid on Linux/WSL
 *.sh text eol=lf

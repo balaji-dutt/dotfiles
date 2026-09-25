@@ -27,9 +27,9 @@ CONTRACTS = {
         "consumers": ("assets/check-automation-provenance.py",),
     },
     "automation-test-inventory.json": {
-        "schema": "schemas/automation-test-inventory.v2.schema.json",
-        "ref": "./schemas/automation-test-inventory.v2.schema.json",
-        "version": 2,
+        "schema": "schemas/automation-test-inventory.v3.schema.json",
+        "ref": "./schemas/automation-test-inventory.v3.schema.json",
+        "version": 3,
         "consumers": ("assets/check-automation-test-inventory.py",),
     },
     "gitlab-pipeline-guard.json": {
@@ -107,6 +107,7 @@ YAML_CONTRACTS = {
 RETAINED_SCHEMAS = {
     "schemas/automation-provenance.v1.schema.json",
     "schemas/automation-test-inventory.v1.schema.json",
+    "schemas/automation-test-inventory.v2.schema.json",
 }
 STANDALONE_SCHEMAS = {
     "schemas/pipeline-guard.v1.schema.json": {
@@ -378,19 +379,25 @@ class ConfigContractTests(unittest.TestCase):
 
         retained_ids = {
             "schemas/automation-provenance.v1.schema.json": (
-                "urn:dotfiles:schema:automation-provenance:v1"
+                "urn:dotfiles:schema:automation-provenance:v1",
+                1,
             ),
             "schemas/automation-test-inventory.v1.schema.json": (
-                "urn:dotfiles:schema:automation-test-inventory:v1"
+                "urn:dotfiles:schema:automation-test-inventory:v1",
+                1,
+            ),
+            "schemas/automation-test-inventory.v2.schema.json": (
+                "urn:dotfiles:schema:automation-test-inventory:v2",
+                2,
             ),
         }
-        for relative_path, schema_id in retained_ids.items():
+        for relative_path, (schema_id, version) in retained_ids.items():
             with self.subTest(schema=relative_path):
                 retained = json.loads(
                     (CONFIGS / relative_path).read_text(encoding="utf-8")
                 )
                 self.assertEqual(retained["$id"], schema_id)
-                self.assertEqual(retained["properties"]["schema_version"]["const"], 1)
+                self.assertEqual(retained["properties"]["schema_version"]["const"], version)
 
 
 if __name__ == "__main__":
