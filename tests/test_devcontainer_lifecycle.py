@@ -638,6 +638,11 @@ install_promptfoo_runtime "$2" "$3"
         self.assertTrue((PROMPTFOO_SOURCE / "package.json").is_file())
         self.assertTrue((PROMPTFOO_SOURCE / "package-lock.json").is_file())
 
+    def test_devcontainer_config_disables_user_env_probe(self) -> None:
+        devcontainer = DEVCONTAINER_CONFIG.read_text(encoding="utf-8")
+
+        self.assertRegex(devcontainer, r'(?m)^\s*"userEnvProbe": "none",?$')
+
     def test_promptfoo_runtime_install_rejects_missing_owned_inputs(self) -> None:
         fake_bin = self.fixture.root / "fake bin"
         fake_bin.mkdir()

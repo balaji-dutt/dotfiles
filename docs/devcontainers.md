@@ -169,6 +169,32 @@ avoids reusing a host's `.terraform` directory inside the container.
 `tf` remains the supported command for switching between OpenTofu and
 Terraform (`TF_CMD=tofu|opentofu|terraform`).
 
+## homelab-IaC: environment probing
+
+The template pins `"userEnvProbe": "none"`. Do not remove it. The default
+(`loginInteractiveShell`) makes VS Code and the devcontainer CLI behind
+`devcontainer-launch` run a login interactive shell in the container, capture
+its environment, and pass every variable to later `docker exec` calls as
+`-e KEY=VALUE`. The container `~/.zshrc` sources
+`~/.config/opencode/opencode.env`, so the probe would copy provider API keys
+from a 0600 file onto host process arguments, which any local user can read
+with `ps`. `interactiveShell` leaks the same way.
+
+With the probe off, interactive terminals still source `~/.zshrc` and get the
+keys and the full PATH. Processes not started from an interactive shell see
+only the image environment, `containerEnv`, and `remoteEnv`. That covers the VS
+Code extension host, tasks, debug adapters, lifecycle hooks, and commands run
+through `devcontainer-launch exec`. They keep npm globals such as `bd` and
+`opencode` through the image's `/usr/local/share/nvm/current/bin`, but they
+start without the provider keys, and `~/.local/bin` is not on their PATH. Start
+tools that need the keys from an interactive shell instead. If a
+non-interactive process needs `~/.local/bin`, add a `remoteEnv` PATH entry
+rather than re-enabling the probe.
+
+Do not put secrets in `containerEnv` or `remoteEnv` either: those values also
+travel as `docker run` or `docker exec` arguments and show up in
+`docker inspect`.
+
 ## homelab-IaC: Beads and Dolt
 
 The homelab project configures Beads for a project-local Dolt server
@@ -664,9 +690,9 @@ devcontainer-launch homelab-IaC stop
 devcontainer-launch homelab-IaC down
 devcontainer-launch homelab-IaC status
 devcontainer-launch homelab-IaC status --json
-devcontainer-launch homelab-IaC exec --existing -- opencode
-devcontainer-launch homelab-IaC exec -- opencode
-devcontainer-launch homelab exec -- claude
+devcontainer-launch homelab-IaC exec --existing -- zsh -ic opencode
+devcontainer-launch homelab-IaC exec -- zsh -ic opencode
+devcontainer-launch homelab exec -- zsh -ic claude
 ```
 
 The default action is `shell`, which runs `devcontainer up` and then execs the
@@ -683,7 +709,9 @@ duplicates that are stopped.
 container and pins execution to its full ID. It never creates, rebuilds, or
 starts a container, and returns the command's exit code unchanged. A missing or
 non-running container is an error; starting it requires a separate `up` action.
-Arguments after `--` are passed literally to the command.
+Arguments after `--` are passed literally to the command. The command does not
+load `~/.zshrc`, so wrap agents that need provider keys or `~/.local/bin` in
+`zsh -ic` (see [environment probing](#homelab-iac-environment-probing)).
 
 On macOS with OrbStack, the homelab devcontainer bind-mounts OrbStack's native
 `/run/host-services/ssh-auth.sock`, but OrbStack exposes that mounted socket as
