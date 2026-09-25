@@ -101,7 +101,7 @@ if ((${#participant_values[@]} == 0)); then
   source_digests=("")
 fi
 
-trailer_args=()
+trailer_args=(--trailer 'Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>')
 for ((index = 0; index < ${#participant_values[@]}; index++)); do
   trailer_args+=(--trailer "AI-Participant: ${participant_values[index]}")
   if [[ -n "${source_definitions[index]}" ]]; then
@@ -115,6 +115,11 @@ trailer_config=(
   -c trailer.where=end
   -c trailer.ifexists=add
   -c trailer.ifmissing=add
+  -c trailer.Co-authored-by.key=Co-authored-by
+  -c trailer.Co-authored-by.where=start
+  -c trailer.Co-authored-by.ifexists=addIfDifferent
+  -c trailer.Co-authored-by.ifmissing=add
+  -c 'trailer.Co-authored-by.cmd=printf %s'
 )
 for trailer_token in AI-Participant Source-Definition Source-Digest; do
   trailer_config+=(

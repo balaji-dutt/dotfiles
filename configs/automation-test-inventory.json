@@ -26,11 +26,32 @@
             "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py"]
           },
           {
+            "id": "failure-trailer-formatting",
+            "kind": "failure",
+            "description": "Stop before creating a merge commit when OpenCode trailer formatting fails.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
             "id": "safety-beads-and-remote-state",
             "kind": "safety",
             "description": "Pin exact SHAs, preserve Beads and cleanup ownership, never push main or tags, perform no CI or remote ref mutations in local-only mode, and persist GitHub landing receipts before real-success lease cleanup.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py"]
+          },
+          {
+            "id": "safety-unchanged-merge-actors",
+            "kind": "safety",
+            "description": "Preserve fast-forward feature commits and Claude no-ff messages and identity without adding OpenCode attribution.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
+            "id": "success-opencode-merge-attribution",
+            "kind": "success",
+            "description": "Give OpenCode no-ff merges one GitHub bot co-author while preserving raw identity, message paragraphs, existing co-authors, and provenance trailers.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
           },
           {
             "id": "success-supported-merge",

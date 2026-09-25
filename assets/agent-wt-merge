@@ -1698,8 +1698,31 @@ def perform_merge(
         result = run_git(ctx.main_worktree, ["merge", "--ff-only", feature_sha], check=False)
     else:
         merge_args = ["merge", "--no-ff"]
-        for paragraph in parsed.message:
-            merge_args.extend(["-m", paragraph])
+        if parsed.actor == "opencode":
+            message = "\n\n".join(parsed.message) + "\n"
+            formatted = subprocess.run(
+                [
+                    "git", "-c", "trailer.separators=:",
+                    "-c", "trailer.Co-authored-by.key=Co-authored-by",
+                    "-c", "trailer.Co-authored-by.where=start",
+                    "-c", "trailer.Co-authored-by.ifexists=addIfDifferent",
+                    "-c", "trailer.Co-authored-by.ifmissing=add",
+                    "-c", "trailer.Co-authored-by.cmd=printf %s",
+                    "interpret-trailers", "--no-divider", "--trailer",
+                    "Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>",
+                ],
+                cwd=str(ctx.main_worktree),
+                input=message,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if formatted.returncode != 0:
+                die(f"could not format OpenCode merge message: {formatted.stderr.strip()}")
+            merge_args.extend(["-m", formatted.stdout.rstrip("\n")])
+        else:
+            for paragraph in parsed.message:
+                merge_args.extend(["-m", paragraph])
         merge_args.append(feature_sha)
         result = run_git(ctx.main_worktree, merge_args, check=False, env=actor_env(parsed.actor))
     if result.returncode != 0:

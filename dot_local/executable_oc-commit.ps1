@@ -301,6 +301,8 @@ if (-not $parsed.Valid -or $records.Count -eq 0) {
 }
 
 $trailerArguments = [System.Collections.Generic.List[string]]::new()
+$trailerArguments.Add('--trailer')
+$trailerArguments.Add('Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>')
 foreach ($record in $records) {
     $participant = "tool=$($record.Tool)"
     if (-not [string]::IsNullOrEmpty($record.Agent)) { $participant += "; agent=$($record.Agent)" }
@@ -325,6 +327,11 @@ foreach ($setting in @(
     'trailer.where=end',
     'trailer.ifexists=add',
     'trailer.ifmissing=add',
+    'trailer.Co-authored-by.key=Co-authored-by',
+    'trailer.Co-authored-by.where=start',
+    'trailer.Co-authored-by.ifexists=addIfDifferent',
+    'trailer.Co-authored-by.ifmissing=add',
+    'trailer.Co-authored-by.cmd=printf %s',
     'trailer.AI-Participant.key=AI-Participant',
     'trailer.AI-Participant.where=end',
     'trailer.AI-Participant.ifexists=add',

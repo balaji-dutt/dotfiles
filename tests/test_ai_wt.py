@@ -1212,6 +1212,7 @@ class WindowsLauncherTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt", "requires native Windows")
 class WindowsCommitWrapperTests(unittest.TestCase):
     DIGEST = "sha256:" + "0123456789abcdef" * 4
+    BOT = "Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>"
 
     def parsed_trailers(self, git: str, repo: Path) -> list[str]:
         message = subprocess.run(
@@ -1284,13 +1285,15 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                     text=True,
                     stdout=subprocess.PIPE,
                 ).stdout.replace("\r\n", "\n").rstrip("\n")
+                bot_line = f"{self.BOT}\n" if identity == "OpenCode" else ""
                 self.assertEqual(
                     commit_message,
-                    f"{message}\n\n{body}\n\nAI-Participant: tool={expected_tool[identity]}",
+                    f"{message}\n\n{body}\n\n{bot_line}AI-Participant: tool={expected_tool[identity]}",
                 )
                 self.assertEqual(
                     self.parsed_trailers(git, repo),
-                    [f"AI-Participant: tool={expected_tool[identity]}"],
+                    [*([self.BOT] if identity == "OpenCode" else []),
+                     f"AI-Participant: tool={expected_tool[identity]}"],
                 )
 
                 failed = subprocess.run(
@@ -1363,6 +1366,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                 self.assertEqual(
                     self.parsed_trailers(git, repo),
                     [
+                        *([self.BOT] if identity == "OpenCode" else []),
                         f"AI-Participant: tool={tool}; agent=build; role=editor; model=provider/model-v1",
                         "Source-Definition: agents/build.md",
                         f"Source-Digest: {self.DIGEST}",
@@ -1386,7 +1390,10 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                 )
                 self.assertEqual(state_result.returncode, 0, state_result.stderr)
                 self.assertFalse(state_path.exists())
-                self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=state-tool"])
+                self.assertEqual(
+                    self.parsed_trailers(git, repo),
+                    [*([self.BOT] if identity == "OpenCode" else []), "AI-Participant: tool=state-tool"],
+                )
 
     def test_attestation_failed_commit_consumes_state_before_retry(self) -> None:
         git = shutil.which("git")
@@ -1444,7 +1451,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(retry.returncode, 0, retry.stderr)
-            self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=opencode"])
+            self.assertEqual(self.parsed_trailers(git, repo), [self.BOT, "AI-Participant: tool=opencode"])
 
     def test_attestation_native_parser_when_jq_is_unavailable(self) -> None:
         git = shutil.which("git")
@@ -1483,7 +1490,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 self.parsed_trailers(git, repo),
-                ["AI-Participant: tool=native-parser; role=editor"],
+                [self.BOT, "AI-Participant: tool=native-parser; role=editor"],
             )
 
             tracked.write_text("newline\n", encoding="utf-8")
@@ -1501,7 +1508,90 @@ class WindowsCommitWrapperTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(newline_result.returncode, 0, newline_result.stderr)
-            self.assertEqual(self.parsed_trailers(git, repo), ["AI-Participant: tool=opencode"])
+            self.assertEqual(self.parsed_trailers(git, repo), [self.BOT, "AI-Participant: tool=opencode"])
+
+    def test_opencode_amend_keeps_original_author_and_single_bot_coauthor(self) -> None:
+        git = shutil.which("git")
+        pwsh = shutil.which("pwsh")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run([git, "init", "--quiet"], cwd=repo, check=True)
+            env = os.environ.copy()
+            env.pop("AI_ATTESTATION_JSON", None)
+            env.update({
+                "GIT_AUTHOR_NAME": "Original Author",
+                "GIT_AUTHOR_EMAIL": "original@example.com",
+                "GIT_COMMITTER_NAME": "Original Author",
+                "GIT_COMMITTER_EMAIL": "original@example.com",
+            })
+            tracked = repo / "original.txt"
+            tracked.write_text("original", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, env=env, check=True)
+            subprocess.run(
+                [git, "commit", "-m", "Original", "-m", "Co-authored-by: Teammate <teammate@example.com>"],
+                cwd=repo, env=env, check=True, stdout=subprocess.PIPE,
+            )
+            for index in range(2):
+                tracked.write_text(f"amended {index}", encoding="utf-8")
+                subprocess.run([git, "add", tracked.name], cwd=repo, env=env, check=True)
+                result = subprocess.run(
+                    [pwsh, "-NoProfile", "-File", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]),
+                     "--amend", "--no-edit"],
+                    cwd=repo, env=env, check=False, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                trailers = self.parsed_trailers(git, repo)
+                self.assertEqual(trailers.count(self.BOT), 1)
+                self.assertEqual(trailers[0], self.BOT)
+                self.assertIn("Co-authored-by: Teammate <teammate@example.com>", trailers)
+                self.assertEqual(trailers[-1], "AI-Participant: tool=opencode")
+                actual = subprocess.run(
+                    [git, "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+                    cwd=repo, check=True, text=True, stdout=subprocess.PIPE,
+                ).stdout.strip()
+                self.assertEqual(
+                    actual,
+                    "Original Author <original@example.com>|OpenCode <noreply@opencode.ai>",
+                )
+
+    def test_opencode_message_file_resists_local_trailer_overrides(self) -> None:
+        git = shutil.which("git")
+        pwsh = shutil.which("pwsh")
+        if not git or not pwsh:
+            self.skipTest("git and pwsh are required")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run([git, "init", "--quiet"], cwd=repo, check=True)
+            subprocess.run([git, "config", "user.name", "Test User"], cwd=repo, check=True)
+            subprocess.run([git, "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            for key, value in (
+                ("trailer.Co-authored-by.ifexists", "replace"),
+                ("trailer.Co-authored-by.cmd", "printf hostile"),
+            ):
+                subprocess.run([git, "config", key, value], cwd=repo, check=True)
+            tracked = repo / "message.txt"
+            tracked.write_text("content", encoding="utf-8")
+            subprocess.run([git, "add", tracked.name], cwd=repo, check=True)
+            message_file = repo / "commit-message.txt"
+            message_file.write_text(
+                f"Message from file\n\nRefs: dots-test\n{self.BOT}\n"
+                "Co-authored-by: Teammate <teammate@example.com>\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [pwsh, "-NoProfile", "-File", str(WINDOWS_COMMIT_WRAPPERS["OpenCode"]),
+                 "-F", str(message_file)],
+                cwd=repo, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                self.parsed_trailers(git, repo),
+                ["Refs: dots-test", self.BOT, "Co-authored-by: Teammate <teammate@example.com>",
+                 "AI-Participant: tool=opencode"],
+            )
 
     def test_bare_commands_resolve_to_powershell_wrappers(self) -> None:
         pwsh = shutil.which("pwsh")

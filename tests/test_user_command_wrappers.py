@@ -74,6 +74,7 @@ def write_commit_git(path: Path, log_path: Path) -> Path:
 
 class CommitWrapperTests(unittest.TestCase):
     DIGEST = "sha256:" + "0123456789abcdef" * 4
+    BOT = "Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>"
     CASES = (
         ("executable_cc-commit", "Claude", "noreply@anthropic.com", "claude-code", "ai-attestation-claude-code.json"),
         ("executable_oc-commit", "OpenCode", "noreply@opencode.ai", "opencode", "ai-attestation-opencode.json"),
@@ -133,6 +134,8 @@ class CommitWrapperTests(unittest.TestCase):
                 self.assertEqual(payload["argv"][-4:], ["-m", "subject with spaces", "--", "path;literal"])
                 self.assertEqual(payload["argv"][0:2], ["-c", "trailer.separators=:"])
                 self.assertIn("AI-Participant: tool=" + tool, payload["argv"])
+                if identity == "OpenCode":
+                    self.assertIn(self.BOT, payload["argv"])
                 self.assertLess(payload["argv"].index("--trailer"), payload["argv"].index("--"))
                 self.assertIsNone(payload["ai"])
                 self.assertEqual(payload["author"], identity)
@@ -184,6 +187,7 @@ class CommitWrapperTests(unittest.TestCase):
                 self.assertEqual(
                     self.parsed_trailers(repo, fixture.env),
                     [
+                        *([self.BOT] if identity == "OpenCode" else []),
                         "Refs: dots-test",
                         f"AI-Participant: tool={tool}; agent=build; role=editor; model=provider/model-v1",
                         "Source-Definition: agents/build.md",
@@ -280,7 +284,7 @@ class CommitWrapperTests(unittest.TestCase):
                 cwd=repo,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(self.parsed_trailers(repo, fixture.env), ["AI-Participant: tool=opencode"])
+            self.assertEqual(self.parsed_trailers(repo, fixture.env), [self.BOT, "AI-Participant: tool=opencode"])
 
     def test_command_local_trailer_policy_overrides_repository_defaults(self) -> None:
         with isolated_environment(prefix="attestation config ") as fixture:
@@ -290,6 +294,8 @@ class CommitWrapperTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), "config", "trailer.ifexists", "replace"], env=fixture.env, check=True)
             subprocess.run(["git", "-C", str(repo), "config", "trailer.AI-Participant.where", "start"], env=fixture.env, check=True)
             subprocess.run(["git", "-C", str(repo), "config", "trailer.AI-Participant.cmd", "printf hostile"], env=fixture.env, check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.Co-authored-by.ifexists", "replace"], env=fixture.env, check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "trailer.Co-authored-by.cmd", "printf hostile"], env=fixture.env, check=True)
             self.stage_change(repo, fixture.env, "config.txt", "content")
             payload = json.dumps(
                 {"schemaVersion": 1, "participants": [{"tool": "one"}, {"tool": "two"}]}
@@ -306,8 +312,95 @@ class CommitWrapperTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 self.parsed_trailers(repo, fixture.env),
-                ["Refs: dots-test", "AI-Participant: tool=one", "AI-Participant: tool=two"],
+                [self.BOT, "Refs: dots-test", "AI-Participant: tool=one", "AI-Participant: tool=two"],
             )
+
+    def test_opencode_amend_preserves_original_author_and_other_coauthors(self) -> None:
+        with isolated_environment(prefix="opencode amend ") as fixture:
+            repo = fixture.root / "repo"
+            self.init_repository(repo, fixture.env)
+            self.stage_change(repo, fixture.env, "original.txt", "original")
+            human = fixture.env | {
+                "GIT_AUTHOR_NAME": "Original Author",
+                "GIT_AUTHOR_EMAIL": "original@example.com",
+                "GIT_COMMITTER_NAME": "Original Author",
+                "GIT_COMMITTER_EMAIL": "original@example.com",
+            }
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-m", "Original", "-m",
+                 "Co-authored-by: Teammate <teammate@example.com>\nAI-Participant: tool=previous"],
+                env=human, check=True, stdout=subprocess.PIPE,
+            )
+            for index in range(2):
+                self.stage_change(repo, fixture.env, "original.txt", f"amended {index}")
+                result = run_script(BIN / "executable_oc-commit", "--amend", "--no-edit", env=fixture.env, cwd=repo)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                trailers = self.parsed_trailers(repo, fixture.env)
+                self.assertEqual(trailers.count(self.BOT), 1)
+                self.assertEqual(trailers[0], self.BOT)
+                self.assertIn("Co-authored-by: Teammate <teammate@example.com>", trailers)
+                self.assertEqual(trailers[-1], "AI-Participant: tool=opencode")
+                self.assertEqual(
+                    subprocess.run(
+                        ["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+                        env=fixture.env, check=True, text=True, stdout=subprocess.PIPE,
+                    ).stdout.strip(),
+                    "Original Author <original@example.com>|OpenCode <noreply@opencode.ai>",
+                )
+
+    def test_opencode_message_file_deduplicates_existing_bot(self) -> None:
+        with isolated_environment(prefix="opencode message file ") as fixture:
+            repo = fixture.root / "repo"
+            self.init_repository(repo, fixture.env)
+            self.stage_change(repo, fixture.env, "file.txt", "content")
+            message_file = fixture.root / "message.txt"
+            message_file.write_text(
+                f"Message from file\n\nRefs: dots-test\n{self.BOT}\n"
+                "Co-authored-by: Teammate <teammate@example.com>\n",
+                encoding="utf-8",
+            )
+            result = run_script(BIN / "executable_oc-commit", "-F", str(message_file), env=fixture.env, cwd=repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                self.parsed_trailers(repo, fixture.env),
+                ["Refs: dots-test", self.BOT, "Co-authored-by: Teammate <teammate@example.com>",
+                "AI-Participant: tool=opencode"],
+            )
+
+    def test_legacy_gitconfig_author_aliases_keep_amend_semantics(self) -> None:
+        for template in (
+            REPO_ROOT / "dot_gitconfig.tmpl",
+            REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles/dot_gitconfig.tmpl",
+        ):
+            with self.subTest(template=template):
+                content = template.read_text(encoding="utf-8")
+                self.assertIn(r'clauth = commit --amend --author=\"Claude <claude@anthropic.com>\" --no-edit', content)
+                self.assertIn(r'ocauth = commit --amend --author=\"OpenCode <noreply@opencode.ai>\" --no-edit', content)
+
+        with isolated_environment(prefix="legacy author alias ") as fixture:
+            repo = fixture.root / "repo"
+            self.init_repository(repo, fixture.env)
+            self.stage_change(repo, fixture.env, "alias.txt", "original")
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-m", "Original"],
+                env=fixture.env, check=True, stdout=subprocess.PIPE,
+            )
+            self.stage_change(repo, fixture.env, "alias.txt", "amended")
+            result = subprocess.run(
+                ["git", "-C", str(repo), "-c",
+                 'alias.ocauth=commit --amend --author="OpenCode <noreply@opencode.ai>" --no-edit',
+                 "ocauth"],
+                env=fixture.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
+                    env=fixture.env, check=True, text=True, stdout=subprocess.PIPE,
+                ).stdout.strip(),
+                "OpenCode <noreply@opencode.ai>|Test User <test@example.com>",
+            )
+            self.assertEqual(self.parsed_trailers(repo, fixture.env), [])
 
     def test_help_does_not_invoke_git(self) -> None:
         with isolated_environment(prefix="commit help ") as fixture:

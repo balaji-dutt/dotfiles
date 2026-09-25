@@ -36,16 +36,18 @@ evidence of who pushed.
 
 ## Current identity matrix
 
-Observed 2026-09-25 from source, local history, and the GitLab and GitHub APIs.
-"GitHub login" is the top-level `author.login` / `committer.login` in
+OpenCode rows describe the current tooling; its GitHub results await
+`dots-a0jr.4` verification. Other rows were observed 2026-09-25 from source,
+local history, and the GitLab and GitHub APIs. "GitHub login" is the top-level
+`author.login` / `committer.login` in
 `GET /repos/balaji-dutt/dotfiles/commits`.
 
 | Path | Author | Committer | Identity source | Trailers | GitHub login |
 |---|---|---|---|---|---|
-| `oc-commit` (Bash, host and container), new commit | `OpenCode <noreply@opencode.ai>` | same | `GIT_AUTHOR_*` / `GIT_COMMITTER_*` exported by `bin/executable_oc-commit` | `AI-Participant` groups | null / null |
-| `oc-commit.ps1`, new commit | same | same | Process environment set by `dot_local/executable_oc-commit.ps1` | `AI-Participant` groups | null / null |
-| `oc-commit --amend` (either wrapper) | Original author, kept by Git | `OpenCode` | `--amend` ignores `GIT_AUTHOR_*` without `--reset-author` | Existing trailers kept, wrapper trailers appended | depends on the original author |
-| `agent-wt-merge no-ff --actor opencode` | `OpenCode` | `OpenCode` | `actor_env()` in `assets/agent-wt-merge` | none | null / null |
+| `oc-commit` (Bash, host and container), new commit | `OpenCode <noreply@opencode.ai>` | same | `GIT_AUTHOR_*` / `GIT_COMMITTER_*` exported by `bin/executable_oc-commit` | OpenCode co-author, then `AI-Participant` groups | null / null |
+| `oc-commit.ps1`, new commit | same | same | Process environment set by `dot_local/executable_oc-commit.ps1` | OpenCode co-author, then `AI-Participant` groups | null / null |
+| `oc-commit --amend` (either wrapper) | Original author, kept by Git | `OpenCode` | `--amend` ignores `GIT_AUTHOR_*` without `--reset-author` | Existing trailers kept; OpenCode co-author exactly once before `AI-Participant` groups | depends on the original author |
+| `agent-wt-merge no-ff --actor opencode` | `OpenCode` | `OpenCode` | `actor_env()` in `assets/agent-wt-merge` | OpenCode co-author before any `AI-Participant` groups | null / null |
 | Renovate initial commit | `Renovate Bot <service_account_group_65498163_…@noreply.gitlab.com>` | same | GitLab `/user` of the `RENOVATE_TOKEN` owner (`personalfiles-renovatebot`) | none | null / null |
 | Renovate commit amended by CI (`statusline-sync`, `beads-kanban-pin-sync`, `browser-policy-sync`) | Renovate's original author, kept by Git | `Renovate Bot` (same address) | `GIT_COMMITTER_*` in `.gitlab-ci.yml`; the job's `GIT_AUTHOR_*` exports have no effect under `--amend --no-edit` | Original message kept | null / null |
 | Renovate automerge merge commit | `Renovate Bot` | same | GitLab merge performed as the token owner | none | null / null |

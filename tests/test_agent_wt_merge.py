@@ -17,6 +17,7 @@ from tests.support.fixtures import read_json, run_git, write_executable, write_j
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_HELPER = REPO_ROOT / "assets" / "agent-wt-merge"
 SOURCE_RUNTIME = REPO_ROOT / "assets" / "gitlab_pipeline_runtime.py"
+OPENCODE_BOT = "Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>"
 EXEC_ENV_KEYS = (
     "AGENT_WT_MERGE_EXEC_CHAIN",
     "AGENT_WT_MERGE_DELEGATED_FROM",
@@ -460,6 +461,65 @@ Commands:
                     self.assertEqual(fixture.output(fixture.main, "rev-parse", tip), feature_sha)
                     if merge_type == "no-ff":
                         self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%an <%ae>"), "OpenCode <noreply@opencode.ai>")
+                        self.assertIn(OPENCODE_BOT, fixture.output(fixture.main, "log", "-1", "--format=%B"))
+                    else:
+                        self.assertNotIn(OPENCODE_BOT, fixture.output(fixture.main, "log", "-1", "--format=%B"))
+
+    def test_no_ff_opencode_coauthor_preserves_message_and_existing_trailers(self) -> None:
+        for actor in ("opencode", "claude"):
+            for preexisting in (False, True):
+                with self.subTest(actor=actor, preexisting=preexisting):
+                    fixture = self.fixture(ci_gated=False)
+                    fixture.commit_main("main-only", "main\n", "local main")
+                    fixture.git(fixture.main, "config", "trailer.Co-authored-by.ifexists", "replace")
+                    fixture.git(fixture.main, "config", "trailer.Co-authored-by.where", "end")
+                    fixture.git(fixture.main, "config", "trailer.Co-authored-by.cmd", "printf hostile")
+                    body = "Body paragraph\n\nRefs: dots-test\nCo-authored-by: Teammate <teammate@example.com>"
+                    if preexisting:
+                        body += "\n" + OPENCODE_BOT
+                    body += "\nAI-Participant: tool=editor\nSource-Digest: sha256:abc"
+                    result = fixture.run_helper(
+                        fixture.main_helper, fixture.feature, "no-ff", "--actor", actor,
+                        "-m", "land feature", "-m", body,
+                    )
+                    self.assert_ok(result)
+                    message = fixture.output(fixture.main, "log", "-1", "--format=%B")
+                    self.assertTrue(message.startswith("land feature\n\nBody paragraph\n\n"))
+                    self.assertEqual(message.count(OPENCODE_BOT), 1 if actor == "opencode" or preexisting else 0)
+                    parsed = subprocess.run(
+                        ["git", "interpret-trailers", "--parse"],
+                        cwd=fixture.main, env=fixture.env, input=message,
+                        check=True, text=True, stdout=subprocess.PIPE,
+                    ).stdout.splitlines()
+                    self.assertIn("Co-authored-by: Teammate <teammate@example.com>", parsed)
+                    self.assertEqual(parsed[-2:], ["AI-Participant: tool=editor", "Source-Digest: sha256:abc"])
+                    if actor == "opencode" and not preexisting:
+                        self.assertEqual(parsed[0], OPENCODE_BOT)
+                    expected = "OpenCode <noreply@opencode.ai>" if actor == "opencode" else "Claude <noreply@anthropic.com>"
+                    self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%an <%ae>|%cn <%ce>"),
+                                     f"{expected}|{expected}")
+
+    def test_no_ff_trailer_format_failure_does_not_merge(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        fixture.commit_main("main-only", "main\n", "local main")
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        write_executable(
+            fixture.fake_bin / "git",
+            f"#!{sys.executable}\n"
+            "import os, sys\n"
+            "if 'interpret-trailers' in sys.argv:\n"
+            "    print('simulated formatter failure', file=sys.stderr)\n"
+            "    raise SystemExit(23)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n",
+        )
+        result = fixture.run_helper(
+            fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land feature",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("simulated formatter failure", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
 
     def test_local_mode_retains_published_feature_and_closes_only_matching_beads(self) -> None:
         for state_kind in ("matching", "mismatched", "failure", "unlink-failure"):
