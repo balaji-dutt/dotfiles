@@ -80,13 +80,21 @@ These rules apply to all OpenCode sessions regardless of repository.
   wrapper is a direct `git commit` replacement and ensures commits are
   attributed to OpenCode rather than the human user's git identity.
 - Do not probe `oc-commit --help`; pass normal `git commit` arguments directly:
-  - `oc-commit -m "subject"`
-  - `oc-commit -m "subject" -m "body"`
-  - `oc-commit -F <message-file>`
+  - `oc-commit -m 'subject'`
+  - `oc-commit -m 'subject' -m 'body'`
+  - `oc-commit -F <real-message-file>`
 - `oc-commit` is available as a Bash wrapper on POSIX and a managed `.ps1`
   wrapper on native Windows. Invoke the Windows wrapper from PowerShell; the
   same-name `.cmd` stub refuses because batch cannot preserve multiline
   arguments. Pass the same arguments from either supported shell.
+- For rich agent provenance, invoke `oc-commit` as the entire shell command
+  from the repository working directory. Use literal single-quoted `-m`
+  arguments (including multiline messages) or bare `-F <real-message-file>`;
+  use a literal path to a real file for `-F`. Run staging, `git status`, and
+  `git log` in separate tool calls. Do not use a heredoc, `-F -`, redirects,
+  substitutions, or command chains around the direct wrapper invocation:
+  unsupported forms can fall back to a tool-only `AI-Participant`. See
+  `docs/git-agent-attestation.md` for accepted forms and limitations.
 - When work is complete and verified, propose a commit message for approval before running `oc-commit`.
 - Before committing, re-read the comment lines the change adds. On POSIX,
   `git diff --cached | grep -E '^\+.*(#|//|/\*)'`; in PowerShell 7,

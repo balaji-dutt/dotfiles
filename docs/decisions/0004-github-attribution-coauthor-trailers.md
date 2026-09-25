@@ -17,8 +17,8 @@ those commits show no avatar and no contributor.
 
 [ADR 0003](0003-git-agent-attestation.md) made `AI-Participant` trailers the
 provenance record for AI participation. It also plans to retire the
-repository's static, one-shot AI `Co-authored-by` hook once both harnesses
-reach wrapper parity. Adding a new automated `Co-authored-by` trailer runs
+repository's static, one-shot AI `Co-authored-by` hook in separately scoped
+work. Adding a new automated `Co-authored-by` trailer runs
 against that plan unless the difference is recorded.
 
 The owner introduced `oc-commit` and `cc-commit` so that the harness that
