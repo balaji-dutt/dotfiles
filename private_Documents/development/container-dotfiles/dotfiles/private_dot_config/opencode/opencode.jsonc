@@ -223,7 +223,7 @@
       ]
     }],
     "@gotgenes/opencode-agent-identity@3.1.1",
-    "cc-safety-net@2.4.1",
+    "cc-safety-net@2.4.6",
     "envsitter-guard@0.0.4",
     "opencode-claude-bridge@1.10.12",
     "@slkiser/opencode-quota@4.9.0"
