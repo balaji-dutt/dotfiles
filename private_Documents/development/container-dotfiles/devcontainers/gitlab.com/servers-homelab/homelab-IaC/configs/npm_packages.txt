@@ -1,4 +1,4 @@
 opencode-ai@1.18.32
-@fission-ai/openspec@1.13.0
+@fission-ai/openspec@1.13.1
 @beads/bd@1.2.2
 @ansible/ansible-mcp-server@26.6.0
