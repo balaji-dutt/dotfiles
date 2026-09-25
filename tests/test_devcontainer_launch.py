@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import pty
+import select
+import struct
 import subprocess
 import sys
+import termios
+import time
 import unittest
 from pathlib import Path
 
@@ -34,6 +39,7 @@ def run_launcher(
         env=env,
         check=False,
         text=True,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -542,25 +548,10 @@ elif args[0] not in ('stop', 'rm'):
                 else: env["TERM"] = term
                 args = ["sample", "status"] + ([mode] if mode else [])
                 if tty:
-                    master, slave = pty.openpty()
-                    try:
-                        result = subprocess.run(["/bin/bash", str(script), *args], env=env,
-                                                stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.PIPE, text=True, timeout=10)
-                        os.close(slave)
-                        slave = None
-                        chunks = []
-                        while True:
-                            try: chunk = os.read(master, 65536)
-                            except OSError: break
-                            if not chunk: break
-                            chunks.append(chunk)
-                        output = b"".join(chunks).decode().replace("\r\n", "\n")
-                    finally:
-                        os.close(master)
-                        if slave is not None: os.close(slave)
+                    result, _ = self.run_in_pty(script, args, env, stdin=subprocess.DEVNULL)
                 else:
                     result = run_launcher(script, *args, env=env)
-                    output = result.stdout
+                output = result.stdout
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual("STYLED" in output, styled)
                 invoked = styled or gum_state == "fail"
@@ -594,6 +585,185 @@ resolve_devcontainer_command wsl2-debian
 ''')
             result = run_launcher(script, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def prepare_terminal(self, fixture, **terminal):
+        script, workspace, config, env = self.prepare(fixture)
+        record = fixture.root / "exec-record.json"
+        ready = fixture.root / "exec-ready"
+        cli = write_executable(fixture.fake_bin / "devcontainer-tty", f"#!{sys.executable}\n" + r'''
+import json, os, pathlib, signal, sys, time
+args = sys.argv[1:]
+with pathlib.Path(os.environ['FAKE_CLI_LOG']).open('a') as stream:
+    stream.write(json.dumps(args) + '\n')
+if args[0] != 'exec':
+    sys.exit(0)
+record = {'stdin_tty': os.isatty(0), 'stdout_tty': os.isatty(1), 'pid': os.getpid(),
+          'size': list(os.get_terminal_size(1)) if os.isatty(1) else None}
+if os.environ.get('FAKE_WAIT_RESIZE'):
+    resized = []
+    signal.signal(signal.SIGWINCH, lambda *_: resized.append(1))
+    pathlib.Path(os.environ['FAKE_READY']).write_text('ready')
+    deadline = time.monotonic() + 10
+    while not resized and time.monotonic() < deadline:
+        time.sleep(0.01)
+    record['resize_signal'] = bool(resized)
+    record['resized'] = list(os.get_terminal_size(1))
+pathlib.Path(os.environ['FAKE_RECORD']).write_text(json.dumps(record))
+sys.exit(int(os.environ.get('FAKE_EXEC_EXIT', '0')))
+''')
+        write_executable(fixture.fake_bin / "tput",
+                         "#!/bin/sh\n[ -n \"$FAKE_TPUT_COLORS\" ] || exit 1\nprintf '%s\\n' \"$FAKE_TPUT_COLORS\"\n")
+        env = {key: value for key, value in env.items()
+               if key not in ("TERM", "COLORTERM", "DEVCONTAINER_LAUNCH_TERM", "DEVCONTAINER_LAUNCH_COLORTERM")}
+        env |= {"DEVCONTAINER_CLI": str(cli), "FAKE_CLI_LOG": str(fixture.root / "devcontainer.jsonl"),
+                "FAKE_RECORD": str(record), "FAKE_READY": str(ready)}
+        env |= terminal
+        return script, workspace, config, env, record, ready
+
+    def run_in_pty(self, script, args, env, *, rows=31, cols=97, resize=None, ready=None, stdin=None, stdout=None):
+        master, slave = pty.openpty()
+
+        def controlling_terminal():
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+        try:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            process = subprocess.Popen(["/bin/bash", str(script), *args], env=env,
+                                       stdin=slave if stdin is None else stdin,
+                                       stdout=slave if stdout is None else stdout,
+                                       stderr=subprocess.PIPE, preexec_fn=controlling_terminal)
+            if resize:
+                deadline = time.monotonic() + 10
+                while not ready.exists():
+                    self.assertIsNone(process.poll(), "launcher exited before the resize check")
+                    self.assertLess(time.monotonic(), deadline, "fake devcontainer never became ready")
+                    time.sleep(0.02)
+                fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", *resize, 0, 0))
+            os.close(slave)
+            slave = None
+            chunks = []
+            deadline = time.monotonic() + 10
+            while True:
+                if not select.select([master], [], [], max(0, deadline - time.monotonic()))[0]:
+                    process.kill()
+                    process.wait()
+                    self.fail("launcher kept the PTY open past the deadline")
+                try: chunk = os.read(master, 65536)
+                except OSError: break
+                if not chunk: break
+                chunks.append(chunk)
+            piped, stderr = process.communicate(timeout=10)
+            output = (piped if stdout is not None else b"".join(chunks)).decode().replace("\r\n", "\n")
+            return subprocess.CompletedProcess(process.args, process.returncode, output, stderr.decode()), process.pid
+        finally:
+            os.close(master)
+            if slave is not None: os.close(slave)
+
+    def exec_calls(self, fixture):
+        return [call for call in read_json_lines(fixture.root / "devcontainer.jsonl") if call[0] == "exec"]
+
+    def remote_env(self, call):
+        return [call[index + 1] for index, value in enumerate(call) if value == "--remote-env"]
+
+    def test_tty_shell_and_exec_keep_pty_dimensions_resize_and_exit_status(self):
+        for args in (["sample"], ["sample", "exec", "--existing", "--", "zsh", "-ic", "true"]):
+            with self.subTest(args=args), isolated_environment() as fixture:
+                script, workspace, config, env, record, ready = self.prepare_terminal(
+                    fixture, TERM="xterm-256color", COLORTERM="truecolor", FAKE_WAIT_RESIZE="1", FAKE_EXEC_EXIT="23")
+                result, pid = self.run_in_pty(script, args, env, resize=(40, 132), ready=ready)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                observed = json.loads(record.read_text())
+                self.assertEqual(observed["pid"], pid)
+                self.assertTrue(observed["stdin_tty"] and observed["stdout_tty"])
+                self.assertEqual(observed["size"], [97, 31])
+                self.assertTrue(observed["resize_signal"])
+                self.assertEqual(observed["resized"], [132, 40])
+                call = self.exec_calls(fixture)[0]
+                self.assertEqual(self.remote_env(call), ["TERM=xterm-256color", "COLORTERM=truecolor"])
+                tail = call[call.index("--container-id"):]
+                self.assertEqual(tail[:3], ["--container-id", CONTAINER_ID, "--"])
+                self.assertNotIn("--remote-env", tail)
+
+    def test_tty_terminal_capability_policy(self):
+        cases = (
+            ({"TERM": "xterm-256color"}, ["TERM=xterm-256color"]),
+            ({"TERM": "xterm-256color", "COLORTERM": "24bit"}, ["TERM=xterm-256color", "COLORTERM=24bit"]),
+            ({"TERM": "xterm"}, []),
+            ({"TERM": "xterm-direct"}, ["TERM=xterm-256color"]),
+            ({"TERM": "xterm", "FAKE_TPUT_COLORS": "256"}, ["TERM=xterm-256color"]),
+            ({"TERM": "xterm-ghostty", "COLORTERM": "truecolor"}, ["TERM=xterm-256color", "COLORTERM=truecolor"]),
+            ({"TERM": "xterm-256color", "COLORTERM": "yes"}, ["TERM=xterm-256color"]),
+            ({"COLORTERM": "truecolor"}, []),
+            ({"TERM": "dumb", "COLORTERM": "truecolor"}, []),
+            ({"TERM": "xterm", "DEVCONTAINER_LAUNCH_TERM": "screen-256color",
+              "DEVCONTAINER_LAUNCH_COLORTERM": "truecolor"}, ["TERM=screen-256color", "COLORTERM=truecolor"]),
+            ({"TERM": "xterm-256color", "COLORTERM": "truecolor", "DEVCONTAINER_LAUNCH_TERM": "",
+              "DEVCONTAINER_LAUNCH_COLORTERM": ""}, []),
+        )
+        for terminal, expected in cases:
+            with self.subTest(terminal=terminal), isolated_environment() as fixture:
+                script, _, _, env, _, _ = self.prepare_terminal(fixture, **terminal)
+                result, _ = self.run_in_pty(script, ["sample", "exec", "--existing", "--", "true"], env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.remote_env(self.exec_calls(fixture)[0]), expected)
+
+    def test_terminal_override_control_characters_fail_before_docker(self):
+        cases = [(name, args) for name in ("DEVCONTAINER_LAUNCH_TERM", "DEVCONTAINER_LAUNCH_COLORTERM")
+                 for args in (["sample"], ["sample", "exec", "--existing", "--", "true"])]
+        for name, args in cases:
+            with self.subTest(name=name, args=args), isolated_environment() as fixture:
+                script, _, _, env, _, _ = self.prepare_terminal(fixture, TERM="xterm-256color", **{name: "xterm\x1b[31m"})
+                result, _ = self.run_in_pty(script, args, env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{name} must not contain control characters", result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertEqual(read_json_lines(fixture.root / "docker.jsonl"), [])
+                self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"), [])
+
+    def test_non_tty_exec_adds_no_terminal_environment(self):
+        with isolated_environment() as fixture:
+            script, workspace, config, env, record, _ = self.prepare_terminal(
+                fixture, TERM="xterm-256color", COLORTERM="truecolor", DEVCONTAINER_LAUNCH_TERM="screen-256color",
+                FAKE_EXEC_EXIT="17")
+            result = run_launcher(script, "sample", "exec", "--existing", "--", "sh", "-c", "exit 17", env=env)
+            self.assertEqual(result.returncode, 17, result.stderr)
+            self.assertEqual(self.exec_calls(fixture), [["exec", *self.base_args(workspace, config, env),
+                                                         "--container-id", CONTAINER_ID, "--", "sh", "-c", "exit 17"]])
+            observed = json.loads(record.read_text())
+            self.assertFalse(observed["stdin_tty"] or observed["stdout_tty"])
+
+    def test_tty_stdout_without_tty_stdin_adds_no_terminal_environment(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, record, _ = self.prepare_terminal(fixture, TERM="xterm-256color", COLORTERM="truecolor")
+            result, _ = self.run_in_pty(script, ["sample", "exec", "--existing", "--", "true"], env,
+                                        stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.remote_env(self.exec_calls(fixture)[0]), [])
+            observed = json.loads(record.read_text())
+            self.assertFalse(observed["stdin_tty"])
+            self.assertTrue(observed["stdout_tty"])
+
+    def test_tty_stdin_with_piped_stdout_adds_no_terminal_environment(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, record, _ = self.prepare_terminal(fixture, TERM="xterm-256color", COLORTERM="truecolor")
+            result, _ = self.run_in_pty(script, ["sample", "exec", "--existing", "--", "true"], env,
+                                        stdout=subprocess.PIPE)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.remote_env(self.exec_calls(fixture)[0]), [])
+            observed = json.loads(record.read_text())
+            self.assertTrue(observed["stdin_tty"])
+            self.assertFalse(observed["stdout_tty"])
+
+    def test_lifecycle_actions_add_no_terminal_environment(self):
+        for action in ("up", "rebuild"):
+            with self.subTest(action=action), isolated_environment() as fixture:
+                script, _, _, env, _, _ = self.prepare_terminal(fixture, TERM="xterm-256color", COLORTERM="truecolor")
+                result, _ = self.run_in_pty(script, ["sample", action], env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = read_json_lines(fixture.root / "devcontainer.jsonl")
+                self.assertEqual([call[0] for call in calls], ["up"])
+                self.assertNotIn("--remote-env", calls[0])
 
 
 if __name__ == "__main__":

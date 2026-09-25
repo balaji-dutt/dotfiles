@@ -15,6 +15,10 @@ Environment overrides use each launcher's env_prefix, for example:
   HOMELAB_IAC_WORKSPACE=/path/to/workspace
   HOMELAB_IAC_CONFIG=/path/to/devcontainer.json
   HOMELAB_IAC_SHELL='zsh -l'
+
+Interactive shell/exec terminal overrides (empty value sends nothing):
+  DEVCONTAINER_LAUNCH_TERM=xterm-256color
+  DEVCONTAINER_LAUNCH_COLORTERM=truecolor
 USAGE
 }
 
@@ -95,6 +99,46 @@ IDENTITY_LABELS=()
 DISCOVERY=""
 SELECTED_ID=""
 SELECTED_STATE=""
+TERMINAL_ENV_ARGS=()
+
+host_supports_256_colors() {
+  local colors
+  case "${TERM:-}" in
+    ""|dumb) return 1 ;;
+    *-256color|*-direct) return 0 ;;
+  esac
+  case "${COLORTERM:-}" in
+    truecolor|24bit) return 0 ;;
+  esac
+  colors="$(tput colors 2>/dev/null || true)"
+  [[ "$colors" =~ ^[0-9]+$ ]] && (( colors >= 256 ))
+}
+
+add_terminal_env() {
+  local name value
+  name="$1"
+  value="$2"
+  [[ -n "$value" ]] || return 0
+  [[ "$value" != *[[:cntrl:]]* ]] || die "DEVCONTAINER_LAUNCH_$name must not contain control characters"
+  TERMINAL_ENV_ARGS+=(--remote-env "$name=$value")
+}
+
+resolve_terminal_env() {
+  TERMINAL_ENV_ARGS=()
+  [[ -t 0 && -t 1 ]] || return 0
+
+  if [[ -n "${DEVCONTAINER_LAUNCH_TERM+set}" ]]; then
+    add_terminal_env TERM "$DEVCONTAINER_LAUNCH_TERM"
+  elif host_supports_256_colors; then
+    add_terminal_env TERM xterm-256color
+  fi
+
+  if [[ -n "${DEVCONTAINER_LAUNCH_COLORTERM+set}" ]]; then
+    add_terminal_env COLORTERM "$DEVCONTAINER_LAUNCH_COLORTERM"
+  elif [[ "${COLORTERM:-}" == "truecolor" || "${COLORTERM:-}" == "24bit" ]] && host_supports_256_colors; then
+    add_terminal_env COLORTERM "$COLORTERM"
+  fi
+}
 
 is_windows_mounted_path() {
   local platform path
@@ -725,6 +769,7 @@ main() {
       fi
       if [[ "${1:-}" == "--" ]]; then shift; fi
       [[ $# -gt 0 ]] || die "exec action requires a command"
+      resolve_terminal_env
       ;;
     status)
       [[ $# -le 1 ]] || die "status accepts only one of --json or --plain"
@@ -733,6 +778,7 @@ main() {
       ;;
     shell|up|rebuild|rebuild-no-cache|stop|down)
       [[ $# -eq 0 ]] || die "unexpected arguments for $action"
+      if [[ "$action" == "shell" ]]; then resolve_terminal_env; fi
       ;;
     -h|--help|help) usage; return 0 ;;
     *) usage; die "unknown action: $action" ;;
@@ -756,7 +802,8 @@ main() {
       fi
       require_running_container
       if [[ "$action" == "shell" ]]; then set -- "${SHELL_CMD[@]}"; fi
-      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" --container-id "$SELECTED_ID" -- "$@"
+      exec "${DEVCONTAINER_CMD[@]}" exec "${devcontainer_args[@]}" ${TERMINAL_ENV_ARGS[@]+"${TERMINAL_ENV_ARGS[@]}"} \
+        --container-id "$SELECTED_ID" -- "$@"
       ;;
     up)
       prepare_devcontainer_action "$platform"

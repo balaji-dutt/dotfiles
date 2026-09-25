@@ -759,6 +759,67 @@ HOMELAB_IAC_CONFIG=/path/to/devcontainer.json devcontainer-launch homelab-IaC
 HOMELAB_IAC_SHELL='zsh -l' devcontainer-launch homelab-IaC
 ```
 
+### Terminal capabilities
+
+Without help, a `devcontainer exec` session gets `TERM=xterm` and no
+`COLORTERM`, so full-screen tools fall back to 8 colors. When both stdin and
+stdout are terminals, `shell` and `exec` pass terminal settings with
+`--remote-env`:
+
+- `TERM=xterm-256color` when the host terminal supports 256 colors: host
+  `TERM` ends in `-256color` or `-direct`, `COLORTERM` is `truecolor` or
+  `24bit`, or `tput colors` reports at least 256. The host `TERM` name itself
+  is never forwarded, because the container may lack its terminfo entry (for
+  example `xterm-ghostty`). An unset, empty, or `dumb` host `TERM` sends
+  nothing.
+- `COLORTERM` is forwarded only when the host is 256-color capable and sets it
+  to `truecolor` or `24bit`.
+
+Override either value when troubleshooting:
+
+```sh
+DEVCONTAINER_LAUNCH_TERM=screen-256color devcontainer-launch homelab-IaC
+DEVCONTAINER_LAUNCH_COLORTERM= devcontainer-launch homelab-IaC
+```
+
+An override replaces the detected value, and an empty override sends nothing.
+On a terminal, override values containing control characters are rejected
+before Docker is contacted. Redirected or piped runs, including captured agent
+commands, ignore the overrides, get no terminal settings, and get no forced
+PTY. `up`, `rebuild`, `rebuild-no-cache`, `stop`, `down`, and `status` never
+send them. Correct rendering inside the container does not add VS Code
+integration: terminal sessions still have no automatic port forwarding (see
+above).
+
+Full-screen TUI support was checked by hand on 2026-09-25 against the
+`homelab-IaC` container on OrbStack, starting each tool from a launcher shell
+and comparing it with a VS Code terminal attached to the same container:
+
+| Host terminal | OpenCode | Claude Code | Agent of Empires |
+|---|---|---|---|
+| macOS iTerm2 | Supported | Supported | Supported |
+| Windows Terminal on Debian WSL2 | Not yet validated | Not yet validated | Not yet validated |
+
+"Supported" means colors, redraw, window resize, scrolling, and a clean
+prompt after exit all matched the VS Code terminal. Treat the WSL2 row as
+unknown until it has been checked the same way.
+
+### Agent use
+
+Agents should inspect before acting and avoid creating containers as a side
+effect:
+
+1. Run `devcontainer-launch <name> status --json` and read `selection` and the
+   matched container's `state`. The command returns 0 even when selection is
+   `missing`, `ambiguous`, or `conflict`.
+2. Run commands with `exec --existing -- <command> [args...]`. It never
+   creates or starts a container and fails unless exactly one unconflicted
+   container is running.
+3. Plain `exec` and `shell` run `devcontainer up` first, which may build,
+   create, or start a container. Use them, and `up`, `rebuild`,
+   `rebuild-no-cache`, `stop`, or `down`, only when the task explicitly asks
+   for that lifecycle change.
+
 ### Identity configuration and conflicts
 
 Each launcher's platform entry may set `identity_labels`. For Debian WSL2:
