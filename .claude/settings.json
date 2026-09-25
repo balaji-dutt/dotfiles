@@ -31,6 +31,16 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/record-reviewer-start.sh\"",
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [

@@ -40,11 +40,13 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   per `exemptPaths`. Edits outside the repo (`/tmp`, plan files) and
   backlog-only sessions never raise a gate.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
-  JSON with `timestamp`, `firstTimestamp`, `sessionID`, and the accumulated
-  repo-relative `files` list. Without Python or the helper script, the marker
-  hook falls back to an unconditional mark in the legacy unsuffixed
-  `.claude/.needs_dotfiles_review`.
-- All three hooks pick their interpreter through
+  JSON with `timestamp`, `firstTimestamp`, `markedAt` (the last mark as a
+  float, which orders an edit and a reviewer launch in the same second;
+  gates without it round `timestamp` up a second), `sessionID`, and the
+  accumulated repo-relative `files` list. Without Python or the helper
+  script, the marker hook falls back to an unconditional mark in the
+  legacy unsuffixed `.claude/.needs_dotfiles_review`.
+- All four hooks pick their interpreter through
   `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
   `py -3` and executes each candidate before accepting it. A lookup alone is
   not enough on native Windows, where the Microsoft Store app-execution alias
@@ -53,15 +55,39 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   like any other. The hooks do not `exec`, so a helper that starts and then
   fails reaches the same fallback as a missing interpreter — on Stop that
   means blocking rather than erroring open.
+- `record-reviewer-start.sh` (SubagentStart) writes
+  `.claude/.dotfiles_review_inflight.<session_id>.<agent_id>` (gitignored)
+  holding the start time, only when `agent_type` is the configured
+  `reviewerAgent`.
 - `enforce-review-on-stop.sh` (Stop) blocks stopping while the session's
   gate exists, with a reviewer prompt scoped to the gated files. If the
   gated edits no longer exist in git (reverted) and nothing touching them
   was committed since the first mark, the gate is cleared instead.
+  While a reviewer that started after the latest gated edit is still in
+  flight, Stop does not block; it shows a "Dotfiles review in flight"
+  notice instead. The finished background reviewer re-invokes the agent,
+  and the next Stop re-checks the gate. A record older than 45 minutes, or
+  one that started before the latest gated edit, does not count, and the
+  block reason says so. The 45-minute bound also caps how long a reviewer
+  killed without a SubagentStop can hold the gate open; the gate file
+  itself survives either way.
   Escape hatch: `CLAUDE_ENFORCE_REVIEW=0|false|off`.
-- `clear-needs-review-on-pass.sh` (SubagentStop) clears the gate when a
-  reviewer transcript ends with `DOTFILES_REVIEWER_RESULT=PASS` as its
-  final meaningful line (exactly one marker; a quoted or mid-message
-  marker does not count).
+- `clear-needs-review-on-pass.sh` (SubagentStop) first deletes the stopping
+  agent's in-flight record, whatever the verdict. It then clears the gate
+  only when all of these hold:
+  - `agent_type` is absent or is the configured reviewer.
+  - If its start was recorded, the reviewer did not start before the
+    latest gated edit. Without a record (the start hook failed, or Stop
+    expired it after 45 minutes), only the PASS timestamp is checked.
+  - The last transcript record carrying a marker ends with
+    `DOTFILES_REVIEWER_RESULT=PASS` as its final meaningful line (exactly
+    one marker; a quoted or mid-message marker does not count). A later
+    FAIL or malformed marker outranks an earlier PASS.
+
+  Verdicts are read from assistant text blocks and from the `message` input
+  of `SubagentHandback` tool calls, which is how background subagents
+  report. The main session transcript is read only when the payload names
+  no agent transcript.
 
 ## Reviewer tool grants
 
@@ -166,12 +192,14 @@ the same session, so verify changes to it from a fresh session.
   `.opencode/opencode.jsonc`
 - Claude gate helper (mark/enforce/clear logic):
   `.claude/hooks/lib/review_gate.py`
-- Claude interpreter resolver (sourced by all three hooks):
+- Claude interpreter resolver (sourced by all four hooks):
   `.claude/hooks/lib/resolve-python.sh`
 - Claude marker hook:
   `.claude/hooks/mark-needs-review.sh`
 - Claude stop hook:
   `.claude/hooks/enforce-review-on-stop.sh`
+- Claude reviewer-start hook:
+  `.claude/hooks/record-reviewer-start.sh`
 - Claude clear hook:
   `.claude/hooks/clear-needs-review-on-pass.sh`
 - OpenCode docs-refresh skill:
