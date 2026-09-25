@@ -196,6 +196,15 @@ supporting evidence and verify material findings against the current source.
   wrapper on native Windows. Invoke the Windows wrapper from PowerShell; the
   same-name `.cmd` stub refuses because batch cannot preserve multiline
   arguments. Pass normal `git commit` arguments from either supported shell.
+- For rich agent provenance, invoke `cc-commit` as the entire shell command
+  from the repository working directory. Use literal single-quoted `-m`
+  arguments (including multiline messages) or bare `-F <real-message-file>`;
+  use a literal path to a real file for `-F`. Run staging, `git status`, and
+  `git log` in separate tool calls. Do not use a heredoc, `-F -`, redirects,
+  substitutions, or command chains around the direct wrapper invocation:
+  unsupported forms can fall back to a tool-only `AI-Participant`. See
+  `docs/git-agent-attestation.md` for accepted forms, including the separate
+  Bash-to-PowerShell bridge on Windows.
 - When work is complete and verified, propose a commit message for approval before running `cc-commit`.
 - When drafting or cleaning up that commit message, use the `unslop-commit` skill to keep it in direct engineer voice (Conventional Commits, no AI/marketing slop). The skill only writes the message; it never stages or runs `git`.
 - Before committing, re-read the comment lines the change adds. On POSIX,

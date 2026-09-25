@@ -3,6 +3,36 @@
 This repository manages a Git hook workflow that can append a
 `Co-authored-by:` trailer to the next commit message when armed.
 
+## Agent attestation alongside coauthoring
+
+Agent commits made through `cc-commit` or `oc-commit` also carry self-asserted
+provenance trailers. Claude Code and OpenCode collect observed participants in
+the current session and pass them to their commit wrapper. Each participant
+gets an `AI-Participant` trailer with the tool and, when available, the agent,
+role, and runtime model. A resolved agent definition can add the adjacent
+`Source-Definition` and `Source-Digest` pair. If no valid participant metadata
+is available, the wrapper emits a tool-only participant without blocking the
+commit.
+
+For example, a commit might end with:
+
+```text
+AI-Participant: tool=opencode; agent=build; role=editor; model=openai/gpt-6-sol
+```
+
+Inspect the latest commit's trailer block with:
+
+```sh
+git log -1 --format=%B | git interpret-trailers --parse
+```
+
+The one-shot `Co-authored-by` hook described below is separately armed through
+`coauthor.gptNext`; it can coexist with the agent trailers and is not a source
+of per-session model or agent provenance. Human `Co-authored-by` usage remains
+independent. For supported invocation forms, optional source-pair limitations,
+the trailer format, and its trust boundary, see
+[Git Agent Attestation](git-agent-attestation.md).
+
 ## Behavior
 
 - Hook type: `prepare-commit-msg`

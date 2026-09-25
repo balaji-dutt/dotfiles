@@ -224,17 +224,22 @@ Unix hashing utility is required by the native Windows plugins themselves.
 
 OpenCode supplies `AI_ATTESTATION_JSON` through its invocation-local `shell.env`
 hook. Claude uses `PreToolUse` to rewrite a recognized wrapper invocation,
-preserving other tool inputs without granting permission. Supported forms
-include `command cc-commit -m 'message'` in Bash and
-`& 'C:\path with spaces\cc-commit.ps1' -m 'message'` in PowerShell. PowerShell
-transport restores the prior environment and preserves wrapper exit status.
-Claude's Bash tool also supports a literal `pwsh` or `pwsh.exe` bridge:
+preserving other tool inputs without granting permission. Run the direct
+wrapper as the entire shell command from the repository working directory.
+Supported forms include `command cc-commit -m 'message'`,
+`oc-commit -m 'message'`, and `oc-commit -F 'message file'` in Bash, or
+`& 'C:\path with spaces\cc-commit.ps1' -m 'message'` in PowerShell. Literal
+single-quoted `-m` arguments can span lines; bare `-F <real-file>` invocations
+also work when the file path is literal. PowerShell transport restores the
+prior environment and preserves wrapper exit status. Claude's Bash tool also
+supports a literal `pwsh` or `pwsh.exe` bridge:
 
 ```sh
 cd "C:/repo" && pwsh -NoProfile -Command "& 'C:\repo\cc-commit.ps1' -m 'message'"
 ```
 
-The optional prefix is one literal `cd` (optionally with `--`) followed by `&&`.
+Only the Bash-to-PowerShell bridge accepts a prefix of one literal `cd`
+(optionally with `--`) followed by `&&`; direct Bash wrapper calls do not.
 The bridge accepts `-NoProfile`, `-NonInteractive`, and `-NoLogo` before
 `-Command`, whose single literal argument must invoke the wrapper directly.
 Quoted executable paths are supported. The payload is scoped to the `pwsh`
@@ -243,10 +248,12 @@ route does not require enabling Claude's native PowerShell tool. Encoded
 commands, execution-policy flags, additional commands, and dynamic PowerShell
 arguments such as splats are not recognized.
 
-Compounds such as `cd repo && cc-commit`, dynamic executable expressions,
-substitutions, redirects, and ambiguous commands are left unchanged with a
-partial diagnostic. Explicit caller payloads are not overwritten. Run the
-wrapper directly with the shell tool's working directory set to the repository.
+Compounds such as `cd repo && cc-commit`, post-wrapper command chains,
+heredocs (including `-F -` fed by a heredoc), dynamic executable expressions,
+substitutions, redirects, and ambiguous commands do not receive the rich
+producer handoff and can yield tool-only trailers. Explicit caller payloads
+are not overwritten. Set the shell tool's working directory to the repository
+for direct wrapper calls; run `git status` and `git log` in separate calls.
 
 ### Evidence and limits
 
@@ -406,8 +413,9 @@ one-shot `Co-authored-by` automation. A static configured coauthor identity
 cannot represent dynamic per-session model selection, multiple agents, roles,
 or source-definition provenance.
 
-The current automation remains operational until OpenCode and Claude Code have
-verified parity across POSIX and PowerShell commit wrappers. Its later removal
-does not deprecate `Co-authored-by` for human coauthors or external project
-workflows. See [ADR 0003](decisions/0003-git-agent-attestation.md) for the
-architectural decision.
+The coauthor automation remains operational alongside the attestation wrappers;
+its retirement is separately scoped work despite verified POSIX and PowerShell
+parity. Removing that automation does not deprecate `Co-authored-by` for human
+coauthors or external project workflows. See
+[ADR 0003](decisions/0003-git-agent-attestation.md) for the architectural
+decision.

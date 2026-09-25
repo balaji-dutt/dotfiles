@@ -122,7 +122,12 @@ this repo.
 - **Commits**: Use `cc-commit` (Claude Code) or `oc-commit` (OpenCode), never
   `git commit` directly — see **Commit message workflow (required)** below.
   Format follows the same 50/72 rule documented below; include a
-  `Refs: dots-<id>` trailer.
+  `Refs: dots-<id>` trailer. Invoke the wrapper as the entire shell command
+  from the repo working directory, with literal single-quoted `-m` arguments
+  or bare `-F <real-message-file>`. Run staging, `git status`, and `git log`
+  separately; avoid heredocs, `-F -`, redirects, substitutions, and command
+  chains around the wrapper or provenance can degrade to tool-only trailers.
+  See `docs/git-agent-attestation.md` for accepted forms and limitations.
 - **Post-edit verification**: After implementation, run the repo audit
   documented under **Post-edit verification (required)** below
   (`./assets/cz-audit.sh check <repo-relative-path>` followed by
