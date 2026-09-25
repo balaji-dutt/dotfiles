@@ -410,4 +410,6 @@ The current automation remains operational until OpenCode and Claude Code have
 verified parity across POSIX and PowerShell commit wrappers. Its later removal
 does not deprecate `Co-authored-by` for human coauthors or external project
 workflows. See [ADR 0003](decisions/0003-git-agent-attestation.md) for the
-architectural decision.
+architectural decision. The GitHub attribution trailers for OpenCode and
+Renovate commits are not part of that automation; see
+[ADR 0004](decisions/0004-github-attribution-coauthor-trailers.md).

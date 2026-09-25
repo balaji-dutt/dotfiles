@@ -244,9 +244,11 @@ A dedicated, scoped token is therefore required.
 service account (the same account that owns the `RENOVATE_TOKEN` you
 already use). Reusing the service account — but with a second, narrower
 token — keeps the pusher identity in GitLab's audit log aligned with the
-commit author identity set by the CI job
+Renovate commit identity
 (`Renovate Bot <service_account_group_65498163_...@noreply.gitlab.com>`),
-so a single MR shows one consistent actor end-to-end.
+so a single MR shows one consistent actor end-to-end. The amendment keeps
+Renovate's original author and sets only the committer; see
+[Automated Git identity policy](git-identity-policy.md).
 
 ### Required scopes
 
@@ -339,8 +341,10 @@ with `stale info` even when the branch has not moved.
 
 Because the token is owned by `renovate-bot`, GitLab records the pusher
 in the project's audit log as the renovate-bot service account —
-matching the `Renovate Bot` author the CI job sets via `GIT_AUTHOR_*`
-env vars. A push made via this access token (rather than
+matching the `Renovate Bot` identity on the commit. `git commit --amend
+--no-edit` keeps the original author, so of the job's exported
+`GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables only the committer values
+take effect. A push made via this access token (rather than
 `CI_JOB_TOKEN`) **does** trigger a new pipeline on the same branch. The
 superseding pipeline verifies the synced files with the relevant `--check`
 mode before `platformAutomerge` proceeds.

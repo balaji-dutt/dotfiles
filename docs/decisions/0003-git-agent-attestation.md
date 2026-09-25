@@ -52,6 +52,8 @@ output.
 - After OpenCode and Claude Code reach verified POSIX and PowerShell parity,
   later scoped work can retire the repository's AI-specific coauthor
   automation.
+- GitHub attribution trailers for automated commits are a separate decision
+  and are not retired with it; see [ADR 0004](0004-github-attribution-coauthor-trailers.md).
 - Standard `Co-authored-by` remains available for human coauthors and external
   project conventions.
 - The visible format is compact and parseable, but semantic consumers must
