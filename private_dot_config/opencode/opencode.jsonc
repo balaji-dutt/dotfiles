@@ -526,7 +526,6 @@
       "model": "openai/gpt-6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
-      "temperature": 0.4,
       "permission": {
         "edit": "deny",
         "webfetch": "allow",
@@ -544,7 +543,6 @@
       "model": "openai/gpt-6-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
       "permission": {
         "edit": "deny",
         "webfetch": "allow",
@@ -562,7 +560,6 @@
       "description": "Default editing agent",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "high",
-      "temperature": 0.2,
       "prompt": "You are the default interactive build agent. Repo-level instructions (AGENTS.md or equivalent) take precedence over any global defaults. When no repo-specific guidance exists, apply good judgment for correctness, safety, and maintainability.",
       "permission": {
         "edit": {
@@ -578,7 +575,6 @@
       "description": "Agent for meta-level and infrastructural work ",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",
@@ -596,7 +592,6 @@
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",

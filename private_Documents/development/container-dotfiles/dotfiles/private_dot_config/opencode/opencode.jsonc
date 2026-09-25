@@ -500,7 +500,6 @@
       "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "high",
-      "temperature": 0.4,
       "permission": {
         "edit": "deny",
         "webfetch": "allow",
@@ -517,7 +516,6 @@
       "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
-      "temperature": 0.4,
       "permission": {
         "edit": "deny",
         "webfetch": "allow",
@@ -535,7 +533,6 @@
       "description": "Default editing agent",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "high",
-      "temperature": 0.2,
       "permission": {
         "edit": {
           "*": "allow",
@@ -550,7 +547,6 @@
       "description": "Agent for meta-level and infrastructural work ",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",
@@ -568,7 +564,6 @@
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
-      "temperature": 0.2,
       "permission": {
         "webfetch": "allow",
         "websearch_cited": "allow",

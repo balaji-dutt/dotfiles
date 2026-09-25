@@ -5,6 +5,7 @@ import fnmatch
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LOAD_JSON = runpy.run_path(str(ROOT / 'assets/check-ai-tooling.py'))['load_json']
 CONTAINER = 'private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC'
 MISE = 'configs/mise_wsl2.toml'
 NPM = f'{CONTAINER}/configs/npm_packages.txt'
@@ -33,6 +35,15 @@ def render(template: str, target_os: str) -> str:
 
 
 class OpenCodePolicyTests(unittest.TestCase):
+    def assert_sol_agent_policy(self, config):
+        expected = {'plan', 'plan-GPT-xhigh', 'build', 'special-builder', 'agent-engineer'}
+        agents = config['agent']
+        for name in expected:
+            self.assertEqual(agents[name]['model'], 'openai/gpt-6-sol', name)
+        for name, agent in agents.items():
+            if agent.get('model') == 'openai/gpt-6-sol':
+                self.assertNotIn('temperature', agent, name)
+
     def setUp(self):
         text = (ROOT / 'renovate.json5').read_text()
         self.config = json.loads(re.sub(r'^\s*//.*$', '', text, flags=re.M))
@@ -98,6 +109,20 @@ class OpenCodePolicyTests(unittest.TestCase):
             'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc',
         ):
             self.assertRegex((ROOT / file_name).read_text(), r'"autoupdate"\s*:\s*false')
+
+    def test_sol_agents_have_no_temperature_setting(self):
+        for file_name in (
+            'private_dot_config/opencode/opencode.jsonc',
+            'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc',
+        ):
+            with self.subTest(file_name=file_name):
+                config = LOAD_JSON(ROOT / file_name, jsonc=True)
+                self.assert_sol_agent_policy(config)
+                synthetic = dict(config, agent=dict(config['agent'], **{
+                    'future-sol': {'model': 'openai/gpt-6-sol', 'temperature': 0.2},
+                }))
+                with self.assertRaises(AssertionError):
+                    self.assert_sol_agent_policy(synthetic)
 
     def test_policy_ci_runs_on_renovate_branches(self):
         ci = (ROOT / '.gitlab-ci.yml').read_text()
