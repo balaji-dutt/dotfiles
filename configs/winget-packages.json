@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-08-20T03:04:41.685+08:00",
+  "CreationDate": "2026-09-27T00:41:53.094+08:00",
   "Sources": [
     {
       "Packages": [
@@ -53,12 +53,6 @@
           "PackageIdentifier": "Parsec.ParsecVUD"
         },
         {
-          "PackageIdentifier": "SublimeHQ.SublimeMerge"
-        },
-        {
-          "PackageIdentifier": "SublimeHQ.SublimeText.4"
-        },
-        {
           "PackageIdentifier": "JAMSoftware.TreeSize.Free"
         },
         {
@@ -74,16 +68,13 @@
           "PackageIdentifier": "Obsidian.Obsidian"
         },
         {
-          "PackageIdentifier": "Microsoft.GameInput"
+          "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x64"
         },
         {
           "PackageIdentifier": "RoyalApps.RoyalTS.7"
-        },
-        {
-          "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
           "PackageIdentifier": "Apple.Bonjour"
@@ -101,13 +92,13 @@
           "PackageIdentifier": "EpicGames.EpicGamesLauncher"
         },
         {
+          "PackageIdentifier": "Microsoft.GameInput"
+        },
+        {
           "PackageIdentifier": "Apple.AppleApplicationSupport.x64"
         },
         {
           "PackageIdentifier": "Starship.Starship"
-        },
-        {
-          "PackageIdentifier": "filips.FirefoxPWA"
         },
         {
           "PackageIdentifier": "GlavSoft.TightVNC"
@@ -176,25 +167,28 @@
           "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.6"
         },
         {
-          "PackageIdentifier": "Microsoft.VCRedist.2015+.x64"
+          "PackageIdentifier": "Microsoft.PowerShell"
         },
         {
-          "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
+          "PackageIdentifier": "Microsoft.VCRedist.2015+.x64"
         },
         {
           "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
         },
         {
-          "PackageIdentifier": "EpicGames.EpicOnlineServices"
+          "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
         },
         {
-          "PackageIdentifier": "Jabra.Direct"
+          "PackageIdentifier": "EpicGames.EpicOnlineServices"
         },
         {
           "PackageIdentifier": "Sonos.Controller"
         },
         {
           "PackageIdentifier": "DYMO.DYMOLabel"
+        },
+        {
+          "PackageIdentifier": "DYMO.DYMOConnect"
         },
         {
           "PackageIdentifier": "BrianApps.Sizer.Dev"
@@ -215,10 +209,13 @@
           "PackageIdentifier": "Microsoft.VCRedist.2010.x86"
         },
         {
-          "PackageIdentifier": "DYMO.DYMOConnect"
+          "PackageIdentifier": "Microsoft.VCRedist.2012.x64"
         },
         {
-          "PackageIdentifier": "Microsoft.VCRedist.2012.x64"
+          "PackageIdentifier": "Jabra.Direct"
+        },
+        {
+          "PackageIdentifier": "Eugeny.Tabby"
         },
         {
           "PackageIdentifier": "AgileBits.1Password.CLI"
@@ -328,5 +325,5 @@
       }
     }
   ],
-  "WinGetVersion": "1.29.280"
+  "WinGetVersion": "1.29.380"
 }
