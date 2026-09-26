@@ -916,7 +916,7 @@ main() {
     shell|exec)
       prepare_devcontainer_action "$platform"
       if [[ "$existing" == false ]]; then
-        "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >/dev/null
+        "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" >&2
         discover_containers "$platform"
         select_container
       fi

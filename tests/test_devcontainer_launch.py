@@ -54,6 +54,8 @@ def write_append_logger(path: Path, log: Path) -> Path:
         f"log = pathlib.Path({str(log)!r})\n"
         "with log.open('a', encoding='utf-8') as stream:\n"
         "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "if sys.argv[1] == 'up' and 'FAKE_UP_STDOUT' in os.environ:\n"
+        "    print(os.environ['FAKE_UP_STDOUT'])\n"
         "if sys.argv[1] == 'up' and 'FAKE_AFTER_UP' in os.environ:\n"
         "    pathlib.Path(os.environ['FAKE_CONTAINERS']).write_text(os.environ['FAKE_AFTER_UP'])\n"
         "code = os.environ.get('FAKE_' + sys.argv[1].upper() + '_EXIT', os.environ.get('FAKE_CLI_EXIT', '0'))\n"
@@ -428,6 +430,24 @@ elif args[0] not in ('stop', 'rm'):
                     self.assertNotEqual(result.returncode, 0)
                 if after == "up-failure":
                     self.assertEqual(result.returncode, 23)
+
+    def test_ensure_up_output_goes_to_stderr_on_success_and_failure(self):
+        for code in ("0", "1"):
+            with self.subTest(code=code), isolated_environment() as fixture:
+                script, _, _, env = self.prepare(fixture)
+                log = '[cli] Start: Run: docker\n{"outcome":"error","message":"UP-FAILED-REASON"}'
+                result = run_launcher(script, "sample", "exec", "--", "true",
+                                      env=env | {"FAKE_UP_STDOUT": log, "FAKE_UP_EXIT": code})
+                self.assertIn("UP-FAILED-REASON", result.stderr)
+                self.assertIn("[cli] Start: Run: docker", result.stderr)
+                self.assertNotIn("UP-FAILED-REASON", result.stdout)
+                calls = [call[0] for call in read_json_lines(fixture.root / "devcontainer.jsonl")]
+                if code == "0":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(calls, ["up", "exec"])
+                else:
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(calls, ["up"])
 
     def test_up_and_rebuild_share_identity_even_when_missing_or_stopped(self):
         for action, flags in (("up", []), ("rebuild", ["--remove-existing-container"]),

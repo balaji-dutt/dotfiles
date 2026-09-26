@@ -698,7 +698,9 @@ devcontainer-launch homelab exec -- zsh -ic claude
 
 The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Ordinary `exec` also ensures the
-container is up. Rebuild actions are explicit so terminal profiles do not
+container is up. The `devcontainer up` step writes its log, lifecycle-command
+output, and result to stderr, so a failed start shows the CLI's error and the
+launcher exits nonzero before any shell or command runs. Rebuild actions are explicit so terminal profiles do not
 recreate containers accidentally. `stop` stops the unique matching container
 only when its state is `running`; other states are reported without a stop
 request. `down` removes the unique matching container entirely so the next `up`
