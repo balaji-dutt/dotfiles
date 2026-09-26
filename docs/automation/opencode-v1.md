@@ -166,8 +166,9 @@ mutates real package-manager pins.
 The fixtures cannot reach real Chocolatey, so they prove which arguments the
 hook passes and which branch it takes, not that Chocolatey accepts them. The
 fake Chocolatey matches argument strings exactly and exits 99 otherwise, which
-is what pins `--yes` in place. Run `WindowsHoldTests` where a POSIX PowerShell
-exists: under WSL with Windows interop on `PATH`,
-`resolve_powershell_runtime` selects `pwsh.exe`, which can neither read `/tmp`
-nor execute the `/bin/sh` fakes. Clear `WSL_DISTRO_NAME` and `WSL_INTEROP` to
-force the retained Linux audit image.
+is what pins `--yes` in place. `WindowsHoldTests` needs a POSIX PowerShell: it
+ignores a Windows `pwsh.exe`, which can neither read `/tmp` nor execute the
+`/bin/sh` fakes, and uses a local `pwsh` or the retained Linux audit
+image, skipping when neither is available. The harness writes a sentinel before
+calling the hook, so a run where PowerShell never executed the harness fails
+rather than passing.

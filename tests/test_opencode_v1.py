@@ -283,13 +283,16 @@ class WindowsHoldTests(FixtureTests):
     @classmethod
     def setUpClass(cls):
         cls.pwsh = resolve_powershell_runtime()
+        # Windows pwsh.exe cannot read the POSIX fixture paths or execute the /bin/sh fakes.
+        if cls.pwsh and cls.pwsh.lower().endswith('.exe'):
+            cls.pwsh = None
         cls.docker = shutil.which('docker') or shutil.which('podman')
         if not cls.pwsh:
             if not cls.docker or subprocess.run(
                 [cls.docker, 'image', 'inspect', POWERSHELL_AUDIT_IMAGE],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             ).returncode:
-                raise unittest.SkipTest('PowerShell runtime/retained audit image unavailable')
+                raise unittest.SkipTest('POSIX PowerShell runtime/retained audit image unavailable')
 
     def setUp(self):
         super().setUp()
@@ -308,10 +311,13 @@ function Get-Command {
     elseif (Test-Path "$env:FIXTURE/bin/opencode.exe") { [pscustomobject]@{ Source = "$env:FIXTURE/bin/opencode.exe" } }
   } else { throw "Unexpected command lookup: $Name" }
 }
+Set-Content -LiteralPath "$env:FIXTURE/harness-ran" -Value ''
 Set-OpenCodeV1Hold
 ''')
 
     def run_hook(self):
+        sentinel = self.root / 'harness-ran'
+        sentinel.unlink(missing_ok=True)
         if self.pwsh:
             argv = [self.pwsh, '-NoProfile', '-File', str(self.root / 'harness.ps1')]
         else:
@@ -319,7 +325,10 @@ Set-OpenCodeV1Hold
             for key in ('INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED'):
                 argv += ['-e', f'{key}={self.env.get(key, "")}']
             argv += ['-e', 'FIXTURE=/fixture', POWERSHELL_AUDIT_IMAGE, '-NoProfile', '-File', '/fixture/harness.ps1']
-        return subprocess.run(argv, env=self.env, text=True, capture_output=True, timeout=60)
+        result = subprocess.run(argv, env=self.env, text=True, capture_output=True, timeout=60)
+        self.assertTrue(sentinel.exists(),
+                        f'harness did not execute (rc={result.returncode}):\n{result.stdout}{result.stderr}')
+        return result
 
     def test_pin_idempotency_and_reassertion(self): self.check_idempotency()
     def test_reject_unsupported_versions(self): self.check_bad_versions()
