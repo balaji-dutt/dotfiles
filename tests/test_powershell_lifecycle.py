@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PWSH = resolve_powershell_runtime()
 PESTER = pester_version(PWSH) if PWSH else None
 PESTER_TEST_NAMES = {
+    "CbmAutoIndex.Tests.ps1",
     "WindowsBootstrap.Tests.ps1",
     "WindowsFileLifecycle.Tests.ps1",
     "WindowsStartupTask.Tests.ps1",
@@ -27,6 +28,7 @@ PESTER_TESTS = tuple(
     for name in sorted(PESTER_TEST_NAMES)
 )
 TEMPLATES = {
+    "cbm-auto-index.ps1": ".chezmoiscripts/run_after_zz-configure-codebase-memory-mcp.ps1.tmpl",
     "windows-bootstrap.ps1": ".chezmoiscripts/run_onchange_after_windows-bootstrap.ps1.tmpl",
     "windows-cleanup.ps1": ".chezmoiscripts/run_once_after_99-cleanup-wrong-apply.ps1.tmpl",
     "windows-startup-task.ps1": ".chezmoiscripts/run_after_windows-zz-register-startup-tasks.ps1.tmpl",

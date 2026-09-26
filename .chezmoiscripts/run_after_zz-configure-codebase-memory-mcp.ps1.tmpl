@@ -2,7 +2,10 @@
 $ErrorActionPreference = "Stop"
 
 $CbmPath = Join-Path (Join-Path $HOME ".local") "codebase-memory-mcp.exe"
-$TimeoutSeconds = 10
+# CBM bounds its own startup contention, in sequence: a 10s version-cohort
+# deadline followed by a 120s startup-transition backstop. Kill the CLI sooner
+# and a force-killed lock holder is left for the next run to wait out.
+$CbmTimeoutSeconds = 150
 
 function Invoke-CbmNative {
   param(
@@ -31,32 +34,65 @@ function Invoke-CbmNative {
 
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+    $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
+    if ($timedOut) {
       try {
         $process.Kill($true)
       } catch {
         try { $process.Kill() } catch { }
       }
       [void] $process.WaitForExit(2000)
-      throw "Timed out running '$Path' with arguments '$($Arguments -join ' ')'."
     }
 
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
-
-    if ($AllowFailure) {
-      return [pscustomobject]@{
-        ExitCode = $process.ExitCode
-        Stdout   = $stdout.Trim()
-        Stderr   = $stderr.Trim()
+    $stillRunning = -not $process.HasExited
+    $stdout = ""
+    $stderr = ""
+    $exitCode = $null
+    if (-not $stillRunning) {
+      $exitCode = $process.ExitCode
+      $outputDeadline = [DateTime]::UtcNow.AddSeconds(2)
+      try {
+        $remaining = [Math]::Max(0, [int]($outputDeadline - [DateTime]::UtcNow).TotalMilliseconds)
+        if ($stdoutTask.Wait($remaining)) {
+          $stdout = $stdoutTask.GetAwaiter().GetResult()
+        } else {
+          $timedOut = $true
+        }
+      } catch {
+        $timedOut = $true
+      }
+      try {
+        $remaining = [Math]::Max(0, [int]($outputDeadline - [DateTime]::UtcNow).TotalMilliseconds)
+        if ($stderrTask.Wait($remaining)) {
+          $stderr = $stderrTask.GetAwaiter().GetResult()
+        } else {
+          $timedOut = $true
+        }
+      } catch {
+        $timedOut = $true
       }
     }
 
-    if ($process.ExitCode -ne 0) {
+    if ($AllowFailure) {
+      return [pscustomobject]@{
+        ExitCode     = $exitCode
+        Stdout       = $stdout.Trim()
+        Stderr       = $stderr.Trim()
+        TimedOut     = $timedOut
+        StillRunning = $stillRunning
+        ProcessId    = $process.Id
+      }
+    }
+
+    if ($timedOut) {
+      throw "Timed out running '$Path' with arguments '$($Arguments -join ' ')'."
+    }
+
+    if ($exitCode -ne 0) {
       $detail = @($stdout, $stderr) |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
         Join-String -Separator "`n"
-      throw "codebase-memory-mcp exited with code $($process.ExitCode): $detail"
+      throw "codebase-memory-mcp exited with code ${exitCode}: $detail"
     }
 
     return $stdout.Trim()
@@ -65,43 +101,84 @@ function Invoke-CbmNative {
   }
 }
 
-# The CBM CLI refuses to start while any other CBM process holds the daemon
-# admission gate, so a failure is only conclusive once none are running.
+# The CBM CLI refuses to start, or waits out its own coordination deadlines,
+# while any other CBM process holds the daemon admission gate. Neither outcome
+# is conclusive until none are running.
 function Invoke-CbmConfigOrSkip {
   param(
-    [Parameter(Mandatory)][string[]] $Arguments
+    [Parameter(Mandatory)][string[]] $Arguments,
+    [Parameter(Mandatory)][string] $Path,
+    [Parameter(Mandatory)][ValidateRange(1, 300)][int] $TimeoutSeconds
   )
 
-  $result = Invoke-CbmNative -Path $CbmPath -Arguments $Arguments -TimeoutSeconds $TimeoutSeconds -AllowFailure
-  if ($result.ExitCode -eq 0) {
-    return $result.Stdout
+  $result = Invoke-CbmNative -Path $Path -Arguments $Arguments -TimeoutSeconds $TimeoutSeconds -AllowFailure
+  if (-not $result.TimedOut -and $result.ExitCode -eq 0) {
+    return [pscustomobject]@{ Skipped = $false; Value = $result.Stdout }
   }
 
-  $detail = @($result.Stdout, $result.Stderr) |
+  $detail = @(
+    if ($result.TimedOut) { "no complete response within $TimeoutSeconds seconds" }
+    $result.Stdout
+    $result.Stderr
+  ) |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Join-String -Separator " "
 
-  if (Get-Process -Name "codebase-memory-mcp" -ErrorAction SilentlyContinue) {
-    Write-Warning "codebase-memory-mcp CLI would not start while CBM sessions are active; auto_index was not verified this run. CBM reported: $detail"
-    exit 0
+  # A killed child can outlive its own timeout, so it must not count as the
+  # live session that excuses the failure.
+  $live = @(
+    Get-Process -Name "codebase-memory-mcp" -ErrorAction SilentlyContinue |
+      Where-Object { $_.Id -ne $result.ProcessId }
+  )
+  if ($live.Count -gt 0) {
+    Write-Warning "codebase-memory-mcp CLI did not complete while CBM sessions are active; auto_index was not verified this run. CBM reported: $detail"
+    return [pscustomobject]@{ Skipped = $true; Value = $null }
+  }
+
+  if ($result.TimedOut) {
+    throw "codebase-memory-mcp $($Arguments -join ' ') did not finish within $TimeoutSeconds seconds and no CBM session explains the delay: $detail"
   }
 
   throw "codebase-memory-mcp $($Arguments -join ' ') exited with code $($result.ExitCode): $detail"
 }
 
-if (-not (Test-Path -LiteralPath $CbmPath -PathType Leaf)) {
-  throw "codebase-memory-mcp is not installed at '$CbmPath'."
+function Invoke-CbmAutoIndexConfigure {
+  param(
+    [string] $Path = $CbmPath,
+    [ValidateRange(1, 300)][int] $TimeoutSeconds = $CbmTimeoutSeconds
+  )
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "codebase-memory-mcp is not installed at '$Path'."
+  }
+
+  Write-Host "INFO: verifying codebase-memory-mcp auto_index; this waits up to $TimeoutSeconds seconds for CBM startup coordination."
+
+  $read = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index") -Path $Path -TimeoutSeconds $TimeoutSeconds
+  if ($read.Skipped) {
+    return
+  }
+
+  if ($read.Value -ne "true") {
+    $applied = Invoke-CbmConfigOrSkip -Arguments @("config", "set", "auto_index", "true") -Path $Path -TimeoutSeconds $TimeoutSeconds
+    if ($applied.Skipped) {
+      return
+    }
+
+    $read = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index") -Path $Path -TimeoutSeconds $TimeoutSeconds
+    if ($read.Skipped) {
+      return
+    }
+  }
+
+  if ($read.Value -ne "true") {
+    throw "codebase-memory-mcp auto_index verification failed."
+  }
+
+  Write-Host "INFO: codebase-memory-mcp auto_index is enabled for the active cache."
 }
 
-$autoIndex = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index")
-if ($autoIndex -ne "true") {
-  [void] (Invoke-CbmConfigOrSkip -Arguments @("config", "set", "auto_index", "true"))
-  $autoIndex = Invoke-CbmConfigOrSkip -Arguments @("config", "get", "auto_index")
+if ($MyInvocation.InvocationName -ne '.') {
+  Invoke-CbmAutoIndexConfigure
 }
-
-if ($autoIndex -ne "true") {
-  throw "codebase-memory-mcp auto_index verification failed."
-}
-
-Write-Host "INFO: codebase-memory-mcp auto_index is enabled for the active cache."
 {{- end -}}

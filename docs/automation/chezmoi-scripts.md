@@ -76,7 +76,9 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   start its CLI while another CBM process holds the daemon admission gate, so
   when one is running the hooks warn that `auto_index` went unverified and exit
   0 rather than failing the apply. With no CBM process running, a CLI failure is
-  still fatal.
+  still fatal. The Windows hook additionally bounds each call at 150 seconds and
+  classifies that timeout the same way; the POSIX hook stays unbounded because
+  CBM ends its own startup wait within roughly 130 seconds.
 - The CBM UBI retirement hook requires an inactive UBI backend and a healthy
   GitHub-backed CBM before uninstalling each fully qualified UBI version it
   discovers. It never prunes mise or deletes install directories directly.
