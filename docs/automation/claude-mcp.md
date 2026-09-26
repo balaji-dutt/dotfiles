@@ -137,8 +137,10 @@ Windows `run_after_zz-configure-codebase-memory-mcp.*.tmpl` hooks reconcile
 `auto_index=true` after binary provisioning. CBM will not start its CLI while
 another CBM process holds the daemon admission gate — an editor or agent session
 with the MCP server attached is enough — so those hooks warn and exit 0 in that
-case instead of failing the apply. Close the sessions and apply again to get the
-setting verified. The homelab devcontainer performs its own unconditional
+case instead of failing the apply. The Windows hook classifies its own
+150-second timeout the same way, because a session holding the gate is also what
+makes CBM spend that long. Close the sessions and apply again to get the setting
+verified. The homelab devcontainer performs its own unconditional
 get/set/get verification in `postCreate.sh`, using its persistent
 `CBM_CACHE_DIR`. These paths configure the standard binary directly; they never
 run the upstream installer or export `.codebase-memory` into a repository.
