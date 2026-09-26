@@ -323,6 +323,7 @@ private_dot_config/powershell/packages.ps1.tmpl	script-extension
 private_dot_config/powershell/prompt.ps1.tmpl	script-extension
 private_dot_config/powershell/repair-path.ps1.tmpl	script-extension
 symlink_dot_p10k.zsh.tmpl	script-extension
+tests/powershell/CbmAutoIndex.Tests.ps1	script-extension
 tests/powershell/PesterCompat.ps1	script-extension
 tests/powershell/WindowsBootstrap.Tests.ps1	script-extension
 tests/powershell/WindowsDriveMapping.Tests.ps1	script-extension
