@@ -6,6 +6,7 @@ MANIFEST_PATH="${DEVCONTAINER_LAUNCH_MANIFEST:-{{ .chezmoi.homeDir }}/Documents/
 usage() {
   cat >&2 <<'USAGE'
 Usage:
+  devcontainer-launch [--pick]
   devcontainer-launch --list
   devcontainer-launch <name-or-alias> [shell|up|rebuild|rebuild-no-cache|stop|down]
   devcontainer-launch <name-or-alias> status [--json | --plain]
@@ -100,6 +101,11 @@ DISCOVERY=""
 SELECTED_ID=""
 SELECTED_STATE=""
 TERMINAL_ENV_ARGS=()
+PICK_KEYS=()
+PICK_ROWS=()
+PICK_LABELS=()
+PICK_INDEX=""
+PICKED_KEY=""
 
 host_supports_256_colors() {
   local colors
@@ -427,12 +433,15 @@ prepare_devcontainer_action() {
 }
 
 list_launchers() {
-  local platform
+  local platform mode
   platform="$1"
+  mode="${2:-}"
 
-  python3 - "$MANIFEST_PATH" "$platform" <<'PY'
+  python3 - "$MANIFEST_PATH" "$platform" "$mode" <<'PY'
 import json
+import shlex
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -525,21 +534,43 @@ if manifest.get("$schema") != schema_ref:
 if manifest.get("schema_version") != 1:
     raise SystemExit("Manifest schema_version must be 1")
 platform = sys.argv[2]
+mode = sys.argv[3]
 
-found = False
+
+def text(value):
+    return "".join(char if not unicodedata.category(char).startswith("C") else f"\\u{ord(char):04x}" for char in str(value))
+
+
+eligible = []
 for name, spec in sorted(manifest.get("devcontainers", {}).items()):
     launcher = spec.get("launcher", {})
     if not launcher.get("enabled"):
         continue
     if platform not in launcher.get("platforms", {}):
         continue
+    eligible.append((name, launcher))
+
+if mode == "records":
+    keys, rows, labels = [], [], []
+    for name, launcher in eligible:
+        if "\0" in name:
+            raise SystemExit("Registry keys must not contain NUL characters")
+        display = text(launcher.get("display_name", name))
+        aliases = ", ".join(text(alias) for alias in launcher.get("aliases", []))
+        keys.append(name)
+        rows.append(f"{display}  {text(name)}" + (f"  (aliases: {aliases})" if aliases else ""))
+        labels.append(f"{display} ({text(name)})")
+    for variable, values in (("PICK_KEYS", keys), ("PICK_ROWS", rows), ("PICK_LABELS", labels)):
+        print(f"{variable}=({shlex.join(values)})")
+    raise SystemExit(0)
+
+for name, launcher in eligible:
     aliases = launcher.get("aliases", [])
     alias_text = f" aliases={','.join(aliases)}" if aliases else ""
     display = launcher.get("display_name", name)
     print(f"{name}\t{display}{alias_text}")
-    found = True
 
-if not found:
+if not eligible:
     print(f"No launchers configured for platform: {platform}")
 PY
 }
@@ -729,6 +760,78 @@ print(shell_array("IDENTITY_LABELS", expanded_labels))
 PY
 }
 
+no_workspace_opened() {
+  printf 'devcontainer-launch: No workspace opened\n' >&2
+  exit "$1"
+}
+
+pick_with_gum() {
+  local gum_bin choice i matches
+  gum_bin="$1"
+  choice="$("$gum_bin" filter --strict --limit 1 \
+    --header "Choose a workspace to open. Opening may build or start its devcontainer." \
+    --placeholder "Type to filter" -- "${PICK_ROWS[@]}")" || no_workspace_opened "$?"
+
+  matches=0
+  for i in "${!PICK_ROWS[@]}"; do
+    if [[ "${PICK_ROWS[i]}" == "$choice" ]]; then
+      PICK_INDEX="$i"
+      matches=$((matches + 1))
+    fi
+  done
+  if [[ "$matches" -ne 1 ]]; then
+    printf 'devcontainer-launch: the picker returned no single registered workspace\n' >&2
+    no_workspace_opened 1
+  fi
+}
+
+pick_plain() {
+  local i answer count
+  count="${#PICK_ROWS[@]}"
+  printf 'Devcontainers\nChoose a workspace to open. Opening may build or start its devcontainer.\n\n' >&2
+  for i in "${!PICK_ROWS[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "${PICK_ROWS[i]}" >&2
+  done
+  printf '  q) Quit\n\n' >&2
+  while true; do
+    printf 'Workspace number, or q to quit: ' >&2
+    if ! IFS= read -r answer; then
+      printf '\n' >&2
+      no_workspace_opened 1
+    fi
+    case "$answer" in
+      q|Q) no_workspace_opened 1 ;;
+    esac
+    if [[ "$answer" =~ ^[0-9]{1,6}$ ]] && (( 10#$answer >= 1 && 10#$answer <= count )); then
+      PICK_INDEX=$((10#$answer - 1))
+      return 0
+    fi
+    printf 'Enter a number from 1 to %d, or q.\n' "$count" >&2
+  done
+}
+
+run_picker() {
+  local platform records
+  platform="$1"
+
+  records="$(list_launchers "$platform" records)" || die "failed to read the launcher registry"
+  eval "$records"
+  if [[ "${#PICK_KEYS[@]}" -eq 0 ]]; then
+    printf 'devcontainer-launch: no devcontainers are registered for platform %s.\n' "$platform" >&2
+    printf 'Enable a launcher entry for this platform in %s; devcontainer-launch --list shows the current registry.\n' "$MANIFEST_PATH" >&2
+    exit 1
+  fi
+
+  if [[ "${TERM:-dumb}" != "dumb" && -z "${NO_COLOR:-}" ]] && resolve_native_path_command "$platform" gum; then
+    pick_with_gum "$RESOLVED_NATIVE_PATH"
+  else
+    pick_plain
+  fi
+
+  printf 'Opening %s\n' "${PICK_LABELS[PICK_INDEX]}" >&2
+  PICKED_KEY="${PICK_KEYS[PICK_INDEX]}"
+}
+
 main() {
   local platform action requested resolved mode existing
 
@@ -741,6 +844,23 @@ main() {
   if [[ "${1:-}" == "--list" ]]; then
     list_launchers "$platform"
     return 0
+  fi
+
+  if [[ $# -eq 0 || "${1:-}" == "--pick" ]]; then
+    if [[ $# -gt 1 ]]; then
+      printf 'devcontainer-launch: --pick accepts no other arguments\n' >&2
+      usage
+      return 2
+    fi
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      if [[ $# -eq 1 ]]; then
+        printf 'devcontainer-launch: --pick needs a terminal on stdin and stdout\n' >&2
+      fi
+      usage
+      return 2
+    fi
+    run_picker "$platform"
+    set -- "$PICKED_KEY"
   fi
 
   if [[ $# -lt 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then

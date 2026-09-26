@@ -5,6 +5,7 @@ import json
 import os
 import pty
 import select
+import shlex
 import struct
 import subprocess
 import sys
@@ -620,7 +621,8 @@ sys.exit(int(os.environ.get('FAKE_EXEC_EXIT', '0')))
         env |= terminal
         return script, workspace, config, env, record, ready
 
-    def run_in_pty(self, script, args, env, *, rows=31, cols=97, resize=None, ready=None, stdin=None, stdout=None):
+    def run_in_pty(self, script, args, env, *, rows=31, cols=97, resize=None, ready=None, stdin=None, stdout=None,
+                   keys=None):
         master, slave = pty.openpty()
 
         def controlling_terminal():
@@ -640,6 +642,8 @@ sys.exit(int(os.environ.get('FAKE_EXEC_EXIT', '0')))
                     self.assertLess(time.monotonic(), deadline, "fake devcontainer never became ready")
                     time.sleep(0.02)
                 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", *resize, 0, 0))
+            if keys:
+                os.write(master, keys)
             os.close(slave)
             slave = None
             chunks = []
@@ -724,8 +728,8 @@ sys.exit(int(os.environ.get('FAKE_EXEC_EXIT', '0')))
     def test_non_tty_exec_adds_no_terminal_environment(self):
         with isolated_environment() as fixture:
             script, workspace, config, env, record, _ = self.prepare_terminal(
-                fixture, TERM="xterm-256color", COLORTERM="truecolor", DEVCONTAINER_LAUNCH_TERM="screen-256color",
-                FAKE_EXEC_EXIT="17")
+                fixture, TERM="xterm-256color", COLORTERM="truecolor",
+                DEVCONTAINER_LAUNCH_TERM="screen-256color\x1b[31m", FAKE_EXEC_EXIT="17")
             result = run_launcher(script, "sample", "exec", "--existing", "--", "sh", "-c", "exit 17", env=env)
             self.assertEqual(result.returncode, 17, result.stderr)
             self.assertEqual(self.exec_calls(fixture), [["exec", *self.base_args(workspace, config, env),
@@ -764,6 +768,219 @@ sys.exit(int(os.environ.get('FAKE_EXEC_EXIT', '0')))
                 calls = read_json_lines(fixture.root / "devcontainer.jsonl")
                 self.assertEqual([call[0] for call in calls], ["up"])
                 self.assertNotIn("--remote-env", calls[0])
+
+    def prepare_picker(self, fixture, extra=None, *, keep_sample=True, **terminal):
+        script, workspace, config, env, record, _ = self.prepare_terminal(
+            fixture, **({"TERM": "xterm-256color"} | terminal))
+        manifest = Path(env["DEVCONTAINER_LAUNCH_MANIFEST"])
+        payload = json.loads(manifest.read_text().split("\n//")[0])
+        if not keep_sample:
+            payload["devcontainers"].pop("sample-tool")
+        payload["devcontainers"].update(extra or {})
+        manifest.write_text(json.dumps(payload))
+        write_executable(fixture.fake_bin / "python3", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$@\"\n")
+        write_executable(fixture.fake_bin / "gum", f"#!{sys.executable}\n" + r"""
+import json, os, pathlib, sys
+args = sys.argv[1:]
+options = args[args.index('--') + 1:] if '--' in args else []
+with pathlib.Path(os.environ['FAKE_GUM_LOG']).open('a') as stream:
+    stream.write(json.dumps({'argv': args, 'options': options, 'stdin_tty': os.isatty(0)}) + '\n')
+mode, _, value = os.environ.get('FAKE_GUM', 'exit:1').partition(':')
+if mode == 'pick':
+    print(options[int(value)])
+elif mode == 'print':
+    print(value)
+else:
+    print('GUM-FAILED', file=sys.stderr)
+    sys.exit(int(value))
+""")
+        env |= {"PATH": f"{fixture.fake_bin}:/usr/bin:/bin", "FAKE_GUM_LOG": str(fixture.root / "gum.jsonl")}
+        return script, workspace, config, env, record
+
+    def entry(self, display, *, aliases=(), platform="darwin", enabled=True):
+        return {"launcher": {"enabled": enabled, "display_name": display, "aliases": list(aliases),
+                             "platforms": {platform: {"workspace_folder": "/unused", "config": "/unused"}}}}
+
+    def gum_calls(self, fixture):
+        return read_json_lines(fixture.root / "gum.jsonl")
+
+    def assert_nothing_launched(self, fixture):
+        self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"), [])
+        self.assertEqual(read_json_lines(fixture.root / "docker.jsonl"), [])
+
+    def test_picker_lists_eligible_entries_in_key_order_and_cancel_launches_nothing(self):
+        extra = {"zeta": self.entry("Aardvark"), "alpha": self.entry("Same Name"),
+                 "beta": self.entry("Same Name", aliases=["b1", "b2"]),
+                 "off": self.entry("Off", enabled=False), "wsl-only": self.entry("WSL", platform="wsl2-debian")}
+        for args in ([], ["--pick"]):
+            with self.subTest(args=args), isolated_environment() as fixture:
+                script, _, _, env, _ = self.prepare_picker(fixture, extra, FAKE_GUM="exit:1")
+                result, _ = self.run_in_pty(script, args, env)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("No workspace opened", result.stderr)
+                self.assertIn("GUM-FAILED", result.stderr)
+                [call] = self.gum_calls(fixture)
+                self.assertEqual(call["options"], ["Same Name  alpha", "Same Name  beta  (aliases: b1, b2)",
+                                                   "Sample Tool  sample-tool  (aliases: sample, st)", "Aardvark  zeta"])
+                self.assertTrue(call["stdin_tty"])
+                self.assertIn("--strict", call["argv"])
+                self.assertNotIn("--select-if-one", call["argv"])
+                self.assertNotIn("Workspace number", result.stderr)
+                self.assert_nothing_launched(fixture)
+
+    def test_picker_selection_runs_named_shell_path_and_keeps_exit_status(self):
+        for args in ([], ["--pick"]):
+            with self.subTest(args=args), isolated_environment() as fixture:
+                script, workspace, config, env, record = self.prepare_picker(
+                    fixture, {"zeta": self.entry("Zeta")}, FAKE_GUM="pick:0", FAKE_EXEC_EXIT="23")
+                result, pid = self.run_in_pty(script, args, env)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                self.assertIn("Opening Sample Tool (sample-tool)", result.stderr)
+                base = self.base_args(workspace, config, env)
+                calls = read_json_lines(fixture.root / "devcontainer.jsonl")
+                self.assertEqual(calls[0], ["up", *base])
+                self.assertEqual(calls[1][-5:], ["--container-id", CONTAINER_ID, "--", "zsh", "-l"])
+                self.assertEqual(json.loads(record.read_text())["pid"], pid)
+
+    def test_picker_opens_the_chosen_duplicate(self):
+        extra = {"alpha": self.entry("Same Name"), "beta": self.entry("Same Name")}
+        for terminal, keys in (({"FAKE_GUM": "pick:1"}, None), ({"NO_COLOR": "1"}, b"2\n")):
+            with self.subTest(**terminal), isolated_environment() as fixture:
+                script, _, _, env, _ = self.prepare_picker(fixture, extra, **terminal)
+                result, _ = self.run_in_pty(script, ["--pick"], env, keys=keys)
+                self.assertIn("Opening Same Name (beta)", result.stderr)
+                self.assertIn("workspace folder not found: /unused", result.stderr)
+
+    def test_picker_single_entry_still_requires_a_choice(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, FAKE_GUM="exit:130")
+            result, _ = self.run_in_pty(script, ["--pick"], env)
+            self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertEqual(self.gum_calls(fixture)[0]["options"], ["Sample Tool  sample-tool  (aliases: sample, st)"])
+            self.assert_nothing_launched(fixture)
+
+    def test_picker_selection_keeps_identity_refusals(self):
+        with isolated_environment() as fixture:
+            script, workspace, config, env, _ = self.prepare_picker(fixture, FAKE_GUM="pick:0")
+            self.set_containers(env, [container(workspace, config), container(workspace, config, identifier=SECOND_ID)])
+            result, _ = self.run_in_pty(script, ["--pick"], env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ambiguous identity", result.stderr)
+            self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"), [])
+
+    def test_picker_rejects_unknown_or_empty_gum_output(self):
+        for output in ("print:garbage", "print:", "print:Sample Tool"):
+            with self.subTest(output=output), isolated_environment() as fixture:
+                script, _, _, env, _ = self.prepare_picker(fixture, FAKE_GUM=output)
+                result, _ = self.run_in_pty(script, ["--pick"], env)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("No workspace opened", result.stderr)
+                self.assert_nothing_launched(fixture)
+
+    def test_picker_gum_failure_stays_visible_without_fallback(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, FAKE_GUM="exit:2")
+            result, _ = self.run_in_pty(script, ["--pick"], env, keys=b"1\n")
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("GUM-FAILED", result.stderr)
+            self.assertNotIn("Workspace number", result.stderr)
+            self.assert_nothing_launched(fixture)
+
+    def test_picker_does_not_need_docker_until_a_choice(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, FAKE_GUM="exit:1", DOCKER_CLI="/not/installed/docker")
+            result, _ = self.run_in_pty(script, ["--pick"], env)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertNotIn("DOCKER_CLI", result.stderr)
+            self.assertEqual(len(self.gum_calls(fixture)), 1)
+
+    def test_plain_picker_when_gum_is_unsuitable(self):
+        system_gum = any(Path(directory, "gum").exists() for directory in ("/usr/bin", "/bin"))
+        for condition in ("missing", "no-color", "dumb", "unset"):
+            with self.subTest(condition=condition), isolated_environment() as fixture:
+                if condition == "missing" and system_gum:
+                    self.skipTest("gum found in /usr/bin or /bin")
+                terminal = {"no-color": {"NO_COLOR": "1"}, "dumb": {"TERM": "dumb"}}.get(condition, {})
+                script, _, _, env, _ = self.prepare_picker(fixture, {"zeta": self.entry("Zeta")}, FAKE_GUM="pick:1",
+                                                           **terminal)
+                if condition == "missing":
+                    (fixture.fake_bin / "gum").unlink()
+                if condition == "unset":
+                    env.pop("TERM")
+                result, _ = self.run_in_pty(script, ["--pick"], env, keys=b"1\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("  1) Sample Tool  sample-tool", result.stderr)
+                self.assertIn("  2) Zeta  zeta", result.stderr)
+                self.assertIn("  q) Quit", result.stderr)
+                self.assertEqual(self.gum_calls(fixture), [])
+                self.assertIn("Opening Sample Tool (sample-tool)", result.stderr)
+                self.assertEqual(self.exec_calls(fixture)[0][-2:], ["zsh", "-l"])
+
+    def test_plain_picker_input_handling(self):
+        for keys, code, reprompts in ((b"\n0\nabc\n99\n 1\n1\n", 0, 5), (b"q\n", 1, 0), (b"\x04", 1, 0),
+                                      (b"x\n\x04", 1, 1), (b"18446744073709551617\n\x04", 1, 1)):
+            with self.subTest(keys=keys), isolated_environment() as fixture:
+                script, _, _, env, _ = self.prepare_picker(fixture, NO_COLOR="1")
+                result, _ = self.run_in_pty(script, ["--pick"], env, keys=keys)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual(result.stderr.count("Enter a number from 1 to 1, or q."), reprompts)
+                self.assertIn("Workspace number", result.stderr)
+                self.assertEqual(bool(self.exec_calls(fixture)), code == 0)
+                if code:
+                    self.assertIn("No workspace opened", result.stderr)
+                    self.assert_nothing_launched(fixture)
+
+    def test_picker_escapes_unsafe_registry_text(self):
+        extra = {"evil": self.entry("Evil\x1b]0;pwned\x07Name", aliases=["line\nbreak", "\u202eflip", "$(id)'"])}
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, extra, FAKE_GUM="pick:0")
+            result, _ = self.run_in_pty(script, ["--pick"], env)
+            [call] = self.gum_calls(fixture)
+            self.assertEqual(call["options"][0], "Evil\\u001b]0;pwned\\u0007Name  evil  "
+                             "(aliases: line\\u000abreak, \\u202eflip, $(id)')")
+            self.assertIn("Opening Evil\\u001b]0;pwned\\u0007Name (evil)", result.stderr)
+            self.assertIn("workspace folder not found: /unused", result.stderr)
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, extra, NO_COLOR="1")
+            result, _ = self.run_in_pty(script, ["--pick"], env, keys=b"1\n")
+            self.assertIn("Opening Evil\\u001b]0;pwned\\u0007Name (evil)", result.stderr)
+            self.assertIn("workspace folder not found: /unused", result.stderr)
+            self.assertNotIn("\x1b", result.stderr)
+            self.assertNotIn("\u202e", result.stderr)
+
+    def test_picker_requires_terminal_streams_and_no_extra_arguments(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, FAKE_GUM="pick:0")
+            for args in ([], ["--pick"]):
+                piped = run_launcher(script, *args, env=env)
+                self.assertEqual(piped.returncode, 2, piped.stderr)
+                self.assertIn("Usage:", piped.stderr)
+                for streams in ({"stdout": subprocess.PIPE}, {"stdin": subprocess.DEVNULL}):
+                    result, _ = self.run_in_pty(script, args, env, **streams)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+            extra, _ = self.run_in_pty(script, ["--pick", "sample"], env)
+            self.assertEqual(extra.returncode, 2, extra.stderr)
+            self.assertIn("--pick accepts no other arguments", extra.stderr)
+            self.assertEqual(self.gum_calls(fixture), [])
+            self.assert_nothing_launched(fixture)
+
+    def test_picker_zero_entries_and_bad_registry(self):
+        with isolated_environment() as fixture:
+            script, _, _, env, _ = self.prepare_picker(fixture, {"off": self.entry("Off", enabled=False)},
+                                                       keep_sample=False, FAKE_GUM="pick:0")
+            result, _ = self.run_in_pty(script, ["--pick"], env)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("no devcontainers are registered for platform darwin", result.stderr)
+            self.assertIn(env["DEVCONTAINER_LAUNCH_MANIFEST"], result.stderr)
+            self.assertIn("--list", result.stderr)
+            manifest = Path(env["DEVCONTAINER_LAUNCH_MANIFEST"])
+            manifest.write_text(manifest.read_text().replace('"schema_version": 1', '"schema_version": 2'))
+            broken, _ = self.run_in_pty(script, ["--pick"], env)
+            self.assertNotEqual(broken.returncode, 0)
+            self.assertIn("schema_version must be 1", broken.stderr)
+            self.assertNotIn("no devcontainers are registered", broken.stderr)
+            self.assertEqual(self.gum_calls(fixture), [])
+            self.assert_nothing_launched(fixture)
 
 
 if __name__ == "__main__":

@@ -680,6 +680,7 @@ reachable daemon. `--list` and help do not contact Docker.
 Common commands:
 
 ```sh
+devcontainer-launch --pick
 devcontainer-launch --list
 devcontainer-launch homelab-IaC
 devcontainer-launch homelab-IaC shell
@@ -758,6 +759,49 @@ HOMELAB_IAC_WORKSPACE=/path/to/workspace devcontainer-launch homelab-IaC
 HOMELAB_IAC_CONFIG=/path/to/devcontainer.json devcontainer-launch homelab-IaC
 HOMELAB_IAC_SHELL='zsh -l' devcontainer-launch homelab-IaC
 ```
+
+### Workspace picker
+
+`devcontainer-launch --pick` lists the registered workspaces and opens a shell
+in the one you choose:
+
+| Invocation | Behavior |
+|---|---|
+| `devcontainer-launch --pick` | Interactive picker; use this in terminal profiles |
+| `devcontainer-launch` | Same picker when stdin and stdout are terminals; usage error otherwise |
+| `devcontainer-launch --list` | Non-interactive listing; no prompts or Docker access |
+| `devcontainer-launch <name-or-alias> ...` | Unchanged direct commands, including `status --json` |
+
+A registered workspace is an enabled launcher entry in
+`configs/devcontainer-sync.jsonc` that lists the current platform. Rows show
+the display name, canonical key, and aliases, sorted by key. Even a single
+entry needs an explicit choice; there is no default, no remembered last
+choice, and no guess from the current directory. Control characters in
+registry text are shown escaped (`\u001b`).
+
+With a native `gum` on `PATH` (mise installs one), `TERM` set and not `dumb`,
+and `NO_COLOR` empty, the picker is a filterable `gum filter` list: type to filter, arrow keys
+to move, Enter to open, Esc to cancel. Otherwise it prints a numbered list;
+enter a number, or `q` to quit. Blank or invalid input asks again, and end of
+input exits.
+
+Showing the list reads only the registry, so it works while Docker is
+unavailable. Choosing a workspace prints `Opening <name> (<key>)` and runs the
+same path as `devcontainer-launch <key>`: prerequisite checks, identity
+refusals, `devcontainer up` (which may build or start the container), and a
+shell pinned to the full container ID. The picker selects a workspace, not a
+container; ambiguous or conflicting identities are still refused. When the
+shell exits, the launcher exits with the shell's status. It does not return
+to the picker, stop the container, or retry.
+
+Cancelling, a Gum failure, or an unrecognized Gum result prints
+`No workspace opened`, exits nonzero, and starts nothing. Gum's own error
+output stays visible, and there is no second prompt. Gum uses the same exit
+status for Esc and some errors, so the launcher does not tell them apart.
+`--pick` takes no other arguments and refuses to run when stdin or stdout is
+not a terminal. With no eligible entries it names the manifest and points to
+`--list`; a malformed manifest or unsupported platform reports that error
+instead.
 
 ### Terminal capabilities
 
@@ -891,25 +935,50 @@ selection is missing, ambiguous, or conflicting; agents must inspect the fields.
 Docker/inspection failures return nonzero with diagnostics on stderr and no
 successful JSON report.
 
-### Windows Terminal profile
+### Terminal profiles
 
-Add a Windows Terminal profile that launches Debian WSL2 and runs the launcher:
+Keep one generic "Devcontainers" profile that runs `devcontainer-launch --pick`.
+New registry entries appear in it without profile changes. Profiles that name
+a workspace directly remain useful as optional shortcuts; do not create one
+per registry entry. These profiles are set up by hand; nothing edits terminal
+settings automatically.
+
+A profile's command ending and its tab closing are separate settings. When
+the picker is cancelled, a prerequisite fails, or the shell exits nonzero, the
+message is only readable if the tab stays open. Keep failed sessions visible:
+
+- Windows Terminal: `"closeOnExit": "graceful"` closes the tab only after a
+  successful exit.
+- iTerm: **Profiles > Session > After a session ends > No Action**.
+
+A retained tab holds an ended session, not a host shell or a running picker.
+Do not configure automatic restart. Terminal profiles do not add VS Code port
+forwarding.
+
+The picker has been smoke-tested in iTerm on macOS. Windows Terminal on
+Debian WSL2 is not yet validated.
+
+#### Windows Terminal profile
 
 ```jsonc
 {
   "guid": "{REPLACE-WITH-A-STABLE-GUID}",
-  "name": "Homelab IaC Devcontainer",
-  "commandline": "wsl.exe -d Debian --cd ~ --exec bash -lc \"exec \\\"$HOME/bin/devcontainer-launch\\\" homelab-IaC\"",
+  "name": "Devcontainers",
+  "commandline": "wsl.exe -d Debian --cd ~ --exec bash -lc \"exec \\\"$HOME/bin/devcontainer-launch\\\" --pick\"",
+  "closeOnExit": "graceful",
   "startingDirectory": null
 }
 ```
 
-### iTerm profile
+For a direct shortcut, replace `--pick` with a registry key such as
+`homelab-IaC` and name the profile after it.
 
-For iTerm, create a profile with **Command** set to **Custom Command**:
+#### iTerm profile
+
+Create a profile with **Command** set to **Custom Command**:
 
 ```sh
-/Users/<user>/bin/devcontainer-launch homelab-IaC
+/Users/<user>/bin/devcontainer-launch --pick
 ```
 
 If using an iTerm Dynamic Profile manually, use a JSON property list such as:
@@ -918,14 +987,19 @@ If using an iTerm Dynamic Profile manually, use a JSON property list such as:
 {
   "Profiles": [
     {
-      "Name": "Homelab IaC Devcontainer",
+      "Name": "Devcontainers",
       "Guid": "REPLACE-WITH-A-STABLE-UUID",
       "Custom Command": "Yes",
-      "Command": "/Users/<user>/bin/devcontainer-launch homelab-IaC"
+      "Command": "/Users/<user>/bin/devcontainer-launch --pick"
     }
   ]
 }
 ```
+
+After importing a Dynamic Profile, set **After a session ends** to
+**No Action** in its Session settings.
+
+For a direct shortcut, use `/Users/<user>/bin/devcontainer-launch homelab-IaC`.
 
 ## WSL Overlay Publishing
 

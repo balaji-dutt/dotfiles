@@ -769,7 +769,7 @@
         "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions and the workspace picker, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
     },
     {
       "id": "vendored-upstream",
