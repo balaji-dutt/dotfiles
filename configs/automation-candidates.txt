@@ -352,6 +352,7 @@ tests/test_automation_provenance.py	script-extension
 tests/test_automation_test_inventory.py	script-extension
 tests/test_beads_agent_contracts.py	script-extension
 tests/test_beads_helpers.py	script-extension
+tests/test_beads_isolated_worktree.py	script-extension
 tests/test_beads_sync.py	script-extension
 tests/test_bootstrap_wsl.py	script-extension
 tests/test_cbm_auto_index_hook.py	script-extension
