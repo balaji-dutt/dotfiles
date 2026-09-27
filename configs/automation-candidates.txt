@@ -379,6 +379,7 @@ tests/test_gitlab_pipeline_guard.py	script-extension
 tests/test_guarded_main_sync.py	script-extension
 tests/test_host_ai_plugin_refresh_posix.py	script-extension
 tests/test_host_ai_plugin_refresh_windows.py	script-extension
+tests/test_line_endings.py	script-extension
 tests/test_macos_maintenance.py	script-extension
 tests/test_managed_ai_adapters.py	script-extension
 tests/test_opencode_notifier_bridge.py	script-extension,shebang
