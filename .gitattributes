@@ -18,15 +18,26 @@ private_Documents/development/container-dotfiles/dotfiles/private_dot_config/ope
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/skills/** text=auto eol=lf
 configs/automation-candidates.txt text eol=lf
 
-# Shell scripts must remain LF to be valid on Linux/WSL
+# Scripts run by a shell or shebang must remain LF to be valid on Linux/WSL
 *.sh text eol=lf
+*.sh.tmpl text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.zsh.tmpl text eol=lf
+*.py text eol=lf
+*.py.tmpl text eol=lf
+.envrc text eol=lf
+dot_bashrc.tmpl text eol=lf
+dot_zshrc text eol=lf
+dot_zshrc.tmpl text eol=lf
+dot_zpreztorc text eol=lf
 assets/agent-wt-merge text eol=lf
 assets/beads-sync text eol=lf
+assets/guarded-main-sync text eol=lf
 assets/resolve-python3 text eol=lf
-private_dot_config/git/template/hooks/executable_pre-commit text eol=lf
-private_dot_config/git/template/hooks/executable_prepare-commit-msg text eol=lf
-private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_pre-commit text eol=lf
-private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_prepare-commit-msg text eol=lf
+bin/executable_* text eol=lf
+private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_* text eol=lf
+**/hooks/executable_* text eol=lf
 
 # But PowerShell scripts must remain CRLF to be valid on Windows.
 *.ps1.tmpl text eol=crlf
