@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -8,6 +10,11 @@ import { createPluginFixture, wait } from "./node-plugin-fixture.mjs";
 const markerName = "review-loop-marker.js";
 const enforcerName = "review-loop-enforcer.js";
 const gateName = "review-loop-gate.js";
+process.env.GIT_CONFIG_GLOBAL = os.devNull;
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) {
+  delete process.env[key];
+}
 
 async function exists(filePath) {
   try {
@@ -22,6 +29,198 @@ async function writeGate(filePath, files = ["src/a.js"]) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify({ timestamp: 1, files }) + "\n");
 }
+
+function git(root, ...args) {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
+}
+
+async function bashFixture(t) {
+  const fixture = await createPluginFixture([markerName]);
+  t.after(() => fixture.cleanup());
+  git(fixture.root, "-c", "init.templateDir=", "-c", "init.defaultBranch=main", "init", "-q");
+  await mkdir(fixture.path("src"));
+  await writeFile(fixture.path("src", "tracked.js"), "original\n");
+  await writeFile(fixture.path("src", "second.js"), "second\n");
+  await writeFile(fixture.path("src", "mode.sh"), "#!/bin/sh\n");
+  await symlink("tracked.js", fixture.path("src", "link.js"));
+  git(fixture.root, "add", ".");
+  git(fixture.root, "-c", "commit.gpgsign=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture");
+  const { default: marker } = await fixture.importPlugin(markerName);
+  const hooks = await marker({ worktree: fixture.root });
+  const invoke = (sessionID, callID) => ({ tool: "bash", sessionID, callID });
+  const gate = (sessionID) => fixture.path(".opencode", `.needs_dotfiles_review.${sessionID}`);
+  const files = async (sessionID) => JSON.parse(await readFile(gate(sessionID), "utf8")).files;
+  return { fixture, hooks, invoke, gate, files };
+}
+
+test("Bash hooks mark only newly changed reviewable dirty content", async (t) => {
+  const { fixture, hooks, invoke, gate, files } = await bashFixture(t);
+  const run = async (callID, mutate, output = {}) => {
+    const input = invoke("bash-session", callID);
+    await hooks["tool.execute.before"](input, { args: {} });
+    await mutate();
+    await hooks["tool.execute.after"](input, output);
+  };
+  await run("read-only", async () => { git(fixture.root, "status", "--short"); });
+  assert.equal(await exists(gate("bash-session")), false);
+  await run("touch", async () => {
+    const now = new Date(Date.now() + 1000);
+    await utimes(fixture.path("src", "tracked.js"), now, now);
+  });
+  assert.equal(await exists(gate("bash-session")), false);
+  await writeFile(fixture.path("src", "tracked.js"), "previous dirty\n");
+  await run("unchanged-dirty", async () => {});
+  assert.equal(await exists(gate("bash-session")), false);
+  await run("changed-dirty", async () => {
+    await writeFile(fixture.path("src", "tracked.js"), "changed dirty\n");
+  }, { metadata: { exit: 1 } });
+  assert.deepEqual(await files("bash-session"), ["src/tracked.js"]);
+  await rm(gate("bash-session"));
+  await run("restore", async () => {
+    await writeFile(fixture.path("src", "tracked.js"), "original\n");
+  });
+  assert.equal(await exists(gate("bash-session")), false);
+  await run("clean-edit", async () => {
+    await writeFile(fixture.path("src", "second.js"), "changed\n");
+  });
+  assert.deepEqual(await files("bash-session"), ["src/second.js"]);
+});
+
+test("Bash hooks handle creation, deletion, rename, symlink, and mode", async (t) => {
+  const { fixture, hooks, invoke, gate, files } = await bashFixture(t);
+  const run = async (callID, mutate) => {
+    const input = invoke("kinds", callID);
+    await hooks["tool.execute.before"](input);
+    await mutate();
+    await hooks["tool.execute.after"](input);
+  };
+  await run("create-delete", async () => {
+    await writeFile(fixture.path("src", "transient"), "temporary");
+    await rm(fixture.path("src", "transient"));
+  });
+  assert.equal(await exists(gate("kinds")), false);
+  await run("create", async () => { await writeFile(fixture.path("src", "new.js"), "new"); });
+  assert.deepEqual(await files("kinds"), ["src/new.js"]);
+  await rm(gate("kinds"));
+  await run("delete", async () => { await rm(fixture.path("src", "second.js")); });
+  assert.deepEqual(await files("kinds"), ["src/second.js"]);
+  await rm(gate("kinds"));
+  await run("rename", async () => {
+    await rename(fixture.path("src", "tracked.js"), fixture.path("src", "renamed.js"));
+  });
+  assert.deepEqual(await files("kinds"), ["src/renamed.js", "src/tracked.js"]);
+  await rm(gate("kinds"));
+  await run("mode-link", async () => {
+    await chmod(fixture.path("src", "mode.sh"), 0o755);
+    await rm(fixture.path("src", "link.js"));
+    await symlink("renamed.js", fixture.path("src", "link.js"));
+  });
+  assert.deepEqual(await files("kinds"), ["src/link.js", "src/mode.sh"]);
+});
+
+test("Bash hooks filter exempt paths and retain independent concurrent sessions", async (t) => {
+  const { fixture, hooks, invoke, gate, files } = await bashFixture(t);
+  const a = invoke("session-a", "shared-call");
+  const b = invoke("session-b", "shared-call");
+  await hooks["tool.execute.before"](a);
+  await writeFile(fixture.path("src", "tracked.js"), "changed by a\n");
+  await hooks["tool.execute.before"](b);
+  await writeFile(fixture.path("src", "second.js"), "changed by b\n");
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: "session-c" } } });
+  await hooks["tool.execute.after"](b);
+  assert.deepEqual(await files("session-b"), ["src/second.js"]);
+  await hooks["tool.execute.after"](a);
+  assert.deepEqual(await files("session-a"), ["src/second.js", "src/tracked.js"]);
+  assert.equal(await exists(gate("session-c")), false);
+
+  await rm(gate("session-a"));
+  const c = invoke("session-a", "exempt");
+  await hooks["tool.execute.before"](c);
+  await mkdir(fixture.path("docs"));
+  await writeFile(fixture.path("docs", "guide.md"), "exempt");
+  await writeFile(fixture.path(".opencode", ".needs_dotfiles_review.noise"), "runtime");
+  await hooks["tool.execute.after"](c);
+  assert.equal(await exists(gate("session-a")), false);
+  await hooks["tool.execute.before"](invoke("session-a", "ignored-tool"));
+  await hooks["tool.execute.after"]({ tool: "other", sessionID: "session-a", callID: "ignored-tool" });
+  assert.equal(await exists(gate("session-a")), false);
+});
+
+test("parallel Bash calls in one session merge their scoped file lists", async (t) => {
+  const { fixture, hooks, invoke, files } = await bashFixture(t);
+  const first = invoke("same", "one");
+  const second = invoke("same", "two");
+  await Promise.all([
+    hooks["tool.execute.before"](first),
+    hooks["tool.execute.before"](second),
+  ]);
+  await writeFile(fixture.path("src", "tracked.js"), "changed\n");
+  await writeFile(fixture.path("src", "second.js"), "changed\n");
+  await Promise.all([
+    hooks["tool.execute.after"](first),
+    hooks["tool.execute.after"](second),
+  ]);
+  assert.deepEqual(await files("same"), ["src/second.js", "src/tracked.js"]);
+});
+
+test("Bash snapshots do not invent gates when Git is unavailable or absent", async (t) => {
+  const { fixture, hooks, invoke, gate } = await bashFixture(t);
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  t.after(() => { console.warn = originalWarn; });
+  const beforeFailure = invoke("missing-git", "before");
+  const gitDir = fixture.path(".git");
+  const parked = fixture.path("git-parked");
+  await rename(gitDir, parked);
+  await hooks["tool.execute.before"](beforeFailure);
+  await rename(parked, gitDir);
+  await writeFile(fixture.path("src", "tracked.js"), "changed\n");
+  await hooks["tool.execute.after"](beforeFailure);
+  assert.equal(await exists(gate("missing-git")), false);
+
+  const afterFailure = invoke("missing-git", "after");
+  await hooks["tool.execute.before"](afterFailure);
+  await rename(gitDir, parked);
+  await hooks["tool.execute.after"](afterFailure);
+  await rename(parked, gitDir);
+  assert.equal(await exists(gate("missing-git")), false);
+  await hooks["tool.execute.after"](invoke("missing-git", "unpaired"));
+  assert.equal(await exists(gate("missing-git")), false);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /Bash before snapshot failed/);
+  assert.match(warnings[1], /Bash after snapshot failed/);
+  const control = invoke("missing-git", "working");
+  await hooks["tool.execute.before"](control);
+  await writeFile(fixture.path("src", "second.js"), "control\n");
+  await hooks["tool.execute.after"](control);
+  assert.equal(await exists(gate("missing-git")), true);
+});
+
+test("oversize dirty files do not become proven edits", async (t) => {
+  const { fixture, hooks, invoke, files } = await bashFixture(t);
+  const input = invoke("large", "one");
+  await hooks["tool.execute.before"](input);
+  const handle = await open(fixture.path("src", "huge.bin"), "w");
+  try {
+    await handle.truncate(65 * 1024 * 1024);
+  } finally {
+    await handle.close();
+  }
+  await writeFile(fixture.path("src", "tracked.js"), "control\n");
+  await hooks["tool.execute.after"](input);
+  assert.deepEqual(await files("large"), ["src/tracked.js"]);
+});
+
+test("session IDs with no safe suffix keep the unsuffixed direct-event gate", async (t) => {
+  const fixture = await createPluginFixture([markerName]);
+  t.after(() => fixture.cleanup());
+  const { default: marker } = await fixture.importPlugin(markerName);
+  const hooks = await marker({ worktree: fixture.root });
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: "   " } } });
+  await hooks.event({ event: { type: "file.edited", path: "src/edited.js" } });
+  assert.equal(await exists(fixture.path(".opencode", ".needs_dotfiles_review")), true);
+});
 
 test("marker scopes relevant edits and enforces repository boundaries", async (t) => {
   const fixture = await createPluginFixture([markerName]);

@@ -25,13 +25,19 @@
 // review-loop-marker.js
 // Watches for file edits and writes a session-scoped sentinel file to signal
 // that a review is required. Configured via .opencode/opencode-tooling.config.jsonc.
-import { appendFile, mkdir, writeFile, unlink, readFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, readlink, unlink, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const PLUGIN_VERSION = "1.1.0";
 const DEBUG_ENV_VAR = "DOTFILES_REVIEW_MARKER_DEBUG";
+const runGit = promisify(execFile);
+const SNAPSHOT_BYTE_LIMIT = 64 * 1024 * 1024;
 
 function safeLogName(s) {
   return (
@@ -233,6 +239,8 @@ export default async (ctx = {}) => {
   let lastSessionID = null;
   const editedFiles = new Set();
   let pendingMarkWithoutSession = false;
+  const bashSnapshots = new Map();
+  const sentinelWrites = new Map();
 
   function extractSessionID(evt) {
     return (
@@ -328,32 +336,110 @@ export default async (ctx = {}) => {
     );
   }
 
+  async function writeSentinel(sessionID, files, clearFallback = false) {
+    const p = sentinelPath(sessionID);
+    const previous = sentinelWrites.get(p) || Promise.resolve();
+    const write = previous.catch(() => {}).then(async () => {
+      await mkdir(path.dirname(p), { recursive: true });
+      let existing = [];
+      try {
+        const payload = JSON.parse(await readFile(p, "utf8"));
+        if (payload.sessionID === (sessionID || null) && Array.isArray(payload.files)) {
+          existing = payload.files;
+        }
+      } catch (error) {
+        if (error.code !== "ENOENT") await appendDebug(`unreadable sentinel=${relPath(p)}`);
+      }
+      const payload = {
+        timestamp: Math.floor(Date.now() / 1000),
+        sessionID: sessionID || null,
+        files: [...new Set([...existing, ...files])],
+      };
+      await writeFile(p, JSON.stringify(payload, null, 2) + "\n", "utf8");
+      await appendDebug(
+        `marked sentinel=${relPath(p)} session=${shortSessionID(sessionID)} fileCount=${payload.files.length}`
+      );
+      if (clearFallback && sanitizeSessionID(sessionID)) {
+        try {
+          await unlink(path.join(sentinelDir, sentinelBase));
+          await appendDebug(`removed unsuffixed fallback sentinel=${sentinelBase}`);
+        } catch {}
+      }
+    });
+    sentinelWrites.set(p, write);
+    try {
+      await write;
+    } finally {
+      if (sentinelWrites.get(p) === write) sentinelWrites.delete(p);
+    }
+  }
+
   async function mark(file) {
     if (file) {
       const rel = relPath(file);
       if (rel && rel !== "unknown file") editedFiles.add(rel);
     }
-    const sid = sanitizeSessionID(lastSessionID);
-    const p = sentinelPath(lastSessionID);
-    pendingMarkWithoutSession = !sid;
-    await mkdir(path.dirname(p), { recursive: true });
-    const payload = {
-      timestamp: Math.floor(Date.now() / 1000),
-      sessionID: lastSessionID || null,
-      files: [...editedFiles],
-    };
-    await writeFile(p, JSON.stringify(payload, null, 2) + "\n", "utf8");
-    await appendDebug(
-      `marked sentinel=${relPath(p)} session=${shortSessionID(lastSessionID)} fileCount=${payload.files.length}`
-    );
-    // If we just wrote a scoped sentinel, remove the unsuffixed fallback so
-    // cold-start sessions in other windows cannot accidentally consume it.
-    if (sid) {
-      try {
-        await unlink(path.join(sentinelDir, sentinelBase));
-        await appendDebug(`removed unsuffixed fallback sentinel=${sentinelBase}`);
-      } catch {}
+    pendingMarkWithoutSession = !sanitizeSessionID(lastSessionID);
+    await writeSentinel(lastSessionID, editedFiles, true);
+  }
+
+  function reviewable(file) {
+    return isInsideRepo(file) && !isOpencodeRuntimeArtifact(file) && !cfg.isExempt(repoRelLower(file));
+  }
+
+  async function fingerprint(file, budget) {
+    const fullPath = path.join(baseDir, file);
+    let info;
+    try {
+      info = await lstat(fullPath);
+    } catch (error) {
+      if (error.code === "ENOENT") return "missing";
+      throw error;
     }
+    if (info.isSymbolicLink()) return `link:${await readlink(fullPath)}`;
+    if (!info.isFile()) return `other:${info.mode & 0o7777}`;
+    if (info.size > budget.remaining) return null;
+    budget.remaining -= info.size;
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(fullPath)) hash.update(chunk);
+    return `file:${info.mode & 0o111}:${hash.digest("hex")}`;
+  }
+
+  async function dirtySnapshot() {
+    const env = { ...process.env };
+    for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) {
+      delete env[key];
+    }
+    const { stdout } = await runGit("git", [
+      "--no-optional-locks", "-C", baseDir, "status", "--porcelain=v1", "-z",
+      "--untracked-files=all", "--no-renames",
+    ], { encoding: "buffer", env, maxBuffer: 16 * 1024 * 1024, timeout: 15_000 });
+    const files = stdout.toString("utf8").split("\0")
+      .filter(Boolean)
+      .map((entry) => entry.slice(3))
+      .filter((file) => reviewable(path.join(baseDir, file)))
+      .sort();
+    const snapshot = new Map();
+    const budget = { remaining: SNAPSHOT_BYTE_LIMIT };
+    for (const file of files) {
+      try {
+        snapshot.set(file, await fingerprint(file, budget));
+      } catch (error) {
+        snapshot.set(file, error.code === "ENOENT" ? "missing" : null);
+        await appendDebug(`unreadable dirty path=${debugFilePath(file)} code=${error.code || "unknown"}`);
+      }
+    }
+    return snapshot;
+  }
+
+  function bashKey(input) {
+    if (input?.tool !== "bash" || !input.sessionID || !input.callID) return null;
+    return JSON.stringify([input.sessionID, input.callID]);
+  }
+
+  async function snapshotFailure(stage, error) {
+    console.warn(`[review-loop-marker] Bash ${stage} snapshot failed: ${error.message}`);
+    await appendDebug(`bash ${stage} snapshot failed: ${error.message}`);
   }
 
   async function maybeToast(message) {
@@ -393,6 +479,44 @@ export default async (ctx = {}) => {
   }
 
   return {
+    "tool.execute.before": async (input) => {
+      const key = bashKey(input);
+      if (!key) return;
+      try {
+        const snapshot = await dirtySnapshot();
+        if (!bashSnapshots.has(key) && bashSnapshots.size >= 128) {
+          bashSnapshots.delete(bashSnapshots.keys().next().value);
+          await appendDebug("evicted oldest Bash snapshot");
+        }
+        bashSnapshots.set(key, snapshot);
+      } catch (error) {
+        bashSnapshots.delete(key);
+        await snapshotFailure("before", error);
+      }
+    },
+    "tool.execute.after": async (input) => {
+      const key = bashKey(input);
+      if (!key) return;
+      const before = bashSnapshots.get(key);
+      bashSnapshots.delete(key);
+      if (!before) {
+        await appendDebug(`bash after without before session=${shortSessionID(input.sessionID)}`);
+        return;
+      }
+      try {
+        const after = await dirtySnapshot();
+        const changed = [...after].filter(([file, current]) => {
+          const prior = before.get(file);
+          return current !== null && prior !== null && prior !== current;
+        }).map(([file]) => file);
+        if (changed.length) {
+          await writeSentinel(input.sessionID, changed);
+          await maybeToast(`Marked for ${reviewLabel} review: ${changed.length} Bash-edited file(s)`);
+        }
+      } catch (error) {
+        await snapshotFailure("after", error);
+      }
+    },
     event: async ({ event }) => {
       if (!event?.type) return;
 

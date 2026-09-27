@@ -28,6 +28,37 @@ The policy is data-driven: `exemptPaths` in
 `.opencode/opencode-tooling.config.jsonc` is the single source of truth,
 read by both the OpenCode plugins and the Claude Code hooks.
 
+## OpenCode Bash gate flow
+
+`.opencode/plugins/review-loop-marker.js` records Git dirty/untracked paths
+before and after each `bash` tool call. The snapshots are paired by the
+hook's `sessionID` and `callID`. A session-scoped gate is written only for
+reviewable paths still dirty after the command whose kind, content, symlink
+target, or executable bit changed since the snapshot. Existing `file.edited`,
+deleted, renamed, and moved events keep their direct-event behavior. The
+sessionless `file.watcher.updated` event is not used for Bash attribution.
+
+- Read-only commands, an unchanged pre-dirty file, a timestamp-only touch,
+  and an edit reverted to HEAD do not raise a Bash gate. Ordinary shell
+  commands that exit nonzero still return a tool result and run the after
+  hook in OpenCode 1.18.31. Setup/permission errors that throw before a
+  tool result do not run the after hook.
+- The before and after scans each hash at most 64 MiB of regular files; a
+  file outside the remaining budget is not treated as a proven change. The
+  budget is shared across dirty paths in sorted order. Snapshot
+  failures emit a warning and do not fabricate a gate from an unknown
+  baseline. Gitignored files are absent from the dirty set.
+- Only changes visible when the Bash tool returns are captured. A detached
+  process writing later, or a command that edits and then commits, can leave
+  no dirty change at the after hook. Concurrent writers can be attributed
+  to overlapping calls. OpenCode does not provide a session-scoped completion
+  hook for a detached process.
+- In-flight snapshots are held in memory with a 128-call limit. If a tool
+  fails before the after hook or the limit is reached, an orphaned snapshot
+  cannot produce a gate.
+- Regression tests invoke the plugin hooks around real filesystem mutations
+  in a disposable Git repository; they do not launch a live OpenCode session.
+
 ## Claude Code gate flow
 
 The Claude Code hooks in `.claude/hooks/` mirror the OpenCode plugins; the
