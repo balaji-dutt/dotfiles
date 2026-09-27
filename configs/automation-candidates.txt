@@ -392,6 +392,7 @@ tests/test_pipeline_guard.py	script-extension
 tests/test_powershell_lifecycle.py	script-extension
 tests/test_promptfoo_runtime.py	script-extension
 tests/test_remind_beads_hook.py	script-extension
+tests/test_renovate_ci_amend.py	script-extension
 tests/test_repo_opencode_plugins.py	script-extension
 tests/test_resolve_python3.py	script-extension
 tests/test_retire_legacy_cbm_mise.py	script-extension

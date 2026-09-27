@@ -245,11 +245,13 @@
         "suite_id": "portable-ci",
         "status": "covered",
         "work_item": "dots-4jy.10.1.3",
-        "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py"],
+        "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py", "tests/test_renovate_ci_amend.py"],
         "behavior_requirements": [
           {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, non-ancestor or octopus history, invalid-policy, and missing guarded tracking states; batch tips require their own successful CI evidence.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
           {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select the exact linear or batch tip, or the feature parent of a single no-ff merge directly based on advertised main; preserve the pre-push contract and block guarded local-ahead rebases even with an override.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-renovate-amend-lease", "kind": "safety", "description": "Keep Renovate amendment pushes behind branch, change, and token guards with a scoped staging set and an explicit source SHA lease.", "status": "covered", "test_paths": ["tests/test_renovate_ci_amend.py"]},
           {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
+          {"id": "success-renovate-amend-identity", "kind": "success", "description": "Exercise the CI amendment scripts against isolated Git commits to preserve selected and legacy authors and trailers while setting the service-account committer.", "status": "covered", "test_paths": ["tests/test_renovate_ci_amend.py"]},
           {"id": "success-structured-job-state", "kind": "success", "description": "Report exact-SHA outcomes, guide explicit main preparation without pushing, and accept a batch tip only after its successful evidence is prepared or reused.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]}
         ]
       },

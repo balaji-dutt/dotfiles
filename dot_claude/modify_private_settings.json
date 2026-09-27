@@ -42,11 +42,9 @@
 {{- $permissions := (index $settings "permissions") | default dict -}}
 {{- $allow := (index $permissions "allow") | default list -}}
 {{- /* printf, not joinPath: joinPath emits backslashes on Windows, but Git Bash commands use drive-letter paths such as F:/. */ -}}
-{{- range $helperPath := list "assets/agent-wt-merge" ".opencode/bin/agent-wt-merge" -}}
-{{-   $helper := printf "%s/%s" $.chezmoi.workingTree $helperPath -}}
-{{-   range $sub := list "inspect" "ff" "no-ff" -}}
-{{-     $allow = concat $allow (list (printf "Bash(%s %s:*)" $helper $sub) (printf "Bash(\"%s\" %s:*)" $helper $sub) (printf "Bash('%s' %s:*)" $helper $sub)) -}}
-{{-   end -}}
+{{- $helper := printf "%s/assets/agent-wt-merge" .chezmoi.workingTree -}}
+{{- range $sub := list "inspect" "ff" "no-ff" -}}
+{{-   $allow = concat $allow (list (printf "Bash(%s %s:*)" $helper $sub) (printf "Bash(\"%s\" %s:*)" $helper $sub) (printf "Bash('%s' %s:*)" $helper $sub)) -}}
 {{- end -}}
 {{- $_ := set $permissions "allow" $allow -}}
 {{- $_ := set $settings "permissions" $permissions -}}
