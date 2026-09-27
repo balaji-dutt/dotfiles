@@ -49,6 +49,15 @@ If it exists, mention the issue ID and branch/worktree metadata when visible,
 then ask whether to use it. If the metadata does not match the current
 branch/worktree, treat it as ambiguous and ask or skip.
 
+Inspect tracking notes on the selected Beads issue as well. Match a
+`beads-work anchor:` note by issue ID, agent, branch, and worktree; an ambiguous
+or stale note needs clarification, not a speculative overwrite. In an isolated
+worktree with no writable local `.beads/`, the author records the anchor in
+issue notes with `command bd update ... --append-notes ... --actor "OpenCode"`
+and confirms it via `command bd show`. Do not create a stub `.beads/` or write
+a state file in another checkout. After a mutation, failed readback is an
+unknown/partial outcome; reconcile before retrying.
+
 ## Delegation
 
 After the user chooses create or attach for implementation work, delegate to

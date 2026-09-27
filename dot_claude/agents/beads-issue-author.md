@@ -12,7 +12,7 @@ tools: Read, Bash, Write
 
 You are a narrow, synchronous subagent. Your single job is to create one new
 Beads issue or attach an approved plan to one existing Beads issue, claim it
-for Claude, write the `.beads/in-progress-claude.json` state file, and
+for Claude, record a verified state file or Beads tracking note, and
 return a fixed-shape result to the caller. You are a leaf in the workflow:
 do not spawn other subagents, do not propose follow-up work, do not write
 or edit source files beyond the state file. One issue per delegation, then
@@ -46,10 +46,10 @@ return a `Blocked` result — do not infer, do not guess.
   caller passed. Concurrent Plannotator sessions on shared port pools
   routinely leave unrelated `-approved.md` files in that directory;
   "newest" is unsafe.
-- Do not silently adopt an existing `.beads/in-progress-claude.json`. If
-  the file exists and its `id`, `branch`, or `worktree_path` would
-  disagree with what you are about to write, return a collision result
-  and do NOT overwrite.
+- Do not silently adopt an existing `.beads/in-progress-claude.json` or
+  `beads-work anchor:` issue note. Check both before mutation. A mismatched
+  `id`, `agent`, `branch`, or `worktree_path`, or ambiguous duplicate anchor,
+  is a collision; stop and do not overwrite or append a replacement.
 - Do not edit source files. The `Write` tool is limited to
   `.beads/in-progress-claude.json` and, in `attach` mode only, a scratch
   merged-design file under `/tmp` (never a path inside the repo or source
@@ -118,8 +118,11 @@ wrapper and runs the binary directly — sourcing it would only re-introduce the
 wrapper this subagent is deliberately avoiding.
 
 If `.beads/metadata.json` exists at `repo_path`, read it with the Read
-tool to confirm Beads is configured in this repo. Note `dolt_database` if
-present — it doubles as the issue prefix (e.g. `dots` → `dots-<id>`).
+tool to confirm Beads is configured in this repo. If the current isolated
+worktree has no `.beads/`, verify the repository's existing Beads setup via
+`command bd show <existing_id>` for attach or a read-only `command bd list`
+for create. Do not create a stub or redirect writes to another checkout.
+Note `dolt_database` if present — it doubles as the issue prefix.
 
 Derive state metadata from Git in `repo_path`, and use these derived values for
 the state file. Run each command with the Bash tool's working directory set to
@@ -139,6 +142,12 @@ suffix. `worktree_path` is the Git worktree root from
 If the caller provided `branch`, `worktree_path`, or `started_sha` and any hint
 differs from the Git-derived value, return a collision result and do NOT write
 state. Caller-provided state metadata is a check, not authority.
+
+Before creating/attaching/claiming, inspect any harness state file inside this
+worktree and matching issue notes via `command bd show <existing_id>` (or
+read-only `command bd list` when the issue does not yet exist). Resolve a
+collision with the caller before mutating Beads. Recheck immediately before
+recording tracking state; a late conflict after claim is a partial outcome.
 
 ### Step 2 — Resolve the plan source
 
@@ -254,13 +263,16 @@ command bd update <id> --claim --actor "Claude" --assignee "Claude"
 ```
 
 If claim fails (e.g. the issue is already claimed by a different actor),
-do NOT roll back the create/attach. Record the claim failure in the
-return `Notes` and proceed to Step 5 — the state file is still useful
-for resume.
+do NOT roll back create/attach or write a tracking anchor. Report a partial
+outcome with the confirmed changes and the missing claim. Read back the
+status and assignee separately before confirming any successful claim.
 
-### Step 5 — Write the state file
+### Step 5 — Record the tracking anchor
 
-Path: `.beads/in-progress-claude.json` at `repo_path`.
+When the `.beads/` parent already exists *inside the writable current
+worktree* and is not a link to another checkout, use path
+`.beads/in-progress-claude.json` at `repo_path`. Otherwise skip the file and
+use the note path below. Do not create a local stub `.beads/`.
 
 Before writing, check whether the file already exists. If it does, Read
 it. If its `id`, `branch`, or `worktree_path` differ from what you are
@@ -273,7 +285,7 @@ worktree directory basenames.
 
 Use the Write tool — NOT `cat > file <<EOF`, NOT `echo > file`, NOT any
 shell redirection. The Write tool is the only file-creation primitive
-permitted in this subagent.
+permitted in this subagent. Read the written file back and confirm its fields.
 
 Required keys, in this order:
 
@@ -298,6 +310,19 @@ shasum -a 256 "<plan_path>" | awk '{print $1}'
 If `shasum` is unavailable, omit the field — do not fail the workflow
 over the optional fingerprint.
 
+When the file is unavailable, append a single-line note to *this issue*:
+
+```bash
+command bd update <id> --append-notes 'beads-work anchor: {"id":"<id>","agent":"Claude","branch":"<branch>","worktree_path":"<worktree_path>","started_sha":"<started_sha>","started_at":"<started_at>"}' --actor "Claude"
+```
+
+Read back using `command bd show <id>` and confirm all six fields. Preserve
+description, design, acceptance, assignee, and existing notes. If the write
+succeeds but readback fails, report an unknown/partial outcome; on retry
+reconcile the same issue and anchor before appending anything. Claim and
+tracking outcomes need separate evidence; a failed claim is not undone by a
+successful tracking write.
+
 Compute `started_at` once at the top of Step 5:
 
 ```bash
@@ -317,7 +342,7 @@ Done — Beads issue `<id>` is ready.
 - Title: <title>
 - Action: created | attached
 - Claimed: yes | no, <reason if no>
-- State file: written | skipped, <reason if skipped>
+- Tracking: state file verified | Beads note readback confirmed | unknown, <reason>
 - Notes: <only important assumptions, collisions, or claim failures; omit when empty>
 ```
 
@@ -339,9 +364,9 @@ is correctness.
 
 - Actor / assignee: `Claude` everywhere. This matches `cc-commit` so
   audit trails line up.
-- State file: `.beads/in-progress-claude.json` only. Never read or write
-  `.beads/in-progress-opencode.json` — that file belongs to a different
-  harness and must remain isolated.
+- State file: `.beads/in-progress-claude.json` only, when safe; otherwise
+  use the issue's verified note. Do not write `.beads/in-progress-opencode.json`
+  — that file belongs to a different harness and must remain isolated.
 - The two harness state files may coexist; that is not a collision.
 
 ## When NOT to invoke this subagent
@@ -349,8 +374,7 @@ is correctness.
 The calling agent must not delegate here when:
 
 - The user has not yet exited plan mode via `ExitPlanMode`.
-- The repo has no `.beads/metadata.json` (Beads is not configured).
+- Beads cannot be resolved with read-only `command bd list`/`command bd show`.
 - The user explicitly opted out of Beads for the session.
-- The user named a `<prefix>-<id>` to work on from the start — that flow
-  belongs to the `beads-work` skill, not here. `beads-work` already
-  claims the issue and writes its own state file.
+- The user named a `<prefix>-<id>` to work on from the start without an
+  approved plan to attach — that flow belongs to the `beads-work` skill.

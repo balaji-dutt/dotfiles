@@ -347,6 +347,11 @@ Git branch, not the worktree directory basename or a session-suffixed worktree
 label. `worktree_path` means the Git worktree root. If any check fails, the
 helper reports the mismatch and leaves the state file untouched.
 
+An isolated worktree may record its claim in a verified `beads-work anchor:`
+issue note instead of a state file. The helper does not use notes for
+`--close-beads`; omit that flag and close the issue separately after the merge
+lands, using the issue's verified commit SHAs.
+
 On success, the helper prints the exact close reason sent to `bd close`. The
 reason contains commits introduced by the feature merge session, excluding
 unrelated main-only or pre-session commits. A requested close that does not

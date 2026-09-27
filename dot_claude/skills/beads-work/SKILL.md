@@ -25,8 +25,8 @@ than hard-coding details for any one project.
 - The user names a Beads issue by ID, e.g. "work on dots-go2", "let's tackle
   the beads issue slab-cdr", "I'd like to plan abc-arl", or "implement
   foo-bar".
-- The user says "continue work on <prefix>-<id>" and
-  `.beads/in-progress-*.json` exists.
+- The user says "continue work on <prefix>-<id>" and a matching state file
+  or Beads tracking note exists.
 - The user asks to close a `<prefix>-<id>` ticket they have been working on
   in this session.
 
@@ -83,18 +83,17 @@ Accept any of these forms and normalize to lowercase `<prefix>-<id>`:
   2. Otherwise, ask the user for the prefix once and reuse it for the rest
      of the session.
 
-If the user invokes the skill with no ID, check for a resume state file:
-
-```bash
-ls .beads/in-progress-*.json 2>/dev/null
-```
-
-Treat state files as resume candidates, not authority. If exactly one exists,
-read its `id`, `branch`, `worktree_path`, and `started_sha` fields when
-present, then offer to resume that issue. If the branch/worktree metadata does
-not match the current session, call that out as a possible collision and ask.
-If more than one exists, list them and ask which to resume. Never silently
-continue or overwrite another session's state.
+Before Step 3 changes an issue, inspect its existing tracking notes and any
+in-progress files for this harness and the other harness; ask on mismatch.
+If no ID was supplied, inspect existing `.beads/in-progress-*.json` files
+inside this worktree (if `.beads/` exists) and use `command bd list` (or
+`bd.exe list` on Windows) to find in-progress issues with tracking notes.
+Offer matching candidates; ask when none or more than one matches. State
+files and notes are collision signals, not authority. Read `id`, `agent`,
+`branch`, `worktree_path`, `started_sha`, and `started_at`; match the issue ID,
+actual Git branch, and worktree root against `bd show`. Multiple anchors for
+the same issue/branch/worktree, stale anchors, or conflicting files require
+clarification. Never silently continue or overwrite another session's state.
 
 ### Step 2: Fetch the issue
 
@@ -132,9 +131,9 @@ fall through to `git user.name`, i.e. the human). The explicit `--assignee`
 is belt-and-suspenders against any change in `--claim` semantics. The
 assignee field is a plain string; no email is required.
 
-### Step 4: Write the in-progress state file
+### Step 4: Record the in-progress anchor
 
-Capture the merge-target HEAD as the "started at" anchor so close-time SHA
+Capture the current HEAD as the "started at" anchor so close-time SHA
 collection works regardless of how many agent transitions occur:
 
 ```bash
@@ -148,8 +147,19 @@ WORKTREE_PATH="$(git rev-parse --show-toplevel)"
 Agent of Empires session name, or `ai-wt` path suffix. `WORKTREE_PATH` is the
 Git worktree root, even when the agent starts from a subdirectory.
 
-Then write the harness-specific state file. Use `claude` or `opencode` as
-the `<harness>` token:
+In a disposable nested Git worktree, Beads 1.2.2 resolved its parent database
+both without a local `.beads/` and with an empty `.beads/` stub. This is not
+permission to create a stub: discovery behavior can vary by version and an
+empty directory is not a durable handoff anchor.
+
+Recheck the harness-specific state file and notes immediately before
+recording. Only write a state file when its `.beads/` parent already exists
+**inside the current worktree**, is
+writable by this session, and there is no conflicting anchor. Never create a
+stub `.beads/`, follow an out-of-worktree symlink, or write another checkout's
+file. If any existing state/notes disagree with issue, agent, branch, worktree,
+or started SHA, stop and ask; do not replace them. Use `claude` or `opencode`
+as the `<harness>` token for the eligible state file:
 
 ```bash
 cat >| .beads/in-progress-claude.json <<JSON
@@ -179,13 +189,36 @@ cat >| .beads/in-progress-opencode.json <<JSON
 JSON
 ```
 
-This file is the contract between Plan-phase and Build-phase agents in
-OpenCode and a resume anchor across sessions. It is gitignored.
+When the parent is absent or inaccessible, or only another checkout is
+writable, **skip the file**. Append a structured, single-line record to the
+*issue's* notes with the selected actor, then read it back using `bd show`.
+Use the literal command for the current platform (`command bd` on POSIX;
+`bd.exe` on native Windows), substituting actual values:
+
+```bash
+command bd update <id> --append-notes 'beads-work anchor: {"id":"<id>","agent":"Claude","branch":"<actual branch>","worktree_path":"<absolute worktree root>","started_sha":"<full SHA>","started_at":"<UTC ISO 8601>"}' --actor "Claude"
+```
+
+Use `OpenCode` as both `agent` and `--actor` in OpenCode. Do not claim a
+successful handoff until readback confirms all six fields exactly. If the
+append succeeds but readback fails, report an unknown outcome and reconcile
+before retrying; do not append a second anchor speculatively. Notes preserve
+existing description, design, acceptance, status, and assignee.
+
+The file, when present, is the resume anchor between agents; the verified
+note is its equivalent in isolated sessions. Never infer an anchor from the
+latest Git HEAD on resume. This repo's `AGENTS.md` requires closure only
+after landing on main, regardless of the generic close step below.
+On native Windows use the Write tool for an eligible local JSON file; invoke
+`bd.exe update`/`bd.exe show` in PowerShell for note mode. Do not run the POSIX
+shell examples in PowerShell.
 
 When a workflow creates or attaches an issue from an approved Plannotator plan,
 the state file may also include `plan_source` and `plan_sha256`. Use those
 fields as extra collision checks. If the plan source/fingerprint, branch, or
-worktree does not match the current work, ask before proceeding.
+worktree does not match the current work, ask before proceeding. In note mode,
+read the approved design back from `bd show` and check issue/branch/worktree
+and any plan source recorded in notes before implementation.
 
 ### Step 5: Investigate scope
 
@@ -213,7 +246,6 @@ Claude Code:
 ```bash
 command bd update <id> \
   --design-file - \
-  --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
   --actor "Claude" <<'EOF'
 <paste the full approved plan markdown here>
@@ -225,7 +257,6 @@ OpenCode:
 ```bash
 command bd update <id> \
   --design-file - \
-  --acceptance "<one-line acceptance summary>" \
   --append-notes "Plan approved $(date -u +%Y-%m-%d); design notes updated." \
   --actor "OpenCode" <<'EOF'
 <paste the full approved plan markdown here>
@@ -235,6 +266,10 @@ EOF
 Use `--design-file` (not `--description-file` or `--body-file`) so the
 original problem statement is preserved while the agreed implementation
 plan lands in the design field.
+
+Preserve existing acceptance criteria unless the user explicitly approved
+replacement. Put new verification detail in design; add `--acceptance` only
+with explicit approval.
 
 ### Step 8: Implement per the approved plan
 
@@ -261,24 +296,32 @@ Repeat for each logical commit the plan requires.
 
 ### Step 10: Collect commit SHAs since claim
 
-Do not rely on conversation memory. Read `started_sha` from the state file
-and enumerate every commit between then and `HEAD`. **Capture the result
-into a variable now** — Step 11 deletes the state file, so this is the last
-point at which `started_sha` is readable:
+Do not rely on conversation memory. Read and verify the matching `started_sha`
+from this issue's state file **or** readback-confirmed `beads-work anchor` note.
+Match issue, agent, branch, and worktree first. Enumerate commits from that
+anchor to `HEAD`; inspect each commit's `Refs: <id>` trailer and exclude
+commits belonging to other issues. If the range is ambiguous, stop and
+reconcile rather than attaching another issue's SHA. Capture the exact SHA
+list now, before Step 11 removes the state file:
 
 ```bash
 STARTED_SHA="$(jq -r .started_sha .beads/in-progress-claude.json)"
-SHAS="$(git log "${STARTED_SHA}..HEAD" --format=%h | paste -sd, -)"
-echo "$SHAS"
+git log "${STARTED_SHA}..HEAD" --format='%H %s%n%b'
+SHAS='<verified comma-separated SHAs for this issue>'
 ```
 
-Use the OpenCode state file path when running under OpenCode. Use whatever
-short SHA `--format=%h` produces (typically 7–12 chars depending on repo
-size). Both short and full-40 forms are valid.
+For note mode, substitute the verified note's `started_sha` for the `jq`
+line; on OpenCode use its state path. Set `SHAS` to only the verified commits
+for this issue. Prefer full SHA values in a dedicated
+issue note including `id`, `branch`, `worktree_path`, `started_sha`, and
+`commits`, then read it back before switching to the next issue. Never derive
+the next issue's anchor from a previous issue's notes.
 
 ### Step 11: Delete the state file
 
-Remove the harness-specific state file **before** closing the issue:
+If this issue has a harness-specific state file, verify its issue, branch,
+worktree, and started SHA match the confirmed anchor. Remove it **before**
+closing the issue or freeing the slot for another issue:
 
 ```bash
 command rm -f -- .beads/in-progress-claude.json   # Claude Code
@@ -298,6 +341,12 @@ if [ -e "$STATE_FILE" ]; then
 fi
 ```
 
+In note mode, do not create or remove a state file. For an issue switch in a
+repo that defers closure until main, keep the first issue open: verify its
+per-issue note and commits, remove only its matching state file, and ask before
+overwriting or adopting a conflicting file. The next issue receives a new
+anchor at its own claim SHA.
+
 Do not proceed to Step 12 while the file is still there — closing on top of a
 surviving state file is the exact pairing this ordering exists to prevent.
 
@@ -307,13 +356,16 @@ prompts and the issue is still visibly open. The reverse order leaves
 (closed issue, stale state file), which used to disable the Claude Code
 plan gate silently and indefinitely.
 
-Confirm `SHAS` from Step 10 is still set before continuing; if the shell was
-lost, recover the range from the issue's claim time or `git log` rather than
-recreating the state file.
+Confirm the per-issue SHA list from Step 10 is still available before
+continuing; if the shell was lost, recover it from the readback-confirmed
+issue note and `git log` rather than recreating a state file.
 
 ### Step 12: Close the issue with the SHAs
 
-Close the issue with the comma-separated SHA list from Step 10. If `SHAS` is
+Follow the repo's landing policy before this step: in this dotfiles repo,
+**do not close** on a feature branch; close only after the issue's commits
+are verified on main. Close the issue with its own comma-separated SHA list
+from Step 10. If `SHAS` is
 empty — no commits since the claim — close with a reason that says so rather
 than an empty list. Run the literal command for the harness:
 
@@ -347,7 +399,7 @@ Summarize:
 - Every commit SHA produced (8-char form is fine).
 - Verification that `command bd show <id>` reports `status=closed` with the
   expected close reason.
-- Confirmation that the state file was removed.
+- Confirmation that its state file was removed, or note mode used no file.
 
 ## Edge cases
 
@@ -371,15 +423,19 @@ Claude Code:
 
 ```bash
 command bd update <id> --status open --assignee "" --actor "Claude"
-rm -f .beads/in-progress-claude.json
 ```
 
 OpenCode:
 
 ```bash
 command bd update <id> --status open --assignee "" --actor "OpenCode"
-rm -f .beads/in-progress-opencode.json
 ```
+
+Read back the release and remove **only** this issue's matching state file;
+verify removal. In note mode, append a dated cancellation note with the same
+actor and read it back; never delete issue history or remove another session's
+file. An ambiguous or failed release is a partial outcome requiring read-only
+reconciliation, not a reason to claim another issue.
 
 ### Conflicting state file from a different agent
 
@@ -392,8 +448,8 @@ agent's claim before proceeding.
 
 If the repo's post-edit verification command exits non-zero (or surfaces an
 `ERROR:` line, depending on its convention), fix or revert the offending
-change. Do not close the issue on a broken state. The state file stays in
-place so the work can resume.
+change. Do not close the issue on a broken state. The state file or verified
+note remains available for resume.
 
 ### Issue not found
 
@@ -403,10 +459,10 @@ the ID is correct or whether to create a new issue first.
 ### OpenCode plan-to-build handoff
 
 When OpenCode switches from the Plan agent to the Build agent mid-issue,
-the Build agent re-discovers state from `command bd show <id>` plus
-`.beads/in-progress-opencode.json`. If the Build agent loses skill
-context, the user can re-invoke with "continue work on <id>" and
-the resume path in step 1 picks it up.
+the Build agent re-discovers state from `command bd show <id>` plus a matching
+`.beads/in-progress-opencode.json` or verified issue note. If the Build agent
+loses skill context, the user can re-invoke with "continue work on <id>";
+Step 1 checks the available anchor and collisions.
 
 ## Output / final report
 
@@ -417,5 +473,5 @@ the resume path in step 1 picks it up.
 - Started SHA: <8-char>
 - Commits: <sha1>, <sha2>, ...
 - Close reason: Fixed with commit(s) <sha1>[, <sha2>...]
-- State file removed: yes
+- Tracking: state file removed | note readback confirmed (no file)
 ```

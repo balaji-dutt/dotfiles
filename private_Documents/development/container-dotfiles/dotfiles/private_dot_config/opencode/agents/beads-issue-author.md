@@ -67,6 +67,8 @@ If the plan text/path is missing, stop and ask for it. Do not infer it.
 - Do not silently adopt `.beads/in-progress-opencode.json`; treat it as a
   possible collision signal unless the user explicitly selected it and its
   metadata matches the current branch/worktree.
+- A `beads-work anchor:` note for this issue is also a collision signal;
+  compare its issue, agent, branch, and worktree before mutation.
 - Do not edit source files.
 - Do not commit, merge, push, or close issues.
 - Do not create more than one issue for one delegation.
@@ -129,8 +131,11 @@ files or `beads-helpers.*` in a non-interactive shell.
 - Never repeat a confirmed successful create. If creation may have succeeded
   but the ID or outcome is unknown, stop for caller-assisted reconciliation;
   do not create a replacement speculatively.
-- Claim and state-file outcomes require their own evidence. Report a late
-  collision or failed state write as partial when the issue was already changed.
+- Claim and tracking outcomes require their own evidence. Verify current status
+  and assignee separately from a state file or Beads note. A failed readback
+  leaves tracking unknown; report a late collision or failed write as partial
+  when the issue was already changed. On retry, read back the existing anchor
+  before choosing a storage path; do not append a duplicate note.
 
 ## Workflow
 
@@ -153,10 +158,11 @@ files or `beads-helpers.*` in a non-interactive shell.
    - Confirm the repo has Beads metadata. For a bare ID, use
      the Read tool on `.beads/metadata.json`; use `dolt_database` as the prefix
      when present.
-   - Before any Beads mutation, check `.beads/in-progress-opencode.json`.
-     If present, require explicit caller selection and matching issue, branch,
-     and worktree metadata; otherwise stop for collision resolution. Existing
-     state does not authorize creating another issue.
+   - Before any Beads mutation, check `.beads/in-progress-opencode.json` in
+      the current worktree and `<bd> show <id>` for tracking notes.
+      If present, require explicit caller selection and matching issue, branch,
+      and worktree metadata; otherwise stop for collision resolution. Existing
+      state does not authorize creating another issue.
 2. Resolve the plan source:
    - Use passed plan text directly, or use the Read tool on only the confirmed
      file path.
@@ -207,20 +213,32 @@ files or `beads-helpers.*` in a non-interactive shell.
      after create/attach succeeds.
    - Verify current status and assignee with `<bd> show <id>` before confirming
      the claim. A failed readback is an unknown outcome, not a failed claim.
-6. Write tracking state only after the issue update succeeds:
-   - Use `.beads/in-progress-opencode.json`.
-   - Recheck for a collision immediately before writing state. If it exists
-     for a different issue, branch, or worktree, stop without overwriting and
-     report any already-completed issue mutations as partial.
+6. Record tracking state only after the issue update succeeds:
+   - Recheck for a collision immediately before writing tracking. If a file
+     or note exists for a different issue, agent, branch, or worktree, stop
+     without overwriting and report any already-completed issue mutations as partial.
    - Include at least: `id`, `agent`, `started_sha`, `started_at`, `branch`,
      `worktree_path`, and plan source/fingerprint when available.
    - Use the Git-derived state metadata from preflight. `branch` is the actual
      Git branch from `git rev-parse --abbrev-ref HEAD`; it is never a worktree
      directory name, Agent of Empires session name, or `ai-wt` path suffix.
      `worktree_path` is the repo root from `git rev-parse --show-toplevel`.
-   - Write the state file with the Edit tool using the relative path
-     `.beads/in-progress-opencode.json`. Do not write it with `cat >`, shell
-     redirection, or a heredoc.
+   - Use `.beads/in-progress-opencode.json` only when `.beads/` already
+     exists inside the writable current worktree and is not a symlink to
+     another checkout. Write using the Edit tool with that relative path;
+     read it back. Do not create a stub directory, write to another checkout,
+     or use shell redirection/heredocs.
+   - Otherwise append this single-line record to this issue's notes, filling
+     in actual values:
+
+     ```text
+     beads-work anchor: {"id":"<id>","agent":"OpenCode","branch":"<branch>","worktree_path":"<worktree_path>","started_sha":"<started_sha>","started_at":"<started_at>"}
+     ```
+
+     Use `<bd> update <id> --append-notes '<record>' --actor "OpenCode"`.
+     Read back with `<bd> show <id>` and confirm all fields before reporting
+     handoff ready. If readback fails, outcome is unknown; reconcile without
+     appending another anchor. Neither path widens filesystem permissions.
 7. Return a concise result.
 
 ## Output format
@@ -234,7 +252,7 @@ Done — Beads issue `<id>` is ready.
 - Title: <title>
 - Action: created | attached
 - Claimed: yes | no, <reason>
-- State file: written | skipped, <reason>
+- Tracking: state file written and verified | Beads note appended and verified | unknown, <reason>
 - Notes: <only important assumptions or collisions>
 ```
 

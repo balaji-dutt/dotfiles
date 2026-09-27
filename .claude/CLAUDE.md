@@ -22,7 +22,7 @@ approval and blocks with the create/attach/skip prompt.
 
 The hook is silent only when `.beads/in-progress-claude.json` names an issue
 that `bd` confirms is still live — `open`, `in_progress`, or `blocked`. The
-common case is `in_progress`, since claiming the issue is what writes the
+common case is `in_progress`, since a claim in a writable checkout writes the
 state file. Existence alone is not enough: a state file
 whose issue is closed, missing, or unreadable is stale and still prompts, and
 a state file that cannot be checked at all (no `bd`, unreachable Dolt server)
@@ -30,6 +30,12 @@ prompts with a distinct tooling-failure message rather than a claim about the
 issue. The three block messages are tagged `[BEADS_GATE: absent]`,
 `[BEADS_GATE: stale]`, and `[BEADS_GATE: unverified]`. Validation lives in
 `.claude/hooks/lib/beads_state.py`.
+
+In an isolated worktree without a writable local `.beads/`, a verified
+`beads-work anchor:` issue note carries the claim instead. The hook checks only
+local state files and only runs when `.beads/metadata.json` exists in the
+worktree. If its prompt appears for a note-only claim, inspect the note and
+issue before deciding whether another handoff is needed.
 
 ### When this applies
 
@@ -65,9 +71,9 @@ the user once whether this is an implementation plan (route here, to
    1. Create a new Beads issue from this approved plan (default).
    2. Attach the approved plan to an existing Beads issue (collect ID).
    3. Skip Beads for this session.
-2. If `.beads/in-progress-claude.json` already exists, mention the issue
-   ID and branch/worktree from that file and ask whether to reuse it
-   instead of creating a new one. Do not overwrite silently.
+2. If `.beads/in-progress-claude.json` or a `beads-work anchor:` issue note
+   already exists, mention the issue ID and branch/worktree from it and ask
+   whether to reuse it instead of creating a new one. Do not overwrite silently.
 3. If the user picks create or attach, delegate to `beads-issue-author`
    via the Agent tool with `subagent_type: beads-issue-author`. Pass:
    - the plan file path (exact, from the ExitPlanMode flow). Use the
@@ -83,7 +89,8 @@ the user once whether this is an implementation plan (route here, to
 5. Do not close the resulting issue from a feature-branch commit. Close
    only after the work lands on `main`/`master` (worktree-merge or
    direct), via the `beads-work` skill's close steps or
-   `agent-wt-merge --close-beads` at merge time.
+   `agent-wt-merge --close-beads` at merge time when a matching state file
+   exists. Note-only claims must be closed separately after landing.
 
 ### Identity constants (implementation handoff)
 
@@ -93,8 +100,9 @@ actor but sets no assignee — see **Preservation defaults** below.
 - Actor: `Claude` (matches `cc-commit`). Set on every Beads write.
 - Assignee: `Claude`. Set here because this path claims the issue to
   start work. Backlog-only creates leave it empty.
-- State file: `.beads/in-progress-claude.json`. Isolated from
-  `-opencode.json`; the harnesses must not share state.
+- Tracking: `.beads/in-progress-claude.json` when writable in this worktree;
+  otherwise a verified `beads-work anchor:` issue note. The state file is
+  isolated from `-opencode.json`; the harnesses must not share state.
 - Issue prefix: `dots-` for this repo (see `AGENTS.md` "Beads
   conventions" for the broader Beads rules).
 

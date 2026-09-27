@@ -673,13 +673,13 @@
       "owner": {"kind": "repository", "name": "repository-local OpenCode plugins"},
       "languages": ["javascript"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
-      "risk": "high",
+      "risk": "critical",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {"suite_id": "repo-opencode-plugins", "status": "covered", "work_item": "dots-4jy.10.4.2", "test_paths": ["tests/test_repo_opencode_plugins.py"], "behavior_requirements": [
-        {"id": "success-bash-dirty-delta", "kind": "success", "description": "Mark reviewable Bash changes to clean and previously dirty paths, including deletions, moves, symlinks, and executable mode.", "status": "covered", "test_paths": ["tests/test_repo_opencode_plugins.py"]},
         {"id": "failure-bash-snapshot-unavailable", "kind": "failure", "description": "Warn without inventing a gate when a before or after Git snapshot is unavailable or a hook is unpaired.", "status": "covered", "test_paths": ["tests/test_repo_opencode_plugins.py"]},
-        {"id": "safety-bash-session-and-budget", "kind": "safety", "description": "Avoid marking untouched, reverted, exempt, runtime, or oversized paths and isolate concurrent session-scoped gates.", "status": "covered", "test_paths": ["tests/test_repo_opencode_plugins.py"]}
+        {"id": "safety-bash-session-and-budget", "kind": "safety", "description": "Avoid marking untouched, reverted, exempt, runtime, or oversized paths and isolate concurrent session-scoped gates.", "status": "covered", "test_paths": ["tests/test_repo_opencode_plugins.py"]},
+        {"id": "success-bash-dirty-delta", "kind": "success", "description": "Mark reviewable Bash changes to clean and previously dirty paths, including deletions, moves, symlinks, and executable mode.", "status": "covered", "test_paths": ["tests/test_repo_opencode_plugins.py"]}
       ]},
       "rationale": "Isolated Node contract tests cover review event and state transitions, strict gate clearing, Bash dirty-snapshot success and failure paths, editor suppression lifecycle, redacted event logging, malformed inputs, and swallowed client or filesystem failures without npm or host-state dependencies."
     },

@@ -4,6 +4,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTHOR = ROOT / "private_dot_config/opencode/agents/beads-issue-author.md"
+CLAUDE_AUTHOR = ROOT / "dot_claude/agents/beads-issue-author.md"
+OPEN_SKILL = ROOT / "private_dot_config/opencode/skills/beads-work/SKILL.md"
+CLAUDE_SKILL = ROOT / "dot_claude/skills/beads-work/SKILL.md"
+HANDOFF = ROOT / ".opencode/instructions/beads-plan-handoff.md"
 BACKLOG = ROOT / ".opencode/agents/beads-backlog-manager.md"
 MIRROR = ROOT / (
     "private_Documents/development/container-dotfiles/dotfiles/"
@@ -71,17 +75,57 @@ class BeadsAgentSourceContractTests(unittest.TestCase):
     def test_author_checks_collisions_before_mutations_and_state_write(self) -> None:
         text = self.sources[AUTHOR]
         preflight = normalized(text.split("1. Preflight:", 1)[1].split("2. Resolve", 1)[0])
-        state = normalized(text.split("6. Write tracking state", 1)[1].split("7. Return", 1)[0])
-        self.assertIn("Before any Beads mutation, check `.beads/in-progress-opencode.json`.", preflight)
+        state = normalized(text.split("6. Record tracking state", 1)[1].split("7. Return", 1)[0])
+        self.assertIn("Before any Beads mutation, check `.beads/in-progress-opencode.json`", preflight)
+        self.assertIn("`<bd> show <id>` for tracking notes", preflight)
         self.assertIn("require explicit caller selection and matching issue, branch, and worktree", preflight)
-        self.assertIn("Recheck for a collision immediately before writing state.", state)
+        self.assertIn("Recheck for a collision immediately before writing tracking.", state)
         self.assertIn("report any already-completed issue mutations as partial", state)
+        self.assertIn("Do not create a stub directory, write to another checkout", state)
+        self.assertIn("--append-notes '<record>' --actor \"OpenCode\"", state)
+        self.assertIn("confirm all fields before reporting handoff ready", state)
 
     def test_author_claim_and_state_need_distinct_evidence(self) -> None:
         text = normalized(self.sources[AUTHOR])
-        self.assertIn("Claim and state-file outcomes require their own evidence.", text)
+        self.assertIn("Claim and tracking outcomes require their own evidence.", text)
         self.assertIn("Verify current status and assignee with `<bd> show <id>`", text)
         self.assertIn("A failed readback is an unknown outcome, not a failed claim.", text)
+        self.assertIn("do not append a duplicate note", text)
+
+    def test_both_author_and_skill_modes(self) -> None:
+        claude = normalized(CLAUDE_AUTHOR.read_text())
+        self.assertIn("Check both before mutation", claude)
+        self.assertIn("--append-notes", claude)
+        self.assertIn(' --actor "Claude"', claude)
+        self.assertIn("Read back using `command bd show <id>` and confirm all six fields", claude)
+        self.assertIn("Do not create a local stub `.beads/`", claude)
+        self.assertIn("report an unknown/partial outcome", claude)
+        self.assertIn("Preserve the existing title, type, labels, priority", claude)
+        handoff = normalized(HANDOFF.read_text())
+        self.assertIn("Match a `beads-work anchor:` note by issue ID, agent, branch, and worktree", handoff)
+        for skill, actor in ((OPEN_SKILL, "OpenCode"), (CLAUDE_SKILL, "Claude")):
+            with self.subTest(skill=skill):
+                source = skill.read_text()
+                text = normalized(source)
+                for clause in (
+                    "parent already exists **inside the current worktree**",
+                    "Never create a stub `.beads/`",
+                    "--append-notes",
+                    "Do not claim a successful handoff until readback confirms all six fields exactly",
+                    "Match issue, agent, branch, and worktree first",
+                    "Set `SHAS` to only the verified commits for this issue",
+                    "**do not close** on a feature branch",
+                    "append a dated cancellation note",
+                ):
+                    self.assertIn(clause, text)
+                self.assertTrue(any(
+                    "beads-work anchor:" in line and f'"agent":"{actor}"' in line
+                    and f'--actor "{actor}"' in line
+                    for line in source.splitlines()
+                ))
+        self.assertIn("unknown, <reason>", AUTHOR.read_text())
+        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", OPEN_SKILL.read_text())
+        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", CLAUDE_SKILL.read_text())
 
     def test_backlog_link_failure_cannot_authorize_handoff_or_duplicate_create(self) -> None:
         text = normalized(self.sources[BACKLOG])
@@ -103,6 +147,16 @@ class BeadsAgentSourceContractTests(unittest.TestCase):
 
     def test_author_container_mirror_is_identical(self) -> None:
         self.assertEqual(AUTHOR.read_bytes(), MIRROR.read_bytes())
+
+    def test_other_container_mirrors_are_identical(self) -> None:
+        mirror_root = ROOT / "private_Documents/development/container-dotfiles/dotfiles"
+        for source, mirror in (
+            (CLAUDE_AUTHOR, mirror_root / "dot_claude/agents/beads-issue-author.md"),
+            (OPEN_SKILL, mirror_root / "private_dot_config/opencode/skills/beads-work/SKILL.md"),
+            (CLAUDE_SKILL, mirror_root / "dot_claude/skills/beads-work/SKILL.md"),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(source.read_bytes(), mirror.read_bytes())
 
 
 if __name__ == "__main__":
