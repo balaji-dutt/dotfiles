@@ -4,8 +4,11 @@
 
        chezmoi owns  - dot_claude/settings-base.json (env, permissions,
                        statusLine, ...), the PreToolUse/Bash
-                       gate-bd-destructive.sh hook declared in it, and the
-                       macOS-only OpenUsage telemetry hooks added below.
+                       gate-bd-destructive.sh hook declared in it, the
+                       agent-wt-merge allow rules added below (they need
+                       this checkout's absolute path, which the plain-JSON
+                       base cannot hold), and the macOS-only OpenUsage
+                       telemetry hooks added below.
        aoe owns      - every hook group whose command carries the trailing
                        `# aoe-hooks` sentinel. Those are adopted verbatim from
                        the file on disk so `chezmoi apply` never reverts what
@@ -36,6 +39,22 @@
 {{-   $live = ($input | fromJson) | default dict -}}
 {{- end -}}
 {{- $settings := include "dot_claude/settings-base.json" | fromJson -}}
+{{- $permissions := (index $settings "permissions") | default dict -}}
+{{- $allow := (index $permissions "allow") | default list -}}
+{{- /* printf, not joinPath: joinPath emits backslashes on Windows, but Git Bash commands use drive-letter paths such as F:/. */ -}}
+{{- $resolver := printf "%s/assets/resolve-python3" .chezmoi.workingTree -}}
+{{- range $helperPath := list "assets/agent-wt-merge" ".opencode/bin/agent-wt-merge" -}}
+{{-   $helper := printf "%s/%s" $.chezmoi.workingTree $helperPath -}}
+{{-   range $sub := list "inspect" "ff" "no-ff" -}}
+{{-     $allow = concat $allow (list (printf "Bash(%s %s:*)" $helper $sub) (printf "Bash(\"%s\" %s:*)" $helper $sub) (printf "Bash('%s' %s:*)" $helper $sub)) -}}
+{{-     if eq $.chezmoi.os "windows" -}}
+{{- /* Native Windows has no python3 on PATH, so the helper runs through the resolver. */ -}}
+{{-       $allow = concat $allow (list (printf "Bash(%s -- %s %s:*)" $resolver $helper $sub) (printf "Bash(\"%s\" -- \"%s\" %s:*)" $resolver $helper $sub) (printf "Bash('%s' -- '%s' %s:*)" $resolver $helper $sub)) -}}
+{{-     end -}}
+{{-   end -}}
+{{- end -}}
+{{- $_ := set $permissions "allow" $allow -}}
+{{- $_ := set $settings "permissions" $permissions -}}
 {{- $hooks := (index $settings "hooks") | default dict -}}
 {{- range $event, $groups := ((index $live "hooks") | default dict) -}}
 {{-   $adopted := list -}}
