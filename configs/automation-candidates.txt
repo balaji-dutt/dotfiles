@@ -52,9 +52,11 @@
 .claude/hooks/lib/beads_state.py	script-extension,shebang
 .claude/hooks/lib/resolve-python.sh	script-extension
 .claude/hooks/lib/review_gate.py	script-extension,shebang
+.claude/hooks/mark-needs-review-bash.sh	script-extension,shebang
 .claude/hooks/mark-needs-review.sh	script-extension,shebang
 .claude/hooks/record-reviewer-start.sh	script-extension,shebang
 .claude/hooks/remind-beads-on-plan-approval.sh	script-extension,shebang
+.claude/hooks/snapshot-before-bash.sh	script-extension,shebang
 .envrc	known-automation-file,shebang
 .gitlab-ci.yml	known-automation-file
 .opencode/plugins/editor-markdownlint-suppress.js	script-extension
