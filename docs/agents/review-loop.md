@@ -39,6 +39,34 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   independently), is not a review-loop runtime artifact, and is not exempt
   per `exemptPaths`. Edits outside the repo (`/tmp`, plan files) and
   backlog-only sessions never raise a gate.
+- Native worktrees (`EnterWorktree`, `claude --worktree`, subagents with
+  `isolation: worktree`): Claude Code can move the hook payload `cwd` into a
+  worktree while `CLAUDE_PROJECT_DIR` stays on the checkout the session
+  started in. The gate, its lock and the in-flight records stay at that
+  project checkout. An edit is also accepted when it lands in the checkout
+  that contains the payload `cwd`, if that checkout is another worktree of
+  the same repository (same git common dir); it is recorded in the gate's
+  `roots` map under the worktree path. A Bash command run from a worktree is
+  diffed in that worktree and in the project checkout. At Stop each checkout
+  is judged separately. Whenever the gate has worktree entries or Stop runs
+  from a worktree, the reviewer is scoped with `git -C` for every checkout.
+  A worktree that has since been removed, or whose gitdir was pruned, hands
+  its files to the project checkout, so a branch merged into the project
+  checkout's current branch still needs review; a worktree that git refuses
+  to open (for example `safe.directory`) keeps its files and the block.
+  Finding the worktree costs no git call while `cwd` is inside the project
+  checkout, and the git calls that find worktrees and diff snapshots share
+  an 8-second budget per hook run, under the 10-second hook timeout.
+  - Known gaps: a command run from the project checkout that edits a
+    worktree by path, or one that edits a third checkout, is not diffed
+    there. While the session is in a worktree, project-checkout files can be
+    reviewed only after `ExitWorktree` (keeping the worktree), because
+    Claude Code blocks `git -C` into the project checkout from a worktree
+    session and its subagents. A `cd` into any other worktree of this repo,
+    the main checkout included, also gates edits made there. The worktree's
+    own settings may load as well and fire the hooks twice; every hook step
+    is idempotent. The no-Python legacy fallback judges the project checkout
+    only.
 - Files changed by a shell command are gated by a snapshot pair on
   `Bash|PowerShell`. `snapshot-before-bash.sh` (PreToolUse) fingerprints the
   checkout's dirty set
@@ -114,10 +142,11 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
   JSON with `timestamp`, `firstTimestamp`, `markedAt` (the last mark as a
   float, which orders an edit and a reviewer launch in the same second;
-  gates without it round `timestamp` up a second), `sessionID`, and the
-  accumulated repo-relative `files` list. Without Python or the helper
-  script, the `Write|Edit` marker hook falls back to an unconditional mark
-  in the legacy unsuffixed `.claude/.needs_dotfiles_review`.
+  gates without it round `timestamp` up a second), `sessionID`, the
+  accumulated repo-relative `files` list, and an optional `roots` map from
+  another worktree's path to files relative to it. Without Python or the
+  helper script, the `Write|Edit` marker hook falls back to an unconditional
+  mark in the legacy unsuffixed `.claude/.needs_dotfiles_review`.
 - All six hooks pick their interpreter through
   `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
   `py -3` and executes each candidate before accepting it. A lookup alone is

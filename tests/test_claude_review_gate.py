@@ -6,6 +6,8 @@ import importlib.util
 import io
 import json
 import os
+import shlex
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
@@ -139,16 +141,39 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.environment = mock.patch.dict(os.environ, env, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
-        self.repo = init_git_repository(self.isolated.root / "repo", env=self.isolated.env)
-        (self.repo / ".opencode").mkdir()
-        (self.repo / ".claude").mkdir()
-        (self.repo / ".opencode/opencode-tooling.config.jsonc").write_text(
+        self.repo = self.make_home()
+
+    def make_home(self) -> Path:
+        return self.seed(init_git_repository(self.isolated.root / "repo", env=self.isolated.env))
+
+    def seed(self, repo: Path) -> Path:
+        (repo / ".opencode").mkdir()
+        (repo / ".claude").mkdir()
+        (repo / ".opencode/opencode-tooling.config.jsonc").write_text(
             '{"exemptPaths": ["docs/**", "!docs/agents/**"], "reviewerAgent": "review bot", "resultMarkerPrefix": "RESULT"}\n',
             encoding="utf-8",
         )
-        (self.repo / "baseline.txt").write_text("base\n", encoding="utf-8")
-        run_git(self.repo, "add", ".", env=self.isolated.env)
-        run_git(self.repo, "commit", "-m", "baseline", env=self.isolated.env)
+        (repo / "baseline.txt").write_text("base\n", encoding="utf-8")
+        run_git(repo, "add", ".", env=self.isolated.env)
+        run_git(repo, "commit", "-m", "baseline", env=self.isolated.env)
+        return repo
+
+    def worktree(self, name: str = "x") -> Path:
+        path = self.repo / ".claude" / "worktrees" / name
+        run_git(self.repo, "worktree", "add", "-q", "-b", "wt-" + name.replace(" ", "-"), str(path), env=self.isolated.env)
+        return path
+
+    def edit_payload(self, target: Path, cwd: Path, session_id: str = "session/one") -> dict[str, object]:
+        return {"cwd": str(cwd), "session_id": session_id, "tool_input": {"file_path": str(target)}}
+
+    def roots(self, session_id: str = "session/one") -> dict[str, list[str]]:
+        return review_gate.gate_roots(review_gate.read_gate(self.gate(session_id)) or {})
+
+    def bucket_key(self, checkout: Path) -> str | None:
+        return review_gate.root_key(self.roots(), str(checkout))
+
+    def bucket(self, checkout: Path) -> list[str]:
+        return self.roots().get(self.bucket_key(checkout), [])
 
     def payload(self, relpath: str, session_id: str = "session/one") -> dict[str, object]:
         return {
@@ -435,11 +460,11 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.clear(None)
         self.assertFalse(record.exists())
 
-    def bash_payload(self, tool_use_id: str, session_id: str = "session/one", background: bool = False) -> dict[str, object]:
+    def bash_payload(self, tool_use_id: str, session_id: str = "session/one", background: bool = False, cwd: Path | None = None) -> dict[str, object]:
         tool_input: dict[str, object] = {"command": "true"}
         if background:
             tool_input["run_in_background"] = True
-        return {"cwd": str(self.repo), "session_id": session_id, "tool_use_id": tool_use_id, "tool_input": tool_input}
+        return {"cwd": str(cwd or self.repo), "session_id": session_id, "tool_use_id": tool_use_id, "tool_input": tool_input}
 
     def snapshot(self, tool_use_id: str = "t1", **options: object) -> None:
         self.assertEqual(review_gate.cmd_snapshot(self.bash_payload(tool_use_id, **options), str(self.repo)), 0)
@@ -793,6 +818,228 @@ class ReviewGateRepositoryTests(unittest.TestCase):
             self.assertEqual(json.loads(self.enforce())["decision"], "block")
         self.assertIn("snapshot reconcile failed", stderr.getvalue())
 
+    def test_write_edit_in_a_nested_worktree_is_gated_under_its_checkout(self) -> None:
+        wt = self.worktree()
+        (wt / "sub").mkdir()
+        target = wt / "sub" / "file.txt"
+        target.write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(target, wt / "sub"), str(self.repo))
+        (wt / "rel.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(Path("rel.txt"), wt), str(self.repo))
+        self.assertEqual(self.gated(), [])
+        self.assertEqual(self.bucket(wt), ["rel.txt", "sub/file.txt"])
+        self.assertFalse(Path(review_gate.gate_path(str(wt), "session/one")).exists())
+
+    def test_work_root_falls_back_to_home_and_never_gates_an_unrelated_repo(self) -> None:
+        other = init_git_repository(self.isolated.root / "other", env=self.isolated.env)
+        (self.repo / "sub").mkdir()
+        home = str(self.repo)
+        with mock.patch.object(review_gate, "git_common_dir", side_effect=AssertionError("git called")):
+            for cwd in (None, "", str(self.repo), str(self.repo / "sub"), str(self.isolated.root / "missing")):
+                with self.subTest(cwd=cwd):
+                    self.assertEqual(review_gate.work_root({"cwd": cwd}, home), home)
+        self.assertEqual(review_gate.work_root({"cwd": str(other)}, home), home)
+        target = other / "file.txt"
+        target.write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(target, other), home)
+        self.assertFalse(self.gate().exists())
+        self.assertFalse((other / ".claude").exists())
+
+    def test_bash_in_a_worktree_marks_the_checkout_it_started_in(self) -> None:
+        wt = self.worktree()
+        self.assertEqual(review_gate.cmd_snapshot(self.bash_payload("t1", cwd=wt), str(self.repo)), 0)
+        (wt / "made.txt").write_text("x\n", encoding="utf-8")
+        self.assertEqual(review_gate.cmd_mark_bash(self.bash_payload("t1", cwd=self.repo), str(self.repo)), 0)
+        self.assertEqual(self.gated(), [])
+        self.assertEqual(self.bucket(wt), ["made.txt"])
+
+    def test_reconcile_and_sync_stay_within_each_checkout(self) -> None:
+        wt = self.worktree()
+        self.snapshot("home-bg", background=True)
+        self.mark_bash("home-bg", background=True)
+        review_gate.cmd_snapshot(self.bash_payload("wt-bg", background=True, cwd=wt), str(self.repo))
+        review_gate.cmd_mark_bash(self.bash_payload("wt-bg", background=True, cwd=wt), str(self.repo))
+        (self.repo / "h.txt").write_text("x\n", encoding="utf-8")
+        (wt / "w.txt").write_text("x\n", encoding="utf-8")
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        self.assertEqual(self.gated(), ["h.txt"])
+        self.assertEqual(self.bucket(wt), ["w.txt"])
+        (wt / "w2.txt").write_text("x\n", encoding="utf-8")
+        review_gate.write_gate(str(self.repo), "session/one", ["w2.txt"], checkout=str(wt))
+        for path in self.snapshots():
+            snap = review_gate.read_snapshot(str(path))
+            self.assertEqual("w2.txt" in snap["fingerprints"], Path(snap["root"]).resolve() == wt.resolve())
+
+    def test_enforce_scopes_every_checkout_and_stands_down_when_all_are_clean(self) -> None:
+        wt = self.worktree("with space")
+        self.mark("home.txt")
+        (wt / "wt.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "wt.txt", wt), str(self.repo))
+        reason = json.loads(self.enforce())["reason"]
+        self.assertIn("git -C " + shlex.quote(str(self.repo)) + " diff -- home.txt", reason)
+        self.assertIn("git -C " + shlex.quote(self.bucket_key(wt)) + " diff -- wt.txt", reason)
+        self.assertIn("ExitWorktree", reason)
+        (self.repo / "home.txt").unlink()
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        (wt / "wt.txt").unlink()
+        self.assertEqual(self.enforce(), "")
+        self.assertFalse(self.gate().exists())
+
+    def test_two_worktree_buckets_must_both_be_clean_without_an_exit_hint(self) -> None:
+        first, second = self.worktree("one"), self.worktree("two")
+        for wt in (first, second):
+            (wt / "f.txt").write_text("x\n", encoding="utf-8")
+            review_gate.cmd_mark(self.edit_payload(wt / "f.txt", wt), str(self.repo))
+        self.assertEqual(len(self.roots()), 2)
+        self.assertNotIn("ExitWorktree", json.loads(self.enforce())["reason"])
+        (first / "f.txt").unlink()
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        (second / "f.txt").unlink()
+        self.assertEqual(self.enforce(), "")
+
+    def test_bash_from_a_worktree_still_gates_home_files_it_writes(self) -> None:
+        wt = self.worktree()
+        self.assertEqual(review_gate.cmd_snapshot(self.bash_payload("t1", cwd=wt), str(self.repo)), 0)
+        self.assertEqual(len(self.snapshots()), 2)
+        (self.repo / "home.txt").write_text("x\n", encoding="utf-8")
+        (wt / "wt.txt").write_text("x\n", encoding="utf-8")
+        self.assertEqual(review_gate.cmd_mark_bash(self.bash_payload("t1", cwd=wt), str(self.repo)), 0)
+        self.assertEqual(self.gated(), ["home.txt"])
+        self.assertEqual(self.bucket(wt), ["wt.txt"])
+        self.assertEqual(self.snapshots(), [])
+
+    def test_a_live_worktree_git_refuses_is_not_folded(self) -> None:
+        wt = self.worktree()
+        (wt / "f.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "f.txt", wt), str(self.repo))
+        real_run = subprocess.run
+
+        def refuse(args, **kwargs):
+            if "--show-toplevel" in args and review_gate.same_path(args[2], str(wt)):
+                return subprocess.CompletedProcess(args, 128, b"", b"fatal: detected dubious ownership")
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(review_gate.subprocess, "run", refuse):
+            self.assertEqual(review_gate.checkout_state(str(wt)), "unknown")
+            self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        self.assertEqual(self.bucket(wt), ["f.txt"])
+        self.assertEqual(self.gated(), [])
+
+    def test_home_only_gate_is_scoped_with_git_c_from_a_worktree(self) -> None:
+        wt = self.worktree()
+        review_gate.cmd_snapshot(self.bash_payload("t1", cwd=wt), str(self.repo))
+        (self.repo / "home.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark_bash(self.bash_payload("t1", cwd=wt), str(self.repo))
+        self.assertEqual(self.roots(), {})
+        output = io.StringIO()
+        with mock.patch.object(review_gate.sys, "stdout", output):
+            review_gate.cmd_enforce({"session_id": "session/one", "cwd": str(wt)}, str(self.repo))
+        reason = json.loads(output.getvalue())["reason"]
+        self.assertIn("git -C " + shlex.quote(str(self.repo)) + " diff -- home.txt", reason)
+        self.assertIn("ExitWorktree (keep the worktree)", reason)
+        self.assertNotIn("git -C", json.loads(self.enforce())["reason"])
+
+    def test_one_git_budget_bounds_every_call_in_a_hook_run(self) -> None:
+        stderr = io.StringIO()
+        with mock.patch.object(review_gate, "GIT_DEADLINE", [time.monotonic() - 1]), mock.patch.object(
+            review_gate.sys, "stderr", stderr
+        ):
+            self.assertIsNone(review_gate.run_git_raw(str(self.repo), ["status"]))
+            self.snapshot("t1")
+        self.assertEqual(self.snapshots(), [])
+        self.assertIn("not checked there", stderr.getvalue())
+
+    def test_a_toplevel_mismatch_is_unknown_not_gone(self) -> None:
+        wt = self.worktree()
+        real_run = subprocess.run
+
+        def elsewhere(args, **kwargs):
+            if "--show-toplevel" in args and review_gate.same_path(args[2], str(wt)):
+                return subprocess.CompletedProcess(args, 0, os.fsencode(str(self.repo)) + b"\n", b"")
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(review_gate.subprocess, "run", elsewhere):
+            self.assertEqual(review_gate.checkout_state(str(wt)), "unknown")
+
+    def test_a_snapshot_whose_checkout_failed_to_diff_survives_the_foreground_ttl(self) -> None:
+        self.snapshot("interrupted")
+        [path] = self.snapshots()
+        data = review_gate.read_snapshot(str(path))
+        data["created"] -= review_gate.FOREGROUND_SNAPSHOT_TTL_SECONDS + 1
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.write("late.txt", "x\n")
+        with mock.patch.object(review_gate, "dirty_paths", return_value=None):
+            self.assertEqual(review_gate.reconcile_snapshots(str(self.repo), "session/one"), [])
+        self.assertTrue(path.exists())
+        self.assertEqual(review_gate.reconcile_snapshots(str(self.repo), "session/one"), ["late.txt"])
+        self.assertFalse(path.exists())
+
+    def test_stop_scopes_from_a_worktree_even_after_the_git_budget_runs_out(self) -> None:
+        wt = self.worktree()
+        self.mark("home.txt")
+
+        def reconcile_spends_the_budget(root: str, session_id: str) -> list[str]:
+            review_gate.GIT_DEADLINE[0] = time.monotonic() - 1
+            return []
+
+        output = io.StringIO()
+        with mock.patch.object(review_gate, "GIT_DEADLINE", [time.monotonic() + 60]), mock.patch.object(
+            review_gate, "reconcile_snapshots", reconcile_spends_the_budget
+        ), mock.patch.object(review_gate.sys, "stdout", output):
+            review_gate.cmd_enforce({"session_id": "session/one", "cwd": str(wt)}, str(self.repo))
+        self.assertIn("git -C " + shlex.quote(str(self.repo)) + " diff -- home.txt", json.loads(output.getvalue())["reason"])
+
+    def test_a_merged_then_removed_worktree_still_blocks(self) -> None:
+        wt = self.worktree()
+        (wt / "feature.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "feature.txt", wt), str(self.repo))
+        marked_at = review_gate.read_gate(self.gate())["markedAt"]
+        run_git(wt, "add", "feature.txt", env=self.isolated.env)
+        run_git(wt, "commit", "-q", "-m", "feature", env=self.isolated.env)
+        run_git(self.repo, "merge", "-q", "--ff-only", "wt-x", env=self.isolated.env)
+        run_git(self.repo, "worktree", "remove", str(wt), env=self.isolated.env)
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        gate = review_gate.read_gate(self.gate())
+        self.assertEqual(gate["files"], ["feature.txt"])
+        self.assertNotIn("roots", gate)
+        self.assertEqual(gate["markedAt"], marked_at)
+
+    def test_a_pruned_worktree_is_gone_but_a_git_failure_keeps_the_block(self) -> None:
+        wt = self.worktree()
+        (wt / "f.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "f.txt", wt), str(self.repo))
+        original = review_gate.run_git_raw
+
+        def failing(root: str, args: list[str], timeout: int = 5):
+            return None if review_gate.same_path(root, str(wt)) else original(root, args, timeout)
+
+        (wt / "f.txt").unlink()
+        with mock.patch.object(review_gate, "run_git_raw", failing):
+            self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        self.assertEqual(self.enforce(), "")
+
+        wt2 = self.worktree("pruned")
+        (wt2 / "g.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt2 / "g.txt", wt2), str(self.repo))
+        common = self.repo / run_git(self.repo, "rev-parse", "--git-common-dir", env=self.isolated.env).stdout.strip()
+        live = self.worktree("live")
+        shutil.rmtree(common / "worktrees" / "pruned")
+        with mock.patch.object(review_gate, "GIT_DEADLINE", [time.monotonic() - 1]):
+            self.assertEqual(review_gate.checkout_state(str(live)), "unknown")
+            self.assertEqual(review_gate.checkout_state(str(wt2)), "gone")
+        self.assertEqual(review_gate.checkout_state(str(live)), "live")
+        self.assertEqual(self.enforce(), "")
+
+    def test_update_gate_keeps_roots_across_home_marks_and_legacy_absorb(self) -> None:
+        wt = self.worktree()
+        (wt / "w.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "w.txt", wt), str(self.repo))
+        self.gate("").write_text(json.dumps({"timestamp": 10, "files": ["legacy.txt"], "roots": {str(wt) + os.sep: ["l.txt"]}}), encoding="utf-8")
+        self.mark("home.txt")
+        self.assertEqual(self.gated(), ["home.txt", "legacy.txt"])
+        self.assertEqual(self.bucket(wt), ["l.txt", "w.txt"])
+        self.assertEqual(len(self.roots()), 1)
+
     def test_enforce_reconciles_only_this_sessions_orphaned_snapshots(self) -> None:
         self.snapshot("other", session_id="session/other")
         self.write("theirs.txt", "x\n")
@@ -868,6 +1115,17 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("review_gate.py:", result.stderr)
+
+
+class ReviewGateLinkedHomeTests(ReviewGateRepositoryTests):
+    """Every repository test again with home as a linked worktree, as under Agent of Empires."""
+
+    def make_home(self) -> Path:
+        main = self.seed(init_git_repository(self.isolated.root / "main", env=self.isolated.env))
+        home = self.isolated.root / "home"
+        run_git(main, "worktree", "add", "-q", "-b", "home-branch", str(home), env=self.isolated.env)
+        (home / ".claude").mkdir(exist_ok=True)
+        return home
 
 
 if __name__ == "__main__":

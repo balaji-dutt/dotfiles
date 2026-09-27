@@ -22,7 +22,8 @@ Subcommands (the Claude hook payload JSON is read from stdin):
 Gate file: .claude/.needs_dotfiles_review.<sanitized session_id>, JSON:
   {"timestamp": <last mark>, "firstTimestamp": <first mark>,
    "markedAt": <last mark, float>, "sessionID": "...",
-   "files": ["repo/relative", ...]}
+   "files": ["repo/relative", ...],
+   "roots": {"<other checkout>": ["checkout/relative", ...]}}  (optional)
 An unsuffixed .claude/.needs_dotfiles_review (legacy epoch-int format) is
 accepted as a fallback and merged/cleared during migration.
 
@@ -46,9 +47,12 @@ Path policy comes from the config shared with the OpenCode plugins
 Negations in exemptPaths are honored the same way as the OpenCode marker:
 exempt = matches a positive pattern AND matches no "!" pattern.
 
-Wrappers cd to the project dir first; all paths here are resolved against
-the git toplevel of the current working directory, which in a git worktree
-is the worktree root (each worktree gates only its own edits).
+Wrappers cd to the project dir first. Its git toplevel is "home": the gate,
+lock and in-flight records live there. Edits are also accepted from the
+session's work root, the payload cwd's checkout when it is another checkout
+of home's repository (Claude Code's EnterWorktree moves cwd but not
+CLAUDE_PROJECT_DIR); they are gated under "roots". Other checkouts, sibling
+worktrees included, gate only their own edits.
 """
 
 import glob
@@ -103,12 +107,20 @@ SNAPSHOT_TTL_SECONDS = 60 * 60
 FOREGROUND_SNAPSHOT_TTL_SECONDS = 15 * 60
 HASH_BUDGET_BYTES = 64 * 1024 * 1024
 RACY_MTIME_SECONDS = 2
+HOME_SNAPSHOT = "\0home"
 SNAPSHOT_GLOB = "[0-9a-f]" * 16 + "-" + "[0-9a-f]" * 16 + ".json*"
-# Below the 10 s hook timeout, so a slow git fails here rather than mid-write.
 SNAPSHOT_GIT_TIMEOUT = 5
+# Shared by all run_git_raw calls in one hook run; below the 10 s hook timeout.
+HOOK_GIT_BUDGET = 8
+GIT_DEADLINE = [None]
 
 
 def run_git_raw(root, args, timeout=SNAPSHOT_GIT_TIMEOUT):
+    if GIT_DEADLINE[0] is not None:
+        remaining = GIT_DEADLINE[0] - time.monotonic()
+        if remaining <= 0:
+            return None
+        timeout = min(timeout, remaining)
     try:
         proc = subprocess.run(
             ["git", "-C", root] + args,
@@ -394,11 +406,11 @@ def cmd_mark(payload, root):
 
     file_path = os.path.expanduser(file_path)
     if not os.path.isabs(file_path):
-        file_path = os.path.join(payload.get("cwd") or root, file_path)
+        cwd = normalize_host_path(payload.get("cwd") or "") or root
+        file_path = os.path.join(cwd, file_path)
     file_path = os.path.realpath(file_path)
 
-    # Inside-this-checkout test: the file's git toplevel must be this root.
-    # A prefix test would misclassify nested worktrees (worktrees/<branch>/).
+    # Compare git toplevels; a path-prefix test misclassifies nested worktrees.
     directory = os.path.dirname(file_path)
     while directory and not os.path.isdir(directory):
         parent = os.path.dirname(directory)
@@ -406,17 +418,78 @@ def cmd_mark(payload, root):
             break
         directory = parent
     top = git_toplevel(directory) if os.path.isdir(directory) else None
-    if not top or not same_path(top, root):
+    if not top:
+        return 0
+    checkout = root if same_path(top, root) else work_root(payload, root)
+    if not same_path(top, checkout):
         return 0
 
-    rel = normalize_rel(os.path.relpath(file_path, os.path.realpath(root)))
+    rel = normalize_rel(os.path.relpath(file_path, os.path.realpath(checkout)))
     if rel.startswith("../"):
         return 0
     if not is_reviewable(rel, load_config(root)):
         return 0
 
-    write_gate(root, payload.get("session_id") or "", [rel])
+    write_gate(root, payload.get("session_id") or "", [rel], checkout=checkout)
     return 0
+
+
+def git_common_dir(directory):
+    """(toplevel, realpath of the git common dir) for a checkout, or (None, None).
+    Relative output is relative to `directory`; this works before git 2.31."""
+    out = run_git_raw(directory, ["rev-parse", "--show-toplevel", "--git-common-dir"])
+    if out is None:
+        return None, None
+    lines = [line.strip() for line in os.fsdecode(out).splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None, None
+    return lines[0], os.path.realpath(os.path.join(directory, lines[1]))
+
+
+def work_root(payload, home):
+    """The checkout the session is working in: the payload cwd's toplevel when
+    it is another checkout of home's repository, otherwise home."""
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        return home
+    directory = os.path.realpath(normalize_host_path(cwd))
+    if not os.path.isdir(directory):
+        return home
+    # Walk up to the nearest .git: reaching home first costs no git call.
+    while not same_path(directory, home):
+        if os.path.lexists(os.path.join(directory, ".git")):
+            break
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return home
+        directory = parent
+    else:
+        return home
+    top, common = git_common_dir(directory)
+    if not top:
+        return home
+    _, home_common = git_common_dir(home)
+    if not home_common or not same_path(common, home_common):
+        return home
+    return os.path.realpath(top)
+
+
+def gate_roots(gate):
+    """{checkout: [rels]} for gated checkouts other than home."""
+    roots = gate.get("roots") if isinstance(gate, dict) else None
+    out = {}
+    if isinstance(roots, dict):
+        for key, rels in roots.items():
+            if isinstance(key, str) and key and isinstance(rels, list):
+                out[key] = [r for r in rels if isinstance(r, str)]
+    return out
+
+
+def root_key(roots, checkout):
+    for key in roots:
+        if same_path(key, checkout):
+            return key
+    return None
 
 
 def write_json_atomic(path, data):
@@ -467,23 +540,27 @@ def gate_lock(root):
             os.close(fd)
 
 
-def write_gate(root, session_id, rels, fingerprints=None):
-    """Add rels to the session gate and its live snapshots."""
+def write_gate(root, session_id, rels, fingerprints=None, checkout=None):
+    """Add rels (relative to `checkout`, default home) to the session gate and
+    to live snapshots of that checkout."""
+    checkout = checkout or root
     with gate_lock(root):
-        update_gate(root, session_id, rels)
-        sync_snapshots(root, session_id, rels, fingerprints or {})
+        update_gate(root, session_id, rels, checkout)
+        sync_snapshots(checkout, session_id, rels, fingerprints or {})
 
 
-def update_gate(root, session_id, rels):
+def update_gate(root, session_id, rels, checkout):
     path = gate_path(root, session_id)
     marked_at = time.time()
     now = int(marked_at)
     files = set()
+    roots = {}
     first = now
 
     existing = read_gate(path)
     if existing:
         files.update(f for f in existing.get("files") or [] if isinstance(f, str))
+        roots.update(gate_roots(existing))
         try:
             first = min(first, int(existing.get("firstTimestamp") or existing.get("timestamp")))
         except (TypeError, ValueError):
@@ -494,6 +571,9 @@ def update_gate(root, session_id, rels):
     if session_id and os.path.exists(unsuffixed):
         legacy = read_gate(unsuffixed) or {}
         files.update(f for f in legacy.get("files") or [] if isinstance(f, str))
+        for key, extra in gate_roots(legacy).items():
+            key = root_key(roots, key) or key
+            roots[key] = sorted(set(roots.get(key, [])) | set(extra))
         try:
             first = min(first, int(legacy.get("firstTimestamp") or legacy.get("timestamp")))
         except (TypeError, ValueError):
@@ -503,7 +583,11 @@ def update_gate(root, session_id, rels):
         except OSError:
             pass
 
-    files.update(rels)
+    if same_path(checkout, root):
+        files.update(rels)
+    else:
+        key = root_key(roots, checkout) or os.path.realpath(checkout)
+        roots[key] = sorted(set(roots.get(key, [])) | set(rels))
     data = {
         "timestamp": now,
         "firstTimestamp": first,
@@ -511,6 +595,8 @@ def update_gate(root, session_id, rels):
         "sessionID": session_id,
         "files": sorted(files),
     }
+    if roots:
+        data["roots"] = roots
     write_json_atomic(path, data)
 
 
@@ -577,13 +663,14 @@ def fingerprint(root, rel, previous, budget, reuse_before_ns):
         return ["unreadable", st.st_size, st.st_mtime_ns]
 
 
-def dirty_fingerprints(root, previous=None, taken=0.0):
-    """Reviewable dirty set. Old hashes are reused only for files unchanged
-    since RACY_MTIME_SECONDS before `taken`."""
+def dirty_fingerprints(root, previous=None, taken=0.0, cfg=None):
+    """Reviewable dirty set under `cfg` (home's path policy). Old hashes are
+    reused only for files unchanged since RACY_MTIME_SECONDS before `taken`."""
     paths = dirty_paths(root)
     if paths is None:
         return None
-    cfg = load_config(root)
+    if cfg is None:
+        cfg = load_config(root)
     previous = previous or {}
     reuse_before_ns = int((taken - RACY_MTIME_SECONDS) * 1e9)
     budget = [HASH_BUDGET_BYTES]
@@ -665,9 +752,11 @@ def read_snapshot(path):
     return data
 
 
-def prune_snapshots(directory, now, own_session=None):
+def prune_snapshots(directory, now, own_session=None, keep=()):
     # Snapshot names only: an overridden state directory may hold other files.
     for path in glob.glob(os.path.join(glob.escape(directory), SNAPSHOT_GLOB)):
+        if path in keep:
+            continue
         data = read_snapshot(path) if path.endswith(".json") else None
         created = as_epoch(data.get("created")) if data else None
         if created is None:
@@ -683,31 +772,33 @@ def prune_snapshots(directory, now, own_session=None):
             remove_quietly(path)
 
 
-def session_snapshots(directory, root, session_id):
+def session_snapshots(directory, session_id, checkout=None):
     pattern = os.path.join(glob.escape(directory), id_hash(session_id) + "-*.json")
     snapshots = {}
     for path in glob.glob(pattern):
         data = read_snapshot(path)
-        if data and data["session_id"] == session_id and same_path(data["root"], root):
-            snapshots[path] = data
+        if data and data["session_id"] == session_id:
+            if checkout is None or same_path(data["root"], checkout):
+                snapshots[path] = data
     return snapshots
 
 
-def sync_snapshots(root, session_id, rels, known):
-    """Put marked paths into live snapshots so older baselines never re-report
-    them. Best effort (a miss only re-marks). Caller holds gate_lock."""
+def sync_snapshots(checkout, session_id, rels, known):
+    """Put marked paths into live snapshots of `checkout` so older baselines
+    never re-report them. Best effort (a miss only re-marks). Caller holds
+    gate_lock."""
     if not session_id:
         return
     try:
         directory = state_dir()
         if not directory:
             return
-        snapshots = session_snapshots(directory, root, session_id)
+        snapshots = session_snapshots(directory, session_id, checkout)
         if not snapshots:
             return
         budget = [HASH_BUDGET_BYTES]
         current = {
-            rel: known[rel] if rel in known else fingerprint(root, rel, None, budget, 0)
+            rel: known[rel] if rel in known else fingerprint(checkout, rel, None, budget, 0)
             for rel in rels
         }
         for path, data in snapshots.items():
@@ -743,21 +834,28 @@ def cmd_snapshot(payload, root):
         return 0
     now = time.time()
     prune_snapshots(directory, now)
-    fingerprints = dirty_fingerprints(root)
-    if fingerprints is None:
-        print("review_gate.py: git status failed; this Bash call is not checked", file=sys.stderr)
-        return 0
-    write_json_atomic(
-        snapshot_path(directory, session_id, tool_use_id),
-        {
-            "root": root,
-            "session_id": session_id,
-            "background": runs_in_background(payload),
-            "created": now,
-            "taken": now,
-            "fingerprints": fingerprints,
-        },
-    )
+    work = os.path.realpath(work_root(payload, root))
+    cfg = load_config(root)
+    targets = [(work, tool_use_id)]
+    if not same_path(work, root):
+        # From a worktree, a command can still write the project checkout by path.
+        targets.append((os.path.realpath(root), tool_use_id + HOME_SNAPSHOT))
+    for checkout, key in targets:
+        fingerprints = dirty_fingerprints(checkout, cfg=cfg)
+        if fingerprints is None:
+            print("review_gate.py: git status failed in %s; not checked there" % checkout, file=sys.stderr)
+            continue
+        write_json_atomic(
+            snapshot_path(directory, session_id, key),
+            {
+                "root": checkout,
+                "session_id": session_id,
+                "background": runs_in_background(payload),
+                "created": now,
+                "taken": now,
+                "fingerprints": fingerprints,
+            },
+        )
     return 0
 
 
@@ -778,27 +876,33 @@ def cmd_mark_bash(payload, root):
     directory = state_dir()
     if not directory:
         return 0
-    path = snapshot_path(directory, session_id, tool_use_id)
+    for key in (tool_use_id, tool_use_id + HOME_SNAPSHOT):
+        consume_snapshot(snapshot_path(directory, session_id, key), payload, root, session_id)
+    return 0
+
+
+def consume_snapshot(path, payload, root, session_id):
     snapshot = read_snapshot(path)
-    if snapshot is None or not same_path(snapshot["root"], root):
-        return 0
+    if snapshot is None:
+        return
+    # The Pre hook's checkout: this payload's cwd follows any cd in the command.
+    checkout = snapshot["root"]
     before = snapshot["fingerprints"]
     taken = time.time()
-    after = dirty_fingerprints(root, before, snapshot_taken(snapshot))
+    after = dirty_fingerprints(checkout, before, snapshot_taken(snapshot), load_config(root))
     if after is None:
         # Left in place for the Stop reconcile.
-        return 0
+        return
     # Mark before consuming, so a failed mark leaves the snapshot for Stop.
     rels = changed_paths(before, after)
     if rels:
-        write_gate(root, session_id, rels, after)
+        write_gate(root, session_id, rels, after, checkout=checkout)
     with gate_lock(root):
         if snapshot.get("background") or runs_in_background(payload):
             # A background command may still write; Stop diffs it again from here.
             rebase_snapshot(path, before, after, taken, background=True)
         else:
             remove_quietly(path)
-    return 0
 
 
 def rebase_snapshot(path, read, after, taken, background=False):
@@ -826,27 +930,37 @@ def reconcile_snapshots(root, session_id):
     if not directory:
         return []
     prune_snapshots(directory, time.time())
-    snapshots = session_snapshots(directory, root, session_id)
-    if not snapshots:
+    groups = {}
+    for path, data in session_snapshots(directory, session_id).items():
+        key = root_key(groups, data["root"]) or data["root"]
+        groups.setdefault(key, {})[path] = data
+    if not groups:
         return []
-    previous = {}
-    for data in snapshots.values():
-        previous.update(data["fingerprints"])
-    taken = time.time()
-    oldest = min(snapshot_taken(data) for data in snapshots.values())
-    after = dirty_fingerprints(root, previous, oldest)
-    if after is None:
-        return []
-    rels = set()
-    for data in snapshots.values():
-        rels |= changed_paths(data["fingerprints"], after)
-    if rels:
-        write_gate(root, session_id, rels, after)
-    with gate_lock(root):
-        for path, data in snapshots.items():
-            rebase_snapshot(path, data["fingerprints"], after, taken)
-    prune_snapshots(directory, time.time(), session_id)
-    return sorted(rels)
+    cfg = load_config(root)
+    marked = set()
+    undiffed = set()
+    for checkout, snapshots in groups.items():
+        previous = {}
+        for data in snapshots.values():
+            previous.update(data["fingerprints"])
+        taken = time.time()
+        oldest = min(snapshot_taken(data) for data in snapshots.values())
+        after = dirty_fingerprints(checkout, previous, oldest, cfg)
+        if after is None:
+            # Kept past the foreground TTL below: it has had no final diff yet.
+            undiffed.update(snapshots)
+            continue
+        rels = set()
+        for data in snapshots.values():
+            rels |= changed_paths(data["fingerprints"], after)
+        if rels:
+            write_gate(root, session_id, rels, after, checkout=checkout)
+            marked |= rels
+        with gate_lock(root):
+            for path, data in snapshots.items():
+                rebase_snapshot(path, data["fingerprints"], after, taken)
+    prune_snapshots(directory, time.time(), session_id, keep=undiffed)
+    return sorted(marked)
 
 
 # --------------------------------------------------------------- start ----
@@ -904,6 +1018,75 @@ def committed_since(root, files, first_ts):
         return False
 
 
+def checkout_state(checkout):
+    """"live", "gone" (removed, or its gitdir pruned) or "unknown" (git failed,
+    e.g. a safe.directory refusal, which must not fold a live worktree)."""
+    dot_git = os.path.join(checkout, ".git")
+    if not os.path.isdir(checkout) or not os.path.lexists(dot_git):
+        return "gone"
+    if os.path.isfile(dot_git):
+        try:
+            with open(dot_git, "rb") as fh:
+                line = os.fsdecode(fh.readline()).strip()
+        except OSError:
+            return "unknown"
+        if line.startswith("gitdir:"):
+            if not os.path.isdir(os.path.join(checkout, line[len("gitdir:"):].strip())):
+                return "gone"
+    out = run_git_raw(checkout, ["rev-parse", "--show-toplevel"])
+    if out is None:
+        return "unknown"
+    top = os.fsdecode(out).strip()
+    return "live" if top and same_path(top, checkout) else "unknown"
+
+
+def fold_gone_roots(root, path, gate):
+    """Move the rels of removed worktrees into home's list, where home's pending
+    check and commit history judge them (a branch merged into home's current
+    branch still blocks). Keeps markedAt, so no in-flight reviewer goes stale.
+    True if it rewrote."""
+    gone_keys = [key for key in gate_roots(gate) if checkout_state(key) == "gone"]
+    if not gone_keys:
+        return False
+    with gate_lock(root):
+        current = read_gate(path) or {}
+        roots = gate_roots(current)
+        gone = [key for key in roots if any(same_path(key, g) for g in gone_keys)]
+        if not gone:
+            return False
+        files = set(f for f in current.get("files") or [] if isinstance(f, str))
+        for key in gone:
+            files.update(roots.pop(key))
+        current["files"] = sorted(files)
+        if roots:
+            current["roots"] = roots
+        else:
+            current.pop("roots", None)
+        write_json_atomic(path, current)
+    return True
+
+
+def checkout_busy(checkout, rels, first_ts):
+    """Pending work in another checkout; any git failure counts as pending."""
+    scope = ["--"] + rels
+    for args in (
+        ["diff", "--name-only"],
+        ["diff", "--name-only", "--cached"],
+        ["ls-files", "--others", "--exclude-standard"],
+    ):
+        out = run_git_raw(checkout, args + scope)
+        if out is None or out.strip():
+            return True
+    out = run_git_raw(checkout, ["log", "-1", "--format=%ct", "--"] + rels)
+    if out is None:
+        return True
+    try:
+        stamp = int(out.decode().strip() or 0)
+    except ValueError:
+        return True
+    return bool(stamp) and bool(first_ts) and stamp >= first_ts - COMMIT_SLACK_SECONDS
+
+
 def classify_inflight(root, session_id, last_mark, now):
     """Return (active start epochs, whether a stale record was seen).
     Records outside the TTL window are deleted; unparseable ones are ignored."""
@@ -924,17 +1107,35 @@ def classify_inflight(root, session_id, last_mark, now):
     return active, stale
 
 
-def build_reason(files, cfg, stale_reviewer=False):
+def scope_lines(files, checkout=None):
+    quoted = " ".join(shlex.quote(f) for f in files)
+    git = "git -C {c}".format(c=shlex.quote(checkout)) if checkout else "git"
+    return (
+        "  {g} diff -- {q}\n"
+        "  {g} diff --cached -- {q}\n"
+        "  {g} status --short -- {q}\n"
+    ).format(g=git, q=quoted)
+
+
+def build_reason(files, cfg, stale_reviewer=False, roots=None, home=None, in_worktree=False):
     prefix = cfg["marker_prefix"]
     reviewer = cfg["reviewer"]
-    if files:
-        quoted = " ".join(shlex.quote(f) for f in files)
-        scope = (
-            "Scope the review to the files this session edited:\n"
-            "  git diff -- {q}\n"
-            "  git diff --cached -- {q}\n"
-            "  git status --short -- {q}\n"
-        ).format(q=quoted)
+    if roots or (files and in_worktree):
+        # From inside a worktree an unprefixed diff reads the wrong checkout.
+        scope = "Scope the review to the files this session edited:\n"
+        if files:
+            scope += scope_lines(files, home)
+        for checkout in sorted(roots or {}):
+            scope += scope_lines(roots[checkout], checkout)
+        if files:
+            scope += (
+                "If this session is inside a worktree, run ExitWorktree (keep the "
+                "worktree) before reviewing the files under {h}: Claude Code blocks "
+                "git -C into the project checkout from a worktree session and its "
+                "subagents.\n"
+            ).format(h=home)
+    elif files:
+        scope = "Scope the review to the files this session edited:\n" + scope_lines(files)
     else:
         scope = (
             "Review the latest git changes "
@@ -959,6 +1160,8 @@ def build_reason(files, cfg, stale_reviewer=False):
 
 def cmd_enforce(payload, root):
     session_id = payload.get("session_id") or ""
+    # Before reconcile spends the git budget, so a slow Stop still scopes correctly.
+    in_worktree = not same_path(work_root(payload, root), root)
     try:
         reconcile_snapshots(root, session_id)
     except OSError as exc:
@@ -969,23 +1172,32 @@ def cmd_enforce(payload, root):
         return 0
 
     gate = read_gate(path) or {}
+    try:
+        if fold_gone_roots(root, path, gate):
+            gate = read_gate(path) or {}
+    except OSError as exc:
+        print("review_gate.py: worktree fold failed: %s" % exc, file=sys.stderr)
     files = [f for f in gate.get("files") or [] if isinstance(f, str)]
+    roots = gate_roots(gate)
     try:
         first_ts = int(gate.get("firstTimestamp") or gate.get("timestamp"))
     except (TypeError, ValueError):
         first_ts = 0
 
     cfg = load_config(root)
-    pending = git_pending(root, files or None)
-    if not files:
+    if files or roots:
+        busy = (
+            bool(files)
+            and (bool(git_pending(root, files)) or committed_since(root, files, first_ts))
+        ) or any(checkout_busy(c, r, first_ts) for c, r in roots.items())
+    else:
         # Legacy gate without a file list: judge the whole repo, minus
         # exempt paths and the review loop's own artifacts.
-        pending = [
-            p
-            for p in pending
-            if not is_exempt(p, cfg["exempt"]) and not is_runtime_artifact(p)
-        ]
-    if not pending and not committed_since(root, files, first_ts):
+        busy = any(
+            not is_exempt(p, cfg["exempt"]) and not is_runtime_artifact(p)
+            for p in git_pending(root, None)
+        )
+    if not busy:
         # Gated edits vanished (reverted / never materialized): stand down,
         # unless a hook marked again meanwhile.
         with gate_lock(root):
@@ -1004,7 +1216,10 @@ def cmd_enforce(payload, root):
         ).format(r=cfg["reviewer"], a=age)
         out = {"systemMessage": message}
     else:
-        out = {"decision": "block", "reason": build_reason(files, cfg, stale_reviewer=stale)}
+        reason = build_reason(
+            files, cfg, stale_reviewer=stale, roots=roots, home=root, in_worktree=in_worktree
+        )
+        out = {"decision": "block", "reason": reason}
     json.dump(out, sys.stdout)
     print()
     return 0
@@ -1149,6 +1364,7 @@ def main():
     if not isinstance(payload, dict):
         payload = {}
 
+    GIT_DEADLINE[0] = time.monotonic() + HOOK_GIT_BUDGET
     cwd = os.getcwd()
     root = git_toplevel(cwd) or os.path.realpath(cwd)
 

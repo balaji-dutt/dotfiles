@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -267,6 +268,42 @@ class ReviewHookWrapperTests(unittest.TestCase):
         run_git(self.repo, "add", ".claude/hooks", env=env)
         run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
         return env
+
+    def test_wrappers_gate_a_native_worktree_from_the_project_dir(self) -> None:
+        env = self.real_helper_env()
+        init_git_repository(self.repo, env=env)
+        (self.repo / "tracked.txt").write_text("base\n", encoding="utf-8")
+        run_git(self.repo, "add", "tracked.txt", env=env)
+        run_git(self.repo, "commit", "-m", "baseline", env=env)
+        worktree = self.repo / ".claude/worktrees/x"
+        run_git(self.repo, "worktree", "add", "-q", "-b", "worktree-x", str(worktree), env=env)
+        (worktree / "edited.txt").write_text("x\n", encoding="utf-8")
+        session_id = "wt-session"
+
+        mark = self.run_hook(
+            "mark-needs-review.sh",
+            {"cwd": str(worktree), "session_id": session_id, "tool_input": {"file_path": str(worktree / "edited.txt")}},
+            env=env,
+        )
+        self.assertEqual(mark.returncode, 0, mark.stderr)
+        gate = self.repo / f".claude/.needs_dotfiles_review.{session_id}"
+        self.assertEqual(json.loads(gate.read_text(encoding="utf-8"))["roots"], {os.path.realpath(worktree): ["edited.txt"]})
+
+        enforce = self.run_hook("enforce-review-on-stop.sh", {"session_id": session_id, "cwd": str(worktree)}, env=env)
+        stop = json.loads(enforce.stdout)
+        self.assertEqual(stop["decision"], "block")
+        self.assertIn("git -C " + shlex.quote(os.path.realpath(worktree)) + " diff -- edited.txt", stop["reason"])
+
+        reviewer = {"session_id": session_id, "agent_id": "rev1", "agent_type": "dotfiles-reviewer"}
+        self.run_hook("record-reviewer-start.sh", reviewer, env=env)
+        transcript = self.isolated.root / "review.jsonl"
+        transcript.write_text(
+            json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(), "message": {"content": "reviewed\nDOTFILES_REVIEWER_RESULT=PASS"}}) + "\n",
+            encoding="utf-8",
+        )
+        clear = self.run_hook("clear-needs-review-on-pass.sh", {**reviewer, "agent_transcript_path": str(transcript)}, env=env)
+        self.assertEqual(clear.returncode, 0, clear.stderr)
+        self.assertFalse(gate.exists())
 
     def test_bash_wrappers_skip_without_python(self) -> None:
         env = self.committed_hooks_without_python()
