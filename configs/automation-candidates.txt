@@ -360,6 +360,7 @@ tests/test_chezmoi_lifecycle_render.py	script-extension
 tests/test_claude_mcp_apply.py	script-extension
 tests/test_claude_review_gate.py	script-extension
 tests/test_claude_review_hook_wrappers.py	script-extension
+tests/test_claude_settings_modify.py	script-extension
 tests/test_claude_token_check.py	script-extension
 tests/test_codebase_memory_mcp_installer_windows.py	script-extension
 tests/test_codebase_memory_mcp_pin.py	script-extension

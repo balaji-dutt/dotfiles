@@ -9,6 +9,8 @@
                        this checkout's absolute path, which the plain-JSON
                        base cannot hold), and the macOS-only OpenUsage
                        telemetry hooks added below.
+       modelSettings - chezmoi owns the entries the base names; /effort's
+                       saved entries for every other model survive apply.
        aoe owns      - every hook group whose command carries the trailing
                        `# aoe-hooks` sentinel. Those are adopted verbatim from
                        the file on disk so `chezmoi apply` never reverts what
@@ -76,4 +78,14 @@
 {{-   $_ := set $hooks "PostToolUse" (concat ((index $hooks "PostToolUse") | default list) (list $asyncGroup)) -}}
 {{- end -}}
 {{- $_ := set $settings "hooks" $hooks -}}
+{{- $modelSettings := (index $live "modelSettings") | default dict -}}
+{{- if not (kindIs "map" $modelSettings) -}}
+{{-   $modelSettings = dict -}}
+{{- end -}}
+{{- range $model, $entry := ((index $settings "modelSettings") | default dict) -}}
+{{-   $_ := set $modelSettings $model $entry -}}
+{{- end -}}
+{{- if $modelSettings -}}
+{{-   $_ := set $settings "modelSettings" $modelSettings -}}
+{{- end -}}
 {{- $settings | toPrettyJson -}}

@@ -274,6 +274,11 @@
   "alwaysThinkingEnabled": true,
   "awaySummaryEnabled": false,
   "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    }
+  },
   "theme": "dark",
   "tui": "fullscreen"
 }
