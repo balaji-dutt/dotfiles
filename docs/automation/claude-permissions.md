@@ -34,6 +34,13 @@ build, and the recipe to re-verify it after an upgrade.
   `private_Documents/development/container-dotfiles/dotfiles/dot_claude/`.
   Run `bash ./assets/sync-devcontainer-assets.sh` after editing it.
 
+The `agent-wt-merge` `inspect`/`ff`/`no-ff` allow rules are not in the base.
+They name the helper by this checkout's absolute path, so the modify template
+generates them from `.chezmoi.workingTree`. On native Windows it also emits
+the `assets/resolve-python3 -- <helper>` form, because there is no `python3`
+on `PATH` there to honour the shebang (see `dots-iwon`). The devcontainer gets
+none of these rules.
+
 Repo-scoped rules live in `.claude/settings.json` and cover chezmoi commands
 only. The `mcp__cbm__*` allow/deny entries are documented in
 `docs/automation/claude-mcp.md`.
@@ -45,7 +52,8 @@ The parser treats the argument in `Tool(argument)` differently per tool:
 | Rule form | Applies to | Notes |
 | :--- | :--- | :--- |
 | `Tool(path-glob)` | `Read`, `Write`, `Edit`, `Glob`, `NotebookRead`, `NotebookEdit`, `Cd` | the only tools whose argument is parsed as a file pattern. This list outlives the tools themselves — `NotebookRead` is on it but no longer exists |
-| `Bash(prefix:*)` | `Bash` only | `:*` must be the final characters |
+| `Bash(prefix:*)` | `Bash` only | `:*` must be the final characters, and the prefix is literal: a `*` inside it is not expanded |
+| `Bash(a * b*)` | `Bash` only | glob; each `*` matches anything, spaces included |
 | `WebFetch(domain:host)` | `WebFetch` only | a bare URL or `https://` prefix is rejected |
 | `Tool` | any | bare rule, matches every invocation |
 | `Tool(anything)` | anything else | never acts as a *path* rule, but a tool with its own rule-content matcher can still match on something else — `Grep` matches the argument against the search pattern |
@@ -94,6 +102,21 @@ compared. So a rule naming only the canonical target still matches an
 invocation that arrives under the alias, and vice versa. Prefer the canonical
 name; there is no need to list both. (This is why `Task` was dropped in favour
 of `Agent` rather than kept alongside it.)
+
+### Mixing `*` with a trailing `:*`
+
+The rule parser checks for a trailing `:*` first. If it finds one, everything
+before it is a literal prefix, so `Bash(*/dotfiles/x inspect:*)` only matches a
+command that starts with the literal text `*/dotfiles/x inspect`. Glob
+matching applies only when the rule has no trailing `:*`. The parser behaves
+the same in 2.1.268 and 2.1.282; 2.1.282 warns about these rules at startup
+("mixes * with the trailing :* prefix syntax") and 2.1.268 does not.
+
+Use the glob form, `Bash(*/dotfiles/x prepare-ci*)`, in deny and ask rules,
+where matching more commands is the safe direction. Keep a leading `*` out of
+allow rules. It becomes `.*`, which matches spaces as well, so
+`Bash(*/dotfiles/x inspect *)` would also approve
+`python3 -c '...' /tmp/dotfiles/x inspect y`. Name the exact path instead.
 
 ## Verified vocabulary (Claude Code 2.1.227)
 
