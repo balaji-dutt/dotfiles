@@ -171,6 +171,22 @@ def tracked_files(repo_root: Path) -> dict[str, TrackedFile]:
     return tracked
 
 
+def eol_attributes(repo_root: Path, paths: list[str]) -> dict[str, str]:
+    if not paths:
+        return {}
+    payload = b"".join(path.encode("utf-8", "surrogateescape") + b"\0" for path in paths)
+    output = run_git(repo_root, "check-attr", "-z", "--stdin", "eol", input=payload).stdout
+    fields = output.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) % 3:
+        fail("unexpected git check-attr output")
+    return {
+        fields[index].decode("utf-8", "surrogateescape"): fields[index + 2].decode("utf-8", "replace")
+        for index in range(0, len(fields), 3)
+    }
+
+
 def safe_path(value: object, label: str) -> str:
     if not isinstance(value, str) or not value:
         fail(f"{label} must be a non-empty repository-relative path")
@@ -416,6 +432,7 @@ def check_mirrors(
         source_prefix = source_root + "/"
         target_prefix = target_root + "/"
         managed: set[str] = set()
+        pairs: list[tuple[str, str]] = []
         for source_path in sorted(path for path in tracked if path.startswith(source_prefix)):
             relative = source_path[len(source_prefix) :]
             if not path_matches(relative, include) or path_matches(relative, exclude):
@@ -432,6 +449,16 @@ def check_mirrors(
             target = tracked[target_path]
             if source.mode != target.mode:
                 fail(f"mirror mode drift: {source_path} ({source.mode}) != {target_path} ({target.mode})")
+            pairs.append((source_path, target_path))
+        eol = eol_attributes(repo_root, [path for pair in pairs for path in pair])
+        for source_path, target_path in pairs:
+            if eol.get(source_path) != eol.get(target_path):
+                fail(
+                    "mirror line-ending attribute drift: "
+                    f"{source_path} (eol={eol.get(source_path)}) != "
+                    f"{target_path} (eol={eol.get(target_path)})"
+                )
+        for source_path, target_path in pairs:
             if file_payload(repo_root / source_path) != file_payload(repo_root / target_path):
                 fail(f"mirror content drift: {source_path} != {target_path}")
         if cleanup:

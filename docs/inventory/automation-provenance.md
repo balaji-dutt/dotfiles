@@ -22,7 +22,9 @@ and fails when a source, generated output, mirror, or vendored copy drifts.
 - `configs/devcontainer-sync.jsonc` owns shared container mirror mappings. The
   checker applies its include/exclude rules to Git-tracked paths and compares
   file bytes, executable modes, symlink targets, and cleanup-managed stale
-  targets.
+  targets. Both sides of each pair must also resolve to the same `eol`
+  attribute. Otherwise a `core.autocrlf=true` checkout (native Windows)
+  converts only one side and the byte comparison fails there alone.
 - The Espanso policy records the canonical source, shared include template, and
   platform wrapper chain. Each wrapper must delegate to the expected authority.
 - The two statusline copies must match after Git-confirmed EOL normalization,
