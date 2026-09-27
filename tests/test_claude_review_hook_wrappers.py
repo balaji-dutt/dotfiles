@@ -56,6 +56,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
         assert git
         env["PATH"] = os.pathsep.join((str(self.isolated.fake_bin), str(Path(git).parent)))
         env["CLAUDE_REVIEW_GATE_PYTHON"] = sys.executable
+        env["CLAUDE_REVIEW_GATE_STATE_DIR"] = str(self.isolated.root / "state")
         return env
 
     def run_hook(self, name: str, payload: object | str = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -225,6 +226,122 @@ class ReviewHookWrapperTests(unittest.TestCase):
         self.assertEqual(clear.returncode, 0, clear.stderr)
         self.assertFalse(gate.exists())
         self.assertFalse(record.exists())
+
+    def bash_payload(self, tool_use_id: str) -> dict[str, object]:
+        return {"cwd": str(self.repo), "session_id": "bash-session", "tool_use_id": tool_use_id, "tool_input": {"command": "true"}}
+
+    def test_bash_wrappers_drive_real_helper(self) -> None:
+        env = self.real_helper_env()
+        init_git_repository(self.repo, env=env)
+        tracked = self.repo / "tracked.txt"
+        tracked.write_text("base\n", encoding="utf-8")
+        run_git(self.repo, "add", "tracked.txt", env=env)
+        run_git(self.repo, "commit", "-m", "baseline", env=env)
+        gate = self.repo / ".claude/.needs_dotfiles_review.bash-session"
+
+        for name in ("snapshot-before-bash.sh", "mark-needs-review-bash.sh"):
+            result = self.run_hook(name, self.bash_payload("read-only"), env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+        self.assertFalse(gate.exists())
+
+        snapshot = self.run_hook("snapshot-before-bash.sh", self.bash_payload("edit"), env=env)
+        self.assertEqual((snapshot.returncode, snapshot.stdout), (0, ""), snapshot.stderr)
+        tracked.write_text("changed\n", encoding="utf-8")
+        mark = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("edit"), env=env)
+        self.assertEqual((mark.returncode, mark.stdout), (0, ""), mark.stderr)
+        self.assertEqual(json.loads(gate.read_text(encoding="utf-8"))["files"], ["tracked.txt"])
+
+        enforce = self.run_hook("enforce-review-on-stop.sh", {"session_id": "bash-session"}, env=env)
+        self.assertEqual(json.loads(enforce.stdout)["decision"], "block")
+
+    def committed_hooks_without_python(self) -> dict[str, str]:
+        for name in ("python3", "python", "py"):
+            self.fake_python(name, probe=1)
+        self.install_fallback_commands()
+        git = shutil.which("git")
+        assert git
+        env = self.env.copy()
+        env["PATH"] = os.pathsep.join((str(self.isolated.fake_bin), str(Path(git).parent)))
+        init_git_repository(self.repo, env=env)
+        run_git(self.repo, "add", ".claude/hooks", env=env)
+        run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
+        return env
+
+    def test_bash_wrappers_skip_without_python(self) -> None:
+        env = self.committed_hooks_without_python()
+        pre = self.run_hook("snapshot-before-bash.sh", self.bash_payload("t1"), env=env)
+        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+        for result in (pre, post):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+        self.assertEqual(pre.stderr, "")
+        self.assertIn("Bash edits were not checked", post.stderr)
+        self.assertEqual(list((self.repo / ".claude").glob(".needs_dotfiles_review*")), [])
+
+    def test_bash_mark_marks_when_a_modified_resolver_finds_no_python(self) -> None:
+        env = self.committed_hooks_without_python()
+        resolver = self.repo / ".claude/hooks/lib/resolve-python.sh"
+        resolver.write_text(resolver.read_text(encoding="utf-8") + "\n# edited\n", encoding="utf-8")
+        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+        self.assertEqual(post.returncode, 0, post.stderr)
+        self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_bash_mark_falls_back_to_legacy_gate_when_helper_fails(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0, helper=3)
+        legacy = self.repo / ".claude/.needs_dotfiles_review"
+        pre = self.run_hook("snapshot-before-bash.sh", self.bash_payload("t1"))
+        self.assertEqual((pre.returncode, pre.stdout), (0, ""), pre.stderr)
+        self.assertFalse(legacy.exists())
+        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"))
+        self.assertEqual(post.returncode, 0, post.stderr)
+        self.assertEqual(legacy.read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_bash_mark_writes_legacy_gate_when_a_helper_file_is_missing(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0)
+        legacy = self.repo / ".claude/.needs_dotfiles_review"
+        for name in ("review_gate.py", "resolve-python.sh"):
+            with self.subTest(missing=name):
+                shutil.rmtree(self.repo / ".claude/hooks")
+                shutil.copytree(HOOKS, self.repo / ".claude/hooks")
+                (self.repo / ".claude/hooks/lib" / name).unlink()
+                legacy.unlink(missing_ok=True)
+                result = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(legacy.read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_broken_resolver_never_blocks_bash_and_still_marks(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0)
+        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_text("if then\n", encoding="utf-8")
+        pre = self.run_hook("snapshot-before-bash.sh", self.bash_payload("t1"))
+        self.assertEqual((pre.returncode, pre.stdout), (0, ""), pre.stderr)
+        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"))
+        self.assertEqual(post.returncode, 0, post.stderr)
+        self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_settings_wire_bash_hooks(self) -> None:
+        hooks = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+
+        def commands(event: str, matcher: str) -> list[tuple[str, object]]:
+            return [
+                (hook["command"], hook.get("timeout"))
+                for group in hooks.get(event, [])
+                if group.get("matcher") == matcher
+                for hook in group["hooks"]
+            ]
+
+        pre = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/snapshot-before-bash.sh" || true'
+        post = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review-bash.sh"'
+        self.assertEqual(commands("PreToolUse", "Bash|PowerShell"), [(pre, 10)])
+        self.assertEqual(commands("PostToolUse", "Bash|PowerShell"), [(post, 10)])
+        self.assertEqual(commands("PostToolUseFailure", "Bash|PowerShell"), [(post, 10)])
+        self.assertEqual(
+            commands("PostToolUse", "Write|Edit"),
+            [('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh"', None)],
+        )
 
     def test_subagent_hooks_without_project_context_exit_harmlessly(self) -> None:
         env = self.env.copy()

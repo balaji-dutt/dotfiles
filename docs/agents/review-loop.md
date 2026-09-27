@@ -39,22 +39,96 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   independently), is not a review-loop runtime artifact, and is not exempt
   per `exemptPaths`. Edits outside the repo (`/tmp`, plan files) and
   backlog-only sessions never raise a gate.
+- Files changed by a shell command are gated by a snapshot pair on
+  `Bash|PowerShell`. `snapshot-before-bash.sh` (PreToolUse) fingerprints the
+  checkout's dirty set
+  (`git --no-optional-locks status -z --untracked-files=all --no-renames`,
+  so a move lists both paths), and
+  `mark-needs-review-bash.sh` (PostToolUse and PostToolUseFailure, so a
+  command that writes and then exits non-zero is covered) marks every
+  reviewable path that is still dirty afterwards and is new or changed. A
+  command that restores a file to HEAD marks nothing. The same path policy
+  applies as for `Write|Edit`.
+  - Read-only commands, dirty files the command did not touch, `touch` on an
+    existing file, and `git add` raise nothing, because regular files
+    compare by content hash and executable bit. Hashes are reused only when
+    a file's size and mtime are unchanged and it was last modified at least
+    2 s before the baseline was taken. Each scan hashes at most 64 MiB; a
+    file that does not fit in what is left compares by size and mtime, and
+    one hashed by only one of the two scans counts as changed.
+  - Snapshots live outside the checkout, in `$CLAUDE_REVIEW_GATE_STATE_DIR`
+    or `<tempdir>/claude-review-gate-<uid>` (`claude-review-gate` on native
+    Windows). There is one file per tool call, keyed by session and
+    `tool_use_id`. Snapshots expire after an hour. After its final diff, a
+    session's own Stop also drops its foreground snapshots older than 15
+    minutes, which are orphans from an interrupt or a denial. Only
+    snapshot-named files in the directory are ever pruned.
+  - Post fires when a `run_in_background` command launches, so that
+    command's snapshot is kept and rebased rather than consumed. The Stop
+    hook diffs every leftover snapshot for the session (background commands,
+    Esc interrupts, hook timeouts, denied commands), marks what changed, and
+    rebases it. Every mark from any hook also writes the marked paths'
+    current fingerprints into the session's live snapshots, under the same
+    lock. So a snapshot does not report an edit that is already gated, and a
+    PASS is not undone at the next Stop.
+  - Without a working Python the Bash hooks skip, and the Post hook prints a
+    stderr warning; an unconditional mark would gate every read-only
+    command. The Post hook skips only while the resolver matches HEAD. If a
+    modified resolver finds no Python, if the helper or resolver file is
+    missing or fails to load, or if the helper fails, the Post hook writes
+    the legacy unconditional mark instead. Both files are tracked, so the
+    command under review may be what broke them. The Pre hook never blocks a
+    command. Its errors are swallowed, and the settings entry ends in
+    `|| true`, because a PreToolUse exit 2 would deny every Bash call.
+  - Notices from these hooks (no Python, skipped snapshot, unusable state
+    directory, lock failure) go to stderr, which Claude Code does not show
+    in its normal view for a hook that succeeds.
+  - Gate and snapshot updates hold an `flock` on `.claude/` on POSIX, so
+    parallel hooks do not drop each other's paths. Native Windows has no
+    `fcntl`, and filesystems that refuse `flock` print a notice. In both
+    cases the writes run unlocked, and two concurrent writers can lose one
+    update.
+  - Cost on WSL2 in this repo: about 115 ms per Bash call for both hooks
+    together.
+  - Known gaps: a single command that edits and then commits leaves nothing
+    dirty to see. Background writes after the session's last Stop, or after
+    the one-hour TTL, are missed. So are writes from a foreground command
+    after it is moved to the background mid-run, because its snapshot is
+    consumed when its Post hook fires, and writes from a process a
+    foreground command detaches (`cmd &`, `nohup`) after that command
+    returns. A skipped snapshot (git timeout or error) leaves that one
+    command unchecked, with a stderr notice. If the state directory is a
+    symlink, cannot be created, or (at the default location) belongs to
+    another user, every Bash call goes unchecked, each with a notice. Edits
+    other processes make in the worktree during a command are attributed to
+    the session. While a leftover snapshot lives (an hour for a background
+    command, until a Stop 15 minutes on for an interrupted or denied one),
+    that includes edits made from your editor. A command left at a
+    permission prompt for over an hour loses its snapshot and goes
+    unchecked. So does a background subagent's call that has been pending
+    for more than 15 minutes when the main session stops. `git stash apply`
+    and `git reset --soft` or `--mixed` mark the work they restore.
+    Gitignored files are never marked, which matches the pending-work check
+    at Stop. A resolver edit that trips `set -u` or calls `exit` makes the
+    Post hook exit before its legacy mark, so that command goes unchecked.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
   JSON with `timestamp`, `firstTimestamp`, `markedAt` (the last mark as a
   float, which orders an edit and a reviewer launch in the same second;
   gates without it round `timestamp` up a second), `sessionID`, and the
   accumulated repo-relative `files` list. Without Python or the helper
-  script, the marker hook falls back to an unconditional mark in the
-  legacy unsuffixed `.claude/.needs_dotfiles_review`.
-- All four hooks pick their interpreter through
+  script, the `Write|Edit` marker hook falls back to an unconditional mark
+  in the legacy unsuffixed `.claude/.needs_dotfiles_review`.
+- All six hooks pick their interpreter through
   `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
   `py -3` and executes each candidate before accepting it. A lookup alone is
   not enough on native Windows, where the Microsoft Store app-execution alias
   for `python3` is in `PATH` but exits 49 with "Python was not found".
   `CLAUDE_REVIEW_GATE_PYTHON` prepends a candidate for debugging; it is probed
-  like any other. The hooks do not `exec`, so a helper that starts and then
-  fails reaches the same fallback as a missing interpreter — on Stop that
-  means blocking rather than erroring open.
+  like any other. The helper exits non-zero on any unexpected error and the
+  hooks do not `exec`, so a helper that starts and then fails, including one
+  broken by the edit under review, takes each hook's conservative branch.
+  The markers write the legacy mark, and Stop blocks rather than erroring
+  open.
 - `record-reviewer-start.sh` (SubagentStart) writes
   `.claude/.dotfiles_review_inflight.<session_id>.<agent_id>` (gitignored)
   holding the start time, only when `agent_type` is the configured
@@ -190,12 +264,15 @@ the same session, so verify changes to it from a fresh session.
   `.opencode/plugins/review-loop-gate.js`
 - OpenCode config wiring:
   `.opencode/opencode.jsonc`
-- Claude gate helper (mark/enforce/clear logic):
+- Claude gate helper (mark/snapshot/enforce/clear logic):
   `.claude/hooks/lib/review_gate.py`
-- Claude interpreter resolver (sourced by all four hooks):
+- Claude interpreter resolver (sourced by all six hooks):
   `.claude/hooks/lib/resolve-python.sh`
 - Claude marker hook:
   `.claude/hooks/mark-needs-review.sh`
+- Claude shell-edit hooks:
+  `.claude/hooks/snapshot-before-bash.sh`,
+  `.claude/hooks/mark-needs-review-bash.sh`
 - Claude stop hook:
   `.claude/hooks/enforce-review-on-stop.sh`
 - Claude reviewer-start hook:

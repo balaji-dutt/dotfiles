@@ -3,15 +3,21 @@
 
 Subcommands (the Claude hook payload JSON is read from stdin):
 
-  mark     PostToolUse (Write|Edit): raise a session-scoped gate when the
-           edited file is a reviewable file inside this checkout.
-  start    SubagentStart: record that a reviewer subagent is in flight.
-  enforce  Stop: block stopping while the session's gate still has pending
-           work, unless a reviewer started after the last mark is still in
-           flight; clear the gate if the gated edits no longer exist.
-  clear    SubagentStop: drop the reviewer's in-flight record, then clear the
-           gate when its last verdict is DOTFILES_REVIEWER_RESULT=PASS as the
-           final meaningful line of a text block or SubagentHandback message.
+  mark       PostToolUse (Write|Edit): raise a session-scoped gate when the
+             edited file is a reviewable file inside this checkout.
+  snapshot   PreToolUse (Bash|PowerShell): fingerprint the checkout's dirty
+             set before the command runs.
+  mark-bash  PostToolUse / PostToolUseFailure (Bash|PowerShell): mark the
+             reviewable paths whose fingerprint the command changed.
+  start      SubagentStart: record that a reviewer subagent is in flight.
+  enforce    Stop: reconcile snapshots no Post hook consumed, then block
+             stopping while the session's gate still has pending work,
+             unless a reviewer started after the last mark is still in
+             flight; clear the gate if the gated edits no longer exist.
+  clear      SubagentStop: drop the reviewer's in-flight record, then clear
+             the gate when its last verdict is DOTFILES_REVIEWER_RESULT=PASS
+             as the final meaningful line of a text block or
+             SubagentHandback message.
 
 Gate file: .claude/.needs_dotfiles_review.<sanitized session_id>, JSON:
   {"timestamp": <last mark>, "firstTimestamp": <first mark>,
@@ -26,6 +32,15 @@ containing the reviewer's start epoch (float). Records outside the
 INFLIGHT_TTL_SECONDS window are deleted so a reviewer that never reports
 cannot disable the gate.
 
+Bash snapshots live outside the checkout, one per tool call, in
+$CLAUDE_REVIEW_GATE_STATE_DIR or <tempdir>/claude-review-gate[-<uid>]:
+  <sha256(session_id)[:16]>-<sha256(tool_use_id)[:16]>.json
+  {"root": ..., "session_id": ..., "background": bool, "created": <epoch>,
+   "taken": <epoch of the current baseline>,
+   "fingerprints": {"repo/relative": [kind, ...], ...}}
+Only dirty paths (git status) are fingerprinted, so a path absent from the
+baseline was clean. Snapshots older than SNAPSHOT_TTL_SECONDS are pruned.
+
 Path policy comes from the config shared with the OpenCode plugins
 (.opencode/plugins/review-loop-*.js): .opencode/opencode-tooling.config.jsonc.
 Negations in exemptPaths are honored the same way as the OpenCode marker:
@@ -37,14 +52,18 @@ is the worktree root (each worktree gates only its own edits).
 """
 
 import glob
+import hashlib
 import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime
 
 GATE_DIR = ".claude"
@@ -66,6 +85,7 @@ RUNTIME_PREFIXES = (
     ".opencode/.needs_dotfiles_review",
     ".opencode/.dotfiles_review_enforcer_state",
     ".opencode/node_modules/",
+    ".claude/settings.local.json",
 )
 RUNTIME_SUFFIXES = (
     "-review-gate.log",
@@ -76,6 +96,30 @@ RUNTIME_SUFFIXES = (
 PASS_SLACK_SECONDS = 3.0
 COMMIT_SLACK_SECONDS = 5
 INFLIGHT_TTL_SECONDS = 45 * 60
+
+STATE_DIR_ENV = "CLAUDE_REVIEW_GATE_STATE_DIR"
+SNAPSHOT_TTL_SECONDS = 60 * 60
+# Applied only at the owning session's Stop, after a final diff.
+FOREGROUND_SNAPSHOT_TTL_SECONDS = 15 * 60
+HASH_BUDGET_BYTES = 64 * 1024 * 1024
+RACY_MTIME_SECONDS = 2
+SNAPSHOT_GLOB = "[0-9a-f]" * 16 + "-" + "[0-9a-f]" * 16 + ".json*"
+# Below the 10 s hook timeout, so a slow git fails here rather than mid-write.
+SNAPSHOT_GIT_TIMEOUT = 5
+
+
+def run_git_raw(root, args, timeout=SNAPSHOT_GIT_TIMEOUT):
+    try:
+        proc = subprocess.run(
+            ["git", "-C", root] + args,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
 
 
 def run_git(root, args):
@@ -212,6 +256,10 @@ def is_runtime_artifact(rel):
     if any(p.startswith(prefix) for prefix in RUNTIME_PREFIXES):
         return True
     return any(p.endswith(suffix) for suffix in RUNTIME_SUFFIXES)
+
+
+def is_reviewable(rel, cfg):
+    return not is_runtime_artifact(rel) and not is_exempt(rel, cfg["exempt"])
 
 
 def sanitize_session_id(session_id):
@@ -364,16 +412,69 @@ def cmd_mark(payload, root):
     rel = normalize_rel(os.path.relpath(file_path, os.path.realpath(root)))
     if rel.startswith("../"):
         return 0
-    if is_runtime_artifact(rel):
-        return 0
-    if is_exempt(rel, load_config(root)["exempt"]):
+    if not is_reviewable(rel, load_config(root)):
         return 0
 
-    write_gate(root, payload.get("session_id") or "", rel)
+    write_gate(root, payload.get("session_id") or "", [rel])
     return 0
 
 
-def write_gate(root, session_id, rel):
+def write_json_atomic(path, data):
+    """Atomic JSON write; the temp name extends the target's so its ignore rules apply."""
+    directory, name = os.path.split(path)
+    fd, tmp = tempfile.mkstemp(prefix=name + ".tmp-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file another process has open.
+                if os.name != "nt" or attempt == 4:
+                    raise
+                time.sleep(0.05)
+    except BaseException:
+        remove_quietly(tmp)
+        raise
+
+
+@contextmanager
+def gate_lock(root):
+    """flock on .claude/ itself, since a lock file would look like a gate. Never nest.
+    A no-op on Windows, which has no fcntl."""
+    directory = os.path.join(root, GATE_DIR)
+    os.makedirs(directory, exist_ok=True)
+    fd = None
+    try:
+        import fcntl
+
+        fd = os.open(directory, os.O_RDONLY)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except ImportError:
+        pass
+    except OSError as exc:
+        print(
+            "review_gate.py: cannot lock %s (%s); writing unlocked" % (directory, exc),
+            file=sys.stderr,
+        )
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def write_gate(root, session_id, rels, fingerprints=None):
+    """Add rels to the session gate and its live snapshots."""
+    with gate_lock(root):
+        update_gate(root, session_id, rels)
+        sync_snapshots(root, session_id, rels, fingerprints or {})
+
+
+def update_gate(root, session_id, rels):
     path = gate_path(root, session_id)
     marked_at = time.time()
     now = int(marked_at)
@@ -402,8 +503,7 @@ def write_gate(root, session_id, rel):
         except OSError:
             pass
 
-    files.add(rel)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    files.update(rels)
     data = {
         "timestamp": now,
         "firstTimestamp": first,
@@ -411,9 +511,342 @@ def write_gate(root, session_id, rel):
         "sessionID": session_id,
         "files": sorted(files),
     }
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
-        fh.write("\n")
+    write_json_atomic(path, data)
+
+
+# ---------------------------------------------------------------- bash ----
+
+
+def dirty_paths(root):
+    """Dirty repo-relative paths, or None if git fails; never takes index.lock."""
+    out = run_git_raw(
+        root,
+        [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--no-renames",
+        ],
+    )
+    if out is None:
+        return None
+    paths = []
+    for entry in out.split(b"\0"):
+        if len(entry) > 3:
+            paths.append(os.fsdecode(entry[3:]).rstrip("/"))
+    return paths
+
+
+def fingerprint(root, rel, previous, budget, reuse_before_ns):
+    """[kind, ...] for one dirty path, None for a directory; never raises."""
+    path = os.path.join(root, rel)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return ["missing"]
+    except OSError:
+        return ["unreadable"]
+    try:
+        if stat.S_ISDIR(st.st_mode):
+            return None
+        if stat.S_ISLNK(st.st_mode):
+            return ["link", os.readlink(path)]
+        if not stat.S_ISREG(st.st_mode):
+            return ["special"]
+        executable = bool(st.st_mode & 0o111)
+        if (
+            isinstance(previous, list)
+            and len(previous) == 5
+            and previous[:3] == ["file", st.st_size, st.st_mtime_ns]
+            and previous[4] == executable
+            and st.st_mtime_ns < reuse_before_ns
+        ):
+            return previous
+        digest = None
+        if st.st_size <= budget[0]:
+            budget[0] -= st.st_size
+            sha = hashlib.sha256()
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    sha.update(chunk)
+            digest = sha.hexdigest()
+        return ["file", st.st_size, st.st_mtime_ns, digest, executable]
+    except OSError:
+        return ["unreadable", st.st_size, st.st_mtime_ns]
+
+
+def dirty_fingerprints(root, previous=None, taken=0.0):
+    """Reviewable dirty set. Old hashes are reused only for files unchanged
+    since RACY_MTIME_SECONDS before `taken`."""
+    paths = dirty_paths(root)
+    if paths is None:
+        return None
+    cfg = load_config(root)
+    previous = previous or {}
+    reuse_before_ns = int((taken - RACY_MTIME_SECONDS) * 1e9)
+    budget = [HASH_BUDGET_BYTES]
+    result = {}
+    for rel in paths:
+        if not is_reviewable(rel, cfg):
+            continue
+        fp = fingerprint(root, rel, previous.get(rel), budget, reuse_before_ns)
+        if fp is not None:
+            result[rel] = fp
+    return result
+
+
+def same_fingerprint(before, after):
+    if before == after:
+        return True
+    # Hashed files compare by content and mode; an mtime change alone is not an edit.
+    return (
+        isinstance(before, list)
+        and len(before) == len(after) == 5
+        and before[0] == after[0] == "file"
+        and before[3] is not None
+        and before[3:] == after[3:]
+    )
+
+
+def changed_paths(before, after):
+    return {rel for rel, fp in after.items() if not same_fingerprint(before.get(rel), fp)}
+
+
+def state_dir():
+    base = os.environ.get(STATE_DIR_ENV)
+    getuid = None
+    if not base:
+        name = "claude-review-gate"
+        # No getuid on Windows, where %TEMP% is already per-user.
+        getuid = getattr(os, "getuid", None)
+        if getuid is not None:
+            name += "-%d" % getuid()
+        base = os.path.join(tempfile.gettempdir(), name)
+    try:
+        if os.path.islink(base):
+            raise OSError("symlink")
+        os.makedirs(base, mode=0o700, exist_ok=True)
+        if getuid is not None:
+            if os.lstat(base).st_uid != getuid():
+                raise OSError("owned by another user")
+            os.chmod(base, 0o700)
+    except OSError as exc:
+        print(
+            "review_gate.py: %s is not a private directory (%s); "
+            "Bash snapshots are disabled" % (base, exc),
+            file=sys.stderr,
+        )
+        return None
+    return base
+
+
+def id_hash(value):
+    return hashlib.sha256(value.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+def snapshot_path(directory, session_id, tool_use_id):
+    return os.path.join(directory, "%s-%s.json" % (id_hash(session_id), id_hash(tool_use_id)))
+
+
+def read_snapshot(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("fingerprints"), dict)
+        or not all(isinstance(data.get(k), str) and data[k] for k in ("root", "session_id"))
+    ):
+        return None
+    return data
+
+
+def prune_snapshots(directory, now, own_session=None):
+    # Snapshot names only: an overridden state directory may hold other files.
+    for path in glob.glob(os.path.join(glob.escape(directory), SNAPSHOT_GLOB)):
+        data = read_snapshot(path) if path.endswith(".json") else None
+        created = as_epoch(data.get("created")) if data else None
+        if created is None:
+            try:
+                created = os.path.getmtime(path)
+            except OSError:
+                continue
+        ttl = SNAPSHOT_TTL_SECONDS
+        if data and data["session_id"] == own_session and not data.get("background"):
+            ttl = FOREGROUND_SNAPSHOT_TTL_SECONDS
+        # Symmetric, so a future-dated file (clock stepped back) still expires.
+        if abs(now - created) >= ttl:
+            remove_quietly(path)
+
+
+def session_snapshots(directory, root, session_id):
+    pattern = os.path.join(glob.escape(directory), id_hash(session_id) + "-*.json")
+    snapshots = {}
+    for path in glob.glob(pattern):
+        data = read_snapshot(path)
+        if data and data["session_id"] == session_id and same_path(data["root"], root):
+            snapshots[path] = data
+    return snapshots
+
+
+def sync_snapshots(root, session_id, rels, known):
+    """Put marked paths into live snapshots so older baselines never re-report
+    them. Best effort (a miss only re-marks). Caller holds gate_lock."""
+    if not session_id:
+        return
+    try:
+        directory = state_dir()
+        if not directory:
+            return
+        snapshots = session_snapshots(directory, root, session_id)
+        if not snapshots:
+            return
+        budget = [HASH_BUDGET_BYTES]
+        current = {
+            rel: known[rel] if rel in known else fingerprint(root, rel, None, budget, 0)
+            for rel in rels
+        }
+        for path, data in snapshots.items():
+            for rel, fp in current.items():
+                if fp is None:
+                    data["fingerprints"].pop(rel, None)
+                else:
+                    data["fingerprints"][rel] = fp
+            write_json_atomic(path, data)
+    except OSError:
+        pass
+
+
+def payload_ids(payload):
+    session_id = payload.get("session_id")
+    tool_use_id = payload.get("tool_use_id")
+    if not all(isinstance(v, str) and v for v in (session_id, tool_use_id)):
+        return None, None
+    return session_id, tool_use_id
+
+
+def runs_in_background(payload):
+    tool_input = payload.get("tool_input")
+    return isinstance(tool_input, dict) and tool_input.get("run_in_background") is True
+
+
+def cmd_snapshot(payload, root):
+    session_id, tool_use_id = payload_ids(payload)
+    if not session_id:
+        return 0
+    directory = state_dir()
+    if not directory:
+        return 0
+    now = time.time()
+    prune_snapshots(directory, now)
+    fingerprints = dirty_fingerprints(root)
+    if fingerprints is None:
+        print("review_gate.py: git status failed; this Bash call is not checked", file=sys.stderr)
+        return 0
+    write_json_atomic(
+        snapshot_path(directory, session_id, tool_use_id),
+        {
+            "root": root,
+            "session_id": session_id,
+            "background": runs_in_background(payload),
+            "created": now,
+            "taken": now,
+            "fingerprints": fingerprints,
+        },
+    )
+    return 0
+
+
+def as_epoch(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def snapshot_taken(data):
+    return as_epoch(data.get("taken")) or 0.0
+
+
+def cmd_mark_bash(payload, root):
+    session_id, tool_use_id = payload_ids(payload)
+    if not session_id:
+        return 0
+    directory = state_dir()
+    if not directory:
+        return 0
+    path = snapshot_path(directory, session_id, tool_use_id)
+    snapshot = read_snapshot(path)
+    if snapshot is None or not same_path(snapshot["root"], root):
+        return 0
+    before = snapshot["fingerprints"]
+    taken = time.time()
+    after = dirty_fingerprints(root, before, snapshot_taken(snapshot))
+    if after is None:
+        # Left in place for the Stop reconcile.
+        return 0
+    # Mark before consuming, so a failed mark leaves the snapshot for Stop.
+    rels = changed_paths(before, after)
+    if rels:
+        write_gate(root, session_id, rels, after)
+    with gate_lock(root):
+        if snapshot.get("background") or runs_in_background(payload):
+            # A background command may still write; Stop diffs it again from here.
+            rebase_snapshot(path, before, after, taken, background=True)
+        else:
+            remove_quietly(path)
+    return 0
+
+
+def rebase_snapshot(path, read, after, taken, background=False):
+    """Rebase onto `after`, keeping entries synced since `read`; never recreate
+    a consumed snapshot. Caller holds gate_lock."""
+    current = read_snapshot(path)
+    if current is None:
+        return
+    merged = dict(after)
+    for rel, fp in current["fingerprints"].items():
+        if read.get(rel) != fp:
+            merged[rel] = fp
+    current["fingerprints"] = merged
+    current["taken"] = taken
+    if background:
+        current["background"] = True
+    write_json_atomic(path, current)
+
+
+def reconcile_snapshots(root, session_id):
+    """Mark and rebase snapshots no Post hook consumed, then drop expired ones."""
+    if not session_id:
+        return []
+    directory = state_dir()
+    if not directory:
+        return []
+    prune_snapshots(directory, time.time())
+    snapshots = session_snapshots(directory, root, session_id)
+    if not snapshots:
+        return []
+    previous = {}
+    for data in snapshots.values():
+        previous.update(data["fingerprints"])
+    taken = time.time()
+    oldest = min(snapshot_taken(data) for data in snapshots.values())
+    after = dirty_fingerprints(root, previous, oldest)
+    if after is None:
+        return []
+    rels = set()
+    for data in snapshots.values():
+        rels |= changed_paths(data["fingerprints"], after)
+    if rels:
+        write_gate(root, session_id, rels, after)
+    with gate_lock(root):
+        for path, data in snapshots.items():
+            rebase_snapshot(path, data["fingerprints"], after, taken)
+    prune_snapshots(directory, time.time(), session_id)
+    return sorted(rels)
 
 
 # --------------------------------------------------------------- start ----
@@ -526,6 +959,11 @@ def build_reason(files, cfg, stale_reviewer=False):
 
 def cmd_enforce(payload, root):
     session_id = payload.get("session_id") or ""
+    try:
+        reconcile_snapshots(root, session_id)
+    except OSError as exc:
+        print("review_gate.py: snapshot reconcile failed: %s" % exc, file=sys.stderr)
+    last_mark = last_mark_epoch(root, session_id)
     path = find_gate(root, session_id)
     if not path:
         return 0
@@ -548,11 +986,11 @@ def cmd_enforce(payload, root):
             if not is_exempt(p, cfg["exempt"]) and not is_runtime_artifact(p)
         ]
     if not pending and not committed_since(root, files, first_ts):
-        # Gated edits vanished (reverted / never materialized): stand down.
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        # Gated edits vanished (reverted / never materialized): stand down,
+        # unless a hook marked again meanwhile.
+        with gate_lock(root):
+            if last_mark_epoch(root, session_id) <= last_mark:
+                remove_quietly(path)
         return 0
 
     now = time.time()
@@ -688,8 +1126,11 @@ def cmd_clear(payload, root):
     # Retry briefly to allow transcript flush.
     for _ in range(15):
         if transcript_has_pass(transcript, min_epoch, cfg["marker_prefix"]):
-            for gate in gates:
-                remove_quietly(gate)
+            with gate_lock(root):
+                # A hook that marked while the verdict was read keeps its gate.
+                if last_mark_epoch(root, session_id) <= min_epoch:
+                    for gate in gates:
+                        remove_quietly(gate)
             return 0
         time.sleep(0.2)
     return 0
@@ -713,6 +1154,10 @@ def main():
 
     if command == "mark":
         return cmd_mark(payload, root)
+    if command == "snapshot":
+        return cmd_snapshot(payload, root)
+    if command == "mark-bash":
+        return cmd_mark_bash(payload, root)
     if command == "start":
         return cmd_start(payload, root)
     if command == "enforce":
@@ -727,5 +1172,6 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as exc:  # noqa: BLE001 - hooks must never break the session
+        # Non-zero sends each wrapper to its conservative branch.
         print("review_gate.py: %s" % exc, file=sys.stderr)
-        sys.exit(0)
+        sys.exit(1)
