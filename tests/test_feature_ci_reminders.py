@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support.fixtures import run_git, write_executable, write_json
 
@@ -325,6 +327,25 @@ class FeatureCiReminderTests(unittest.TestCase):
             opencode_sha, "<sha>"
         )
         self.assertEqual(normalized_opencode, normalized_claude)
+
+
+class ClaudeStatePathTests(unittest.TestCase):
+    def test_state_path_matches_across_processes_without_getuid(self) -> None:
+        spec = importlib.util.spec_from_file_location("feature_ci_reminder", CLAUDE_HOOK)
+        assert spec and spec.loader
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        payload = {"session_id": "session-1", "tool_use_id": "call-1"}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            hook.tempfile, "gettempdir", return_value=tmp
+        ), mock.patch.object(hook.os, "getuid", None, create=True):
+            with mock.patch.object(hook.os, "getpid", return_value=100):
+                pre = hook.state_path(payload)
+            with mock.patch.object(hook.os, "getpid", return_value=200):
+                post = hook.state_path(payload)
+        self.assertIsNotNone(pre)
+        self.assertEqual(pre, post)
+        self.assertEqual(pre.parent.name, "claude-feature-ci-reminder")
 
 
 if __name__ == "__main__":

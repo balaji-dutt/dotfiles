@@ -152,8 +152,12 @@ def state_path(payload: dict[str, Any]) -> Path | None:
         return None
     if not isinstance(tool_use_id, str) or not tool_use_id:
         return None
-    uid = os.getuid() if hasattr(os, "getuid") else os.getpid()
-    directory = Path(tempfile.gettempdir()) / f"claude-feature-ci-reminder-{uid}"
+    name = "claude-feature-ci-reminder"
+    # No getuid on Windows, where %TEMP% is per-user; Pre and Post must agree.
+    getuid = getattr(os, "getuid", None)
+    if getuid is not None:
+        name += f"-{getuid()}"
+    directory = Path(tempfile.gettempdir()) / name
     try:
         if directory.is_symlink():
             return None
