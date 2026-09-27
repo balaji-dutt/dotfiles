@@ -210,10 +210,34 @@ pwsh -NoProfile -File ./assets/run-tests.ps1 all `
   --report-file ci-artifacts/windows-all.json
 ```
 
+`sh` is deliberately not in that `--require-capability` list even though
+`agent-worktree-merge` declares it. A default Git for Windows install puts `cmd`
+on `PATH` but not `usr/bin`, so `sh.exe` may be absent on the hosted runner. A
+hard requirement would fail the whole job for that PATH gap rather than skip one
+step, and a job that fails for environment reasons gets ignored. The step skips
+with a stated reason instead.
+
 The runner tag is `saas-windows-medium-amd64`; the job deliberately has no
 container `image` because the hosted Windows executor does not support one. If
 GitLab changes beta or subscription availability, a self-hosted Windows runner
 can reuse the same command and capability contract.
+
+### Why `windows-all` stays advisory
+
+`windows-all` keeps `allow_failure: true`, and `tests/test_gitlab_ci.py` pins
+that. Fixing the merge helper for native Windows (`dots-iwon`) was a reason to
+revisit it, and the answer is still no: measured on Windows at `51ad959a`, the
+`fast` suite alone has 13 failing steps unrelated to any one change — among them
+`agent-attestation-windows`, `automation-provenance`, `test-runner`, and
+`remind-beads-hook`. Making the job blocking would stop merges for those, not
+for the change under review.
+
+So per-module Windows coverage is made visible where it can block, rather than by
+flipping this job. `configs/automation-test-inventory.json` now records the real
+platform set for each covered entry, and `tests/test_automation_test_inventory.py`
+asserts the merge-helper suite does not run on a platform its entry omits. That
+check lives in the `fast` suite, which does block. Flipping `allow_failure` is
+worth revisiting once those 13 steps are green, not before.
 
 `devcontainer-smoke` is a manual, non-blocking job that requires a self-hosted
 runner carrying the `devcontainer-smoke` tag, Docker, the Dev Container CLI,
@@ -433,8 +457,9 @@ not break them automatically or hand-edit receipts to authorize a push.
 
 ### Install the complete GitHub contract
 
-Copying only `agent-wt-merge` is sufficient for local-only mode, not GitHub gating.
-An opted-in repository needs these files from the same reviewed revision:
+Local-only mode needs `agent-wt-merge` plus `resolve-python3`, which its `#!/bin/sh`
+entry point execs to find an interpreter. That pair is not sufficient for GitHub
+gating. An opted-in repository needs these files from the same reviewed revision:
 
 - `assets/agent-wt-merge` and executable `assets/resolve-python3`;
 - `assets/check-pipeline.py`, `assets/pipeline_guard.py`;
@@ -447,6 +472,15 @@ An opted-in repository needs these files from the same reviewed revision:
 Keep the helper executable. Python 3, Git, and an authenticated `gh` with stored
 account selection support are runtime prerequisites. Install the reviewed managed
 `pre-push` template as well: source files alone do not enforce a clone's pushes.
+
+A GitHub-gated repository that upgrades across the `dots-iwon` helper revision by
+way of `--update-main` can orphan one `.active-*` evidence marker: the pre-upgrade
+helper handed its operation token to the replacement process through the
+environment, and the new helper starts its own operation instead of inheriting
+one. A leftover marker blocks `prune-evidence` for every record until it is
+removed. Check `<git-common-dir>/agent-wt-merge/evidence/v1` for an `.active-*`
+file with no running owner after that one upgrade. This cannot arise in a
+GitLab-gated or local-only repository, which never create markers.
 The existing `assets/git-template-hook-sync.py` reconciliation installs or updates
 owned template copies, preserves custom hooks and valid `core.hooksPath`, and
 reports cases needing manual integration. See

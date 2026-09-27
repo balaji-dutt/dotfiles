@@ -20,6 +20,9 @@ configs/automation-candidates.txt text eol=lf
 
 # Shell scripts must remain LF to be valid on Linux/WSL
 *.sh text eol=lf
+assets/agent-wt-merge text eol=lf
+assets/beads-sync text eol=lf
+assets/resolve-python3 text eol=lf
 private_dot_config/git/template/hooks/executable_pre-commit text eol=lf
 private_dot_config/git/template/hooks/executable_prepare-commit-msg text eol=lf
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_pre-commit text eol=lf

@@ -81,6 +81,17 @@ def write_executable(path: Path, content: str) -> Path:
     return path
 
 
+def write_python_command(directory: Path, name: str, body: str) -> Path:
+    """Create a PATH command from Python source, launchable on Windows too."""
+    script = write_executable(directory / name, body)
+    if os.name == "nt":
+        return write_executable(
+            directory / f"{name}.cmd",
+            f'@"{sys.executable}" "{script}" %*\r\n@exit /b %ERRORLEVEL%\r\n',
+        )
+    return script
+
+
 def write_json(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

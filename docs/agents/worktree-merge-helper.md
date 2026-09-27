@@ -89,12 +89,52 @@ override.
 Before invoking a main helper, agents check that selected helper path for
 uncommitted changes. The helper repeats this check before delegation. When an
 approved `--update-main` fast-forwards main, the running process resolves and
-executes the newly checked-out main helper before it starts the feature merge.
+runs the newly checked-out main helper before it starts the feature merge.
 It removes `--update-main` to prevent an update loop and removes
 `--use-local-helper` so the updated main policy becomes authoritative.
-If the update changes the mode, provider, or policy evidence contract, it stops
-after updating main and before merging the feature. Rediscover capabilities and
-approve a new operation; do not retry under the old approval.
+If the update changes the mode, provider, or policy evidence contract, the
+feature is not merged. Rediscover capabilities and approve a new operation; do
+not retry under the old approval.
+
+### `--update-main` leaves one of two states
+
+An approved `--update-main` either completes the feature merge or puts main back
+where it started. Nothing in between.
+
+Before moving main, the helper checks that the advertised ref still carries a
+merge helper and refuses without touching main if it does not. After the
+fast-forward, any outcome that does not complete the merge — a missing, dirty, or
+contract-changed helper, a child that cannot start, a child that exits without
+merging, **or a merge conflict** — is followed by `git reset --hard` back to the
+pre-update SHA, preceded by `git merge --abort` when a merge is in progress. The
+discarded fast-forward stays reachable as `main@{1}`.
+
+Rolling back a conflict is deliberate, and it differs from a plain `ff`/`no-ff`
+conflict, which is left in the worktree for inspection because that path never
+moved main. The conflicted paths are still named in the helper's own report, so
+the diagnostic survives the abort.
+
+The rollback refuses rather than forces when the main worktree is dirty, when a
+merge cannot be aborted, or when main is at a SHA this run did not create. Those
+cases print `MANUAL RECOVERY REQUIRED` with the exact `git -C <main-worktree>
+reset --hard <sha>` command to run after inspection.
+
+### Native Windows
+
+The helper's entry point is `#!/bin/sh`; it resolves a Python 3 interpreter
+through `assets/resolve-python3` and re-executes itself. That makes the command
+forms above work unchanged from any POSIX shell, Git Bash included, on a machine
+whose only interpreters are `python` and the `py` launcher. `assets/resolve-python3`
+must therefore be installed beside the helper in every mode, including local-only.
+
+From PowerShell, where there is no `sh`, invoke the interpreter yourself. The
+helper is valid Python as written, so hand it straight to the interpreter — do
+not route this form through `assets/resolve-python3`, which is a shell script and
+raises `SyntaxError` under Python:
+
+```powershell
+py -3 <main-worktree>/assets/agent-wt-merge inspect --json
+```
 
 Running feature commands from `main` or `master` is an error because there is no
 feature worktree to merge. Main accepts only `prepare-main-ci` and, for GitHub,

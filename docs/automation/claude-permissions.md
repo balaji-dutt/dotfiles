@@ -36,10 +36,13 @@ build, and the recipe to re-verify it after an upgrade.
 
 The `agent-wt-merge` `inspect`/`ff`/`no-ff` allow rules are not in the base.
 They name the helper by this checkout's absolute path, so the modify template
-generates them from `.chezmoi.workingTree`. On native Windows it also emits
-the `assets/resolve-python3 -- <helper>` form, because there is no `python3`
-on `PATH` there to honour the shebang (see `dots-iwon`). The devcontainer gets
-none of these rules.
+generates them from `.chezmoi.workingTree`. The same three rules serve every
+platform: the helper's own `#!/bin/sh` entry point resolves an interpreter, so
+native Windows no longer needs a separate `assets/resolve-python3 -- <helper>`
+form. Keeping one shape matters beyond tidiness — the `prepare-ci` and
+`prepare-main-ci` **ask** rules in the base are globs anchored on the helper
+being the first token, so a resolver-prefixed command would have slipped past
+their gate. The devcontainer gets none of these rules.
 
 Repo-scoped rules live in `.claude/settings.json` and cover chezmoi commands
 only. The `mcp__cbm__*` allow/deny entries are documented in

@@ -122,7 +122,7 @@ class GitHubWorktreeMergeTests(unittest.TestCase):
                     fixture.install_pipeline_files(fixture.main)
                 else:
                     (fixture.main / "upstream.txt").write_text("upstream\n")
-                upstream = fixture.commit_all(fixture.main, "upstream contract")
+                fixture.commit_all(fixture.main, "upstream contract")
                 fixture.git(fixture.main, "push", "origin", "main")
                 fixture.git(fixture.main, "reset", "--hard", before)
                 merged = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "Land feature", "--update-main")
@@ -135,7 +135,8 @@ class GitHubWorktreeMergeTests(unittest.TestCase):
                 else:
                     self.assertEqual(merged.returncode, 2, merged.stdout + merged.stderr)
                     self.assertIn("evidence contract changed", merged.stderr)
-                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), upstream)
+                    self.assertIn(f"restored main to {before}", merged.stderr)
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
                     self.assertEqual(fixture.remote_feature_sha(), sha)
 
     def test_record_write_failure_after_merge_retains_feature_and_attempts_beads(self):

@@ -1,5 +1,23 @@
-#!/usr/bin/env python3
-"""Helper for inspecting and landing Git worktrees and preparing exact-SHA CI."""
+#!/bin/sh
+":" '''\'
+# Helper for inspecting and landing Git worktrees and preparing exact-SHA CI.
+#
+# sh runs this block and never returns; Python reads lines 2-20 as the module
+# docstring. Native Windows has no python3 on PATH and ignores shebangs, so the
+# interpreter has to come from resolve-python3. Keep the closing quotes directly
+# above the __future__ import, and keep single quotes out of this block.
+set -eu
+entry_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+case $entry_dir in
+  */.opencode/bin) resolver=$entry_dir/../../assets/resolve-python3 ;;
+  *) resolver=$entry_dir/resolve-python3 ;;
+esac
+if [ ! -f "$resolver" ]; then
+  echo "${0##*/}: missing Python resolver: $resolver" >&2
+  exit 127
+fi
+exec "$resolver" -- "$0" "$@"
+'''
 
 from __future__ import annotations
 
@@ -9,6 +27,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -287,11 +306,10 @@ def read_exec_chain() -> list[str]:
     return value
 
 
-ACTIVE_EVIDENCE_TOKEN: str | None = None
 EVIDENCE_OPERATION_ENV = "AGENT_WT_MERGE_EVIDENCE_OPERATION"
 
 
-def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = False) -> None:
+def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = False) -> int:
     current = running_helper_path()
     target = target.resolve()
     if not target.is_file() or not os.access(target, os.X_OK):
@@ -309,11 +327,15 @@ def exec_helper(target: Path, argv: list[str], *, after_main_update: bool = Fals
         env[EXEC_CHAIN_ENV] = json.dumps(chain)
     if after_main_update:
         env[REEXEC_AFTER_UPDATE_ENV] = "1"
-    if ACTIVE_EVIDENCE_TOKEN is not None:
-        env[EVIDENCE_OPERATION_ENV] = ACTIVE_EVIDENCE_TOKEN
+    env.pop(EVIDENCE_OPERATION_ENV, None)
 
+    # Windows cannot exec a shebang script, and os.execve there returns 0 to the
+    # caller while discarding the child's output and exit status. Spawning also
+    # keeps this process alive to restore main when a --update-main child fails.
+    sys.stdout.flush()
+    sys.stderr.flush()
     try:
-        os.execve(target_text, [target_text, *argv], env)
+        return subprocess.run([sys.executable, target_text, *argv], env=env, check=False).returncode
     except OSError as exc:
         die(f"could not execute helper {target}: {exc}")
 
@@ -352,7 +374,7 @@ def prepare_helper_execution(
         if dirty:
             die("main helper path is dirty; refusing to execute it:\n" + "\n".join(dirty))
         if current != canonical:
-            exec_helper(canonical, argv)
+            raise SystemExit(exec_helper(canonical, argv))
         return HelperProvenance(
             path=current,
             state="delegated" if delegated_from else "canonical",
@@ -392,6 +414,10 @@ def ci_provider(helper_path: Path) -> str | None:
         except FileNotFoundError:
             if policy.parent.is_symlink() and not policy.parent.exists():
                 die(f"cannot inspect pipeline policy through broken path: {policy.parent}")
+            # Windows reports a non-directory ancestor as ENOENT where POSIX
+            # reports ENOTDIR, so check rather than degrade to local-only.
+            if policy.parent.exists() and not policy.parent.is_dir():
+                die(f"cannot inspect pipeline policy through non-directory path: {policy.parent}")
             continue
         except OSError as exc:
             die(f"cannot inspect pipeline policy {policy}: {exc}")
@@ -1245,6 +1271,118 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
     return 0
 
 
+SEQUENCER_HEADS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD")
+
+
+def sequencer_in_progress(worktree: Path) -> bool:
+    return any(
+        git_returncode(worktree, ["rev-parse", "-q", "--verify", f"{name}^{{commit}}"]) == 0
+        for name in SEQUENCER_HEADS
+    )
+
+
+def ensure_updated_main_provides_helper(ctx: MergeContext) -> None:
+    if ctx.origin_ref is None:
+        return
+    for relative_path in HELPER_RELATIVE_PATHS:
+        spec = f"{ctx.origin_ref}:{relative_path.as_posix()}"
+        if git_returncode(ctx.main_worktree, ["cat-file", "-e", spec]) == 0:
+            return
+    advertised = " or ".join(path.as_posix() for path in HELPER_RELATIVE_PATHS)
+    die(
+        f"refusing to update {ctx.main_branch}: {ctx.origin_ref} carries no merge helper at "
+        f"{advertised}; {ctx.main_branch} was not moved and {ctx.feature_branch} was not merged"
+    )
+
+
+def restore_main_after_failed_update(
+    ctx: MergeContext,
+    *,
+    before_sha: str,
+    updated_sha: str,
+) -> tuple[bool, str]:
+    """Undo this run's --update-main fast-forward. Never raises."""
+    recovery = f'git -C "{ctx.main_worktree}" reset --hard {before_sha}'
+    try:
+        head = git_output(ctx.main_worktree, ["rev-parse", "HEAD"])
+        if head == before_sha:
+            return True, f"{ctx.main_branch} was not moved"
+        if head != updated_sha:
+            return False, (
+                f"{ctx.main_branch} is at {head}, not the {updated_sha} this run created; "
+                f"left it untouched. Inspect it, then run: {recovery}"
+            )
+        if git_returncode(ctx.main_worktree, ["merge-base", "--is-ancestor", before_sha, updated_sha]) != 0:
+            return False, (
+                f"{before_sha} is not an ancestor of {updated_sha}; left {ctx.main_branch} untouched. "
+                f"Inspect it, then run: {recovery}"
+            )
+        if sequencer_in_progress(ctx.main_worktree):
+            abort = run_git(ctx.main_worktree, ["merge", "--abort"], check=False)
+            if abort.returncode != 0 or sequencer_in_progress(ctx.main_worktree):
+                detail = (abort.stderr or abort.stdout or "git merge --abort failed").strip()
+                return False, (
+                    f"a merge is in progress in {ctx.main_worktree} and could not be aborted ({detail}); "
+                    f"left {ctx.main_branch} at {updated_sha}. Finish or abort it, then run: {recovery}"
+                )
+            if git_output(ctx.main_worktree, ["rev-parse", "HEAD"]) != updated_sha:
+                return False, (
+                    f"aborting the merge in {ctx.main_worktree} did not return {ctx.main_branch} to "
+                    f"{updated_sha}; left it untouched. Inspect it, then run: {recovery}"
+                )
+        dirty = dirty_paths(ctx.main_worktree)
+        if dirty:
+            return False, (
+                f"{ctx.main_worktree} is dirty, so {ctx.main_branch} was left at {updated_sha} rather "
+                "than discarding:\n" + "\n".join(dirty) + f"\nThen run: {recovery}"
+            )
+        reset = run_git(ctx.main_worktree, ["reset", "--hard", "--quiet", before_sha], check=False)
+        if reset.returncode != 0:
+            detail = (reset.stderr or reset.stdout or "git reset --hard failed").strip()
+            return False, f"could not restore {ctx.main_branch}: {detail}. Run: {recovery}"
+        if git_output(ctx.main_worktree, ["rev-parse", "HEAD"]) != before_sha or dirty_paths(ctx.main_worktree):
+            return False, f"{ctx.main_branch} did not return cleanly to {before_sha}. Run: {recovery}"
+        return True, f"restored {ctx.main_branch} to {before_sha}"
+    except (AgentWtMergeError, OSError, subprocess.SubprocessError) as exc:
+        return False, f"rollback could not be completed ({exc}). Run: {recovery}"
+
+
+def update_main_and_run_updated_helper(
+    ctx: MergeContext,
+    argv: list[str],
+    *,
+    remote_name: str,
+    expected_contract: tuple[str | None, bytes],
+    before_sha: str,
+) -> int:
+    ensure_updated_main_provides_helper(ctx)
+    update_main_from_origin(ctx, remote_name)
+    updated_sha = git_output(ctx.main_worktree, ["rev-parse", "HEAD"])
+
+    # Every escape from here has to reach the rollback below, not just the
+    # helper's own error type: an interrupt or an unspawnable git would otherwise
+    # leave main on the fast-forward with a traceback instead of a recovery path.
+    try:
+        status = reexec_after_main_update(ctx, argv, expected_contract=expected_contract)
+        # A completed merge moves main off the fast-forward it just landed on.
+        # Anything else means the feature was not merged, whatever the exit code.
+        if git_output(ctx.main_worktree, ["rev-parse", "HEAD"]) != updated_sha:
+            return status
+    except (AgentWtMergeError, KeyboardInterrupt, OSError, subprocess.SubprocessError) as exc:
+        cause = str(exc) or f"interrupted before {ctx.feature_branch} was merged"
+    else:
+        cause = f"the updated {ctx.main_branch} helper exited {status} without merging {ctx.feature_branch}"
+
+    restored, detail = restore_main_after_failed_update(
+        ctx,
+        before_sha=before_sha,
+        updated_sha=updated_sha,
+    )
+    if restored:
+        die(f"{cause}; {detail}. {ctx.feature_branch} was not merged")
+    die(f"{cause}. MANUAL RECOVERY REQUIRED: {detail}. {ctx.feature_branch} was not merged")
+
+
 def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
     if ctx.origin_ref is None:
         die(
@@ -1260,29 +1398,25 @@ def update_main_from_origin(ctx: MergeContext, remote_name: str) -> None:
         die(f"could not fast-forward {ctx.main_branch} from {ctx.origin_ref}: {detail}")
 
 
-def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_contract: tuple[str | None, bytes]) -> None:
+def reexec_after_main_update(ctx: MergeContext, argv: list[str], *, expected_contract: tuple[str | None, bytes]) -> int:
     canonical = canonical_helper_path(ctx.main_worktree)
     if canonical is None:
-        die(
-            f"updated {ctx.main_branch}, but it no longer provides an executable merge helper; "
-            "the feature branch was not merged"
-        )
+        die(f"updated {ctx.main_branch}, but it no longer provides an executable merge helper")
     dirty = helper_dirty_paths(ctx.main_worktree, canonical)
     if dirty:
         die(
-            f"updated {ctx.main_branch}, but its helper path is dirty; the feature branch was not merged:\n"
+            f"updated {ctx.main_branch}, but its helper path is dirty:\n"
             + "\n".join(dirty)
         )
     if ci_contract(canonical) != expected_contract:
         die(
-            f"updated {ctx.main_branch}, but helper mode changed or its evidence contract changed; the feature branch was not merged. "
+            f"updated {ctx.main_branch}, but helper mode changed or its evidence contract changed. "
             "Rediscover helper capabilities and obtain approval before retrying"
         )
     next_argv = [
         item for item in argv if item not in {"--update-main", LOCAL_HELPER_FLAG}
     ]
-    exec_helper(canonical, next_argv, after_main_update=True)
-    die("failed to re-execute the helper after updating main")
+    return exec_helper(canonical, next_argv, after_main_update=True)
 
 
 def ensure_merge_preconditions(
@@ -1381,9 +1515,20 @@ def close_beads_issue(
     if not reason_shas:
         reason_shas = git_output(ctx.main_worktree, ["rev-parse", "--short", after_sha])
     reason = f"Fixed with commit(s) {reason_shas}"
+    # CreateProcess only ever appends .exe, so resolve through PATHEXT to reach a
+    # .cmd or .bat Beads shim on native Windows.
+    bd_command = shutil.which("bd")
+    if bd_command is None:
+        return {
+            "requested": True,
+            "closed": False,
+            "state_file": str(state_file),
+            "reason": "bd close failed",
+            "stderr": "no bd executable was found in PATH",
+        }
     try:
         result = subprocess.run(
-            ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]],
+            [bd_command, "close", issue_id, "--reason", reason, "--actor", spec["name"]],
             cwd=str(ctx.original_worktree),
             text=True,
             stdout=subprocess.PIPE,
@@ -1687,8 +1832,13 @@ def perform_merge(
                 f"{advertised_main_sha or 'nothing'}, expected {ctx.origin_sha}; rerun the command"
             )
     if ctx.origin_behind_count and parsed.update_main:
-        update_main_from_origin(ctx, remote_name)
-        reexec_after_main_update(ctx, full_argv, expected_contract=expected_contract)
+        return update_main_and_run_updated_helper(
+            ctx,
+            full_argv,
+            remote_name=remote_name,
+            expected_contract=expected_contract,
+            before_sha=before_sha,
+        )
 
     if git_output(ctx.main_worktree, ["rev-parse", "HEAD"]) != before_sha or dirty_paths(ctx.main_worktree):
         die("main changed while merge evidence was inspected; feature was not merged")
@@ -1885,7 +2035,6 @@ def dispatch(command: str, raw_args: list[str], helper: HelperProvenance) -> int
 
 
 def main(argv: list[str]) -> int:
-    global ACTIVE_EVIDENCE_TOKEN
     try:
         if not argv or argv[0] in {"-h", "--help"}:
             print(usage(), end="")
@@ -1900,16 +2049,16 @@ def main(argv: list[str]) -> int:
         shared = pipeline_module()
         try:
             store = shared.EvidenceStore(resolve_repo_root())
-            inherited_token = os.environ.pop(EVIDENCE_OPERATION_ENV, None)
-            token = store.resume_operation(inherited_token) if inherited_token else store.start_operation()
-            ACTIVE_EVIDENCE_TOKEN = token
+            os.environ.pop(EVIDENCE_OPERATION_ENV, None)
+            # Ownership of an evidence marker is recorded by pid, so a delegated
+            # child must start its own rather than inherit this one.
+            token = store.start_operation()
         except (shared.PipelineRuntimeError, OSError) as exc:
             die(str(exc))
         result = 2
         try:
             result = dispatch(command, raw_args, helper)
         finally:
-            ACTIVE_EVIDENCE_TOKEN = None
             try:
                 store.finish_operation(token)
             except (shared.PipelineRuntimeError, OSError) as exc:

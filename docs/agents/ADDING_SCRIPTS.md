@@ -35,11 +35,27 @@ chezmoi hook `run_onchange_after_claude_mcp_servers.sh.tmpl` and by the
 homelab-IaC devcontainer over its read-only host mount. Such helpers still obey
 the rules above — repo-only, not templated, not applied to a target.
 
+A Python helper that callers invoke **by path** needs a third shape, because
+native Windows has no `python3` on `PATH`, so `#!/usr/bin/env python3` leaves the
+file unrunnable even from the POSIX shells that do read shebangs there.
+`agent-wt-merge` handles this without splitting into two files: line 1 is
+`#!/bin/sh`, followed by a block that `sh` executes and Python reads as the module
+docstring. The block execs `assets/resolve-python3`, which probes `python3`,
+`py -3`, then `python`, and rejects the Windows app-execution alias that resolves
+but does not run. Keeping it one file matters when the path itself carries policy
+— one dirty check, one allowlist pattern, one entry in any provenance manifest.
+Two requirements come with the shape: `resolve-python3` has to ship beside the
+helper in every mode, and the helper needs `text eol=lf` in `.gitattributes`,
+since a CRLF `#!/bin/sh` is fatal under a real `/bin/sh`. PowerShell has no `sh`,
+so it still calls the interpreter directly; see `worktree-merge-helper.md` →
+**Native Windows** for that form, the working header, and the invariants that
+break it.
+
 Existing members: `cz-audit.sh` / `cz-audit.ps1`, `beads-sync.sh` /
-`beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge`,
-`guarded-main-sync` and its shared GitLab pipeline runtime,
-`claude-mcp-apply.py`, `sync-browser-policies.py`, and the `sync-*` scripts.
-See `assets/README.md` for their usage.
+`beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge`
+(sh-dispatched Python), `guarded-main-sync` and its shared GitLab pipeline
+runtime, `claude-mcp-apply.py`, `sync-browser-policies.py`, and the `sync-*`
+scripts. See `assets/README.md` for their usage.
 
 ## Test and ownership checklist
 

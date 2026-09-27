@@ -7,8 +7,8 @@
       "classification": "owned",
       "paths": ["assets/agent-wt-merge"],
       "owner": {"kind": "repository", "name": "dotfiles worktree merge helper"},
-      "languages": ["python"],
-      "platforms": ["linux", "macos", "wsl2"],
+      "languages": ["python", "shell"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "critical",
       "side_effects": ["beads", "filesystem", "git", "network", "process"],
       "test_layers": ["integration", "unit"],
@@ -45,6 +45,13 @@
             "description": "Preserve fast-forward feature commits and Claude no-ff messages and identity without adding OpenCode attribution.",
             "status": "covered",
             "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
+            "id": "safety-update-main-atomicity",
+            "kind": "safety",
+            "description": "An approved --update-main either completes the feature merge or restores main to its pre-update SHA, and refuses to move main at all when the advertised ref carries no merge helper.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py"]
           },
           {
             "id": "success-opencode-merge-attribution",

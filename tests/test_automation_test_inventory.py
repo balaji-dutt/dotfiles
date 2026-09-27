@@ -614,6 +614,18 @@ class AutomationInventoryTests(unittest.TestCase):
         )
         self.assertEqual(inventory_step["suites"], ["fast", "provenance"])
 
+        all_platforms = ["linux", "macos", "windows", "wsl2"]
+        merge_step = next(
+            step
+            for step in registry["steps"]
+            if step["id"] == matches[0]["coverage"]["suite_id"]
+        )
+        self.assertLessEqual(
+            set(merge_step.get("platforms", all_platforms)),
+            set(matches[0]["platforms"]),
+            "the merge helper suite runs on a platform its inventory entry does not claim",
+        )
+
         for reviewer_path in (
             REPO_ROOT / ".claude/agents/dotfiles-reviewer.md",
             REPO_ROOT / ".opencode/agents/dotfiles-reviewer.md",

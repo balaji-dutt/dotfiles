@@ -43,7 +43,7 @@
       "suites": ["integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_agent_wt_merge"],
       "covers": ["tests/test_agent_wt_merge.py"],
-      "requires": ["git"]
+      "requires": ["git", "sh"]
     },
     {
       "id": "ai-tooling-drift",

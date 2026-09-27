@@ -42,15 +42,10 @@
 {{- $permissions := (index $settings "permissions") | default dict -}}
 {{- $allow := (index $permissions "allow") | default list -}}
 {{- /* printf, not joinPath: joinPath emits backslashes on Windows, but Git Bash commands use drive-letter paths such as F:/. */ -}}
-{{- $resolver := printf "%s/assets/resolve-python3" .chezmoi.workingTree -}}
 {{- range $helperPath := list "assets/agent-wt-merge" ".opencode/bin/agent-wt-merge" -}}
 {{-   $helper := printf "%s/%s" $.chezmoi.workingTree $helperPath -}}
 {{-   range $sub := list "inspect" "ff" "no-ff" -}}
 {{-     $allow = concat $allow (list (printf "Bash(%s %s:*)" $helper $sub) (printf "Bash(\"%s\" %s:*)" $helper $sub) (printf "Bash('%s' %s:*)" $helper $sub)) -}}
-{{-     if eq $.chezmoi.os "windows" -}}
-{{- /* Native Windows has no python3 on PATH, so the helper runs through the resolver. */ -}}
-{{-       $allow = concat $allow (list (printf "Bash(%s -- %s %s:*)" $resolver $helper $sub) (printf "Bash(\"%s\" -- \"%s\" %s:*)" $resolver $helper $sub) (printf "Bash('%s' -- '%s' %s:*)" $resolver $helper $sub)) -}}
-{{-     end -}}
 {{-   end -}}
 {{- end -}}
 {{- $_ := set $permissions "allow" $allow -}}

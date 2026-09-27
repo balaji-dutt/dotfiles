@@ -6,17 +6,39 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
-from tests.support.fixtures import read_json, run_git, write_executable, write_json
+from tests.support.fixtures import (
+    read_json,
+    run_git,
+    write_executable,
+    write_json,
+    write_python_command,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_HELPER = REPO_ROOT / "assets" / "agent-wt-merge"
+SOURCE_RESOLVER = REPO_ROOT / "assets" / "resolve-python3"
 SOURCE_RUNTIME = REPO_ROOT / "assets" / "gitlab_pipeline_runtime.py"
+# Windows cannot start a shebang script by path, so the helper's #!/bin/sh entry
+# point is handed to sh explicitly. Git Bash's bash drops positional arguments
+# when invoked this way, so sh is the only dependable launcher here.
+HELPER_LAUNCH_PREFIX = ["sh"] if os.name == "nt" else []
+POSIX_EXECUTABLE_BIT = unittest.skipIf(
+    os.name == "nt", "executability is not carried by permission bits on Windows"
+)
+PATH_SHIM_INTERCEPTS = unittest.skipIf(
+    os.name == "nt", "CreateProcess appends only .exe, so a PATH shim cannot shadow a real tool"
+)
+# cleanup_policy defers on native Windows because the running agent still holds
+# the worktree directory; see docs/agents/worktree-merge-helper.md.
+EXPECTED_UNMANAGED_CLEANUP = "defer" if os.name == "nt" else "suggest"
+EXPECTED_UNMANAGED_MANAGER = "user" if os.name == "nt" else "git"
 OPENCODE_BOT = "Co-authored-by: opencode-agent[bot] <opencode-agent[bot]@users.noreply.github.com>"
 EXEC_ENV_KEYS = (
     "AGENT_WT_MERGE_EXEC_CHAIN",
@@ -81,8 +103,9 @@ class GitFixture:
         self.set_override(ci_gated)
 
         self.fake_bin.mkdir()
-        write_executable(
-            self.fake_bin / "bd",
+        write_python_command(
+            self.fake_bin,
+            "bd",
             """#!/usr/bin/env python3
 import json
 import os
@@ -120,6 +143,9 @@ if os.environ.get("FAKE_BD_FAIL"):
     def install_helper(self, worktree: Path, text: str | None = None) -> Path:
         helper = worktree / "assets" / "agent-wt-merge"
         helper.parent.mkdir(parents=True, exist_ok=True)
+        # The helper's sh entry point execs the interpreter this resolver picks,
+        # so it ships with every copy regardless of pipeline mode.
+        shutil.copy2(SOURCE_RESOLVER, helper.parent / SOURCE_RESOLVER.name)
         if text is None:
             shutil.copy2(SOURCE_HELPER, helper)
             if self.ci_gated:
@@ -281,7 +307,7 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
-            [str(helper), *args],
+            [*HELPER_LAUNCH_PREFIX, str(helper), *args],
             cwd=str(cwd),
             env=env,
             text=True,
@@ -499,20 +525,22 @@ Commands:
                     self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%an <%ae>|%cn <%ce>"),
                                      f"{expected}|{expected}")
 
+    @PATH_SHIM_INTERCEPTS
     def test_no_ff_trailer_format_failure_does_not_merge(self) -> None:
         fixture = self.fixture(ci_gated=False)
         fixture.commit_main("main-only", "main\n", "local main")
         before = fixture.output(fixture.main, "rev-parse", "HEAD")
         real_git = shutil.which("git")
         self.assertIsNotNone(real_git)
-        write_executable(
-            fixture.fake_bin / "git",
+        write_python_command(
+            fixture.fake_bin,
+            "git",
             f"#!{sys.executable}\n"
-            "import os, sys\n"
+            "import subprocess, sys\n"
             "if 'interpret-trailers' in sys.argv:\n"
             "    print('simulated formatter failure', file=sys.stderr)\n"
             "    raise SystemExit(23)\n"
-            f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n",
+            f"raise SystemExit(subprocess.run([{real_git!r}, *sys.argv[1:]]).returncode)\n",
         )
         result = fixture.run_helper(
             fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land feature",
@@ -598,13 +626,16 @@ Commands:
                         fixture.install_pipeline_files(upstream)
                         shutil.copy2(SOURCE_RUNTIME, upstream / "assets" / SOURCE_RUNTIME.name)
                 (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
-                upstream_sha = fixture.commit_all(upstream, "update main contract")
+                fixture.commit_all(upstream, "update main contract")
                 fixture.git(upstream, "push", "origin", "main")
+                before = fixture.output(fixture.main, "rev-parse", "HEAD")
                 result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land feature", "--update-main")
                 if change_mode:
                     self.assertEqual(result.returncode, 2)
                     self.assertIn("helper mode changed", result.stderr)
-                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), upstream_sha)
+                    self.assertIn(f"restored main to {before}", result.stderr)
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+                    self.assertEqual(fixture.output(fixture.main, "status", "--porcelain", "--untracked-files=all"), "")
                 else:
                     self.assert_ok(result)
                     self.assertIn("Re-executed after main update: yes", result.stdout)
@@ -640,8 +671,8 @@ Commands:
             report["feature_worktree"],
             {"locked": False, "lock_reason": None},
         )
-        self.assertEqual(report["cleanup"]["action"], "suggest")
-        self.assertEqual(report["cleanup"]["manager"], "git")
+        self.assertEqual(report["cleanup"]["action"], EXPECTED_UNMANAGED_CLEANUP)
+        self.assertEqual(report["cleanup"]["manager"], EXPECTED_UNMANAGED_MANAGER)
 
     def test_aoe_lock_defers_cleanup_and_preserves_reason(self) -> None:
         fixture = self.fixture()
@@ -668,8 +699,8 @@ Commands:
         self.assert_ok(result)
         report = json.loads(result.stdout)
         self.assertEqual(report["feature_worktree"]["lock_reason"], reason)
-        self.assertEqual(report["cleanup"]["action"], "suggest")
-        self.assertEqual(report["cleanup"]["manager"], "git")
+        self.assertEqual(report["cleanup"]["action"], EXPECTED_UNMANAGED_CLEANUP)
+        self.assertEqual(report["cleanup"]["manager"], EXPECTED_UNMANAGED_MANAGER)
 
     def test_ai_wt_cleanup_differs_by_platform(self) -> None:
         helper = load_helper_module()
@@ -724,6 +755,7 @@ Commands:
         self.assertEqual(report["helper"]["path"], str(wrapper))
         self.assertEqual(report["helper"]["canonical_path"], str(wrapper))
 
+    @POSIX_EXECUTABLE_BIT
     def test_non_executable_main_helper_does_not_fallback(self) -> None:
         fixture = self.fixture()
         fixture.main_helper.chmod(0o644)
@@ -758,6 +790,7 @@ Commands:
         self.assertEqual(report["helper"]["path"], str(fixture.feature_helper))
         self.assertEqual(report["helper"]["canonical_path"], str(fixture.main_helper))
 
+    @POSIX_EXECUTABLE_BIT
     def test_explicit_override_bypasses_non_executable_main_helper(self) -> None:
         fixture = self.fixture()
         fixture.main_helper.chmod(0o644)
@@ -1240,7 +1273,115 @@ Commands:
             "merge feature",
         )
 
-    def test_missing_updated_helper_stops_before_feature_merge(self) -> None:
+    def rollback_context(self, fixture) -> types.SimpleNamespace:
+        return types.SimpleNamespace(
+            main_worktree=fixture.main,
+            main_branch="main",
+            feature_branch="feature",
+            origin_ref="origin/main",
+        )
+
+    def test_escaping_exceptions_restore_main_after_it_moved(self) -> None:
+        for raised in (KeyboardInterrupt(), OSError("git vanished"), subprocess.SubprocessError()):
+            with self.subTest(raised=type(raised).__name__):
+                helper = load_helper_module()
+                fixture = self.fixture(ci_gated=False)
+                before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+                upstream = fixture.upstream_clone()
+                (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+                fixture.commit_all(upstream, "upstream")
+                fixture.git(upstream, "push", "origin", "main")
+                fixture.git(fixture.main, "fetch")
+
+                def explode(*_args, **_kwargs):
+                    raise raised
+
+                helper.reexec_after_main_update = explode
+                with self.assertRaises(helper.AgentWtMergeError) as caught:
+                    helper.update_main_and_run_updated_helper(
+                        self.rollback_context(fixture),
+                        ["no-ff", "--actor", "opencode", "-m", "land"],
+                        remote_name="origin",
+                        expected_contract=(None, b""),
+                        before_sha=before_sha,
+                    )
+                message = str(caught.exception)
+                self.assertIn(f"restored main to {before_sha}", message)
+                self.assertNotIn("MANUAL RECOVERY REQUIRED", message)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before_sha)
+
+    def test_rollback_refuses_to_discard_a_dirty_main(self) -> None:
+        helper = load_helper_module()
+        fixture = self.fixture(ci_gated=False)
+        before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+        upstream = fixture.upstream_clone()
+        (upstream / "upstream.txt").write_text("upstream\n", encoding="utf-8")
+        fixture.commit_all(upstream, "upstream")
+        fixture.git(upstream, "push", "origin", "main")
+        fixture.git(fixture.main, "fetch")
+        fixture.git(fixture.main, "merge", "--ff-only", "origin/main")
+        updated_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+        (fixture.main / "local-edit.txt").write_text("do not lose me\n", encoding="utf-8")
+
+        restored, detail = helper.restore_main_after_failed_update(
+            self.rollback_context(fixture),
+            before_sha=before_sha,
+            updated_sha=updated_sha,
+        )
+        self.assertFalse(restored)
+        self.assertIn("is dirty", detail)
+        self.assertIn(f"reset --hard {before_sha}", detail)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), updated_sha)
+        self.assertEqual(
+            (fixture.main / "local-edit.txt").read_text(encoding="utf-8"),
+            "do not lose me\n",
+        )
+
+    def test_rollback_refuses_a_main_this_run_did_not_create(self) -> None:
+        helper = load_helper_module()
+        fixture = self.fixture(ci_gated=False)
+        before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+        fixture.commit_main("third-party.txt", "moved by someone else\n", "third party")
+        moved_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+
+        restored, detail = helper.restore_main_after_failed_update(
+            self.rollback_context(fixture),
+            before_sha=before_sha,
+            updated_sha="0" * 40,
+        )
+        self.assertFalse(restored)
+        self.assertIn("not the", detail)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), moved_sha)
+
+    def test_update_main_restores_main_when_feature_already_landed(self) -> None:
+        fixture = self.fixture()
+        feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
+        upstream = fixture.upstream_clone()
+        fixture.git(upstream, "merge", "--no-ff", "-m", "land feature upstream", feature_sha)
+        fixture.git(upstream, "push", "origin", "main")
+        fixture.git(fixture.main, "fetch")
+        before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+
+        result = fixture.run_helper(
+            fixture.main_helper,
+            fixture.feature,
+            "no-ff",
+            "--actor",
+            "opencode",
+            "-m",
+            "already landed",
+            "--update-main",
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("no commits ahead", result.stderr)
+        self.assertIn(f"restored main to {before_sha}", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before_sha)
+        self.assertEqual(
+            fixture.output(fixture.main, "status", "--porcelain", "--untracked-files=all"),
+            "",
+        )
+
+    def test_missing_updated_helper_stops_before_moving_main(self) -> None:
         fixture = self.fixture()
         feature_sha = fixture.output(fixture.feature, "rev-parse", "HEAD")
         upstream = fixture.upstream_clone()
@@ -1248,6 +1389,8 @@ Commands:
         fixture.git(upstream, "commit", "-m", "remove helper")
         fixture.git(upstream, "push", "origin", "main")
         fixture.git(fixture.main, "fetch")
+        before_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+        before_reflog = fixture.output(fixture.main, "reflog", "show", "main", "--format=%H")
 
         result = fixture.run_helper(
             fixture.main_helper,
@@ -1260,7 +1403,13 @@ Commands:
             "--update-main",
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("no longer provides an executable merge helper", result.stderr)
+        self.assertIn("refusing to update main", result.stderr)
+        self.assertNotIn("restored main", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before_sha)
+        self.assertEqual(
+            fixture.output(fixture.main, "reflog", "show", "main", "--format=%H"),
+            before_reflog,
+        )
         ancestor = fixture.git(
             fixture.main,
             "merge-base",
