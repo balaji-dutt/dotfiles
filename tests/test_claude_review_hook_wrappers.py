@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -18,6 +19,23 @@ from tests.support.fixtures import init_git_repository, isolated_environment, ru
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / ".claude/hooks"
 BASH = shutil.which("bash")
+BROKEN_RESOLVERS = {
+    "syntax error": "if then\n",
+    "set -u": "x=$UNSET_VAR\n",
+    "exit": "exit 0\n",
+    "no function": ":\n",
+}
+
+
+def hook_shells() -> list[str]:
+    """The PATH bash, plus /bin/bash when it is the 3.x that macOS ships."""
+    shells = [BASH] if BASH else []
+    system = "/bin/bash"
+    if os.path.exists(system) and not any(os.path.samefile(system, shell) for shell in shells):
+        major = subprocess.run([system, "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True, check=False)
+        if major.stdout.strip() == "3":
+            shells.append(system)
+    return shells
 
 
 @unittest.skipUnless(BASH, "requires bash")
@@ -60,7 +78,13 @@ class ReviewHookWrapperTests(unittest.TestCase):
         env["CLAUDE_REVIEW_GATE_STATE_DIR"] = str(self.isolated.root / "state")
         return env
 
-    def run_hook(self, name: str, payload: object | str = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run_hook(
+        self,
+        name: str,
+        payload: object | str = None,
+        env: dict[str, str] | None = None,
+        shell: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         if payload is None:
             stdin = "{}"
         elif isinstance(payload, str):
@@ -68,7 +92,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
         else:
             stdin = json.dumps(payload)
         return subprocess.run(
-            [BASH, str(self.repo / ".claude/hooks" / name)],
+            [shell or BASH, str(self.repo / ".claude/hooks" / name)],
             input=stdin,
             text=True,
             capture_output=True,
@@ -386,6 +410,60 @@ class ReviewHookWrapperTests(unittest.TestCase):
         post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"))
         self.assertEqual(post.returncode, 0, post.stderr)
         self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_aborting_resolver_takes_every_hooks_fallback(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0)
+        resolver = self.repo / ".claude/hooks/lib/resolve-python.sh"
+        legacy = self.repo / ".claude/.needs_dotfiles_review"
+        edit = {"cwd": str(self.repo), "session_id": "s", "tool_input": {"file_path": str(self.repo / "a.txt")}}
+        subagent = {"session_id": "s", "agent_id": "a1", "agent_type": "dotfiles-reviewer"}
+        for shell in hook_shells():
+            for label, body in BROKEN_RESOLVERS.items():
+                with self.subTest(shell=shell, resolver=label):
+                    resolver.write_text(body, encoding="utf-8")
+                    legacy.unlink(missing_ok=True)
+                    stop = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, shell=shell)
+                    self.assertEqual((stop.returncode, stop.stdout), (0, ""), stop.stderr)
+                    pre = self.run_hook("snapshot-before-bash.sh", self.bash_payload("t1"), shell=shell)
+                    self.assertEqual((pre.returncode, pre.stdout), (0, ""), pre.stderr)
+                    for name, payload in (("mark-needs-review.sh", edit), ("mark-needs-review-bash.sh", self.bash_payload("t1"))):
+                        legacy.unlink(missing_ok=True)
+                        mark = self.run_hook(name, payload, shell=shell)
+                        self.assertEqual(mark.returncode, 0, mark.stderr)
+                        self.assertEqual(legacy.read_text(encoding="utf-8"), "1234567890\n")
+                    for name in ("record-reviewer-start.sh", "clear-needs-review-on-pass.sh"):
+                        result = self.run_hook(name, subagent, shell=shell)
+                        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+                        self.assertTrue(legacy.exists())
+                    stop = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, shell=shell)
+                    self.assertEqual(stop.returncode, 0, stop.stderr)
+                    self.assertEqual(json.loads(stop.stdout)["decision"], "block")
+
+    def test_bash_mark_writes_legacy_mark_for_a_committed_broken_resolver(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0)
+        git = shutil.which("git")
+        assert git
+        env = self.env.copy()
+        env["PATH"] = os.pathsep.join((str(self.isolated.fake_bin), str(Path(git).parent)))
+        init_git_repository(self.repo, env=env)
+        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_text("x=$UNSET_VAR\n", encoding="utf-8")
+        run_git(self.repo, "add", ".claude/hooks", env=env)
+        run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
+        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+        self.assertEqual(post.returncode, 0, post.stderr)
+        self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_no_hook_sources_the_resolver_in_process(self) -> None:
+        in_process = re.compile(r'(?:^|\s)(?:\.|source)\s+"?\$\{?RESOLVER\b', re.MULTILINE)
+        hooks = [hook for hook in sorted(HOOKS.glob("*.sh")) if "resolve-python.sh" in hook.read_text(encoding="utf-8")]
+        self.assertEqual(len(hooks), 7)
+        for hook in hooks:
+            with self.subTest(hook=hook.name):
+                text = hook.read_text(encoding="utf-8")
+                self.assertNotRegex(text, in_process)
+                self.assertIn('"$BASH" -euo pipefail -c', text)
 
     def test_settings_wire_bash_hooks(self) -> None:
         hooks = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]

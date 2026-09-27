@@ -24,15 +24,25 @@ cd "$PROJECT_DIR"
 HELPER=".claude/hooks/lib/review_gate.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
-# shellcheck source=lib/resolve-python.sh disable=SC1091
-if [[ -f "$HELPER" && -f "$RESOLVER" ]] && . "$RESOLVER"; then
-  if ! resolve_python; then
+if [[ -f "$HELPER" && -f "$RESOLVER" ]]; then
+  # A child shell keeps a resolver that fails to parse, trips set -u, or exits from ending this hook.
+  PY_CMD=()
+  py_rc=0
+  # shellcheck disable=SC2016 # The child shell expands these, not this hook.
+  py_out="$("$BASH" -euo pipefail -c '. "$1" >&2 || exit 90
+declare -F resolve_python >/dev/null || exit 90
+resolve_python >&2 || exit 91
+printf "%s\n" "${PY_CMD[@]}"' resolve-python "$RESOLVER" </dev/null)" || py_rc=$?
+  if [[ $py_rc -eq 0 && -n "$py_out" ]]; then
+    while IFS= read -r part; do PY_CMD+=("$part"); done <<<"$py_out"
+  fi
+  if [[ $py_rc -eq 91 ]]; then
     # Skip only for an unmodified resolver: marking every command would gate read-only ones.
     if git --no-optional-locks diff --quiet HEAD -- "$RESOLVER" 2>/dev/null; then
       printf '%s\n' "mark-needs-review-bash: no working Python 3; Bash edits were not checked for review" >&2
       exit 0
     fi
-  elif "${PY_CMD[@]}" "$HELPER" mark-bash; then
+  elif [[ ${#PY_CMD[@]} -gt 0 ]] && "${PY_CMD[@]}" "$HELPER" mark-bash; then
     exit 0
   fi
 fi

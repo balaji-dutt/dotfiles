@@ -137,8 +137,7 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
     for more than 15 minutes when the main session stops. `git stash apply`
     and `git reset --soft` or `--mixed` mark the work they restore.
     Gitignored files are never marked, which matches the pending-work check
-    at Stop. A resolver edit that trips `set -u` or calls `exit` makes the
-    Post hook exit before its legacy mark, so that command goes unchecked.
+    at Stop.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
   JSON with `timestamp`, `firstTimestamp`, `markedAt` (the last mark as a
   float, which orders an edit and a reviewer launch in the same second;
@@ -156,11 +155,19 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   session gate's files together with every reviewable pending path, clears
   both gates when neither has pending work, and past 200 paths asks for a
   whole-repo review instead of a file list.
-- All six hooks pick their interpreter through
-  `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
-  `py -3` and executes each candidate before accepting it. A lookup alone is
-  not enough on native Windows, where the Microsoft Store app-execution alias
-  for `python3` is in `PATH` but exits 49 with "Python was not found".
+- All six hooks, and the plan-approval Beads hook, pick their interpreter
+  through `.claude/hooks/lib/resolve-python.sh`, which tries `python3`,
+  `python`, then `py -3` and executes each candidate before accepting it. A
+  lookup alone is not enough on native Windows, where the Microsoft Store
+  app-execution alias for `python3` is in `PATH` but exits 49 with "Python
+  was not found".
+  Each hook runs the resolver in a child of its own bash (`$BASH`) and reads
+  `PY_CMD` back from its output. A resolver that fails to parse, trips
+  `set -u`, or calls `exit` is a load failure: the hook keeps running without
+  the helper, both markers write the legacy mark (the Bash Post hook skips an
+  unmodified resolver only when it loads and finds no Python), Stop blocks
+  while a gate file exists, and with a state file present the plan-approval
+  hook blocks as unverified and names the resolver.
   `CLAUDE_REVIEW_GATE_PYTHON` prepends a candidate for debugging; it is probed
   like any other. The helper exits non-zero on any unexpected error and the
   hooks do not `exec`, so a helper that starts and then fails, including one
@@ -304,7 +311,8 @@ the same session, so verify changes to it from a fresh session.
   `.opencode/opencode.jsonc`
 - Claude gate helper (mark/snapshot/enforce/clear logic):
   `.claude/hooks/lib/review_gate.py`
-- Claude interpreter resolver (sourced by all six hooks):
+- Claude interpreter resolver (run in a child shell by all six hooks and the
+  plan-approval hook):
   `.claude/hooks/lib/resolve-python.sh`
 - Claude marker hook:
   `.claude/hooks/mark-needs-review.sh`
