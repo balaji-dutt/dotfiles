@@ -24,8 +24,11 @@ Gate file: .claude/.needs_dotfiles_review.<sanitized session_id>, JSON:
    "markedAt": <last mark, float>, "sessionID": "...",
    "files": ["repo/relative", ...],
    "roots": {"<other checkout>": ["checkout/relative", ...]}}  (optional)
-An unsuffixed .claude/.needs_dotfiles_review (legacy epoch-int format) is
-accepted as a fallback and merged/cleared during migration.
+An unsuffixed .claude/.needs_dotfiles_review (legacy epoch-int format, written
+by the wrapper fallbacks) has no file list and means "review the whole repo". A
+mark absorbs it by adding the reviewable dirty paths. When those cannot be
+listed, or a fallback rewrites the gate while they are listed, it stays, and
+Stop widens the session gate's scope to the whole repo.
 
 In-flight file, one per running reviewer:
   .claude/.dotfiles_review_inflight.<sanitized session_id>.<sanitized agent_id>
@@ -113,6 +116,8 @@ SNAPSHOT_GIT_TIMEOUT = 5
 # Shared by all run_git_raw calls in one hook run; below the 10 s hook timeout.
 HOOK_GIT_BUDGET = 8
 GIT_DEADLINE = [None]
+# Longer pathspec lists can overflow the Windows command line; run_git reads that as "nothing".
+LEGACY_SCOPE_CAP = 200
 
 
 def run_git_raw(root, args, timeout=SNAPSHOT_GIT_TIMEOUT):
@@ -540,16 +545,46 @@ def gate_lock(root):
             os.close(fd)
 
 
+def is_fileless(gate):
+    return not any(isinstance(f, str) for f in gate.get("files") or []) and not gate_roots(gate)
+
+
+def legacy_state(path):
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    gate = read_gate(path)
+    return None if gate is None else (gate, mtime)
+
+
+def legacy_scope(root, session_id):
+    """(legacy gate state, reviewable dirty paths) standing in for a file-less
+    legacy gate's whole-repo scope, or None when there is nothing to expand or
+    git cannot list the paths within budget and the cap."""
+    seen = legacy_state(gate_path(root, "")) if session_id else None
+    if seen is None or not is_fileless(seen[0]):
+        return None
+    paths = dirty_paths(root)
+    if paths is None:
+        return None
+    cfg = load_config(root)
+    scope = sorted({normalize_rel(p) for p in paths if is_reviewable(p, cfg)})
+    return (seen, scope) if len(scope) <= LEGACY_SCOPE_CAP else None
+
+
 def write_gate(root, session_id, rels, fingerprints=None, checkout=None):
     """Add rels (relative to `checkout`, default home) to the session gate and
     to live snapshots of that checkout."""
     checkout = checkout or root
+    # git status runs before the lock: flock has no timeout.
+    expanded = legacy_scope(root, session_id)
     with gate_lock(root):
-        update_gate(root, session_id, rels, checkout)
+        update_gate(root, session_id, rels, checkout, expanded)
         sync_snapshots(checkout, session_id, rels, fingerprints or {})
 
 
-def update_gate(root, session_id, rels, checkout):
+def update_gate(root, session_id, rels, checkout, expanded=None):
     path = gate_path(root, session_id)
     marked_at = time.time()
     now = int(marked_at)
@@ -567,10 +602,14 @@ def update_gate(root, session_id, rels, checkout):
             pass
 
     # Absorb and retire the unsuffixed legacy gate once a session ID is known.
+    # A file-less one goes only with a scope listed for this exact state.
     unsuffixed = gate_path(root, "")
-    if session_id and os.path.exists(unsuffixed):
-        legacy = read_gate(unsuffixed) or {}
+    state = legacy_state(unsuffixed) if session_id else None
+    seen, scope = expanded or (None, None)
+    if state is not None and (not is_fileless(state[0]) or state == seen):
+        legacy = state[0]
         files.update(f for f in legacy.get("files") or [] if isinstance(f, str))
+        files.update(scope or [])
         for key, extra in gate_roots(legacy).items():
             key = root_key(roots, key) or key
             roots[key] = sorted(set(roots.get(key, [])) | set(extra))
@@ -1117,10 +1156,22 @@ def scope_lines(files, checkout=None):
     ).format(g=git, q=quoted)
 
 
-def build_reason(files, cfg, stale_reviewer=False, roots=None, home=None, in_worktree=False):
+def build_reason(
+    files, cfg, stale_reviewer=False, roots=None, home=None, in_worktree=False, repo_wide=False
+):
     prefix = cfg["marker_prefix"]
     reviewer = cfg["reviewer"]
-    if roots or (files and in_worktree):
+    if repo_wide:
+        git = "git -C {h}".format(h=shlex.quote(home)) if in_worktree and home else "git"
+        scope = (
+            "Review the latest git changes "
+            "({g} diff, {g} diff --cached, {g} status --short).\n"
+        ).format(g=git)
+        if roots:
+            scope += "Also review the files this session edited in other checkouts:\n"
+            for checkout in sorted(roots):
+                scope += scope_lines(roots[checkout], checkout)
+    elif roots or (files and in_worktree):
         # From inside a worktree an unprefixed diff reads the wrong checkout.
         scope = "Scope the review to the files this session edited:\n"
         if files:
@@ -1185,11 +1236,27 @@ def cmd_enforce(payload, root):
         first_ts = 0
 
     cfg = load_config(root)
+    repo_pending = []
+    legacy_path = gate_path(root, "")
+    legacy = read_gate(legacy_path) if path != legacy_path else None
+    if legacy is not None:
+        files = sorted(set(files) | {f for f in legacy.get("files") or [] if isinstance(f, str)})
+        for key, extra in gate_roots(legacy).items():
+            key = root_key(roots, key) or key
+            roots[key] = sorted(set(roots.get(key, [])) | set(extra))
+        try:
+            legacy_ts = int(legacy.get("firstTimestamp") or legacy.get("timestamp"))
+            first_ts = min(first_ts, legacy_ts) if first_ts else legacy_ts
+        except (TypeError, ValueError):
+            pass
+        if is_fileless(legacy):
+            repo_pending = [p for p in git_pending(root, None) if is_reviewable(p, cfg)]
+
     if files or roots:
         busy = (
             bool(files)
             and (bool(git_pending(root, files)) or committed_since(root, files, first_ts))
-        ) or any(checkout_busy(c, r, first_ts) for c, r in roots.items())
+        ) or any(checkout_busy(c, r, first_ts) for c, r in roots.items()) or bool(repo_pending)
     else:
         # Legacy gate without a file list: judge the whole repo, minus
         # exempt paths and the review loop's own artifacts.
@@ -1203,6 +1270,8 @@ def cmd_enforce(payload, root):
         with gate_lock(root):
             if last_mark_epoch(root, session_id) <= last_mark:
                 remove_quietly(path)
+                if legacy is not None:
+                    remove_quietly(legacy_path)
         return 0
 
     now = time.time()
@@ -1216,8 +1285,15 @@ def cmd_enforce(payload, root):
         ).format(r=cfg["reviewer"], a=age)
         out = {"systemMessage": message}
     else:
+        scope = sorted(set(files) | set(repo_pending))
         reason = build_reason(
-            files, cfg, stale_reviewer=stale, roots=roots, home=root, in_worktree=in_worktree
+            scope,
+            cfg,
+            stale_reviewer=stale,
+            roots=roots,
+            home=root,
+            in_worktree=in_worktree,
+            repo_wide=bool(repo_pending) and len(scope) > LEGACY_SCOPE_CAP,
         )
         out = {"decision": "block", "reason": reason}
     json.dump(out, sys.stdout)

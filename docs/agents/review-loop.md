@@ -147,6 +147,15 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   another worktree's path to files relative to it. Without Python or the
   helper script, the `Write|Edit` marker hook falls back to an unconditional
   mark in the legacy unsuffixed `.claude/.needs_dotfiles_review`.
+  That legacy mark has no file list and means "review the whole repo". The
+  next helper mark absorbs it into the session gate by adding every dirty,
+  reviewable path in the project checkout, then deletes it. The legacy mark
+  stays instead in three cases: git cannot list those paths within the
+  hook's time budget, there are more than 200, or a fallback rewrote the
+  mark while they were being listed. Stop then asks for a review of the
+  session gate's files together with every reviewable pending path, clears
+  both gates when neither has pending work, and past 200 paths asks for a
+  whole-repo review instead of a file list.
 - All six hooks pick their interpreter through
   `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
   `py -3` and executes each candidate before accepting it. A lookup alone is

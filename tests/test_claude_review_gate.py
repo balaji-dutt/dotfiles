@@ -244,6 +244,76 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.assertEqual(data["firstTimestamp"], 10)
         self.assertFalse(legacy.exists())
 
+    def write_dirty(self, *relpaths: str) -> None:
+        for relpath in relpaths:
+            path = self.repo / relpath
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x\n", encoding="utf-8")
+
+    def test_absorbing_a_fileless_legacy_gate_keeps_whole_repo_scope(self) -> None:
+        legacy = self.gate("")
+        legacy.write_text("10", encoding="utf-8")
+        self.write_dirty("y.txt", "docs/guide.md", ".DS_Store")
+        data = review_gate.read_gate(self.mark("edited.txt"))
+        self.assertEqual(data["files"], ["edited.txt", "y.txt"])
+        self.assertEqual(data["firstTimestamp"], 10)
+        self.assertFalse(legacy.exists())
+
+    def test_fileless_legacy_gate_stays_when_its_scope_cannot_be_listed(self) -> None:
+        legacy = self.gate("")
+        legacy.write_text("10", encoding="utf-8")
+        self.write_dirty("y.txt", "z.txt")
+        with mock.patch.object(review_gate, "dirty_paths", return_value=None):
+            data = review_gate.read_gate(self.mark("edited.txt"))
+        self.assertEqual(data["files"], ["edited.txt"])
+        self.assertNotEqual(data["firstTimestamp"], 10)
+        self.assertTrue(legacy.exists())
+        with mock.patch.object(review_gate, "LEGACY_SCOPE_CAP", 1):
+            data = review_gate.read_gate(self.mark("again.txt"))
+        self.assertEqual(data["files"], ["again.txt", "edited.txt"])
+        self.assertTrue(legacy.exists())
+
+    def test_legacy_gate_rewritten_during_the_scope_scan_is_not_absorbed(self) -> None:
+        legacy = self.gate("")
+        legacy.write_text("10", encoding="utf-8")
+        self.write_dirty("y.txt")
+
+        def rewrite_during_scan(root: str) -> list[str]:
+            legacy.write_text("11", encoding="utf-8")
+            return ["y.txt"]
+
+        with mock.patch.object(review_gate, "dirty_paths", side_effect=rewrite_during_scan):
+            data = review_gate.read_gate(self.mark("edited.txt"))
+        self.assertEqual(data["files"], ["edited.txt"])
+        self.assertEqual(legacy.read_text(encoding="utf-8"), "11")
+
+    def test_enforce_scopes_a_coexisting_fileless_legacy_gate_to_the_repo(self) -> None:
+        gate = self.mark("edited.txt")
+        legacy = self.gate("")
+        legacy.write_text(str(int(time.time())), encoding="utf-8")
+        self.write_dirty("y.txt", "docs/guide.md")
+        reason = json.loads(self.enforce())["reason"]
+        self.assertIn("edited.txt", reason)
+        self.assertIn("y.txt", reason)
+        self.assertNotIn("docs/guide.md", reason)
+        self.assertTrue(legacy.exists())
+
+        with mock.patch.object(review_gate, "LEGACY_SCOPE_CAP", 1):
+            reason = json.loads(self.enforce())["reason"]
+        self.assertIn("Review the latest git changes", reason)
+        legacy.rename(legacy.with_name("held"))
+        with mock.patch.object(review_gate, "LEGACY_SCOPE_CAP", 0):
+            reason = json.loads(self.enforce())["reason"]
+        self.assertIn("git diff -- edited.txt", reason)
+        legacy.with_name("held").rename(legacy)
+
+        (self.repo / "edited.txt").unlink()
+        self.assertEqual(json.loads(self.enforce())["decision"], "block")
+        (self.repo / "y.txt").unlink()
+        self.assertEqual(self.enforce(), "")
+        self.assertFalse(gate.exists())
+        self.assertFalse(legacy.exists())
+
     def test_mark_honors_exemptions_runtime_and_repository_boundaries(self) -> None:
         self.mark("docs/guide.md")
         self.assertFalse(self.gate().exists())

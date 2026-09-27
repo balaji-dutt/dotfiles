@@ -256,6 +256,34 @@ class ReviewHookWrapperTests(unittest.TestCase):
         enforce = self.run_hook("enforce-review-on-stop.sh", {"session_id": "bash-session"}, env=env)
         self.assertEqual(json.loads(enforce.stdout)["decision"], "block")
 
+    def test_repairing_the_helper_keeps_the_legacy_marks_whole_repo_scope(self) -> None:
+        env = self.real_helper_env()
+        self.install_fallback_commands()
+        init_git_repository(self.repo, env=env)
+        run_git(self.repo, "add", ".claude/hooks", env=env)
+        run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
+        helper = self.repo / ".claude/hooks/lib/review_gate.py"
+        working = helper.read_text(encoding="utf-8")
+        legacy = self.repo / ".claude/.needs_dotfiles_review"
+
+        helper.write_text("raise SystemExit(3)\n", encoding="utf-8")
+        snapshot = self.run_hook("snapshot-before-bash.sh", self.bash_payload("edit-y"), env=env)
+        self.assertEqual(snapshot.returncode, 0, snapshot.stderr)
+        (self.repo / "y.txt").write_text("y\n", encoding="utf-8")
+        mark = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("edit-y"), env=env)
+        self.assertEqual(mark.returncode, 0, mark.stderr)
+        self.assertTrue(legacy.exists())
+
+        helper.write_text(working, encoding="utf-8")
+        repair = {"cwd": str(self.repo), "session_id": "bash-session", "tool_input": {"file_path": str(helper)}}
+        mark = self.run_hook("mark-needs-review.sh", repair, env=env)
+        self.assertEqual(mark.returncode, 0, mark.stderr)
+        self.assertFalse(legacy.exists())
+
+        enforce = self.run_hook("enforce-review-on-stop.sh", {"session_id": "bash-session"}, env=env)
+        self.assertEqual(enforce.returncode, 0, enforce.stderr)
+        self.assertIn("y.txt", json.loads(enforce.stdout)["reason"])
+
     def committed_hooks_without_python(self) -> dict[str, str]:
         for name in ("python3", "python", "py"):
             self.fake_python(name, probe=1)
