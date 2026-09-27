@@ -106,7 +106,7 @@ class CodebaseMemoryMcpPinTests(unittest.TestCase):
     def test_windows_installer_uses_shared_pin(self) -> None:
         installer = read_text(
             ".chezmoiscripts/"
-            "run_onchange_after_install_codebase-memory-mcp.ps1.tmpl"
+            "run_after_install_codebase-memory-mcp.ps1.tmpl"
         )
 
         self.assertIn(

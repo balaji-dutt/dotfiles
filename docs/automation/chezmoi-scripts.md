@@ -43,6 +43,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-opencode-pin.ps1.tmpl` | after | hold an installed stable OpenCode v1 with Chocolatey |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
+| `run_after_install_codebase-memory-mcp.ps1.tmpl` | after | Windows CBM binary installation; defers with a warning while a coding agent holds the binary |
 | `run_after_zz-configure-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL cache-local CBM auto-index configuration |
 | `run_after_zz-configure-codebase-memory-mcp.ps1.tmpl` | after | Windows cache-local CBM auto-index configuration |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |

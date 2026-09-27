@@ -130,7 +130,7 @@ version has one Renovate-managed source in `.chezmoidata.yaml`:
 | macOS | shared pin rendered into `private_dot_config/mise/conf.d/96-codebase-memory-mcp.toml.tmpl` and installed by mise |
 | WSL2 | shared pin passed to Ansible, written as a mise fragment before `mise install` |
 | Dev Container | shared pin rendered as `CBM_VERSION`; portable release archive installed to `/usr/local/bin` by `postCreate.sh` |
-| Native Windows | shared pin installed to `~/.local/codebase-memory-mcp.exe` by `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` |
+| Native Windows | shared pin installed to `~/.local/codebase-memory-mcp.exe` by `run_after_install_codebase-memory-mcp.ps1.tmpl` |
 
 Each environment has its own CBM cache and configuration. Chezmoi's POSIX and
 Windows `run_after_zz-configure-codebase-memory-mcp.*.tmpl` hooks reconcile

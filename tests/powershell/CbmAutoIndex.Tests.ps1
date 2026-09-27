@@ -203,9 +203,14 @@ Describe 'CBM auto-index configuration hook' {
     Assert-Matches $script:Failure 'auto_index verification failed'
   }
 
-  It 'fails when the binary is missing' {
+  It 'skips without failing when the binary is missing because the install deferred' {
+    Mock Invoke-CbmNative { throw 'the CLI must not run without a binary' }
+
     Invoke-HookCatchingErrors -Parameters @{ Path = (Join-Path $TestDrive 'absent.exe') }
 
-    Assert-Matches $script:Failure 'is not installed at'
+    Assert-Equal $script:Failure $null
+    Assert-MockCalled Write-Warning -Times 1 -Exactly -Scope It -ParameterFilter {
+      $Message -match 'is not installed at' -and $Message -match 'auto_index was not verified this run'
+    }
   }
 }

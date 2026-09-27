@@ -4,6 +4,7 @@
 .chezmoiscripts/run_after_20-git-template-hooks.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_configure_git_templates.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
+.chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_macos-nfs-config.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-opencode-pin.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
@@ -35,7 +36,6 @@
 .chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_onchange_after_install_better_beads_kanban.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_onchange_after_install_better_beads_kanban.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
-.chezmoiscripts/run_onchange_after_install_codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_onchange_after_install_packages.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_onchange_after_install_plannotator.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_onchange_after_install_plannotator.sh.tmpl	chezmoi-lifecycle,script-extension,shebang

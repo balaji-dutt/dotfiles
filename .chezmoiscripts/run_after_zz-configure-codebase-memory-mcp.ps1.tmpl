@@ -148,8 +148,12 @@ function Invoke-CbmAutoIndexConfigure {
     [ValidateRange(1, 300)][int] $TimeoutSeconds = $CbmTimeoutSeconds
   )
 
+  # The installer hook runs before this one on every apply, warns when it defers,
+  # and throws on a real failure. So a missing binary here means a deferred
+  # install, and there is no cache to reconcile yet.
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw "codebase-memory-mcp is not installed at '$Path'."
+    Write-Warning "codebase-memory-mcp is not installed at '$Path'; auto_index was not verified this run."
+    return
   }
 
   Write-Host "INFO: verifying codebase-memory-mcp auto_index; this waits up to $TimeoutSeconds seconds for CBM startup coordination."

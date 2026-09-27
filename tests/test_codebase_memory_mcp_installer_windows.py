@@ -12,7 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = (
     REPO_ROOT
-    / ".chezmoiscripts/run_onchange_after_install_codebase-memory-mcp.ps1.tmpl"
+    / ".chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl"
 )
 PWSH = shutil.which("pwsh")
 
@@ -93,36 +93,42 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             )
           }
           $state = Get-CodingAgentProcessState
-          $message = $null
-          try { Assert-CodingAgentsStopped -Phase 'test upgrade' } catch { $message = $_.Exception.Message }
+          $proceed = Test-CodingAgentsStopped -Phase 'test upgrade' -WarningVariable warning -WarningAction SilentlyContinue
           [pscustomobject]@{
             Status = $state.Status
             Names = @($state.Processes.Name)
-            Message = $message
+            Proceed = $proceed
+            Warning = ($warning -join ' ')
           } | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
         data = self.read_json(result)
         self.assertEqual(data["Status"], "Running")
         self.assertEqual(data["Names"], ["claude.exe", "opencode.exe"])
-        self.assertIn("standalone PowerShell", str(data["Message"]))
+        self.assertFalse(data["Proceed"])
+        self.assertIn("deferred test upgrade", str(data["Warning"]))
         self.assertIn("pid=41", result.stdout)
         self.assertIn("pid=42", result.stdout)
 
-    def test_process_inspection_failure_blocks_upgrade(self) -> None:
+    def test_process_inspection_failure_defers_upgrade(self) -> None:
         body = """
           function Get-CimInstance { throw 'cim denied' }
           function Get-Process { throw 'process denied' }
           $state = Get-CodingAgentProcessState
-          $message = $null
-          try { Assert-CodingAgentsStopped -Phase 'test upgrade' } catch { $message = $_.Exception.Message }
-          [pscustomobject]@{ Status = $state.Status; Error = $state.Error; Message = $message } | ConvertTo-Json -Compress
+          $proceed = Test-CodingAgentsStopped -Phase 'test upgrade' -WarningVariable warning -WarningAction SilentlyContinue
+          [pscustomobject]@{
+            Status = $state.Status
+            Error = $state.Error
+            Proceed = $proceed
+            Warning = ($warning -join ' ')
+          } | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["Status"], "Unknown")
         self.assertIn("cim denied", str(data["Error"]))
         self.assertIn("process denied", str(data["Error"]))
-        self.assertIn("deferred test upgrade", str(data["Message"]))
+        self.assertFalse(data["Proceed"])
+        self.assertIn("deferred test upgrade", str(data["Warning"]))
 
     def test_managed_process_query_uses_exact_executable_path(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
@@ -150,14 +156,15 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           $script:AgentGuarded = $false
           function Invoke-CbmNative {{ [pscustomobject]@{{ ExitCode = 0; Output = ''; TimedOut = $false; StillRunning = $false; ProcessId = 60 }} }}
           function Get-ManagedCbmProcessState {{ [pscustomobject]@{{ Status = 'Known'; Processes = @(); Error = $null }} }}
-          function Assert-CodingAgentsStopped {{ $script:AgentGuarded = $true }}
+          function Test-CodingAgentsStopped {{ $script:AgentGuarded = $true; return $true }}
           function Stop-CbmProcessById {{ $script:Forced = $true }}
-          Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
-          [pscustomobject]@{{ Forced = $script:Forced; AgentGuarded = $script:AgentGuarded }} | ConvertTo-Json -Compress
+          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          [pscustomobject]@{{ Forced = $script:Forced; AgentGuarded = $script:AgentGuarded; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertFalse(data["Forced"])
         self.assertFalse(data["AgentGuarded"])
+        self.assertTrue(data["Proceed"])
 
     def test_timeout_forces_only_preselected_managed_processes(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
@@ -168,19 +175,20 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           function Get-ManagedCbmProcessState {{
             [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {ps_quote(managed)} }}); Error = $null }}
           }}
-          function Assert-CodingAgentsStopped {{ $script:GuardCount++ }}
+          function Test-CodingAgentsStopped {{ $script:GuardCount++; return $true }}
           function Stop-CbmProcessById {{ param([int] $Id, [string] $ManagedPath); $script:Stopped += $Id }}
           function Wait-ForManagedCbmProcessesToExit {{ [pscustomobject]@{{ Status = 'Known'; Processes = @(); Error = $null }} }}
-          Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
-          [pscustomobject]@{{ Stopped = @($script:Stopped); GuardCount = $script:GuardCount }} | ConvertTo-Json -Compress
+          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          [pscustomobject]@{{ Stopped = @($script:Stopped); GuardCount = $script:GuardCount; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
         data = self.read_json(result)
         self.assertEqual(data["Stopped"], [61])
         self.assertEqual(data["GuardCount"], 1)
+        self.assertTrue(data["Proceed"])
         self.assertIn("timed out", result.stdout)
 
-    def test_agent_appearing_before_forced_cleanup_aborts(self) -> None:
+    def test_agent_appearing_before_forced_cleanup_defers(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
         body = f"""
           $script:Forced = $false
@@ -188,15 +196,16 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           function Get-ManagedCbmProcessState {{
             [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; Path = {ps_quote(managed)} }}); Error = $null }}
           }}
-          function Assert-CodingAgentsStopped {{ throw 'OpenCode appeared' }}
+          function Test-CodingAgentsStopped {{ return $false }}
           function Stop-CbmProcessById {{ $script:Forced = $true }}
-          $message = $null
-          try {{ Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)} }} catch {{ $message = $_.Exception.Message }}
-          [pscustomobject]@{{ Forced = $script:Forced; Message = $message }} | ConvertTo-Json -Compress
+          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          [pscustomobject]@{{ Forced = $script:Forced; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
-        data = self.read_json(self.run_pwsh(body))
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(result.returncode, 0)
         self.assertFalse(data["Forced"])
-        self.assertEqual(data["Message"], "OpenCode appeared")
+        self.assertFalse(data["Proceed"])
 
     def test_surviving_managed_process_aborts_publication(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
@@ -204,7 +213,7 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           $process = [pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {ps_quote(managed)} }}
           function Invoke-CbmNative {{ [pscustomobject]@{{ ExitCode = 1; Output = ''; TimedOut = $false; StillRunning = $false; ProcessId = 60 }} }}
           function Get-ManagedCbmProcessState {{ [pscustomobject]@{{ Status = 'Known'; Processes = @($process); Error = $null }} }}
-          function Assert-CodingAgentsStopped {{ }}
+          function Test-CodingAgentsStopped {{ return $true }}
           function Stop-CbmProcessById {{ }}
           function Wait-ForManagedCbmProcessesToExit {{ [pscustomobject]@{{ Status = 'Known'; Processes = @($process); Error = $null }} }}
           $message = $null
@@ -227,11 +236,12 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             $script:Observed = [pscustomobject]@{{ Path = $Path; Arguments = @($Arguments); Timeout = $TimeoutSeconds }}
             [pscustomobject]@{{ ExitCode = 0; Output = 'codebase-memory-mcp 0.10.2'; TimedOut = $false; StillRunning = $false; ProcessId = 70 }}
           }}
-          $version = Get-CbmVersion -Path {ps_quote(candidate)}
-          [pscustomobject]@{{ Version = $version; Arguments = @($script:Observed.Arguments); Timeout = $script:Observed.Timeout }} | ConvertTo-Json -Compress
+          $read = Get-CbmVersion -Path {ps_quote(candidate)}
+          [pscustomobject]@{{ Version = $read.Version; TimedOut = $read.TimedOut; Arguments = @($script:Observed.Arguments); Timeout = $script:Observed.Timeout }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["Version"], "0.10.2")
+        self.assertFalse(data["TimedOut"])
         self.assertEqual(data["Arguments"], ["--version"])
         self.assertGreater(int(data["Timeout"]), 0)
 
@@ -261,12 +271,128 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             source,
         )
         self.assertLess(
-            source.index('Assert-CodingAgentsStopped -Phase "codebase-memory-mcp download"'),
+            source.index('Test-CodingAgentsStopped -Phase "codebase-memory-mcp download"'),
             source.index("Invoke-WebRequest"),
         )
         self.assertLess(
-            source.index('Assert-CodingAgentsStopped -Phase "stale codebase-memory-mcp cleanup"'),
+            source.index('Test-CodingAgentsStopped -Phase "stale codebase-memory-mcp cleanup"'),
             source.index("Stop-CbmProcessById -Id"),
+        )
+
+    def test_hook_runs_on_every_apply(self) -> None:
+        self.assertEqual(
+            TEMPLATE.name,
+            "run_after_install_codebase-memory-mcp.ps1.tmpl",
+            "a deferral that exits zero under run_onchange_ would record its "
+            "content hash and never retry",
+        )
+        self.assertLess(
+            TEMPLATE.name,
+            "run_after_zz-configure-codebase-memory-mcp.ps1.tmpl",
+            "the installer must still sort before the auto-index hook",
+        )
+
+    def test_download_deferral_skips_without_failing(self) -> None:
+        body = """
+          $script:Downloaded = $false
+          function Get-CbmVersion { [pscustomobject]@{ Version = '0.9.9'; TimedOut = $false } }
+          function Test-CodingAgentsStopped { return $false }
+          function Invoke-WebRequest { $script:Downloaded = $true }
+          Invoke-CbmInstaller
+          [pscustomobject]@{ Downloaded = $script:Downloaded } | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(data["Downloaded"])
+        self.assertIn("Updating codebase-memory-mcp: 0.9.9 -> 0.10.2", result.stdout)
+
+    def test_replacement_deferral_leaves_no_partial_state(self) -> None:
+        install_dir = self.home / ".local"
+        install_dir.mkdir(parents=True)
+        existing = install_dir / "codebase-memory-mcp.exe"
+        existing.write_text("original", encoding="utf-8")
+        body = f"""
+          $script:Phases = @()
+          $script:StagedAtGate = -1
+          $asset = "codebase-memory-mcp-windows-$(Get-NativeReleaseArchitecture).zip"
+          function Get-CbmVersion {{
+            param([string] $Path)
+            if ($Path -eq {ps_quote(existing)}) {{
+              return [pscustomobject]@{{ Version = '0.9.9'; TimedOut = $false }}
+            }}
+            return [pscustomobject]@{{ Version = '0.10.2'; TimedOut = $false }}
+          }}
+          function Test-CodingAgentsStopped {{
+            param([string] $Phase)
+            $script:Phases += $Phase
+            if ($Phase -eq 'codebase-memory-mcp binary replacement') {{
+              $script:StagedAtGate = @(
+                Get-ChildItem -LiteralPath {ps_quote(install_dir)} -File -Filter 'codebase-memory-mcp.exe.new-*'
+              ).Count
+            }}
+            return ($Phase -eq 'codebase-memory-mcp download')
+          }}
+          function Invoke-WebRequest {{
+            param([string] $Uri, [string] $OutFile, [switch] $UseBasicParsing)
+            if ($Uri -like '*checksums.txt') {{
+              Set-Content -LiteralPath $OutFile -Value ("$('a' * 64)  $asset")
+            }} else {{
+              Set-Content -LiteralPath $OutFile -Value 'archive'
+            }}
+          }}
+          function Get-FileHash {{ [pscustomobject]@{{ Hash = ('A' * 64) }} }}
+          function Expand-Archive {{
+            param([string] $LiteralPath, [string] $DestinationPath, [switch] $Force)
+            $script:TempDir = Split-Path -Parent $DestinationPath
+            New-Item -ItemType Directory -Force -Path $DestinationPath | Out-Null
+            Set-Content -LiteralPath (Join-Path $DestinationPath 'codebase-memory-mcp.exe') -Value 'replacement'
+          }}
+          Invoke-CbmInstaller 3>&1 | Out-Null
+          [pscustomobject]@{{
+            Phases = @($script:Phases)
+            StagedAtGate = $script:StagedAtGate
+            TempDirRemoved = (-not (Test-Path -LiteralPath $script:TempDir))
+            Content = (Get-Content -LiteralPath {ps_quote(existing)} -Raw)
+            Remaining = @((Get-ChildItem -LiteralPath {ps_quote(install_dir)} -File).Name)
+          }} | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            data["Phases"],
+            ["codebase-memory-mcp download", "codebase-memory-mcp binary replacement"],
+            "the test must reach the replacement gate, not stop at the download gate",
+        )
+        self.assertEqual(
+            data["StagedAtGate"],
+            1,
+            "the staged binary must already be on disk at the replacement gate, "
+            "or this test proves nothing about the finally block",
+        )
+        self.assertTrue(
+            data["TempDirRemoved"],
+            "the finally block must also prune the download directory",
+        )
+        self.assertEqual(data["Content"], "original")
+        self.assertEqual(data["Remaining"], ["codebase-memory-mcp.exe"])
+
+    def test_unreadable_installed_version_defers_instead_of_reinstalling(self) -> None:
+        body = """
+          $script:Downloaded = $false
+          function Get-CbmVersion { [pscustomobject]@{ Version = ''; TimedOut = $true } }
+          function Test-CodingAgentsStopped { return $true }
+          function Invoke-WebRequest { $script:Downloaded = $true }
+          $warning = (Invoke-CbmInstaller 3>&1 | Out-String)
+          [pscustomobject]@{ Downloaded = $script:Downloaded; Warning = $warning } | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(data["Downloaded"])
+        self.assertIn(
+            "rather than treating it as a fresh install", str(data["Warning"])
         )
 
 

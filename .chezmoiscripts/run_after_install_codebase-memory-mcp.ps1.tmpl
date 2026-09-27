@@ -2,15 +2,16 @@
 {{- /* not Windows: do nothing */ -}}
 {{- else -}}
 # Install or upgrade the standard codebase-memory-mcp binary to the version
-# pinned in .chezmoidata.yaml. Bumping the pin changes the rendered script and
-# causes chezmoi to run it again.
+# pinned in .chezmoidata.yaml.
+#
+# The hook must run on every apply. A live Claude Code or OpenCode process holds
+# an image lock on the installed .exe, so an upgrade has to be deferrable, and a
+# run_onchange_ hook that defers with a zero exit records its content hash and
+# never retries.
 #
 # mise provisions macOS and WSL2. Dev Containers use their pinned feature
 # installer. This hook owns only the native Windows binary; MCP client
 # configuration remains under chezmoi.
-#
-# Change trigger:
-# codebase_memory_mcp_version: {{ .codebase_memory_mcp_version }}
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"
@@ -61,20 +62,20 @@ function Get-CbmVersion {
   param([Parameter(Mandatory)][string] $Path)
 
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    return ""
+    return [pscustomobject]@{ Version = ""; TimedOut = $false }
   }
 
   try {
     $result = Invoke-CbmNative -Path $Path -Arguments @("--version") -TimeoutSeconds $CbmVersionTimeoutSeconds
     if ($result.TimedOut) {
       Write-Warning "Timed out reading the codebase-memory-mcp version from '$Path'."
-      return ""
+      return [pscustomobject]@{ Version = ""; TimedOut = $true }
     }
     if ($result.ExitCode -ne 0) {
-      return ""
+      return [pscustomobject]@{ Version = ""; TimedOut = $false }
     }
   } catch {
-    return ""
+    return [pscustomobject]@{ Version = ""; TimedOut = $false }
   }
 
   $versionText = [string] $result.Output
@@ -84,10 +85,10 @@ function Get-CbmVersion {
   )
 
   if ($versionMatch.Success) {
-    return $versionMatch.Groups[1].Value
+    return [pscustomobject]@{ Version = $versionMatch.Groups[1].Value; TimedOut = $false }
   }
 
-  return ""
+  return [pscustomobject]@{ Version = ""; TimedOut = $false }
 }
 
 function Invoke-CbmNative {
@@ -254,18 +255,20 @@ function Write-CodingAgentProcessDetails {
   }
 }
 
-function Assert-CodingAgentsStopped {
+function Test-CodingAgentsStopped {
   param([Parameter(Mandatory)][string] $Phase)
 
   $state = Get-CodingAgentProcessState
   if ($state.Status -eq "Stopped") {
-    return
+    return $true
   }
   if ($state.Status -eq "Running") {
     Write-CodingAgentProcessDetails -Processes @($state.Processes)
-    throw "Claude Code or OpenCode is running; deferred $Phase. Exit both applications and run chezmoi apply again from standalone PowerShell."
+    Write-Warning "Claude Code or OpenCode is running; deferred $Phase and left the installed binary in place. Exit both applications and apply again, or wait for the next apply to retry."
+    return $false
   }
-  throw "Could not safely inspect Claude Code and OpenCode processes; deferred ${Phase}: $($state.Error). Run chezmoi apply again from standalone PowerShell."
+  Write-Warning "Could not safely inspect Claude Code and OpenCode processes; deferred ${Phase} and left the installed binary in place: $($state.Error). The next apply retries."
+  return $false
 }
 
 function Get-ManagedCbmProcessState {
@@ -388,10 +391,12 @@ function Stop-CbmForUpgrade {
     throw "Could not safely inspect managed codebase-memory-mcp processes: $($state.Error)"
   }
   if ($state.Processes.Count -eq 0) {
-    return
+    return $true
   }
 
-  Assert-CodingAgentsStopped -Phase "stale codebase-memory-mcp cleanup"
+  if (-not (Test-CodingAgentsStopped -Phase "stale codebase-memory-mcp cleanup")) {
+    return $false
+  }
   Write-ManagedCbmProcessDetails -Processes @($state.Processes)
   foreach ($process in $state.Processes) {
     Stop-CbmProcessById -Id $process.Id -ManagedPath $ManagedPath
@@ -405,6 +410,8 @@ function Stop-CbmForUpgrade {
     Write-ManagedCbmProcessDetails -Processes @($remaining.Processes)
     throw "Managed codebase-memory-mcp process cleanup did not finish within $CbmExitTimeoutSeconds seconds; the existing binary was left in place."
   }
+
+  return $true
 }
 
 function Move-FileWithRetry {
@@ -440,10 +447,16 @@ function Remove-RetiredBinaries {
 function Invoke-CbmInstaller {
 New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
 
-$InstalledVersion = Get-CbmVersion -Path $BinPath
+$InstalledRead = Get-CbmVersion -Path $BinPath
+if ($InstalledRead.TimedOut) {
+  Write-Warning "Could not read the installed codebase-memory-mcp version; leaving '$BinPath' in place rather than treating it as a fresh install. The next apply retries."
+  return
+}
+
+$InstalledVersion = $InstalledRead.Version
 if ($InstalledVersion -eq $CbmVersion) {
   Remove-RetiredBinaries -Directory $InstallDir
-  Write-Host "codebase-memory-mcp $InstalledVersion already installed; nothing to do."
+  Write-Host "INFO: codebase-memory-mcp $InstalledVersion already installed; nothing to do."
   return
 }
 
@@ -453,7 +466,7 @@ if ($InstalledVersion) {
   Write-Host "Installing codebase-memory-mcp $CbmVersion..."
 }
 
-Assert-CodingAgentsStopped -Phase "codebase-memory-mcp download"
+if (-not (Test-CodingAgentsStopped -Phase "codebase-memory-mcp download")) { return }
 
 $ReleaseArchitecture = Get-NativeReleaseArchitecture
 $Asset                = "codebase-memory-mcp-windows-$ReleaseArchitecture.zip"
@@ -502,7 +515,7 @@ try {
   }
 
   $CandidatePath    = $candidates[0].FullName
-  $CandidateVersion = Get-CbmVersion -Path $CandidatePath
+  $CandidateVersion = (Get-CbmVersion -Path $CandidatePath).Version
   if ($CandidateVersion -ne $CbmVersion) {
     throw "Downloaded binary reported version '$CandidateVersion'; expected '$CbmVersion'"
   }
@@ -510,8 +523,8 @@ try {
   Copy-Item -LiteralPath $CandidatePath -Destination $StagedPath -ErrorAction Stop
 
   if (Test-Path -LiteralPath $BinPath -PathType Leaf) {
-    Assert-CodingAgentsStopped -Phase "codebase-memory-mcp binary replacement"
-    Stop-CbmForUpgrade -ManagedPath $BinPath
+    if (-not (Test-CodingAgentsStopped -Phase "codebase-memory-mcp binary replacement")) { return }
+    if (-not (Stop-CbmForUpgrade -ManagedPath $BinPath)) { return }
 
     $RetiredPath = $BinPath + ".retired-" + (Get-Date -Format "yyyyMMddHHmmss") + "-" + [System.Guid]::NewGuid().ToString("N")
     Move-FileWithRetry -Source $BinPath -Destination $RetiredPath
@@ -519,7 +532,7 @@ try {
 
   try {
     Move-FileWithRetry -Source $StagedPath -Destination $BinPath
-    $PublishedVersion = Get-CbmVersion -Path $BinPath
+    $PublishedVersion = (Get-CbmVersion -Path $BinPath).Version
     if ($PublishedVersion -ne $CbmVersion) {
       throw "Installed binary reported version '$PublishedVersion'; expected '$CbmVersion'"
     }

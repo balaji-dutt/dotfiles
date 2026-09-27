@@ -140,7 +140,7 @@ rendered hook targets:
 | `copy_sublime_merge_packages.ps1` | `run_once_before_copy_sublime_merge_packages.ps1.tmpl` | once, before | Install the Sublime Merge Git commit syntax files |
 | `host_ai_plugin_refresh.ps1` | `run_onchange_after_host_ai_plugin_refresh.ps1.tmpl` | onchange, after | Refresh Claude plugins and rebuild the OpenCode package cache when no blocking client is active |
 | `install_better_beads_kanban.ps1` | `run_onchange_after_install_better_beads_kanban.ps1.tmpl` | onchange, after | Install the pinned Better Beads Kanban VSIX fork when VS Code is available |
-| `install_codebase-memory-mcp.ps1` | `run_onchange_after_install_codebase-memory-mcp.ps1.tmpl` | onchange, after | Install the pinned standard codebase-memory-mcp Windows binary |
+| `install_codebase-memory-mcp.ps1` | `run_after_install_codebase-memory-mcp.ps1.tmpl` | after | Install the pinned standard codebase-memory-mcp Windows binary |
 | `install_plannotator.ps1` | `run_onchange_after_install_plannotator.ps1.tmpl` | onchange, after | Install the pinned native Plannotator CLI binary |
 | `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
 | `windows-beads-client.ps1` | `run_after_windows-beads-client.ps1.tmpl` | after | Export the WSL2-hosted Beads server connection for native Windows clients |
@@ -167,18 +167,29 @@ SHA-256, validates the candidate version, and publishes only
 installer, or the upstream `install` command, so it does not rewrite MCP client
 configuration.
 
+The hook runs on every apply rather than onchange. A live `claude.exe` or
+`opencode.exe` holds an image lock on the installed binary, so the upgrade has to
+be deferred, and a deferred onchange hook that exits zero would record its
+content hash and never retry.
+
 An upgrade defers before download when a `claude.exe` or `opencode.exe` process
-is running, or when that process state cannot be inspected safely. Run the retry
-from a standalone PowerShell after closing both applications. Immediately
-before replacement, the hook checks again, gives the existing binary a bounded
-daemon shutdown window, and force-stops only stale processes whose executable
-path exactly matches `~/.local/codebase-memory-mcp.exe`. If inspection or
-termination cannot finish safely, the hook leaves the existing binary in place
-and fails promptly instead of blocking `chezmoi apply`. It does not delete or
-rebuild CBM cache or database files.
+is running, when that process state cannot be inspected safely, or when the
+installed version cannot be read. Each case warns, leaves the installed binary
+in place, and exits zero, so the rest of the apply still completes, including
+the auto-index hook below, which also skips when no binary is present yet. The
+next apply retries; the upgrade lands on the first one run with both
+applications closed. Immediately before replacement, the hook checks again,
+gives the existing binary a bounded daemon shutdown window, and force-stops only
+stale processes whose executable path exactly matches
+`~/.local/codebase-memory-mcp.exe`. If inspection or termination cannot finish
+safely with no agent running, the hook leaves the existing binary in place and
+fails promptly. It does not delete or rebuild CBM cache or database files.
 
 The separate always-run `zz-configure-codebase-memory-mcp.ps1` hook executes
-after the installer and reconciles `auto_index=true` in the active cache. Its
+after the installer and reconciles `auto_index=true` in the active cache. When no
+binary is present it warns that `auto_index` went unverified and exits 0, because
+the installer runs earlier in the same apply and owns that diagnostic: a missing
+binary here means a deferred install, and there is no cache to reconcile. Its
 `config get`, followed by a `config set` and a second `config get` only when the
 first read is not already `true`, runs once the installer has stopped or
 force-stopped the coordination daemon. Each call is allowed 150 seconds, because
