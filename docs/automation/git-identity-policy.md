@@ -37,8 +37,10 @@ evidence of who pushed.
 ## Current identity matrix
 
 OpenCode rows describe the current tooling; its GitHub results await
-`dots-a0jr.4` verification. Other rows were observed 2026-09-25 from source,
-local history, and the GitLab and GitHub APIs. "GitHub login" is the top-level
+`dots-a0jr.4` verification. The Renovate trailer is configured but awaits a
+controlled runner execution and `dots-a0jr.4` mirror verification. Other
+identity fields were observed 2026-09-25 from source, local history, and the
+GitLab and GitHub APIs. "GitHub login" is the top-level
 `author.login` / `committer.login` in
 `GET /repos/balaji-dutt/dotfiles/commits`.
 
@@ -48,8 +50,8 @@ local history, and the GitLab and GitHub APIs. "GitHub login" is the top-level
 | `oc-commit.ps1`, new commit | same | same | Process environment set by `dot_local/executable_oc-commit.ps1` | OpenCode co-author, then `AI-Participant` groups | null / null |
 | `oc-commit --amend` (either wrapper) | Original author, kept by Git | `OpenCode` | `--amend` ignores `GIT_AUTHOR_*` without `--reset-author` | Existing trailers kept; OpenCode co-author exactly once before `AI-Participant` groups | depends on the original author |
 | `agent-wt-merge no-ff --actor opencode` | `OpenCode` | `OpenCode` | `actor_env()` in `assets/agent-wt-merge` | OpenCode co-author before any `AI-Participant` groups | null / null |
-| Renovate initial commit | `Renovate Bot <service_account_group_65498163_…@noreply.gitlab.com>` | same | GitLab `/user` of the `RENOVATE_TOKEN` owner (`personalfiles-renovatebot`) | none | null / null |
-| Renovate commit amended by CI (`statusline-sync`, `beads-kanban-pin-sync`, `browser-policy-sync`) | Renovate's original author, kept by Git | `Renovate Bot` (same address) | `GIT_COMMITTER_*` in `.gitlab-ci.yml`; the job's `GIT_AUTHOR_*` exports have no effect under `--amend --no-edit` | Original message kept | null / null |
+| Renovate initial commit | `Renovate Bot <service_account_group_65498163_…@noreply.gitlab.com>` | same | GitLab `/user` of the `RENOVATE_TOKEN` owner (`personalfiles-renovatebot`) | Configured Renovate co-author trailer; live verification pending | null / null |
+| Renovate commit amended by CI (`statusline-sync`, `beads-kanban-pin-sync`, `browser-policy-sync`) | Renovate's original author, kept by Git | `Renovate Bot` (same address) | `GIT_COMMITTER_*` in `.gitlab-ci.yml`; the job's `GIT_AUTHOR_*` exports have no effect under `--amend --no-edit` | Original message kept, with trailer when present | null / null |
 | Renovate automerge merge commit | `Renovate Bot` | same | GitLab merge performed as the token owner | none | null / null |
 | `git ocauth` / `git clauth` aliases | `--author` value | the user's own identity | `dot_gitconfig.tmpl` alias | none | superseded by `oc-commit` / `cc-commit`; retirement is a follow-up |
 

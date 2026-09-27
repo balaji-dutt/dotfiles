@@ -27,6 +27,7 @@
   "prConcurrentLimit": 0,
   "branchConcurrentLimit": 0,
   "commitMessagePrefix": "chore(deps): ",
+  "commitBody": "Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
 
   "customManagers": [
     {

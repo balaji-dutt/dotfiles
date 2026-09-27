@@ -103,6 +103,22 @@ Verify:
 - `renovate` job targets only the intended repository.
 - Renovate loads checked-in repo config and opens expected MRs only.
 
+For the identity rollout, run a controlled scheduled job only after the config
+lands on `main` and the runner execution is authorized. Inspect a genuinely
+new Renovate commit: its raw author and committer should both be the GitLab
+`Renovate Bot` service account, and its message should contain exactly one
+`Co-authored-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>`
+trailer. Confirm the GitLab MR/push actor remains the service account. On a
+supported vendored-file branch, confirm the amendment retains the original
+author and message (including any trailer), sets the service-account committer,
+and succeeds only with the expected branch SHA in the force-with-lease. Older
+Renovate commit messages without a trailer are not backfilled, even if a sync
+job amends the branch; do not rewrite history to add one. Only commits landed
+on protected `main` are mirrored to GitHub; check GitHub co-author attribution
+after that mirror, not on an unmerged MR branch. See
+[Automated Git identity policy](git-identity-policy.md)
+for the verification and rollback boundaries.
+
 ### Local config validation
 
 macOS and WSL2 hosts install the Renovate npm package through the shared
@@ -237,6 +253,15 @@ The built-in `CI_JOB_TOKEN` cannot push branches, and the existing
 group-level `RENOVATE_TOKEN` is marked Protected — so it is invisible to
 pipelines that run on unprotected vendored-file Renovate branches.
 A dedicated, scoped token is therefore required.
+
+`renovate.json5` sets a repository-level `commitBody` trailer but leaves
+`gitAuthor` unset. Its author setting takes precedence over runner CLI flags
+(`RENOVATE_EXTRA_FLAGS`), then `RENOVATE_GIT_AUTHOR`, then global config, then
+the GitLab `/user` fallback. Keep the runner flags free of `--git-author` and
+leave `RENOVATE_GIT_AUTHOR` unset so Renovate uses the GitLab `/user` identity
+from `RENOVATE_TOKEN`. A future package-rule `commitBody` override must include
+the same co-author trailer. These settings affect commit metadata, not the
+credentials used to open MRs or push amendments.
 
 ### Required token type
 

@@ -279,6 +279,14 @@
       "requires": ["git"]
     },
     {
+      "id": "gitlab-renovate-amend",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_renovate_ci_amend"],
+      "covers": ["tests/test_renovate_ci_amend.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "git", "sh"]
+    },
+    {
       "id": "guarded-main-sync",
       "suites": ["integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_guarded_main_sync.GuardedMainSyncCoreTests", "tests.test_guarded_main_sync.PythonResolverTests"],
