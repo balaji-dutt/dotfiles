@@ -46,7 +46,11 @@ but does not run. Keeping it one file matters when the path itself carries polic
 — one dirty check, one allowlist pattern, one entry in any provenance manifest.
 Two requirements come with the shape: `resolve-python3` has to ship beside the
 helper in every mode, and the helper needs `text eol=lf` in `.gitattributes`,
-since a CRLF `#!/bin/sh` is fatal under a real `/bin/sh`. PowerShell has no `sh`,
+since a CRLF `#!/bin/sh` is fatal under a real `/bin/sh`. That applies to every
+shell-dispatched file (any shebang, `*.sh.tmpl`, `*.zsh`, shell rc files), not
+only this shape. `tests/test_line_endings.py` selects tracked files that start
+with `#!`, carry a shell suffix, or use a known rc name, and fails unless each
+is pinned to `text eol=lf` and stored as LF in the index. PowerShell has no `sh`,
 so it still calls the interpreter directly; see `worktree-merge-helper.md` →
 **Native Windows** for that form, the working header, and the invariants that
 break it.
