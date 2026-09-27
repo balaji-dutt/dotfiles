@@ -819,9 +819,13 @@ stdout are terminals, `shell` and `exec` pass terminal settings with
   example `xterm-ghostty`). An unset, empty, or `dumb` host `TERM` sends
   nothing.
 - `COLORTERM` is forwarded only when the host is 256-color capable and sets it
-  to `truecolor` or `24bit`.
+  to `truecolor` or `24bit`. Windows Terminal left it unset in Debian WSL2 in
+  the 2026-09-27 check, so those sessions get only `TERM=xterm-256color`.
+  To advertise truecolor there, export
+  `DEVCONTAINER_LAUNCH_COLORTERM=truecolor` before the launcher runs, for
+  example in the profile's `bash -lc` command.
 
-Override either value when troubleshooting:
+Override either value, for example when troubleshooting:
 
 ```sh
 DEVCONTAINER_LAUNCH_TERM=screen-256color devcontainer-launch homelab-IaC
@@ -837,18 +841,20 @@ send them. Correct rendering inside the container does not add VS Code
 integration: terminal sessions still have no automatic port forwarding (see
 above).
 
-Full-screen TUI support was checked by hand on 2026-09-25 against the
-`homelab-IaC` container on OrbStack, starting each tool from a launcher shell
-and comparing it with a VS Code terminal attached to the same container:
+Full-screen TUI support was checked by hand against the `homelab-IaC`
+container on macOS with OrbStack on 2026-09-25 and on Debian WSL2 on
+2026-09-27, starting each tool from a launcher shell and comparing it with a
+VS Code terminal attached to the same container:
 
 | Host terminal | OpenCode | Claude Code | Agent of Empires |
 |---|---|---|---|
 | macOS iTerm2 | Supported | Supported | Supported |
-| Windows Terminal on Debian WSL2 | Not yet validated | Not yet validated | Not yet validated |
+| Windows Terminal on Debian WSL2 | Supported | Supported | Supported |
 
 "Supported" means colors, redraw, window resize, scrolling, and a clean
-prompt after exit all matched the VS Code terminal. Treat the WSL2 row as
-unknown until it has been checked the same way.
+prompt after exit all worked as in the VS Code terminal; the WSL2 check also
+covered mouse input. Color themes can differ, because each terminal applies
+its own.
 
 ### Agent use
 
@@ -954,11 +960,14 @@ message is only readable if the tab stays open. Keep failed sessions visible:
 - iTerm: **Profiles > Session > After a session ends > No Action**.
 
 A retained tab holds an ended session, not a host shell or a running picker.
+In Windows Terminal, a retained tab offers "press Enter to restart"; Enter
+runs the profile command again, which opens a new picker. That is a manual
+restart, not a loop.
 Do not configure automatic restart. Terminal profiles do not add VS Code port
 forwarding.
 
-The picker has been smoke-tested in iTerm on macOS. Windows Terminal on
-Debian WSL2 is not yet validated.
+The picker has been smoke-tested in iTerm on macOS and in Windows Terminal on
+Debian WSL2.
 
 #### Windows Terminal profile
 
