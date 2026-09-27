@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import shutil
@@ -10,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import run_git, write_executable
-from tests.test_agent_wt_merge import GitFixture
+from tests.test_agent_wt_merge import GitFixture, HELPER_LAUNCH_PREFIX
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,9 @@ SOURCE_POWERSHELL_HELPERS = (
     REPO_ROOT / "private_dot_config" / "powershell" / "git.ps1.tmpl"
 )
 SOURCE_PYTHON_RESOLVER = REPO_ROOT / "assets" / "resolve-python3"
+# Windows has no /bin/sh for CreateProcess to find, so the resolver's own shell
+# entry point has to be located on PATH.
+SH = shutil.which("sh")
 
 
 def render_windows_template(source: Path) -> str:
@@ -72,7 +76,7 @@ class GuardedMainSyncFixture(GitFixture):
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
-            [str(self.helper), *args],
+            [*HELPER_LAUNCH_PREFIX, str(self.helper), *args],
             cwd=self.main,
             env=env,
             text=True,
@@ -443,6 +447,55 @@ raise SystemExit(0)
             self.assertIn("Next: git push", result.stdout)
 
 
+class EntryPointTests(unittest.TestCase):
+    """One file is both an sh script and a Python module, so assert both shapes.
+
+    Every behavioural test reaches the helper through sh, which would keep
+    passing if an edit near the top broke the Python half.
+    """
+
+    def test_sh_header_is_the_module_docstring(self) -> None:
+        tree = ast.parse(SOURCE_HELPER.read_text(encoding="utf-8"))
+        docstring = ast.get_docstring(tree)
+        self.assertIsNotNone(docstring)
+        self.assertIn('exec "$resolver"', docstring)
+        following = tree.body[1]
+        self.assertIsInstance(following, ast.ImportFrom)
+        self.assertEqual(following.module, "__future__")
+
+    def test_sh_block_carries_no_single_quote(self) -> None:
+        lines = SOURCE_HELPER.read_text(encoding="utf-8").splitlines()
+        closing = lines.index("'''")
+        for number, line in enumerate(lines[2:closing], start=3):
+            with self.subTest(line=number):
+                self.assertNotIn("'", line, "a single quote here unbalances sh quoting")
+
+    def test_dispatch_lines_are_exact(self) -> None:
+        lines = SOURCE_HELPER.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "#!/bin/sh")
+        # Losing the escaped quote keeps Python valid but makes sh quote-match
+        # against the closing delimiter, so the exec never runs.
+        self.assertEqual(lines[1], '":" ' + "'''" + "\\'")
+
+
+@unittest.skipIf(SH is None, "sh is required")
+class HelpOutputTests(unittest.TestCase):
+    def test_help_summarises_instead_of_printing_the_sh_block(self) -> None:
+        result = subprocess.run(
+            [SH, str(SOURCE_HELPER), "--help"],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Reconcile diverged guarded main", result.stdout)
+        for leaked in ("set -eu", "resolve-python3", 'exec "$resolver"'):
+            self.assertNotIn(leaked, result.stdout)
+
+
+@unittest.skipIf(SH is None, "sh is required")
 class PythonResolverTests(unittest.TestCase):
     def test_broken_python3_falls_through_to_py_launcher(self) -> None:
         with tempfile.TemporaryDirectory(prefix="python resolver ") as temporary:
@@ -463,7 +516,7 @@ exit 0
             env["PATH"] = str(fake_bin)
             env["RESOLVER_TEST_LOG"] = str(log)
             result = subprocess.run(
-                ["/bin/sh", str(SOURCE_PYTHON_RESOLVER), "--", "guard.py", "arg"],
+                [SH, str(SOURCE_PYTHON_RESOLVER), "--", "guard.py", "arg"],
                 env=env,
                 text=True,
                 stdout=subprocess.PIPE,
@@ -481,7 +534,7 @@ exit 0
             env = os.environ.copy()
             env["PATH"] = str(fake_bin)
             result = subprocess.run(
-                ["/bin/sh", str(SOURCE_PYTHON_RESOLVER), "--", "guard.py"],
+                [SH, str(SOURCE_PYTHON_RESOLVER), "--", "guard.py"],
                 env=env,
                 text=True,
                 stdout=subprocess.PIPE,

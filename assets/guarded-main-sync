@@ -1,5 +1,20 @@
-#!/usr/bin/env python3
-"""Reconcile diverged guarded main and obtain exact-SHA CI evidence."""
+#!/bin/sh
+":" '''\'
+# Reconcile diverged guarded main and obtain exact-SHA CI evidence.
+#
+# sh runs this block and never returns; Python reads it as the module docstring.
+# Native Windows has no python3 on PATH and ignores shebangs, so the interpreter
+# has to come from resolve-python3. Keep the closing quotes directly above the
+# __future__ import, and keep single quotes out of this block.
+set -eu
+entry_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+resolver=$entry_dir/resolve-python3
+if [ ! -f "$resolver" ]; then
+  echo "${0##*/}: missing Python resolver: $resolver" >&2
+  exit 127
+fi
+exec "$resolver" -- "$0" "$@"
+'''
 
 from __future__ import annotations
 
@@ -17,6 +32,8 @@ from pathlib import Path
 from typing import Any
 
 sys.dont_write_bytecode = True
+# __doc__ is the sh dispatch block, so --help needs its own summary.
+DESCRIPTION = "Reconcile diverged guarded main and obtain exact-SHA CI evidence."
 SCRIPT_NAME = Path(sys.argv[0]).name
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 if str(SOURCE_ROOT / "assets") not in sys.path:
@@ -742,7 +759,7 @@ def add_poll_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
     subparsers = parser.add_subparsers(dest="command", required=True)
     sync_parser = subparsers.add_parser("sync", help="reconcile guarded main when applicable")
     sync_parser.add_argument("--stash-oid")

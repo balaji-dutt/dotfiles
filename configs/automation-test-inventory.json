@@ -445,7 +445,7 @@
       "classification": "owned",
       "paths": ["assets/gitlab_pipeline_runtime.py", "assets/guarded-main-sync"],
       "owner": {"kind": "repository", "name": "human-facing guarded main reconciliation"},
-      "languages": ["python"],
+      "languages": ["python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "critical",
       "side_effects": ["filesystem", "git", "network", "process"],

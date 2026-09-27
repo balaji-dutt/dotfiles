@@ -52,10 +52,10 @@ so it still calls the interpreter directly; see `worktree-merge-helper.md` →
 break it.
 
 Existing members: `cz-audit.sh` / `cz-audit.ps1`, `beads-sync.sh` /
-`beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge`
-(sh-dispatched Python), `guarded-main-sync` and its shared GitLab pipeline
-runtime, `claude-mcp-apply.py`, `sync-browser-policies.py`, and the `sync-*`
-scripts. See `assets/README.md` for their usage.
+`beads-sync.ps1` and the repo-local `beads-sync` launcher, `agent-wt-merge` and
+`guarded-main-sync` (both sh-dispatched Python) with their shared GitLab
+pipeline runtime, `claude-mcp-apply.py`, `sync-browser-policies.py`, and the
+`sync-*` scripts. See `assets/README.md` for their usage.
 
 ## Test and ownership checklist
 
