@@ -20,6 +20,27 @@ POWERSHELL_WRAPPER = REPO_ROOT / "assets" / "run-tests.ps1"
 REGISTRY = REPO_ROOT / "configs" / "test-suites.json"
 
 
+def resolve_wrapper_bash() -> str | None:
+    """Return a bash that can see this checkout, or None.
+
+    Windows ships a bash in the system directory that launches WSL2, where a
+    drive-letter path does not exist. It answers both a bare argv name and a
+    PATH lookup, so the candidate has to be probed rather than trusted.
+    """
+    candidate = shutil.which("bash")
+    if candidate is None:
+        return None
+    probe = subprocess.run(
+        [candidate, "-c", f'test -f "{POSIX_WRAPPER.as_posix()}"'],
+        check=False,
+        capture_output=True,
+    )
+    return candidate if probe.returncode == 0 else None
+
+
+BASH = resolve_wrapper_bash()
+
+
 class RunnerFixture:
     def __init__(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -465,8 +486,10 @@ class TestRunnerTests(unittest.TestCase):
         self.assertNotIn("RUN  ", result.stdout)
 
     def test_posix_wrapper_delegates_to_runner(self) -> None:
+        if BASH is None:
+            self.skipTest("no bash that can reach this checkout")
         result = subprocess.run(
-            ["bash", str(POSIX_WRAPPER), "--list", "fast"],
+            [BASH, str(POSIX_WRAPPER), "--list", "fast"],
             cwd=REPO_ROOT,
             check=False,
             text=True,

@@ -21,6 +21,11 @@ ISOLATED_GIT = (
     "-c", "init.defaultBranch=main",
 )
 ISOLATED_ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+# A registry step with no platforms runs everywhere; see assets/run-tests.py.
+STEP_PLATFORMS = ("linux", "macos", "windows", "wsl2")
+# The inventory vocabulary is wider than the registry's; a devcontainer and a CI
+# runner are both Linux to a test step.
+PLATFORM_ALIASES = {"ci": "linux", "devcontainer": "linux"}
 
 
 def owned_entry(entry_id: str, paths: list[str]) -> dict:
@@ -614,18 +619,6 @@ class AutomationInventoryTests(unittest.TestCase):
         )
         self.assertEqual(inventory_step["suites"], ["fast", "provenance"])
 
-        all_platforms = ["linux", "macos", "windows", "wsl2"]
-        merge_step = next(
-            step
-            for step in registry["steps"]
-            if step["id"] == matches[0]["coverage"]["suite_id"]
-        )
-        self.assertLessEqual(
-            set(merge_step.get("platforms", all_platforms)),
-            set(matches[0]["platforms"]),
-            "the merge helper suite runs on a platform its inventory entry does not claim",
-        )
-
         for reviewer_path in (
             REPO_ROOT / ".claude/agents/dotfiles-reviewer.md",
             REPO_ROOT / ".opencode/agents/dotfiles-reviewer.md",
@@ -635,6 +628,33 @@ class AutomationInventoryTests(unittest.TestCase):
             self.assertIn("configs/automation-test-inventory.json", reviewer)
             for term in ("failure", "owner", "rationale", "safety", "success"):
                 self.assertIn(term, reviewer)
+
+    def test_every_covered_entry_has_a_suite_on_each_claimed_platform(self) -> None:
+        inventory = json.loads(
+            (REPO_ROOT / "configs/automation-test-inventory.json").read_text(encoding="utf-8")
+        )
+        registry = json.loads((REPO_ROOT / "configs/test-suites.json").read_text(encoding="utf-8"))
+        covering_steps: dict[str, list[dict]] = {}
+        for step in registry["steps"]:
+            for covered in step["covers"]:
+                covering_steps.setdefault(covered, []).append(step)
+        for entry in inventory["entries"]:
+            test_paths = entry["coverage"].get("test_paths")
+            if not test_paths:
+                continue
+            reachable: set[str] = set()
+            for test_path in test_paths:
+                for step in covering_steps.get(test_path, ()):
+                    reachable |= set(step.get("platforms", STEP_PLATFORMS))
+            claimed = {
+                PLATFORM_ALIASES.get(platform, platform) for platform in entry["platforms"]
+            }
+            with self.subTest(entry=entry["id"]):
+                self.assertLessEqual(
+                    claimed,
+                    reachable,
+                    "no registered suite covering this entry runs on a platform it claims",
+                )
 
 
 class ConcurrentBranchTests(unittest.TestCase):

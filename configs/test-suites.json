@@ -351,6 +351,7 @@
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_powershell_lifecycle"],
       "covers": ["tests/test_powershell_lifecycle.py"],
+      "platforms": ["windows"],
       "requires": ["chezmoi", "pester"]
     },
     {
@@ -519,6 +520,7 @@
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell"],
       "covers": ["tests/test_windows_shell.py"],
+      "platforms": ["windows"],
       "requires": ["chezmoi", "pester"]
     },
     {
