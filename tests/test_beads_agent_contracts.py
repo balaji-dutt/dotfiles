@@ -21,7 +21,7 @@ def normalized(text: str) -> str:
 
 class BeadsAgentSourceContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.sources = {path: path.read_text() for path in (AUTHOR, BACKLOG)}
+        self.sources = {path: path.read_text(encoding="utf-8") for path in (AUTHOR, BACKLOG)}
 
     def assert_outcome_contract(self, text: str) -> None:
         source = normalized(text)
@@ -93,7 +93,7 @@ class BeadsAgentSourceContractTests(unittest.TestCase):
         self.assertIn("do not append a duplicate note", text)
 
     def test_both_author_and_skill_modes(self) -> None:
-        claude = normalized(CLAUDE_AUTHOR.read_text())
+        claude = normalized(CLAUDE_AUTHOR.read_text(encoding="utf-8"))
         self.assertIn("Check both before mutation", claude)
         self.assertIn("--append-notes", claude)
         self.assertIn(' --actor "Claude"', claude)
@@ -101,11 +101,11 @@ class BeadsAgentSourceContractTests(unittest.TestCase):
         self.assertIn("Do not create a local stub `.beads/`", claude)
         self.assertIn("report an unknown/partial outcome", claude)
         self.assertIn("Preserve the existing title, type, labels, priority", claude)
-        handoff = normalized(HANDOFF.read_text())
+        handoff = normalized(HANDOFF.read_text(encoding="utf-8"))
         self.assertIn("Match a `beads-work anchor:` note by issue ID, agent, branch, and worktree", handoff)
         for skill, actor in ((OPEN_SKILL, "OpenCode"), (CLAUDE_SKILL, "Claude")):
             with self.subTest(skill=skill):
-                source = skill.read_text()
+                source = skill.read_text(encoding="utf-8")
                 text = normalized(source)
                 for clause in (
                     "parent already exists **inside the current worktree**",
@@ -123,9 +123,9 @@ class BeadsAgentSourceContractTests(unittest.TestCase):
                     and f'--actor "{actor}"' in line
                     for line in source.splitlines()
                 ))
-        self.assertIn("unknown, <reason>", AUTHOR.read_text())
-        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", OPEN_SKILL.read_text())
-        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", CLAUDE_SKILL.read_text())
+        self.assertIn("unknown, <reason>", AUTHOR.read_text(encoding="utf-8"))
+        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", OPEN_SKILL.read_text(encoding="utf-8"))
+        self.assertIn("SHAS='<verified comma-separated SHAs for this issue>'", CLAUDE_SKILL.read_text(encoding="utf-8"))
 
     def test_backlog_link_failure_cannot_authorize_handoff_or_duplicate_create(self) -> None:
         text = normalized(self.sources[BACKLOG])
