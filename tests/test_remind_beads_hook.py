@@ -30,12 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".claude/hooks/remind-beads-on-plan-approval.sh"
 HELPER = ROOT / ".claude/hooks/lib/beads_state.py"
 
-# POSIX-only by construction: the hook is bash, and the fake `bd` shims are
-# /bin/sh scripts. Under Git Bash the suite runs; under native Windows Python
-# there is no `sh` to point them at.
 POSIX_ONLY = unittest.skipIf(
-    os.name == "nt" and shutil.which("sh") is None,
-    "hook and bd shims require a POSIX shell",
+    os.name == "nt",
+    "hook and bd shims require a POSIX shell and Unix subprocess paths",
 )
 
 EXIT_LIVE = 0

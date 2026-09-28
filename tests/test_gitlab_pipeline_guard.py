@@ -27,6 +27,26 @@ ZERO_SHA = "0" * 40
 ZERO_SHA256 = "0" * 64
 
 
+def resolve_hook_shell() -> str | None:
+    candidate = shutil.which("sh")
+    if candidate is None:
+        return None
+    try:
+        probe = subprocess.run(
+            [candidate, "-c", 'test -f "$1" && test -d "$2"', "sh", str(PRE_PUSH_HOOK), tempfile.gettempdir()],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return candidate if probe.returncode == 0 else None
+
+
+HOOK_SHELL = resolve_hook_shell()
+
+
 class ApiState:
     def __init__(self, *, job_name: str = "linux-fast", job_status: str = "success") -> None:
         self.job_name = job_name
@@ -425,6 +445,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertEqual(sha256_new_ref.returncode, 0, sha256_new_ref.stderr)
         self.assertEqual(len(state.requests), 2)
 
+    @unittest.skipUnless(HOOK_SHELL, "merge helper requires sh that can access this checkout")
     def test_independent_branches_land_before_push_and_batch_needs_prepared_main(self) -> None:
         from tests.test_agent_wt_merge import GitFixture
 
@@ -575,12 +596,13 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertEqual(blocked.returncode, 1)
         self.assertIn("refs/remotes/origin/main is unavailable", blocked.stderr)
 
+    @unittest.skipUnless(HOOK_SHELL, "pre-rebase hook requires sh that can access this checkout")
     def test_pre_rebase_hook_is_opt_in_and_uses_repo_checker(self) -> None:
         hook = self.root / ".git" / "hooks" / "pre-rebase"
         hook.write_bytes(PRE_REBASE_HOOK.read_bytes())
         hook.chmod(0o755)
         without_policy = subprocess.run(
-            ["sh", str(hook), "origin/main"],
+            [HOOK_SHELL, str(hook), "origin/main"],
             cwd=self.root,
             check=False,
             text=True,
@@ -607,7 +629,7 @@ class PipelineGuardTests(unittest.TestCase):
         (self.root / ".git" / "pipeline-guard.override").touch()
 
         blocked = subprocess.run(
-            ["sh", str(hook), "origin/main"],
+            [HOOK_SHELL, str(hook), "origin/main"],
             cwd=self.root,
             check=False,
             text=True,
@@ -662,17 +684,18 @@ class PipelineGuardTests(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={"GIT_DIR": str(linked / ".git")},
+            env={**os.environ, "GIT_DIR": str(linked / ".git")},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(common_dir / "pipeline-guard.override"), result.stderr)
 
+    @unittest.skipUnless(HOOK_SHELL, "pre-push hook requires sh that can access this checkout")
     def test_hook_is_opt_in_and_override_precedes_missing_helper(self) -> None:
         hook = self.root / ".git" / "hooks" / "pre-push"
         hook.write_bytes(PRE_PUSH_HOOK.read_bytes())
         hook.chmod(0o755)
         no_policy = subprocess.run(
-            ["sh", str(hook), "origin", "unused"],
+            [HOOK_SHELL, str(hook), "origin", "unused"],
             cwd=self.root,
             input="",
             check=False,
@@ -684,7 +707,7 @@ class PipelineGuardTests(unittest.TestCase):
 
         self.policy("http://127.0.0.1:1/api/v4")
         missing_helper = subprocess.run(
-            ["sh", str(hook), "origin", "unused"],
+            [HOOK_SHELL, str(hook), "origin", "unused"],
             cwd=self.root,
             input="",
             check=False,
@@ -697,7 +720,7 @@ class PipelineGuardTests(unittest.TestCase):
 
         (self.root / ".git" / "pipeline-guard.override").touch()
         bypassed = subprocess.run(
-            ["sh", str(hook), "origin", "unused"],
+            [HOOK_SHELL, str(hook), "origin", "unused"],
             cwd=self.root,
             input="",
             check=False,
@@ -708,6 +731,7 @@ class PipelineGuardTests(unittest.TestCase):
         self.assertEqual(bypassed.returncode, 0, bypassed.stderr)
         self.assertIn("WARNING: bypassing", bypassed.stderr)
 
+    @unittest.skipUnless(HOOK_SHELL, "pre-push hook requires sh that can access this checkout")
     def test_pre_push_hook_rejects_broken_python3_and_uses_py(self) -> None:
         hook = self.root / ".git" / "hooks" / "pre-push"
         hook.write_bytes(PRE_PUSH_HOOK.read_bytes())
@@ -742,7 +766,7 @@ exit 0
         env["PATH"] = str(fake_bin)
         env["PIPELINE_GUARD_PY_LOG"] = str(log)
         result = subprocess.run(
-            [shutil.which("sh") or "/bin/sh", str(hook), "origin", "unused"],
+            [HOOK_SHELL, str(hook), "origin", "unused"],
             cwd=self.root,
             input="",
             check=False,

@@ -1,17 +1,35 @@
 from __future__ import annotations
 
+import os
 import platform
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from tests.support.fixtures import isolated_environment, read_json_lines, write_executable, write_json
+from tests.support.fixtures import isolated_environment, read_json_lines, write_python_command, write_json
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "assets" / "claude-mcp-apply.py"
 SCHEMA = "./schemas/claude-mcp.v1.schema.json"
+PINNED_CLAUDE_CLI = "\n".join(
+    (
+        "import runpy, subprocess, sys",
+        "from unittest import mock",
+        "script, fake_claude, *arguments = sys.argv[1:]",
+        "original_run = subprocess.run",
+        "def run_fake_claude(command, **kwargs):",
+        "    if not command or command[0] != 'claude':",
+        "        raise RuntimeError('unexpected subprocess command')",
+        "    return original_run([fake_claude, *command[1:]], **kwargs)",
+        "sys.argv = [script, *arguments]",
+        "with mock.patch('subprocess.run', side_effect=run_fake_claude):",
+        "    runpy.run_path(script, run_name='__main__')",
+    )
+)
 
 
 def current_platform() -> str:
@@ -52,7 +70,7 @@ if action == 'add':
     sys.stdout.write(os.environ.get('CLAUDE_TEST_ADD_OUTPUT', ''))
     raise SystemExit(int(os.environ.get('CLAUDE_TEST_ADD_RC', '0')))
 """
-        write_executable(self.isolated.fake_bin / "claude", fake)
+        self.fake_claude = write_python_command(self.isolated.fake_bin, "claude", fake)
 
     def config(self, servers: object) -> dict[str, object]:
         return {"$schema": SCHEMA, "schema_version": 1, "servers": servers}
@@ -70,7 +88,15 @@ if action == 'add':
         env["CLAUDE_TEST_LOG"] = str(self.log_path)
         if env_updates:
             env.update(env_updates)
-        command = [sys.executable, str(SCRIPT), *(args if args is not None else [str(self.config_path)])]
+        with mock.patch.dict(os.environ, env, clear=True):
+            resolved = shutil.which("claude")
+        self.assertIsNotNone(resolved)
+        self.assertEqual(Path(resolved).resolve(), self.fake_claude.resolve())
+        command = [
+            sys.executable, "-c", PINNED_CLAUDE_CLI,
+            str(SCRIPT), str(self.fake_claude),
+            *(args if args is not None else [str(self.config_path)]),
+        ]
         return subprocess.run(
             command,
             cwd=REPO_ROOT,
@@ -133,6 +159,7 @@ if action == 'add':
     def test_registers_http_sse_and_stdio_with_resolved_executable(self) -> None:
         executable = self.isolated.home / "tool binary"
         executable.write_text("fixture", encoding="utf-8")
+        candidate = "$HOME/tool binary"
         payload = self.config(
             {
                 "http": {"transport": "http", "url": "https://http.test"},
@@ -141,7 +168,7 @@ if action == 'add':
                     "transport": "stdio",
                     "command": "server-command",
                     "args": ["--flag"],
-                    "executablePaths": {current_platform(): ["$HOME/missing", "$HOME/tool binary"]},
+                    "executablePaths": {current_platform(): ["$HOME/missing", candidate]},
                 },
             }
         )
@@ -172,7 +199,7 @@ if action == 'add':
                 "--",
                 "server-command",
                 "--flag",
-                f"--executablePath={executable}",
+                f"--executablePath={candidate.replace('$HOME', str(self.isolated.home), 1)}",
             ],
         )
 

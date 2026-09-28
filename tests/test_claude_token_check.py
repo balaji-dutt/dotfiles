@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -137,6 +138,10 @@ def line_for(stdout: str, source: str) -> str:
     return matches[0] if len(matches) == 1 else ""
 
 
+@unittest.skipIf(
+    os.name == "nt",
+    "token-check requires POSIX bash and verified shell stubs for auth and curl",
+)
 class ClaudeTokenCheckTests(unittest.TestCase):
     """Every test stubs claude, security, and curl so none touches a real
     credential store or the network."""
@@ -465,6 +470,8 @@ class ClaudeTokenCheckTests(unittest.TestCase):
             self.assertIn(CLAUDE_TOKEN, probed)
             self.assertNotIn(FAKE_TOKEN, probed)
 
+
+class ClaudeTokenMirrorTests(unittest.TestCase):
     def test_container_mirror_is_byte_identical(self) -> None:
         self.assertTrue(MIRROR.exists(), f"missing container mirror: {MIRROR}")
         self.assertEqual(SCRIPT.read_bytes(), MIRROR.read_bytes())

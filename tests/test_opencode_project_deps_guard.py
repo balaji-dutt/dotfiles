@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support.fixtures import write_python_command
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTAINER_BIN = (
@@ -44,9 +46,8 @@ class GuardFixture:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        self.opencode = self.bin_dir / "opencode"
-        write_executable(
-            self.opencode,
+        self.opencode = write_python_command(
+            self.bin_dir, "opencode",
             "#!/usr/bin/env python3\n"
             "import json, os, pathlib, sys\n"
             "path = pathlib.Path(os.environ['GUARD_TEST_CALL_LOG'])\n"
@@ -57,9 +58,8 @@ class GuardFixture:
             "    raise SystemExit(0)\n"
             "raise SystemExit(int(os.environ.get('GUARD_TEST_OPENCODE_EXIT', '0')))\n",
         )
-        self.npm = self.bin_dir / "npm"
-        write_executable(
-            self.npm,
+        self.npm = write_python_command(
+            self.bin_dir, "npm",
             "#!/usr/bin/env python3\n"
             "import json, os, pathlib, sys\n"
             "path = pathlib.Path(os.environ['GUARD_TEST_CALL_LOG'])\n"
@@ -148,6 +148,7 @@ class GuardFixture:
         return [json.loads(line) for line in self.call_log.read_text().splitlines()]
 
 
+@unittest.skipIf(os.name == "nt", "project dependency guard requires POSIX fcntl")
 class OpenCodeProjectDepsGuardTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -307,6 +308,7 @@ class OpenCodeProjectDepsGuardTests(unittest.TestCase):
         )
 
 
+@unittest.skipIf(os.name == "nt", "plannotator wrappers require POSIX shell execution")
 class OpenCodePlannotatorWrapperTests(unittest.TestCase):
     def render_wrapper(self, source: Path, destination: Path) -> None:
         rendered = source.read_text(encoding="utf-8")
