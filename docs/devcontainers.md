@@ -221,17 +221,26 @@ persistent-data volume as a database backup.
 ### Better Beads Kanban
 
 Better Beads Kanban (`balaji-dutt.better-beads-kanban`) is installed from a
-pinned GitHub release VSIX in `postCreate.sh` and retried by `postStart.sh`.
-Lifecycle scripts prefer the VS Code Server CLI and log the selected executable
-before installing. They also uninstall upstream `davidcforbes.beads-kanban` and
-the pre-rename fork `balaji-dutt.beads-kanban-bd-fixes` on every run: all three
+pinned GitHub release VSIX by `postAttach.sh` when the homelab devcontainer
+configuration is attached through VS Code. Headless `devcontainer-launch`
+starts skip the attach hook. The installer uses a working VS Code Server CLI,
+not a `code` executable from `PATH`; if the server is not ready, it skips
+without changing extensions. On a successful install (or when the pinned
+version is already installed), it removes upstream `davidcforbes.beads-kanban`
+and the pre-rename fork `balaji-dutt.beads-kanban-bd-fixes`: all three
 contribute `beadsKanban.openBoard`, and VS Code treats each extension id as a
-separate install. Troubleshoot with `/tmp/postCreate.log`, `/tmp/postStart.log`,
-and:
+separate install. Check `/tmp/postAttach.log` and the remote Extensions view
+after attaching. If the hook ran before the server was ready, retry from an
+attached terminal with:
 
 ```sh
-code --list-extensions --show-versions | grep beads-kanban
+bash /tmp/host-homelab-devcontainer/postAttach.sh
 ```
+
+The VS Code workspace must use this devcontainer configuration for its attach
+hook to run. Recreate an existing container after adding the hook: mounting the
+updated script alone does not update its lifecycle metadata. Check **View >
+Output > Dev Containers** if the hook did not run.
 
 Only the version is hand-pinned. `assets/sync-beads-kanban-pin.sh --check`
 verifies the checksum in all three install sites against the release; CI runs
@@ -698,9 +707,12 @@ devcontainer-launch homelab exec -- zsh -ic claude
 
 The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Ordinary `exec` also ensures the
-container is up. The `devcontainer up` step writes its log, lifecycle-command
-output, and result to stderr, so a failed start shows the CLI's error and the
-launcher exits nonzero before any shell or command runs. Rebuild actions are explicit so terminal profiles do not
+container is up. Every launcher `devcontainer up` passes `--skip-post-attach`;
+postCreate and postStart still run, but VS Code-specific attach hooks do not run
+in a headless CLI session. The `devcontainer up` step writes its log,
+lifecycle-command output, and result to stderr, so a failed start shows the
+CLI's error and the launcher exits nonzero before any shell or command runs.
+Rebuild actions are explicit so terminal profiles do not
 recreate containers accidentally. `stop` stops the unique matching container
 only when its state is `running`; other states are reported without a stop
 request. `down` removes the unique matching container entirely so the next `up`

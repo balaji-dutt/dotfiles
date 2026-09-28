@@ -398,10 +398,6 @@ post_start_persistence_phase() {
 
 post_start_optional_integrations_phase() {
   register_claude_mcp_servers
-
-  if ! install_better_beads_kanban_vscode_extension; then
-    echo "WARN: Better Beads Kanban VSIX install failed; continuing postStart." >&2
-  fi
 }
 
 post_start_materialization_phase() {
