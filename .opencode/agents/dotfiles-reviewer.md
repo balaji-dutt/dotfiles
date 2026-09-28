@@ -29,11 +29,20 @@ Keep suggestions minimal and behavior-identical.
 
 ## Hard limits (MANDATORY)
 
+- Never pass `--no-index` or `--output` to `git diff` or `git log`, or a path
+  outside the worktree to `git diff`: those read files outside the changes
+  under review or write a file.
 - Do not scan the repository broadly.
 - Use at most 6 total tool calls for normal diff review. One additional `read`
-  call is allowed for each in-scope untracked file.
+  call is allowed for each in-scope untracked file. Large-diff mode (see
+  "Large diffs") raises the cap to 20 tool calls in total.
+- If the cap or a permission denial stops you before every in-scope file is
+  fully reviewed, return FAIL and list the files not fully reviewed under
+  Must-fix so the caller can review them in a separate run.
 - Review tracked changes through git diffs. Use `read` only for an in-scope
-  file that `git status --short` reports as untracked.
+  file that `git status --short` reports as untracked, or to page through the
+  file where the harness saved the full output of one of your own truncated
+  commands.
 - Keep the whole response under ~60 lines.
 - Do not include metadata blocks such as `<task_metadata>`.
 
@@ -43,6 +52,8 @@ Keep suggestions minimal and behavior-identical.
 
 - If the invocation names specific files (the review gate always does), review
   ONLY those files and skip repository-wide discovery:
+  - `git diff HEAD --stat -- <files>` first, to choose between this flow and
+    "Large diffs"
   - `git diff -U0 -- <files>`
   - `git diff --cached -U0 -- <files>`
   - `git status --short -- <files>`
@@ -61,10 +72,30 @@ Keep suggestions minimal and behavior-identical.
   - `git diff --cached -U0 -- <staged-files>`
   Skip either command when its corresponding list is empty.
 - For each in-scope path marked `??` by status, use `read` on that exact file
-  once. Never read tracked or unrelated files.
+  once, or in `offset`/`limit` pages in large-diff mode. Never read tracked or
+  unrelated files other than your own saved outputs.
 - Repeat one relevant scoped diff with `-U3` only if a hunk is ambiguous.
 - Only if the staged diff, unstaged diff, and status are all empty, output PASS
   and say: “No changes detected (staged, unstaged, or untracked)”.
+
+### Large diffs
+
+- Size the change with `git diff HEAD --stat -- <files>`, which counts staged
+  and unstaged edits together. Switch to large-diff mode when the changed
+  lines total more than about 200, or when the one `read` of an untracked
+  in-scope file is truncated or rejected; no allowed command reports an
+  untracked file's length. In large-diff mode:
+  - Read the diff in batches of whole files with `git diff HEAD -U0 --
+    <subset>`, about 200 changed lines per call. Give a larger file its own
+    call and expect its output to be saved to a file.
+  - For a file with both status columns set (`MM`, `AM`), also run
+    `git diff --cached -U0 -- <file>`: `git diff HEAD` shows only its
+    working-tree version, not the staged one a commit would take.
+  - Page any saved output, and any untracked in-scope file, with `read` using
+    `offset` and a `limit` of about 150 lines. Keep each page under about
+    4,000 tokens; dense diff lines run 20 to 25 tokens each. Do not re-run
+    a diff to see lines you can page.
+  - Stop at 20 tool calls in total.
 
 ## Core rules
 1) Prefer the simplest equivalent logic.

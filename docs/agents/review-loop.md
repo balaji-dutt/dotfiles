@@ -222,17 +222,45 @@ differently:
   controls auto-approval and is project-wide, so it does not narrow the
   reviewer; it does mean the reviewer inherits pre-approved mutating entries
   such as `Bash(git add:*)` and `Bash(git checkout:*)`. The prompt restricts
-  `Read` to exact paths that scoped status reports as untracked.
+  `Read` to exact paths that scoped status reports as untracked, plus the
+  file where the harness saved one of the reviewer's own truncated outputs.
+  When a gate spans worktrees, the Stop reason writes the commands as
+  `git -C <checkout> diff ...`; the prompt allows `-C` only for a checkout
+  the invocation names and applies it to every command for those files. No
+  `permissions.allow` entry matches a command that starts with `git -C`, so
+  those calls ask for approval. The OpenCode plugin never emits `-C`, so its
+  twin has no such rule and its `git diff*` allowance always matches.
 - OpenCode (`.opencode/agents/dotfiles-reviewer.md`): `permission.bash` is
   deny-by-default with `git status*`, `git diff*`, and `git log*` allowed, and
   `edit`, `glob`, `grep`, and `task` denied. Here the shell and broad-discovery
   rules are hard-enforced. `read` retains inherited sensitive-file protections,
-  while the prompt restricts it to exact paths that scoped status reports as
-  untracked.
+  while the prompt restricts it to the same paths as on the Claude side.
 
 `Grep`/`Glob` are deliberately withheld on the Claude side and `grep`/`glob`
 are denied on the OpenCode side, so the reviewer cannot fall back to scanning
 the working tree when it should be reading scoped diffs or untracked files.
+Both prompts forbid `--no-index` and `--output` on `git diff` and `git log`,
+and a path outside the worktree on `git diff`: those read arbitrary files or
+write one. All of them pass the `git diff*` and `git log*` allowances, so this
+rule is prompt-level on both harnesses.
+
+The call budget is also prompt-level: 6 tool calls for a normal review, plus
+one `Read` per untracked in-scope file. On Claude Code, Bash output past
+`BASH_MAX_OUTPUT_LENGTH` (20,000 characters) is saved to a file, and each
+`Read` is capped at about 4,000 tokens by
+`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`; both are set in
+`dot_claude/settings-base.json`. The OpenCode twin uses the same thresholds
+under OpenCode's own output limits. The reviewer sizes the change with
+`git diff HEAD --stat` first. Above about 200 changed lines, or when the one
+`Read` of an untracked in-scope file comes back truncated or rejected, it
+switches to large-diff mode with a cap of 20 calls: whole-file
+`git diff HEAD -U0` batches of about 200 changed lines, a separate
+`git diff --cached` for files staged and then edited again (`MM`), and
+`Read` pages of about 150 lines (`offset`/`limit`) through any saved output
+or long untracked file. If either budget runs out, or a call is denied
+permission, it returns FAIL and lists the unreviewed or partly reviewed
+files so the caller can review them in a separate run. On Claude Code each
+checkout the Stop reason names gets its own budget.
 
 ## Automation coverage review
 
