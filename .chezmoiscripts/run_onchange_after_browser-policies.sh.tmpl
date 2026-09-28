@@ -3,7 +3,7 @@
 {{ $browserPolicies := (get . "browser_policies" | default dict) }}
 {{ $jtb := (get $browserPolicies "justthebrowser" | default dict) }}
 {{ $enabled := (get $jtb "enabled" | default false) }}
-{{ $openProfiles := (get $jtb "macos_open_profiles_on_update" | default true) }}
+{{ $openProfiles := true }}{{ if hasKey $jtb "macos_open_profiles_on_update" }}{{ $openProfiles = get $jtb "macos_open_profiles_on_update" }}{{ end }}
 {{ $policyRoot := joinPath .chezmoi.sourceDir "configs/browser-policies/justthebrowser" }}
 # configs/browser-policies/justthebrowser/manifest.json hash: {{ include (joinPath $policyRoot "manifest.json") | sha256sum }}
 # configs/browser-policies/justthebrowser/chrome/chrome.mobileconfig hash: {{ include (joinPath $policyRoot "chrome/chrome.mobileconfig") | sha256sum }}
