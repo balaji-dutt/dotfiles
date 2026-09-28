@@ -388,6 +388,7 @@ tests/test_host_ai_plugin_refresh_posix.py	script-extension
 tests/test_host_ai_plugin_refresh_windows.py	script-extension
 tests/test_line_endings.py	script-extension
 tests/test_macos_maintenance.py	script-extension
+tests/test_macos_shell_startup_smoke.py	script-extension
 tests/test_managed_ai_adapters.py	script-extension
 tests/test_opencode_notifier_bridge.py	script-extension,shebang
 tests/test_opencode_profile_refresh.py	script-extension

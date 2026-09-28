@@ -106,6 +106,32 @@ py -3 assets/check-automation-test-inventory.py
 Use `all` before a broad or high-risk merge. Missing optional platform tools are
 reported as skips unless a CI lane explicitly requires that capability.
 
+### Native macOS shell-startup smoke
+
+The `shell-startup-macos-smoke` suite normally skips. To exercise real
+interactive Bash and Zsh startup without reading the operator's dotfiles,
+stage the allowlisted working snapshot from the repository worktree:
+
+```sh
+python3 -m tests.test_macos_shell_startup_smoke --stage /Users/Shared/dotfiles-shell-smoke
+```
+
+Log into the dedicated, unprivileged macOS account `smoketest`, then run:
+
+```sh
+cd /Users/Shared/dotfiles-shell-smoke
+PATH=/Users/Shared/dotfiles-shell-smoke/bin:/usr/bin:/bin DOTFILES_MACOS_SMOKE=1 /usr/bin/python3 -m unittest -v tests.test_macos_shell_startup_smoke
+```
+
+The bundle includes an independently hashed chezmoi executable, without
+granting the test account access to the operator's private Homebrew tree.
+Staging refreshes only a verified bundle owned by the staging user; if it
+refuses an existing destination, inspect the files and manifest there before
+removing anything. The test verifies file hashes and the account before
+creating synthetic homes and command stubs. Confirm that all four tests ran
+without skips before recording native runtime coverage. A normal suite pass
+with these tests skipped is not native smoke evidence.
+
 ## Optional language metrics
 
 Targeted metrics may be useful for a substantial implementation: Python branch

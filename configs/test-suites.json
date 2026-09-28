@@ -502,6 +502,14 @@
       "requires": ["bash", "chezmoi", "zsh"]
     },
     {
+      "id": "shell-startup-macos-smoke",
+      "suites": ["platform"],
+      "argv": ["{python}", "-m", "unittest", "-v", "tests.test_macos_shell_startup_smoke"],
+      "covers": ["tests/test_macos_shell_startup_smoke.py"],
+      "platforms": ["macos"],
+      "requires": ["bash", "chezmoi", "zsh"]
+    },
+    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],

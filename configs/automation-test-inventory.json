@@ -711,10 +711,10 @@
         "suite_id": "shell-startup",
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
-        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
+        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_macos_shell_startup_smoke.py", "tests/test_shell_startup.py"],
         "behavior_requirements": []
       },
-      "rationale": "Real Bash and Zsh subprocesses with synthetic homes cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS and WSL2 interactive smoke remains planned."
+      "rationale": "Synthetic-home Bash and Zsh tests cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). Ordinary runs skip this suite without explicit opt-in and that account. WSL2 interactive smoke remains planned under dots-4jy.10.17."
     },
     {
       "id": "sync-tooling",

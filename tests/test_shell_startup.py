@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -137,6 +138,24 @@ class BashStartupTests(ShellStartupHarness):
         entries = result.stdout.strip().split(os.pathsep)
         self.assertEqual(entries.count(str(shims)), 1)
 
+    def test_rendered_macos_interactive_startup_without_direnv_is_silent(self) -> None:
+        if shutil.which("direnv", path="/usr/bin:/bin"):
+            self.skipTest("direnv is present on the pinned PATH")
+        bashrc = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "macos"))
+        result = self.run_bash(
+            f'source "{bashrc}"',
+            interactive=True,
+            env_updates={"PATH": "/usr/bin:/bin", "TERM": "dumb"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        stderr = re.sub(
+            r"\Abash: cannot set terminal process group \(-?\d+\): [^\n]+\n"
+            r"bash: no job control in this shell\n", "", result.stderr,
+        )
+        self.assertEqual(stderr, "")
+
 
 @unittest.skipUnless(ZSH, "zsh is required")
 class ZshStartupOrderTests(ShellStartupHarness):
@@ -158,7 +177,10 @@ class ZshStartupOrderTests(ShellStartupHarness):
 
     def test_missing_optional_files_produce_no_output_or_hang(self) -> None:
         zshrc = self.write_home(".zshrc", render_template("dot_zshrc.tmpl", "linux"))
-        result = self.run_zsh(f'source "{zshrc}"')
+        result = self.run_zsh(
+            f'source "{zshrc}"',
+            env_updates={"PATH": f"{self.fixture.fake_bin}:/usr/bin:/bin"},
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
