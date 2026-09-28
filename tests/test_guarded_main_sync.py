@@ -85,6 +85,12 @@ class GuardedMainSyncFixture(GitFixture):
             check=False,
         )
 
+    def restore_helper(self) -> None:
+        self.helper.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SOURCE_HELPER, self.helper)
+        shutil.copy2(SOURCE_RUNTIME, self.helper.parent / SOURCE_RUNTIME.name)
+        self.helper.chmod(0o755)
+
 
 class GuardedMainSyncCoreTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -187,6 +193,132 @@ class GuardedMainSyncCoreTests(unittest.TestCase):
         self.assertEqual(aborted.returncode, 0, aborted.stderr)
         self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), local_sha)
         self.assertFalse(self.fixture.state_path.exists())
+
+    def test_manual_rebase_continue_then_resume_verifies_ci(self) -> None:
+        _local_sha, remote_sha = self.fixture.diverge(conflict=True)
+        blocked = self.fixture.run_sync("sync")
+        self.assertEqual(blocked.returncode, 1)
+        status = self.fixture.run_sync("status")
+        self.assertIn("git rebase --continue", status.stdout)
+        self.assertIn("guarded-main-sync resume", status.stdout)
+
+        (self.fixture.main / "shared.txt").write_text("resolved\n", encoding="utf-8")
+        self.fixture.git(self.fixture.main, "add", "shared.txt")
+        self.fixture.git(self.fixture.main, "rebase", "--continue")
+        rewritten_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+        refused = self.fixture.run_sync("sync")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("guarded-main-sync resume", refused.stderr)
+        self.assertIn("git rebase --continue", refused.stderr)
+
+        resumed = self.fixture.run_sync(
+            "resume", extra_env={"FAKE_PIPELINE_OUTCOME": "success"}
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        state = json.loads(self.fixture.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["phase"], "ready-to-finalize")
+        self.assertEqual(state["rewritten_sha"], rewritten_sha)
+        self.assertEqual(state["remote_sha"], remote_sha)
+        self.assertEqual(self.fixture.remote_ref_sha("refs/heads/main"), remote_sha)
+        self.assertIsNone(self.fixture.remote_ref_sha(f"refs/heads/ci/main/{rewritten_sha}"))
+
+    def test_resume_rejects_head_without_recorded_remote(self) -> None:
+        _local_sha, remote_sha = self.fixture.diverge(conflict=True)
+        self.assertEqual(self.fixture.run_sync("sync").returncode, 1)
+        self.fixture.git(self.fixture.main, "rebase", "--abort")
+        self.fixture.git(self.fixture.main, "reset", "--hard", f"{remote_sha}^")
+        self.fixture.restore_helper()
+        unrelated_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+        before = self.fixture.state_path.read_bytes()
+        counter = self.fixture.root / "pipeline counter"
+
+        refused = self.fixture.run_sync(
+            "resume", extra_env={"FAKE_PIPELINE_COUNTER": str(counter)}
+        )
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("does not contain recorded remote", refused.stderr)
+        self.assertIn("discard --confirm", refused.stderr)
+        self.assertEqual(self.fixture.state_path.read_bytes(), before)
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), unrelated_sha)
+        self.assertFalse(counter.exists())
+        self.assertIsNone(self.fixture.remote_ref_sha(f"refs/heads/ci/main/{unrelated_sha}"))
+        self.assertEqual(self.fixture.remote_ref_sha("refs/heads/main"), remote_sha)
+
+    def test_discard_requires_confirmation_and_preserves_head_and_stash(self) -> None:
+        _local_sha, remote_sha = self.fixture.diverge(conflict=True)
+        (self.fixture.main / "stashed.txt").write_text("keep\n", encoding="utf-8")
+        self.fixture.git(self.fixture.main, "stash", "push", "-u", "-m", "keep stash")
+        stash_oid = self.fixture.output(self.fixture.main, "rev-parse", "stash@{0}")
+        self.assertEqual(self.fixture.run_sync("sync", "--stash-oid", stash_oid).returncode, 1)
+        self.fixture.git(self.fixture.main, "rebase", "--abort")
+        self.fixture.git(self.fixture.main, "reset", "--hard", f"{remote_sha}^")
+        self.fixture.restore_helper()
+        before_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+        before = self.fixture.state_path.read_bytes()
+
+        unconfirmed = self.fixture.run_sync("discard")
+        self.assertNotEqual(unconfirmed.returncode, 0)
+        self.assertIn("--confirm", unconfirmed.stderr)
+        self.assertEqual(self.fixture.state_path.read_bytes(), before)
+        discarded = self.fixture.run_sync("discard", "--confirm")
+        self.assertEqual(discarded.returncode, 0, discarded.stderr)
+        self.assertIn("HEAD was not changed", discarded.stdout)
+        self.assertIn(stash_oid, discarded.stdout)
+        self.assertFalse(self.fixture.state_path.exists())
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), before_sha)
+        self.assertIn(stash_oid, self.fixture.output(self.fixture.main, "stash", "list", "--format=%H"))
+        self.assertEqual(self.fixture.remote_ref_sha("refs/heads/main"), remote_sha)
+
+    def test_discard_refuses_during_rebase(self) -> None:
+        self.fixture.diverge(conflict=True)
+        self.assertEqual(self.fixture.run_sync("sync").returncode, 1)
+        before = self.fixture.state_path.read_bytes()
+        before_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+        refused = self.fixture.run_sync("discard", "--confirm")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("abort", refused.stderr)
+        self.assertEqual(self.fixture.state_path.read_bytes(), before)
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), before_sha)
+
+    def test_discard_cleans_recorded_ci_ref(self) -> None:
+        _local_sha, remote_sha = self.fixture.diverge()
+        timed_out = self.fixture.run_sync(
+            "sync", "--poll-interval", "1", "--poll-timeout", "1",
+            extra_env={"FAKE_PIPELINE_OUTCOME": "retryable"},
+        )
+        self.assertEqual(timed_out.returncode, 1)
+        state = json.loads(self.fixture.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(self.fixture.remote_ref_sha(state["ci_ref"]), state["rewritten_sha"])
+        before_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+
+        discarded = self.fixture.run_sync("discard", "--confirm")
+        self.assertEqual(discarded.returncode, 0, discarded.stderr)
+        self.assertFalse(self.fixture.state_path.exists())
+        self.assertIsNone(self.fixture.remote_ref_sha(state["ci_ref"]))
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), before_sha)
+        self.assertEqual(self.fixture.remote_ref_sha("refs/heads/main"), remote_sha)
+
+    def test_discard_retains_state_when_ci_ref_moved(self) -> None:
+        _local_sha, remote_sha = self.fixture.diverge()
+        timed_out = self.fixture.run_sync(
+            "sync", "--poll-interval", "1", "--poll-timeout", "1",
+            extra_env={"FAKE_PIPELINE_OUTCOME": "retryable"},
+        )
+        self.assertEqual(timed_out.returncode, 1)
+        state = json.loads(self.fixture.state_path.read_text(encoding="utf-8"))
+        self.fixture.git(self.fixture.main, "push", "--force", "origin", f"{remote_sha}:{state['ci_ref']}")
+        before_sha = self.fixture.output(self.fixture.main, "rev-parse", "HEAD")
+
+        refused = self.fixture.run_sync("discard", "--confirm")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("could not be cleaned safely", refused.stderr)
+        self.assertTrue(self.fixture.state_path.exists())
+        self.assertEqual(
+            json.loads(self.fixture.state_path.read_text(encoding="utf-8"))["phase"],
+            "ci-cleanup-failed",
+        )
+        self.assertEqual(self.fixture.remote_ref_sha(state["ci_ref"]), remote_sha)
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "HEAD"), before_sha)
 
     def test_finalize_waits_until_recorded_stash_is_dropped(self) -> None:
         self.fixture.diverge()

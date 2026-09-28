@@ -46,6 +46,7 @@ from gitlab_pipeline_runtime import (  # noqa: E402
     check_pipeline,
     cleanup_main_ci_ref,
     load_pipeline_runtime,
+    main_ci_remote_ref,
     publish_main_ci_ref,
     remote_ref_sha,
 )
@@ -490,7 +491,8 @@ def continue_after_rebase(
         set_phase(state_path, state, "rebase-conflict")
         fail(
             "a controlled rebase is still in progress; resolve conflicts and run "
-            f"git rebase --continue, or run {SCRIPT_NAME} abort"
+            f"git rebase --continue, then run {SCRIPT_NAME} resume; "
+            f"or run {SCRIPT_NAME} abort"
         )
     validate_state_identity(root, state)
     if state.get("phase") in {"rebasing", "rebase-conflict", "rebase-failed"}:
@@ -508,7 +510,24 @@ def continue_after_rebase(
                     last_error=detail,
                 )
                 fail(f"controlled rebase failed: {detail}; run {SCRIPT_NAME} status")
-        state["rewritten_sha"] = head_sha(root)
+        candidate_sha = head_sha(root)
+        if candidate_sha != state.get("original_local_sha"):
+            remote_sha = state.get("remote_sha")
+            if not isinstance(remote_sha, str):
+                fail(f"recorded remote SHA is missing; run {SCRIPT_NAME} discard --confirm")
+            ancestor = run_git(
+                root, ["merge-base", "--is-ancestor", remote_sha, candidate_sha], check=False
+            )
+            if ancestor.returncode == 1:
+                fail(
+                    f"local HEAD does not contain recorded remote {remote_sha}; "
+                    f"recovery state was retained. Run {SCRIPT_NAME} discard --confirm "
+                    "if this sync was abandoned"
+                )
+            if ancestor.returncode != 0:
+                detail = (ancestor.stderr or ancestor.stdout or "git merge-base failed").strip()
+                fail(f"cannot verify recorded remote ancestry: {detail}; recovery state was retained")
+        state["rewritten_sha"] = candidate_sha
         set_phase(state_path, state, "rebased")
     expected_tip = state.get("rewritten_sha")
     if not isinstance(expected_tip, str) or head_sha(root) != expected_tip:
@@ -549,10 +568,7 @@ def command_sync(args: argparse.Namespace) -> int:
     directory, state_path, lock_path = state_paths(root)
     if state_path.exists():
         existing = read_state(state_path)
-        fail(
-            f"unresolved guarded-main-sync state exists in phase {existing.get('phase')}; "
-            f"run {SCRIPT_NAME} status or {SCRIPT_NAME} resume"
-        )
+        refuse_existing_state(existing)
     _tracking, _remote_sha, _behind, ahead = tracking_status(root, runtime, branch)
     if ahead <= 0:
         return NOT_APPLICABLE
@@ -571,10 +587,7 @@ def command_sync(args: argparse.Namespace) -> int:
     with CommandLock(directory, lock_path):
         if state_path.exists():
             existing = read_state(state_path)
-            fail(
-                f"unresolved guarded-main-sync state exists in phase {existing.get('phase')}; "
-                f"run {SCRIPT_NAME} status or {SCRIPT_NAME} resume"
-            )
+            refuse_existing_state(existing)
         original_sha = head_sha(root)
         state: dict[str, Any] = {
             "schema_version": STATE_SCHEMA_VERSION,
@@ -621,6 +634,18 @@ def command_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def refuse_existing_state(state: dict[str, Any]) -> None:
+    guidance = f"run {SCRIPT_NAME} status"
+    if state.get("phase") == "rebase-conflict":
+        guidance += f"; finish git rebase --continue, then run {SCRIPT_NAME} resume (or abort during rebase)"
+    else:
+        guidance += f" or {SCRIPT_NAME} resume"
+    fail(
+        f"unresolved guarded-main-sync state exists in phase {state.get('phase')}; "
+        f"{guidance}; run {SCRIPT_NAME} discard --confirm if the sync was abandoned"
+    )
+
+
 def command_status(args: argparse.Namespace) -> int:
     root = repo_root()
     _directory, state_path, _lock_path = state_paths(root)
@@ -642,11 +667,15 @@ def command_status(args: argparse.Namespace) -> int:
         print(f"- {key.replace('_', ' ').title()}: {state.get(key) or 'none'}")
     phase = state.get("phase")
     if phase == "rebase-conflict":
-        print(f"- Next: resolve conflicts and continue the rebase, or run {SCRIPT_NAME} abort")
+        print(
+            "- Next: resolve conflicts, run git rebase --continue until finished, "
+            f"then run {SCRIPT_NAME} resume; or run {SCRIPT_NAME} abort during rebase"
+        )
     elif phase == "ready-to-finalize":
         print(f"- Next: restore/drop the recorded stash if present, then run {SCRIPT_NAME} finalize")
     else:
         print(f"- Next: run {SCRIPT_NAME} resume")
+    print(f"- Abandoned sync (no rebase in progress): {SCRIPT_NAME} discard --confirm")
     return 0
 
 
@@ -729,7 +758,8 @@ def command_abort(_args: argparse.Namespace) -> int:
         if head_sha(root) != state.get("original_local_sha"):
             fail(
                 "controlled rebase has completed; refusing rollback because it would require reset. "
-                f"Run {SCRIPT_NAME} resume instead"
+                f"Run {SCRIPT_NAME} resume, or {SCRIPT_NAME} discard --confirm "
+                "if the sync was abandoned"
             )
         if not cleanup_recorded_ref(root, runtime, state_path, state):
             fail(f"temporary CI ref {state.get('ci_ref')} could not be cleaned safely")
@@ -738,6 +768,38 @@ def command_abort(_args: argparse.Namespace) -> int:
         except OSError as exc:
             fail(f"cannot remove aborted recovery state {state_path}: {exc}")
     print("Aborted guarded main sync; original local tip restored.")
+    if state.get("stash_oid"):
+        print(f"- Preserved gpls stash: {state['stash_oid']}")
+    return 0
+
+
+def command_discard(_args: argparse.Namespace) -> int:
+    root = repo_root()
+    directory, state_path, lock_path = state_paths(root)
+    with CommandLock(directory, lock_path):
+        state = read_state(state_path)
+        validate_state_identity(root, state)
+        if rebase_in_progress(root):
+            fail(f"a rebase is in progress; run {SCRIPT_NAME} abort before discarding state")
+        runtime = runtime_from_state(root, state)
+        if state.get("ci_ref") is not None:
+            ci_ref = state["ci_ref"]
+            rewritten_sha = state.get("rewritten_sha")
+            if not isinstance(ci_ref, str) or not isinstance(rewritten_sha, str):
+                fail("recorded CI ref lacks a rewritten tip; recovery state was retained")
+            try:
+                expected_ref = main_ci_remote_ref(str(state["branch"]), rewritten_sha)
+            except PipelineRuntimeError as exc:
+                fail(f"recorded CI ref cannot be verified: {exc}; recovery state was retained")
+            if ci_ref != expected_ref:
+                fail("recorded CI ref does not match the rewritten tip; recovery state was retained")
+        if not cleanup_recorded_ref(root, runtime, state_path, state):
+            fail(f"temporary CI ref {state.get('ci_ref')} could not be cleaned safely: {state.get('last_error')}")
+        try:
+            state_path.unlink()
+        except OSError as exc:
+            fail(f"cannot remove discarded recovery state {state_path}: {exc}")
+    print("Discarded guarded main sync recovery state; HEAD was not changed.")
     if state.get("stash_oid"):
         print(f"- Preserved gpls stash: {state['stash_oid']}")
     return 0
@@ -777,6 +839,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     finalize_parser.set_defaults(handler=command_finalize)
     abort_parser = subparsers.add_parser("abort", help="abort an active controlled rebase")
     abort_parser.set_defaults(handler=command_abort)
+    discard_parser = subparsers.add_parser("discard", help="discard an abandoned recovery state")
+    discard_parser.add_argument("--confirm", action="store_true", required=True)
+    discard_parser.set_defaults(handler=command_discard)
     return parser.parse_args(argv)
 
 
