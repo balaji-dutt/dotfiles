@@ -114,8 +114,10 @@ RACY_MTIME_SECONDS = 2
 HOME_SNAPSHOT = "\0home"
 SNAPSHOT_GLOB = "[0-9a-f]" * 16 + "-" + "[0-9a-f]" * 16 + ".json*"
 SNAPSHOT_GIT_TIMEOUT = 5
-# Shared by all run_git_raw calls in one hook run; below the 10 s hook timeout.
+# Shared by a hook run's git calls until Stop's pending check; below the 10 s hook timeout.
 HOOK_GIT_BUDGET = 8
+# Fresh deadline for Stop's pending check; the two budgets together stay within half the Stop hook timeout.
+STOP_GIT_BUDGET = 20
 GIT_DEADLINE = [None]
 # Longer pathspec lists can overflow the Windows command line, which run_git reports as a failure.
 LEGACY_SCOPE_CAP = 200
@@ -141,18 +143,10 @@ def run_git_raw(root, args, timeout=SNAPSHOT_GIT_TIMEOUT):
 
 
 def run_git(root, args):
-    try:
-        proc = subprocess.run(
-            ["git", "-C", root] + args,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
+    out = run_git_raw(root, args, timeout=STOP_GIT_BUDGET)
+    if out is None:
         return None
-    if proc.returncode != 0:
-        return None
-    return [line.strip().replace("\r", "") for line in proc.stdout.splitlines() if line.strip()]
+    return [line.strip() for line in os.fsdecode(out).splitlines() if line.strip()]
 
 
 def git_toplevel(directory):
@@ -1237,6 +1231,7 @@ def cmd_enforce(payload, root):
         reconcile_snapshots(root, session_id)
     except OSError as exc:
         print("review_gate.py: snapshot reconcile failed: %s" % exc, file=sys.stderr)
+    GIT_DEADLINE[0] = time.monotonic() + STOP_GIT_BUDGET
     last_mark = last_mark_epoch(root, session_id)
     path = find_gate(root, session_id)
     if not path:

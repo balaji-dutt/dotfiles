@@ -559,7 +559,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
     def test_settings_wire_bash_hooks(self) -> None:
         hooks = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
 
-        def commands(event: str, matcher: str) -> list[tuple[str, object]]:
+        def commands(event: str, matcher: str | None) -> list[tuple[str, object]]:
             return [
                 (hook["command"], hook.get("timeout"))
                 for group in hooks.get(event, [])
@@ -575,6 +575,10 @@ class ReviewHookWrapperTests(unittest.TestCase):
         self.assertEqual(
             commands("PostToolUse", "Write|Edit"),
             [('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh"', None)],
+        )
+        self.assertEqual(
+            commands("Stop", None),
+            [('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-review-on-stop.sh"', 60)],
         )
 
     def test_hooks_handle_a_missing_project_dir(self) -> None:
