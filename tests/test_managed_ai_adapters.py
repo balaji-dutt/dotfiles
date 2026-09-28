@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from tests.support.fixtures import isolated_environment, write_executable
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NODE_TEST = REPO_ROOT / "tests" / "support" / "test_managed_ai_adapters.mjs"
 BD_GATE = REPO_ROOT / "dot_claude" / "hooks" / "executable_gate-bd-destructive.sh"
+EXITPLAN_GUARD = REPO_ROOT / "dot_claude" / "hooks" / "executable_exitplan-freshness-guard.py"
 BASH = shutil.which("bash")
 
 
@@ -128,6 +131,80 @@ elif 'tool_input.command' in query:
         result = self.run_gate("beads-issue-author", "bd delete dots-test")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
+
+
+class ExitPlanFreshnessGuardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="exitplan guard ")
+        self.addCleanup(self.temporary.cleanup)
+        self.plan_file = Path(self.temporary.name) / "plan.md"
+        self.plan_file.write_text("# Plan v2 — greet\n\n- add --shout\n", encoding="utf-8")
+
+    def run_guard(self, payload: object) -> subprocess.CompletedProcess[str]:
+        stdin = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        return subprocess.run(
+            [sys.executable, str(EXITPLAN_GUARD)],
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+            input=stdin,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=15,
+        )
+
+    def exit_plan(self, tool_input: object) -> dict[str, object]:
+        return {"hook_event_name": "PreToolUse", "tool_name": "ExitPlanMode", "tool_input": tool_input}
+
+    def assert_denied(self, result: subprocess.CompletedProcess[str], expected: str) -> None:
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "PreToolUse")
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertIn(expected, output["permissionDecisionReason"])
+        self.assertIn("on its own in a new reply", output["permissionDecisionReason"])
+        self.assertIn("If this call was already on its own, stop", output["permissionDecisionReason"])
+
+    def assert_silent(self, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_denies_plan_older_than_the_plan_file(self) -> None:
+        result = self.run_guard(
+            self.exit_plan({"plan": "# Plan v1\n", "planFilePath": str(self.plan_file)})
+        )
+        self.assert_denied(result, str(self.plan_file))
+
+    def test_allows_current_plan_including_whitespace_and_line_ending_drift(self) -> None:
+        current = self.plan_file.read_text(encoding="utf-8")
+        for plan in (current, current.strip(), "\n" + current.replace("\n", "\r\n") + "\n\n"):
+            with self.subTest(plan=plan):
+                result = self.run_guard(self.exit_plan({"plan": plan, "planFilePath": str(self.plan_file)}))
+                self.assert_silent(result)
+
+    def test_unverifiable_and_unrelated_requests_fail_open(self) -> None:
+        missing = Path(self.temporary.name) / "missing.md"
+        undecodable = Path(self.temporary.name) / "binary.md"
+        undecodable.write_bytes(b"\xff\xfe\x00plan")
+        cases = {
+            "no plan or path": self.exit_plan({}),
+            "no plan": self.exit_plan({"planFilePath": str(self.plan_file)}),
+            "no plan path": self.exit_plan({"plan": "# Plan v1\n"}),
+            "empty plan path": self.exit_plan({"plan": "# Plan v1\n", "planFilePath": ""}),
+            "missing file": self.exit_plan({"plan": "# Plan v1\n", "planFilePath": str(missing)}),
+            "directory path": self.exit_plan({"plan": "# Plan v1\n", "planFilePath": self.temporary.name}),
+            "undecodable file": self.exit_plan({"plan": "# Plan v1\n", "planFilePath": str(undecodable)}),
+            "non-string plan": self.exit_plan({"plan": 7, "planFilePath": str(self.plan_file)}),
+            "non-object input": self.exit_plan(["plan"]),
+            "other tool": {"tool_name": "Write", "tool_input": {}},
+            "non-object payload": [],
+            "invalid json": "{not json",
+            "empty stdin": "",
+        }
+        for label, payload in cases.items():
+            with self.subTest(case=label):
+                self.assert_silent(self.run_guard(payload))
 
 
 if __name__ == "__main__":

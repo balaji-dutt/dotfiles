@@ -31,6 +31,7 @@
 - As a first step towards solving a problem or when working with a tech stack, library, etc. always check for any related documentation under the ./docs directory.
 - Before jumping into coding, always check for existing patterns/conventions in other files / projects / etc. to ensure consistency in the codebase.
 - Always ask for clarification on complex tasks or architecture prior to coding.
+- In plan mode, write or edit the plan file in one reply and call `ExitPlanMode` on its own in the next. When both go out in the same reply, Claude Code attaches the plan as it was before the edit, so the reviewer sees an old version.
 
 ## Notes / Journal
 
