@@ -721,7 +721,7 @@
         "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
-      "rationale": "Real Bash and Zsh subprocesses with synthetic homes cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS smoke remains planned and WSL2 interactive smoke remains unverified under a reviewable waiver."
+      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS smoke remains planned and WSL2 platform smoke remains unverified under a reviewable waiver."
     },
     {
       "id": "sync-tooling",
