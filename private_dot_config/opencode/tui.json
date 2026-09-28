@@ -3,6 +3,6 @@
   "theme": "nord",
   "plugin": [
     "@slkiser/opencode-quota@4.9.0",
-    "@tarquinen/opencode-dcp@3.1.15"
+    "@tarquinen/opencode-dcp@3.2.0"
   ]
 }
