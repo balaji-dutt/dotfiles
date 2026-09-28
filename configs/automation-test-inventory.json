@@ -552,6 +552,7 @@
       "id": "managed-ai-adapters",
       "classification": "owned",
       "paths": [
+        "dot_claude/hooks/executable_exitplan-freshness-guard.py",
         "dot_claude/hooks/executable_feature-ci-reminder.py",
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
         "dot_claude/hooks/executable_resolve-python3",
@@ -573,18 +574,21 @@
         "work_item": "dots-4jy.10.4.3",
         "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_resolve_python3.py"],
         "behavior_requirements": [
+          {"id": "failure-exitplan-guard-fail-open", "kind": "failure", "description": "Stay silent for unrelated tools, malformed input, a missing attached plan or plan path, and plan files that are missing, unreadable, or undecodable, so the ExitPlanMode guard never blocks plan approval on its own error.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "failure-managed-adapter-fallbacks", "kind": "failure", "description": "Reject malformed requests and state, preserve conservative provider fallback behavior, and keep permission capture failures from changing permission decisions.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Enforce destructive Beads policy when hook prerequisites parse successfully, preserve fail-open behavior when they do not, and prevent adapters from exposing or using production secrets in tests.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
+          {"id": "safety-exitplan-stale-plan", "kind": "safety", "description": "Deny ExitPlanMode when the attached plan differs from the plan file, and give the model a way to stop, so a plan reviewer never sees a version older than the file.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "safety-python-interpreter-resolution", "kind": "safety", "description": "Reject a python3 that resolves in PATH but does not run, so a broken interpreter shim cannot silently skip the hook guards.", "status": "covered", "test_paths": ["tests/test_resolve_python3.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "success-exitplan-current-plan", "kind": "success", "description": "Allow ExitPlanMode when the attached plan matches the plan file, ignoring surrounding whitespace and CRLF line endings.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-managed-compatibility", "kind": "success", "description": "Map quota, cited-search, and permission-capture requests through their supported cache, citation, and redaction contracts.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
         ]
       },
-      "rationale": "Registered offline suites cover managed OpenCode compatibility, destructive Beads policy, feature-CI reminders, profiles, and dependency guards without live credentials, network, or Beads mutations."
+      "rationale": "Registered offline suites cover managed OpenCode compatibility, destructive Beads policy, the stale-plan ExitPlanMode guard, feature-CI reminders, profiles, and dependency guards without live credentials, network, or Beads mutations."
     },
     {
       "id": "managed-ai-attestation",

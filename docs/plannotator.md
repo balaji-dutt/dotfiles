@@ -176,6 +176,17 @@ If Claude Code does not open the Plannotator UI on ExitPlan:
 3. Run `/hooks` and confirm `PermissionRequest > ExitPlanMode > plannotator`.
 4. Check the Claude Code plugin errors view for Plannotator load errors.
 
+If Plannotator shows an older plan than the terminal, the model most likely
+edited the plan file and called `ExitPlanMode` in the same reply. Claude Code
+attaches the plan to that call before the edit runs
+([anthropics/claude-code#96553](https://github.com/anthropics/claude-code/issues/96553)),
+and Plannotator renders the attached copy. The `PreToolUse` hook
+`exitplan-freshness-guard.py`, declared in `dot_claude/settings-base.json`,
+denies a call whose attached plan differs from the plan file and asks the model
+to call `ExitPlanMode` again on its own. A first plan written in the same reply
+still arrives empty, because no file existed to compare against; send feedback
+asking Claude to present the plan again.
+
 ## Vendored slash commands
 
 `/plannotator-annotate`, `/plannotator-last` and `/plannotator-review` reach both

@@ -138,8 +138,8 @@ to own both files outright, so the two fought on every release. Both are now
 `chezmoi:modify-template` sources that merge over whatever is on disk:
 
 - [`dot_claude/modify_private_settings.json`](../../dot_claude/modify_private_settings.json)
-  — chezmoi owns `env` / `permissions` / `statusLine` and the
-  `PreToolUse` → `gate-bd-destructive.sh` hook. Every hook **group** whose
+  — chezmoi owns `env` / `permissions` / `statusLine` and the hooks declared
+  in `dot_claude/settings-base.json`. Every hook **group** whose
   command carries a trailing `# aoe-hooks` sentinel is adopted verbatim from
   disk.
 - [`private_dot_config/agent-of-empires/modify_config.toml`](../../private_dot_config/agent-of-empires/modify_config.toml)

@@ -3,8 +3,7 @@
      Ownership split for ~/.claude/settings.json:
 
        chezmoi owns  - dot_claude/settings-base.json (env, permissions,
-                       statusLine, ...), the PreToolUse/Bash
-                       gate-bd-destructive.sh hook declared in it, the
+                       statusLine, ...), the hooks declared in it, the
                        agent-wt-merge allow rules added below (they need
                        this checkout's absolute path, which the plain-JSON
                        base cannot hold), and the macOS-only OpenUsage
@@ -17,8 +16,8 @@
                        agent-of-empires injected, and aoe never re-prompts.
 
      A hook *group* is aoe-owned iff any of its hooks[].command contains
-     "aoe-hooks". Verified that no group mixes owners: PreToolUse holds one
-     chezmoi group (matcher "Bash") and one aoe group.
+     "aoe-hooks". No group mixes owners: every PreToolUse group in the base is
+     chezmoi-owned, and aoe adds a separate group of its own.
 
      The base lives in its own plain-JSON file rather than inline here because
      the homelab-IaC devcontainer symlinks it straight to ~/.claude/settings.json
