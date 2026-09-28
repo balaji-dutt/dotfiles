@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from textwrap import dedent, indent
 
 from tests.support.fixtures import isolated_environment, read_json_lines, write_executable
 from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_matrix
@@ -331,6 +333,83 @@ class WslProvisionLifecycleTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 29)
             self.assertEqual(len(read_json_lines(log)), 1)
+
+
+ANSIBLE_PLAYBOOK = shutil.which("ansible-playbook")
+
+
+@unittest.skipUnless(ANSIBLE_PLAYBOOK, "ansible-playbook is required")
+class WslAnsibleTaskFailureTests(unittest.TestCase):
+    def test_production_command_tasks_report_actionable_failures(self) -> None:
+        cases = (
+            (
+                "ansible/tasks/zsh-setup.yml",
+                "Check current shell",
+                "- name: Check current shell\n"
+                "  ansible.builtin.command:\n"
+                '    cmd: "getent passwd {{ ansible_env.USER }}"\n'
+                "  register: current_shell\n"
+                "  changed_when: false\n",
+                "getent",
+                37,
+            ),
+            (
+                "ansible/wsl-playbook.yml",
+                "List available locales",
+                "- name: List available locales\n"
+                "  ansible.builtin.command: locale -a\n"
+                "  register: locale_a\n"
+                "  changed_when: false\n",
+                "locale",
+                38,
+            ),
+        )
+        for source, task_name, expected_task, binary, exit_code in cases:
+            with self.subTest(task=task_name), isolated_environment(prefix="wsl-task-failure-") as fixture:
+                content = (REPO_ROOT / source).read_text(encoding="utf-8")
+                prefix = "    " if source.endswith("wsl-playbook.yml") else ""
+                task = content.split(f"{prefix}- name: {task_name}\n", 1)[1].split(
+                    f"\n{prefix}- name:", 1
+                )[0]
+                task = dedent(f"{prefix}- name: {task_name}\n{task}").strip() + "\n"
+                self.assertEqual(task, expected_task)
+                playbook = fixture.root / "failure.yml"
+                playbook.write_text(
+                    "- hosts: localhost\n  connection: local\n  gather_facts: false\n"
+                    "  vars:\n    ansible_env:\n      USER: fixture-user\n"
+                    "  tasks:\n" + indent(task, "    "),
+                    encoding="utf-8",
+                )
+                (fixture.root / "ansible.cfg").write_text(
+                    "[defaults]\nstdout_callback = default\n", encoding="utf-8"
+                )
+                write_executable(
+                    fixture.fake_bin / binary,
+                    f"#!{sys.executable}\nimport sys\n"
+                    f"sys.stderr.write('fixture {binary} failed\\n')\n"
+                    f"raise SystemExit({exit_code})\n",
+                )
+                env = {
+                    "HOME": str(fixture.home),
+                    "TMPDIR": str(fixture.root),
+                    "PATH": f"{fixture.fake_bin}:/usr/bin:/bin",
+                    "LC_ALL": "C.UTF-8",
+                    "ANSIBLE_LOCAL_TEMP": str(fixture.root / "ansible-local"),
+                    "ANSIBLE_REMOTE_TEMP": str(fixture.root / "ansible-remote"),
+                    "ANSIBLE_NOCOLOR": "1",
+                    "ANSIBLE_CONFIG": str(fixture.root / "ansible.cfg"),
+                }
+                result = subprocess.run(
+                    [ANSIBLE_PLAYBOOK, "-i", "localhost,", str(playbook)],
+                    cwd=fixture.root, env=env, check=False, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40,
+                )
+                output = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertIn(task_name, output)
+                self.assertIn(f"fixture {binary} failed", output)
+                self.assertIn(f'"rc": {exit_code}', output)
+                self.assertIn("failed=1", output)
 
 
 if __name__ == "__main__":

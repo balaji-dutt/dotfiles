@@ -43,6 +43,18 @@
         "test_paths": {"$ref": "#/$defs/stringSet"}
       }
     },
+    "platformSmokeWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "risk_owner", "review_due", "review_trigger", "requirement_ids"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "risk_owner": {"type": "string", "minLength": 1},
+        "review_due": {"type": "string", "format": "date"},
+        "review_trigger": {"const": "isolated-wsl2-runner-available"},
+        "requirement_ids": {"$ref": "#/$defs/stringSet"}
+      }
+    },
     "coverage": {
       "type": "object",
       "additionalProperties": false,
@@ -55,7 +67,8 @@
         "behavior_requirements": {
           "type": "array",
           "items": {"$ref": "#/$defs/behaviorRequirement"}
-        }
+        },
+        "platform_smoke_waiver": {"$ref": "#/$defs/platformSmokeWaiver"}
       }
     },
     "entry": {

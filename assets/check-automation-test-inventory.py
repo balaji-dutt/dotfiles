@@ -10,6 +10,7 @@ import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -23,6 +24,10 @@ CANDIDATES_PATH = Path("configs/automation-candidates.txt")
 COVERAGE_STATUSES = frozenset({"covered", "not-applicable", "partial", "planned"})
 BEHAVIOR_KINDS = frozenset({"failure", "safety", "success"})
 BEHAVIOR_STATUSES = frozenset({"covered", "planned"})
+WSL_SMOKE_WAIVER_IDS = frozenset({"shell-startup", "wsl-provisioning"})
+WSL_PROVISIONING_WAIVED_REQUIREMENTS = frozenset(
+    {"safety-disposable-wsl-boundary", "success-full-idempotent-provisioning"}
+)
 BEHAVIORAL_SUITES = frozenset({"fast", "integration", "platform", "render"})
 LANGUAGES = frozenset(
     {
@@ -506,6 +511,47 @@ def check_repository(
             behavior_requirements = coverage.get("behavior_requirements")
             if not isinstance(behavior_requirements, list):
                 raise CheckFailure(f"{prefix}.coverage.behavior_requirements must be a list")
+            waiver = coverage.get("platform_smoke_waiver")
+            if waiver is not None:
+                waiver_prefix = f"{prefix}.coverage.platform_smoke_waiver"
+                expected_waiver_keys = {
+                    "reason", "risk_owner", "review_due", "review_trigger", "requirement_ids"
+                }
+                if not isinstance(waiver, dict) or set(waiver) != expected_waiver_keys:
+                    raise CheckFailure(
+                        f"{waiver_prefix} must contain exactly {sorted(expected_waiver_keys)!r}"
+                    )
+                if (
+                    entry_id not in WSL_SMOKE_WAIVER_IDS
+                    or classification != "owned"
+                    or "wsl2" not in entry["platforms"]
+                    or status != "partial"
+                    or "platform-smoke" not in test_layers
+                ):
+                    raise CheckFailure(
+                        f"{waiver_prefix} requires partial owned WSL2 automation with platform-smoke"
+                    )
+                _check_nonempty_string(waiver["reason"], f"{waiver_prefix}.reason")
+                risk_owner = _check_nonempty_string(waiver["risk_owner"], f"{waiver_prefix}.risk_owner")
+                if "@" in risk_owner:
+                    raise CheckFailure(f"{waiver_prefix}.risk_owner must be a public-safe name")
+                due = _check_nonempty_string(waiver["review_due"], f"{waiver_prefix}.review_due")
+                try:
+                    review_due = date.fromisoformat(due)
+                except ValueError as error:
+                    raise CheckFailure(f"{waiver_prefix}.review_due must be an ISO date") from error
+                if review_due < date.today() or due != review_due.isoformat():
+                    raise CheckFailure(f"{waiver_prefix}.review_due is expired or noncanonical")
+                if waiver["review_trigger"] != "isolated-wsl2-runner-available":
+                    raise CheckFailure(f"{waiver_prefix}.review_trigger is unsupported")
+                waived_ids = _check_string_list(
+                    waiver["requirement_ids"], label=f"{waiver_prefix}.requirement_ids",
+                    allowed=None, allow_empty=entry_id == "shell-startup",
+                )
+                if entry_id == "wsl-provisioning" and set(waived_ids) != WSL_PROVISIONING_WAIVED_REQUIREMENTS:
+                    raise CheckFailure(f"{waiver_prefix}.requirement_ids must name the two unverified smoke requirements")
+                if entry_id == "shell-startup" and waived_ids:
+                    raise CheckFailure(f"{waiver_prefix}.requirement_ids must be empty without a behavior matrix")
 
             if classification == "owned":
                 _check_nonempty_string(suite_id, f"{prefix}.coverage.suite_id")
@@ -534,6 +580,7 @@ def check_repository(
             previous_requirement_id = ""
             requirement_kinds: set[str] = set()
             requirement_statuses: list[str] = []
+            planned_requirement_ids: set[str] = set()
             behavior_evidence: set[str] = set()
             for requirement_index, requirement in enumerate(behavior_requirements):
                 requirement_prefix = (
@@ -574,6 +621,8 @@ def check_repository(
                         f"{requirement_prefix}.status is unsupported: {requirement_status}"
                     )
                 requirement_statuses.append(requirement_status)
+                if requirement_status == "planned":
+                    planned_requirement_ids.add(requirement_id)
                 requirement_tests = _check_string_list(
                     requirement.get("test_paths"),
                     label=f"{requirement_prefix}.test_paths",
@@ -599,6 +648,11 @@ def check_repository(
                             f"for {test_path!r}"
                         )
                     behavior_evidence.add(test_path)
+
+            if waiver is not None and not set(waiver["requirement_ids"]) <= planned_requirement_ids:
+                raise CheckFailure(
+                    f"{prefix}.coverage.platform_smoke_waiver.requirement_ids must remain planned without evidence"
+                )
 
             if classification == "owned":
                 if risk == "critical":

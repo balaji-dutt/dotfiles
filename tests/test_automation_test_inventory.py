@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -511,6 +512,88 @@ class AutomationInventoryTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must include platform-smoke for platform-only automation", result.stderr)
+
+    def test_wsl_smoke_waiver_keeps_critical_requirements_planned(self) -> None:
+        entry = self.fixture.entries[0]
+        entry.update({"id": "wsl-provisioning", "platforms": ["wsl2"], "risk": "critical"})
+        entry["test_layers"] = ["integration", "platform-smoke"]
+        entry["coverage"]["behavior_requirements"] = [
+            behavior_requirement("failure-case", "failure"),
+            behavior_requirement("safety-disposable-wsl-boundary", "safety"),
+            behavior_requirement("success-full-idempotent-provisioning", "success"),
+        ]
+        waiver = {
+            "reason": "No isolated runner is available", "risk_owner": "Balaji Dutt",
+            "review_due": "2099-03-28", "review_trigger": "isolated-wsl2-runner-available",
+            "requirement_ids": [
+                "safety-disposable-wsl-boundary", "success-full-idempotent-provisioning"
+            ],
+        }
+        entry["coverage"]["platform_smoke_waiver"] = waiver
+        entry["coverage"]["status"] = "planned"
+        self.fixture.write_manifest()
+        self.assertIn("requires partial owned WSL2", self.fixture.run().stderr)
+
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.entries.append(excluded_entry("test-support", ["tests/test_tool.py"]))
+        self.fixture.entries.sort(key=lambda item: item["id"])
+        entry["coverage"]["behavior_requirements"][0].update(
+            status="covered", test_paths=["tests/test_tool.py"]
+        )
+        entry["coverage"]["test_paths"] = ["tests/test_tool.py"]
+        entry["coverage"]["status"] = "partial"
+        self.fixture.write_manifest()
+        self.assertEqual(self.fixture.run().returncode, 0)
+
+        baseline = deepcopy(entry["coverage"])
+        invalid = (
+            ("review_due", "2000-01-01", "expired or noncanonical"),
+            ("review_due", "tomorrow", "must be an ISO date"),
+            ("risk_owner", "private@example.invalid", "public-safe name"),
+            ("review_trigger", "never", "review_trigger is unsupported"),
+            ("requirement_ids", ["failure-case"], "two unverified smoke requirements"),
+        )
+        for field, value, error in invalid:
+            with self.subTest(field=field):
+                entry["coverage"] = deepcopy(baseline)
+                entry["coverage"]["platform_smoke_waiver"][field] = value
+                self.fixture.write_manifest()
+                self.assertIn(error, self.fixture.run().stderr)
+
+        entry["coverage"] = deepcopy(baseline)
+        entry["coverage"]["behavior_requirements"][1].update(
+            status="covered", test_paths=["tests/test_tool.py"]
+        )
+        self.fixture.write_manifest()
+        self.assertIn("must remain planned without evidence", self.fixture.run().stderr)
+
+        entry["coverage"] = deepcopy(baseline)
+        entry["id"] = "unrelated-wsl"
+        self.fixture.write_manifest()
+        self.assertIn("requires partial owned WSL2", self.fixture.run().stderr)
+
+    def test_shell_waiver_requires_empty_requirement_ids(self) -> None:
+        entry = self.fixture.entries[0]
+        entry["id"] = "shell-startup"
+        entry["platforms"] = ["linux", "wsl2"]
+        entry["coverage"].update(
+            status="partial", test_paths=["tests/test_tool.py"],
+            platform_smoke_waiver={
+                "reason": "No isolated runner is available", "risk_owner": "Balaji Dutt",
+                "review_due": "2099-03-28", "review_trigger": "isolated-wsl2-runner-available",
+                "requirement_ids": [],
+            },
+        )
+        entry["test_layers"] = ["contract", "platform-smoke"]
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.entries.append(excluded_entry("test-support", ["tests/test_tool.py"]))
+        self.fixture.entries.sort(key=lambda item: item["id"])
+        self.fixture.write_manifest()
+        self.assertEqual(self.fixture.run().returncode, 0)
+
+        entry["coverage"]["platform_smoke_waiver"]["requirement_ids"] = ["invented"]
+        self.fixture.write_manifest()
+        self.assertIn("must be empty without a behavior matrix", self.fixture.run().stderr)
 
     def test_high_risk_entry_requires_contract_or_integration(self) -> None:
         entry = self.fixture.entries[0]

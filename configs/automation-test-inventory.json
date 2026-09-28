@@ -718,9 +718,10 @@
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
         "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
-      "rationale": "Real Bash and Zsh subprocesses with synthetic homes cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS and WSL2 interactive smoke remains planned."
+      "rationale": "Real Bash and Zsh subprocesses with synthetic homes cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS smoke remains planned and WSL2 interactive smoke remains unverified under a reviewable waiver."
     },
     {
       "id": "sync-tooling",
@@ -855,8 +856,9 @@
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
         "test_paths": ["tests/test_bootstrap_wsl.py"],
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; fixture task failures do not validate full provisioning or host isolation.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": ["safety-disposable-wsl-boundary", "success-full-idempotent-provisioning"]},
         "behavior_requirements": [
-          {"id": "failure-ansible-task-errors", "kind": "failure", "description": "Propagate failures from command-bearing Ansible roles and tasks with actionable diagnostics.", "status": "planned", "test_paths": []},
+          {"id": "failure-ansible-task-errors", "kind": "failure", "description": "Report failures from representative command-bearing Ansible tasks with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
           {"id": "failure-bootstrap-dispatch-errors", "kind": "failure", "description": "Fail before package work without a noninteractive token and propagate package, source, and rendered Ansible dispatch failures.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
           {"id": "safety-disposable-wsl-boundary", "kind": "safety", "description": "Run a full provisioning smoke only in disposable WSL2 state without developer-host or secret mutation.", "status": "planned", "test_paths": []},
           {"id": "safety-fixture-bootstrap-boundary", "kind": "safety", "description": "Exercise bootstrap and rendered provisioning dispatch with fake commands, synthetic tokens, and temporary source and config paths.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
@@ -864,7 +866,7 @@
           {"id": "success-full-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, and rendered Ansible dispatch without live package, network, or secret operations. Command-bearing Ansible behavior and a disposable full WSL2 smoke remain planned."
+      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, rendered Ansible dispatch, and real isolated Ansible command-task failure diagnostics. Full provisioning, idempotence, and disposable WSL2 host isolation remain unverified and planned under a reviewable platform-smoke waiver."
     }
   ]
 }
