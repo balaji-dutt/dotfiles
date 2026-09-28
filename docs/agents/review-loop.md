@@ -184,8 +184,8 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   hook's time budget, there are more than 200, or a fallback rewrote the
   mark while they were being listed. Stop then asks for a review of the
   session gate's files together with every reviewable pending path, clears
-  both gates when neither has pending work, and past 200 paths asks for a
-  whole-repo review instead of a file list.
+  both gates when git reports that neither has pending work, and past 200
+  paths asks for a whole-repo review instead of a file list.
 - All six hooks, and the plan-approval Beads hook, pick their interpreter
   through `.claude/hooks/lib/resolve-python.sh`, which tries `python3`,
   `python`, then `py -3` and executes each candidate before accepting it. A
@@ -218,7 +218,11 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
 - `enforce-review-on-stop.sh` (Stop) blocks stopping while the session's
   gate exists, with a reviewer prompt scoped to the gated files. If the
   gated edits no longer exist in git (reverted) and nothing touching them
-  was committed since the first mark, the gate is cleared instead.
+  was committed since the first mark, the gate is cleared instead. When git
+  fails or times out in the project checkout, pending work cannot be
+  determined, so the gate stays and Stop blocks with a reason saying git
+  could not be checked. This holds for scoped and legacy gates alike; a git
+  failure in another gated checkout keeps its files pending instead.
   While a reviewer that started after the latest gated edit is still in
   flight, Stop does not block; it shows a "Dotfiles review in flight"
   notice instead. The finished background reviewer re-invokes the agent,

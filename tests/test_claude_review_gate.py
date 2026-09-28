@@ -373,6 +373,81 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.assertEqual(self.enforce(), "")
         self.assertFalse(gate.exists())
 
+    def failing_git(self, *subcommands: str, timeout: bool = False, unscoped_only: bool = False):
+        real_run = subprocess.run
+
+        def fail(args, **kwargs):
+            if args[:2] == ["git", "-C"] and args[3] in subcommands and not (unscoped_only and "--" in args):
+                if timeout:
+                    raise subprocess.TimeoutExpired(args, kwargs.get("timeout") or 0)
+                return subprocess.CompletedProcess(args, 128, "", "fatal: simulated")
+            return real_run(args, **kwargs)
+
+        return mock.patch.object(review_gate.subprocess, "run", fail)
+
+    def assert_unchecked_block(self, gate: Path) -> str:
+        payload = json.loads(self.enforce())
+        self.assertEqual(payload["decision"], "block")
+        self.assertIn("git could not be checked in", payload["reason"])
+        self.assertTrue(gate.exists())
+        return payload["reason"]
+
+    def test_enforce_keeps_a_scoped_gate_when_git_cannot_list_pending_work(self) -> None:
+        for timeout in (False, True):
+            with self.subTest(timeout=timeout):
+                gate = self.mark("edited.txt")
+                (self.repo / "edited.txt").unlink()
+                with self.failing_git("diff", "ls-files", timeout=timeout):
+                    reason = self.assert_unchecked_block(gate)
+                self.assertIn("edited.txt", reason)
+                self.assertEqual(self.enforce(), "")
+                self.assertFalse(gate.exists())
+
+    def test_enforce_keeps_a_scoped_gate_when_git_log_fails(self) -> None:
+        for timeout in (False, True):
+            with self.subTest(timeout=timeout):
+                gate = self.mark("edited.txt")
+                (self.repo / "edited.txt").unlink()
+                with self.failing_git("log", timeout=timeout):
+                    self.assert_unchecked_block(gate)
+                self.assertEqual(self.enforce(), "")
+                self.assertFalse(gate.exists())
+
+    def test_enforce_keeps_a_legacy_gate_when_git_cannot_list_pending_work(self) -> None:
+        for timeout in (False, True):
+            with self.subTest(timeout=timeout):
+                gate = self.gate("")
+                gate.write_text(str(int(time.time())), encoding="utf-8")
+                with self.failing_git("diff", "ls-files", timeout=timeout):
+                    reason = self.assert_unchecked_block(gate)
+                self.assertIn("Review the latest git changes", reason)
+                self.assertEqual(self.enforce(), "")
+                self.assertFalse(gate.exists())
+
+    def test_enforce_keeps_a_coexisting_legacy_gate_when_git_cannot_list_the_repo(self) -> None:
+        gate = self.mark("edited.txt")
+        legacy = self.gate("")
+        legacy.write_text(str(int(time.time())), encoding="utf-8")
+        (self.repo / "edited.txt").unlink()
+        with self.failing_git("ls-files"):
+            reason = self.assert_unchecked_block(gate)
+        self.assertIn("Review the latest git changes", reason)
+        self.assertTrue(legacy.exists())
+        with self.failing_git("ls-files", unscoped_only=True):
+            reason = self.assert_unchecked_block(gate)
+        self.assertIn("Review the latest git changes", reason)
+        self.assertTrue(legacy.exists())
+
+    def test_enforce_defers_to_an_inflight_reviewer_when_git_fails(self) -> None:
+        gate = self.mark("edited.txt")
+        (self.repo / "edited.txt").unlink()
+        self.put_inflight("a1", self.rewind(gate) + 0.5)
+        with self.failing_git("diff", "ls-files", "log"):
+            payload = json.loads(self.enforce())
+        self.assertIn("in flight", payload["systemMessage"])
+        self.assertNotIn("decision", payload)
+        self.assertTrue(gate.exists())
+
     def test_clear_uses_main_transcript_only_without_agent_path(self) -> None:
         now = int(time.time())
         gates = (self.gate(), self.gate(""), self.repo / ".opencode/.needs_dotfiles_review")

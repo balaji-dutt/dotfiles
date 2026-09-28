@@ -13,7 +13,8 @@ Subcommands (the Claude hook payload JSON is read from stdin):
   enforce    Stop: reconcile snapshots no Post hook consumed, then block
              stopping while the session's gate still has pending work,
              unless a reviewer started after the last mark is still in
-             flight; clear the gate if the gated edits no longer exist.
+             flight; clear the gate if the gated edits no longer exist,
+             and keep it if git cannot tell.
   clear      SubagentStop: drop the reviewer's in-flight record, then clear
              the gate when its last verdict is DOTFILES_REVIEWER_RESULT=PASS
              as the final meaningful line of a text block or
@@ -116,7 +117,7 @@ SNAPSHOT_GIT_TIMEOUT = 5
 # Shared by all run_git_raw calls in one hook run; below the 10 s hook timeout.
 HOOK_GIT_BUDGET = 8
 GIT_DEADLINE = [None]
-# Longer pathspec lists can overflow the Windows command line; run_git reads that as "nothing".
+# Longer pathspec lists can overflow the Windows command line, which run_git reports as a failure.
 LEGACY_SCOPE_CAP = 200
 
 
@@ -148,9 +149,9 @@ def run_git(root, args):
             timeout=15,
         )
     except (OSError, subprocess.SubprocessError):
-        return []
+        return None
     if proc.returncode != 0:
-        return []
+        return None
     return [line.strip().replace("\r", "") for line in proc.stdout.splitlines() if line.strip()]
 
 
@@ -1034,6 +1035,7 @@ def find_gate(root, session_id):
 
 
 def git_pending(root, files):
+    """Pending repo-relative paths, or None if any git call fails."""
     scope = ["--"] + files if files else []
     lines = []
     for args in (
@@ -1041,7 +1043,10 @@ def git_pending(root, files):
         ["diff", "--name-only", "--cached"],
         ["ls-files", "--others", "--exclude-standard"],
     ):
-        lines += run_git(root, args + scope)
+        out = run_git(root, args + scope)
+        if out is None:
+            return None
+        lines += out
     return sorted({normalize_rel(line) for line in lines})
 
 
@@ -1051,6 +1056,8 @@ def committed_since(root, files, first_ts):
     if not files or not first_ts:
         return False
     out = run_git(root, ["log", "-1", "--format=%ct", "--"] + files)
+    if out is None:
+        return None
     try:
         return bool(out) and int(out[0]) >= first_ts - COMMIT_SLACK_SECONDS
     except ValueError:
@@ -1157,7 +1164,14 @@ def scope_lines(files, checkout=None):
 
 
 def build_reason(
-    files, cfg, stale_reviewer=False, roots=None, home=None, in_worktree=False, repo_wide=False
+    files,
+    cfg,
+    stale_reviewer=False,
+    roots=None,
+    home=None,
+    in_worktree=False,
+    repo_wide=False,
+    git_unchecked=False,
 ):
     prefix = cfg["marker_prefix"]
     reviewer = cfg["reviewer"]
@@ -1192,6 +1206,12 @@ def build_reason(
             "Review the latest git changes "
             "(git diff, git diff --cached, git status --short).\n"
         )
+    unchecked = ""
+    if git_unchecked:
+        unchecked = (
+            "git could not be checked in {h}, so pending work is unknown; "
+            "the gate stays.\n\n"
+        ).format(h=home)
     stale = ""
     if stale_reviewer:
         stale = (
@@ -1199,14 +1219,14 @@ def build_reason(
             "than {m} minutes ago, does not count as in flight.\n\n"
         ).format(r=reviewer, m=INFLIGHT_TTL_SECONDS // 60)
     return (
-        "Dotfiles review required before stopping.\n\n{t}"
+        "Dotfiles review required before stopping.\n\n{u}{t}"
         "Run the {r} subagent now.\n{s}"
         "\nThe reviewer's FINAL line must be exactly one of:\n"
         "{p}=PASS\n{p}=FAIL\n\n"
         "If FAIL: fix the Must-fix issues and rerun the reviewer. Once PASS "
         "is recorded, the SubagentStop hook clears the review gate "
         "automatically.\n"
-    ).format(r=reviewer, s=scope, p=prefix, t=stale)
+    ).format(r=reviewer, s=scope, p=prefix, t=stale, u=unchecked)
 
 
 def cmd_enforce(payload, root):
@@ -1237,6 +1257,7 @@ def cmd_enforce(payload, root):
 
     cfg = load_config(root)
     repo_pending = []
+    repo_unlisted = False
     legacy_path = gate_path(root, "")
     legacy = read_gate(legacy_path) if path != legacy_path else None
     if legacy is not None:
@@ -1250,19 +1271,29 @@ def cmd_enforce(payload, root):
         except (TypeError, ValueError):
             pass
         if is_fileless(legacy):
-            repo_pending = [p for p in git_pending(root, None) if is_reviewable(p, cfg)]
+            listed = git_pending(root, None)
+            repo_unlisted = listed is None
+            repo_pending = [p for p in listed or [] if is_reviewable(p, cfg)]
 
     if files or roots:
+        pending = None if repo_unlisted else (git_pending(root, files) if files else [])
+        committed = committed_since(root, files, first_ts) if pending == [] else False
+        unchecked = pending is None or committed is None
         busy = (
-            bool(files)
-            and (bool(git_pending(root, files)) or committed_since(root, files, first_ts))
-        ) or any(checkout_busy(c, r, first_ts) for c, r in roots.items()) or bool(repo_pending)
+            unchecked
+            or bool(pending)
+            or bool(committed)
+            or any(checkout_busy(c, r, first_ts) for c, r in roots.items())
+            or bool(repo_pending)
+        )
     else:
         # Legacy gate without a file list: judge the whole repo, minus
         # exempt paths and the review loop's own artifacts.
-        busy = any(
+        pending = git_pending(root, None)
+        unchecked = pending is None
+        busy = unchecked or any(
             not is_exempt(p, cfg["exempt"]) and not is_runtime_artifact(p)
-            for p in git_pending(root, None)
+            for p in pending
         )
     if not busy:
         # Gated edits vanished (reverted / never materialized): stand down,
@@ -1293,7 +1324,8 @@ def cmd_enforce(payload, root):
             roots=roots,
             home=root,
             in_worktree=in_worktree,
-            repo_wide=bool(repo_pending) and len(scope) > LEGACY_SCOPE_CAP,
+            repo_wide=repo_unlisted or (bool(repo_pending) and len(scope) > LEGACY_SCOPE_CAP),
+            git_unchecked=unchecked,
         )
         out = {"decision": "block", "reason": reason}
     json.dump(out, sys.stdout)
