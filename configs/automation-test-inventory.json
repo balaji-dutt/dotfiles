@@ -501,7 +501,9 @@
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
           {"id": "failure-shell-lifecycle-errors", "kind": "failure", "description": "Propagate commit-template writes, installer checksum validation, and selected lifecycle command failures without replacing valid state.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Prevent unsupported-host mutation, unrelated formula or tap removal in untested retirement hooks, installer side effects, and production secret access across untested lifecycle hooks.", "status": "planned", "test_paths": []},
+          {"id": "safety-isolated-sublime-promptfoo-browser-hooks", "kind": "safety", "description": "Limit synthetic Sublime syntax copies, Promptfoo runtime installation, and browser policy staging to disposable homes without network or credential-provider calls.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-legacy-cbm-retirement-scope", "kind": "safety", "description": "Retire only fully qualified versions discovered under the exact UBI backend on Darwin or WSL2 while preserving unrelated installs and unsupported hosts.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
+          {"id": "safety-mnemo-retirement-scope", "kind": "safety", "description": "Retire only the exact macOS Mnemo formula and preserve a tap still needed by another formula, without invoking Homebrew on Linux.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-opencode-pin-only", "kind": "safety", "description": "Limit Homebrew mutation to pinning installed OpenCode, preserve unrelated pins, and no-op without a manager or package.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "safety-selected-fixture-boundaries", "kind": "safety", "description": "Keep selected cleanup, installer, optional-tool, and platform-dispatch tests inside temporary filesystems with fake network and host commands.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "success-cbm-auto-index-reconciliation", "kind": "success", "description": "Leave an already-enabled cache untouched, set auto_index only when the cache reports a non-true value, reverify it afterwards, and probe for live CBM sessions with a pattern that still matches a Linux-truncated process name.", "status": "covered", "test_paths": ["tests/test_cbm_auto_index_hook.py"]},
@@ -511,7 +513,7 @@
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected host refresh, commit-template, cleanup, installer, and retirement hooks idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py", "tests/test_shell_lifecycle.py"]}
         ]
       },
-      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected commit-template, cleanup, installer, host-refresh, CBM auto-index reconciliation, and exact-backend CBM retirement paths have isolated behavior tests; broad lifecycle execution and untested retirement hooks remain planned."
+      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected commit-template, cleanup, installer, host-refresh, CBM auto-index reconciliation, and exact-backend CBM retirement paths have isolated behavior tests. Mnemo retirement, synthetic WSL key and Sublime syntax copies, fake Promptfoo/Mise dispatch, browser policy staging, and fake Docker image dispatch have offline behavioral tests. Selected macOS-only hooks have Linux no-op checks; absolute-path host commands and other secret-bearing hooks still lack isolated active-path coverage, so the broad host/secret requirement remains planned."
     },
     {
       "id": "lifecycle-windows",
@@ -555,6 +557,7 @@
       "id": "managed-ai-adapters",
       "classification": "owned",
       "paths": [
+        "dot_claude/hooks/executable_exitplan-freshness-guard.py",
         "dot_claude/hooks/executable_feature-ci-reminder.py",
         "dot_claude/hooks/executable_gate-bd-destructive.sh",
         "dot_claude/hooks/executable_resolve-python3",
@@ -576,18 +579,21 @@
         "work_item": "dots-4jy.10.4.3",
         "test_paths": ["tests/test_feature_ci_reminders.py", "tests/test_managed_ai_adapters.py", "tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py", "tests/test_resolve_python3.py"],
         "behavior_requirements": [
+          {"id": "failure-exitplan-guard-fail-open", "kind": "failure", "description": "Stay silent for unrelated tools, malformed input, a missing attached plan or plan path, and plan files that are missing, unreadable, or undecodable, so the ExitPlanMode guard never blocks plan approval on its own error.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "failure-ineligible-commit-reminder", "kind": "failure", "description": "Remain silent and clear transient state for failed or no-op commits and repositories without a valid feature-CI capability contract.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "failure-invalid-profile-or-project", "kind": "failure", "description": "Reject invalid profile and project dependency state with stable nonzero diagnostics.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]},
           {"id": "failure-managed-adapter-fallbacks", "kind": "failure", "description": "Reject malformed requests and state, preserve conservative provider fallback behavior, and keep permission capture failures from changing permission decisions.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-destructive-and-secret-guards", "kind": "safety", "description": "Enforce destructive Beads policy when hook prerequisites parse successfully, preserve fail-open behavior when they do not, and prevent adapters from exposing or using production secrets in tests.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
+          {"id": "safety-exitplan-stale-plan", "kind": "safety", "description": "Deny ExitPlanMode when the attached plan differs from the plan file, and give the model a way to stop, so a plan reviewer never sees a version older than the file.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "safety-local-reminder-boundary", "kind": "safety", "description": "Limit post-commit adapters to local Git inspection and context injection without publication, merge, ref deletion, or implicit permission expansion.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
           {"id": "safety-python-interpreter-resolution", "kind": "safety", "description": "Reject a python3 that resolves in PATH but does not run, so a broken interpreter shim cannot silently skip the hook guards.", "status": "covered", "test_paths": ["tests/test_resolve_python3.py"]},
           {"id": "success-cross-harness-ci-guidance", "kind": "success", "description": "Inject equivalent repository-scoped prepare-ci guidance after successful HEAD-changing wrapper commits in Claude and OpenCode.", "status": "covered", "test_paths": ["tests/test_feature_ci_reminders.py"]},
+          {"id": "success-exitplan-current-plan", "kind": "success", "description": "Allow ExitPlanMode when the attached plan matches the plan file, ignoring surrounding whitespace and CRLF line endings.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-managed-compatibility", "kind": "success", "description": "Map quota, cited-search, and permission-capture requests through their supported cache, citation, and redaction contracts.", "status": "covered", "test_paths": ["tests/test_managed_ai_adapters.py"]},
           {"id": "success-profile-and-project-dispatch", "kind": "success", "description": "Refresh valid profiles and accept valid project dependency state through isolated adapters.", "status": "covered", "test_paths": ["tests/test_opencode_profile_refresh.py", "tests/test_opencode_project_deps_guard.py"]}
         ]
       },
-      "rationale": "Registered offline suites cover managed OpenCode compatibility, destructive Beads policy, feature-CI reminders, profiles, and dependency guards without live credentials, network, or Beads mutations."
+      "rationale": "Registered offline suites cover managed OpenCode compatibility, destructive Beads policy, the stale-plan ExitPlanMode guard, feature-CI reminders, profiles, and dependency guards without live credentials, network, or Beads mutations."
     },
     {
       "id": "managed-ai-attestation",
@@ -712,9 +718,10 @@
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
         "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_macos_shell_startup_smoke.py", "tests/test_shell_startup.py"],
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
-      "rationale": "Synthetic-home Bash and Zsh tests cover startup ordering, optional-tool absence, Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, editor selection, and environment loading. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). Ordinary runs skip this suite without explicit opt-in and that account. WSL2 interactive smoke remains planned under dots-4jy.10.17."
+      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). Ordinary runs skip this suite without explicit opt-in and that account. WSL2 interactive smoke remains unverified under a reviewable waiver and tracked under dots-4jy.10.17."
     },
     {
       "id": "sync-tooling",
@@ -734,8 +741,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
-      "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, statusline drift, and workspace override merging and remapping. Behavioral coverage for sync-plannotator-assets.py remains planned."
+      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_plannotator_sync.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
+      "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, statusline drift, workspace override merging and remapping, and Plannotator check/write, failure, path and partial-write behavior with mocked remote responses. Other sync-tooling gaps remain planned."
     },
     {
       "id": "test-foundation",
@@ -785,10 +792,10 @@
         "suite_id": "user-utilities",
         "status": "partial",
         "work_item": "dots-4jy.10.3",
-        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_user_command_wrappers.py"],
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Registered offline suites cover notifications, devcontainer launch actions and the workspace picker, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, and VNC preference/process transitions. Maintenance tests use fake system commands and bounded fixture state; the macOS smoke only parses sources. The broad row remains partial because the Beads kanban sync and Promptfoo wrappers do not yet have behavioral coverage."
+      "rationale": "Registered offline suites cover notifications, devcontainer launch actions and the workspace picker, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, VNC preference/process transitions, Kanban pin check/write and release checksum fallback in a disposable repo with fake curl, and Promptfoo runtime dispatch and failure paths in synthetic homes. Maintenance tests use fake system commands and bounded fixture state. Native macOS side effects remain syntax-only rather than platform-smoked, so this broad row stays partial."
     },
     {
       "id": "vendored-upstream",
@@ -849,8 +856,9 @@
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
         "test_paths": ["tests/test_bootstrap_wsl.py"],
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; fixture task failures do not validate full provisioning or host isolation.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": ["safety-disposable-wsl-boundary", "success-full-idempotent-provisioning"]},
         "behavior_requirements": [
-          {"id": "failure-ansible-task-errors", "kind": "failure", "description": "Propagate failures from command-bearing Ansible roles and tasks with actionable diagnostics.", "status": "planned", "test_paths": []},
+          {"id": "failure-ansible-task-errors", "kind": "failure", "description": "Report failures from representative command-bearing Ansible tasks with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
           {"id": "failure-bootstrap-dispatch-errors", "kind": "failure", "description": "Fail before package work without a noninteractive token and propagate package, source, and rendered Ansible dispatch failures.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
           {"id": "safety-disposable-wsl-boundary", "kind": "safety", "description": "Run a full provisioning smoke only in disposable WSL2 state without developer-host or secret mutation.", "status": "planned", "test_paths": []},
           {"id": "safety-fixture-bootstrap-boundary", "kind": "safety", "description": "Exercise bootstrap and rendered provisioning dispatch with fake commands, synthetic tokens, and temporary source and config paths.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
@@ -858,7 +866,7 @@
           {"id": "success-full-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, and rendered Ansible dispatch without live package, network, or secret operations. Command-bearing Ansible behavior and a disposable full WSL2 smoke remain planned."
+      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, rendered Ansible dispatch, and real isolated Ansible command-task failure diagnostics. Full provisioning, idempotence, and disposable WSL2 host isolation remain unverified and planned under a reviewable platform-smoke waiver."
     }
   ]
 }

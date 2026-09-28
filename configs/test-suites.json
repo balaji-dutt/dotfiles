@@ -3,7 +3,7 @@
   "schema_version": 1,
   "capabilities": {
     "bash": {"command": "bash"},
-    "bd": {"command": "bd"},
+    "bd": {"command": "bd", "probe": ["bd", "--version"]},
     "devcontainer-smoke": {"command": "python3", "probe": ["python3", "assets/devcontainer-smoke.py", "--probe"]},
     "chezmoi": {"command": "chezmoi"},
     "git": {"command": "git"},
@@ -442,6 +442,13 @@
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_orbstack_ssh_agent_relay"],
       "covers": ["tests/test_orbstack_ssh_agent_relay.py"],
+      "platforms": ["linux", "macos", "wsl2"]
+    },
+    {
+      "id": "plannotator-sync",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_plannotator_sync"],
+      "covers": ["tests/test_plannotator_sync.py"],
       "platforms": ["linux", "macos", "wsl2"]
     },
     {

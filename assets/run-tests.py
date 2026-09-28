@@ -315,21 +315,23 @@ def capability_reason(
     *,
     env: dict[str, str],
     repo_root: Path,
-) -> str | None:
+    lookup_path: str,
+) -> tuple[str | None, str | None]:
     replacements = {"python": sys.executable, "repo": str(repo_root)}
     commands = tuple(command.format(**replacements) for command in capability.commands)
     executable = next(
         (
             resolved
             for command in commands
-            if (resolved := shutil.which(command, path=env.get("PATH"))) is not None
+            if (resolved := shutil.which(command, path=lookup_path)) is not None
         ),
         None,
     )
     if executable is None:
-        return f"missing capability {capability.name} ({' or '.join(commands)})"
+        return f"missing capability {capability.name} ({' or '.join(commands)})", None
+    executable = str(Path(executable).resolve())
     if not capability.probe:
-        return None
+        return None, executable
     probe = [value.format(**replacements) for value in capability.probe]
     probe[0] = executable
     try:
@@ -344,10 +346,12 @@ def capability_reason(
             timeout=30,
         )
     except subprocess.TimeoutExpired:
-        return f"capability {capability.name} probe timed out"
+        return f"capability {capability.name} probe timed out", None
+    except OSError:
+        return f"capability probe failed for {capability.name} (cannot execute)", None
     if result.returncode != 0:
-        return f"capability probe failed for {capability.name} (exit {result.returncode})"
-    return None
+        return f"capability probe failed for {capability.name} (exit {result.returncode})", None
+    return None, executable
 
 
 def _expanded_argv(step: Step, repo_root: Path) -> list[str]:
@@ -368,7 +372,8 @@ def run_steps(
     step_results: list[StepResult] = []
     with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
         env = isolated_environment(repo_root, Path(temp_dir))
-        capability_cache: dict[str, str | None] = {}
+        lookup_path = os.environ.get("PATH", os.defpath)
+        capability_cache: dict[str, tuple[str | None, str | None]] = {}
         for step in steps:
             if platform not in step.platforms:
                 reason = f"requires platform {', '.join(step.platforms)}"
@@ -380,10 +385,14 @@ def run_steps(
             for name in step.requires:
                 if name not in capability_cache:
                     capability_cache[name] = capability_reason(
-                        registry.capabilities[name], env=env, repo_root=repo_root
+                        registry.capabilities[name],
+                        env=env,
+                        repo_root=repo_root,
+                        lookup_path=lookup_path,
                     )
-                if capability_cache[name]:
-                    missing.append((name, capability_cache[name]))
+                reason, _ = capability_cache[name]
+                if reason:
+                    missing.append((name, reason))
             if missing:
                 should_fail = require_capabilities or any(
                     name in required_capabilities for name, _ in missing
@@ -400,11 +409,15 @@ def run_steps(
                 continue
 
             command = _expanded_argv(step, repo_root)
+            step_env = env
+            bd_path = capability_cache["bd"][1] if "bd" in step.requires else None
+            if step.step_id == "beads-isolated-worktree" and bd_path:
+                step_env = {**env, "DOTFILES_TEST_BD": bd_path}
             print(f"RUN  {step.step_id}")
             result = subprocess.run(
                 command,
                 cwd=repo_root,
-                env=env,
+                env=step_env,
                 check=False,
                 text=True,
                 stdout=subprocess.PIPE,

@@ -32,6 +32,15 @@ devcontainer also requires the `platform-smoke` layer. A missing local runner
 remains explicit: keep the branch planned and its platform suite visible rather
 than reporting an unexecuted path as covered.
 
+The `shell-startup` and `wsl-provisioning` entries alone may record a reviewable
+`coverage.platform_smoke_waiver` while an isolated WSL2 runner is unavailable.
+The waiver identifies a public-safe risk owner, reason, review due date, and
+early review trigger (`isolated-wsl2-runner-available`). The checker rejects
+expired dates, waivers on other entries, and waiver requirement IDs that are
+not still planned. A waiver is not evidence: it does not make an unrun platform
+smoke or a critical behavior requirement covered. Review it by 2027-03-28 or
+as soon as an isolated WSL2 runner is available, whichever comes first.
+
 ### Critical behavior matrix
 
 Each critical entry has sorted `coverage.behavior_requirements`. Every item has a

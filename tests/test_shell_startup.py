@@ -227,6 +227,138 @@ class ZshStartupOrderTests(ShellStartupHarness):
         self.assertFalse(static_cache.exists())
 
 
+class FixtureInteractiveStartupTests(ShellStartupHarness):
+    def startup_env(self) -> dict[str, str]:
+        return {
+            "HOME": str(self.fixture.home),
+            "ZDOTDIR": str(self.fixture.home),
+            "XDG_CONFIG_HOME": str(self.fixture.home / ".config"),
+            "XDG_CACHE_HOME": str(self.fixture.home / ".cache"),
+            "TMPDIR": str(self.fixture.root / "tmp"),
+            "PATH": str(self.fixture.fake_bin),
+            "TERM": "dumb",
+            "LC_ALL": "C",
+            "STARTUP_LOG": str(self.fixture.root / "startup.log"),
+            "WSL_DISTRO_NAME": "FixtureDistro",
+        }
+
+    def run_startup(self, shell: str, command: str) -> subprocess.CompletedProcess[str]:
+        if shell == BASH:
+            arguments = [shell, "--noprofile", "-ic", command]
+        else:
+            arguments = [shell, "--no-globalrcs", "-i", "-c", command]
+        return subprocess.run(
+            arguments,
+            cwd=self.fixture.root,
+            env=self.startup_env(),
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+
+    def install_direnv(self) -> None:
+        write_executable(
+            self.fixture.fake_bin / "direnv",
+            "#!/bin/sh\n"
+            'printf "direnv:%s\\n" "$*" >> "$STARTUP_LOG"\n',
+        )
+
+    @unittest.skipUnless(BASH, "bash is required")
+    def test_bash_discovers_rc_and_loads_synthetic_environment(self) -> None:
+        self.install_direnv()
+        self.write_home(
+            ".local/share/beads-helpers.bash",
+            'printf "beads\\n" >> "$STARTUP_LOG"\n',
+        )
+        self.write_home(".bash_aliases", 'printf "aliases\\n" >> "$STARTUP_LOG"\n')
+        self.write_home(
+            ".config/opencode/opencode.env",
+            "SYNTHETIC_STARTUP_VALUE=bash-fixture\n",
+        )
+        self.write_home(
+            ".bashrc", render_template("dot_bashrc.tmpl", "wsl2", environment=self.startup_env())
+        )
+
+        result = self.run_startup(
+            BASH,
+            'printf "startup:%s|%s|%s|%s\\n" '
+            '"$SYNTHETIC_STARTUP_VALUE" "$PLANNOTATOR_REMOTE" '
+            '"$LANG" "$SSH_AUTH_SOCK"',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "startup:bash-fixture|1|en_GB.UTF-8|/tmp/wsl2-ssh-agent/ssh-agent.sock\n",
+            result.stdout,
+        )
+        self.assertEqual(
+            (self.fixture.root / "startup.log").read_text(encoding="utf-8").splitlines(),
+            ["beads", "aliases", "direnv:hook bash"],
+        )
+
+    @unittest.skipUnless(ZSH, "zsh is required")
+    def test_zsh_discovers_rc_and_loads_helpers_in_order(self) -> None:
+        self.install_direnv()
+        self.write_home(".config/opencode/opencode.env", "SYNTHETIC_STARTUP_VALUE=zsh-fixture\n")
+        for relative in (
+            ".local/share/zsh/01-history-and-aliases.zsh",
+            ".local/share/beads-helpers.zsh",
+            ".local/share/zsh/20-fzf-and-macos.zsh",
+            ".local/share/zsh/50-visuals-editor.zsh",
+            ".local/share/zsh/90-late-integrations.zsh",
+        ):
+            token = Path(relative).name
+            body = f'print -r -- {token} >> "$STARTUP_LOG"\n'
+            if token == "90-late-integrations.zsh":
+                body += '_opencode_install_shell_hooks() { print -r -- opencode >> "$STARTUP_LOG"; }\n'
+            self.write_home(relative, body)
+        self.write_home(
+            ".local/share/zsh/30-opencode-env.zsh",
+            render_template("dot_local/share/zsh/30-opencode-env.zsh.tmpl", "wsl2"),
+        )
+        self.write_home(
+            ".local/share/zsh/40-session-env.zsh",
+            render_template("dot_local/share/zsh/40-session-env.zsh.tmpl", "wsl2"),
+        )
+        self.write_home(".zshrc", render_template("dot_zshrc.tmpl", "wsl2", environment=self.startup_env()))
+
+        result = self.run_startup(
+            ZSH,
+            'print -r -- "startup:$SYNTHETIC_STARTUP_VALUE|$PLANNOTATOR_REMOTE|$LANG|$HISTFILE"',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"startup:zsh-fixture|1|en_GB.UTF-8|{self.fixture.home}/.debianwsl2_zsh_history\n",
+            result.stdout,
+        )
+        self.assertEqual(
+            (self.fixture.root / "startup.log").read_text(encoding="utf-8").splitlines(),
+            [
+                "01-history-and-aliases.zsh",
+                "beads-helpers.zsh",
+                "direnv:export zsh",
+                "20-fzf-and-macos.zsh",
+                "50-visuals-editor.zsh",
+                "90-late-integrations.zsh",
+                "opencode",
+            ],
+        )
+
+    @unittest.skipUnless(ZSH, "zsh is required")
+    def test_zsh_discovers_rc_without_optional_tools_or_environment_file(self) -> None:
+        self.write_home(".zshrc", render_template("dot_zshrc.tmpl", "wsl2", environment=self.startup_env()))
+
+        result = self.run_startup(
+            ZSH, 'print -r -- "startup:${SYNTHETIC_STARTUP_VALUE:-absent}|$PLANNOTATOR_REMOTE"'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "startup:absent|\n")
+        self.assertFalse((self.fixture.root / "startup.log").exists())
+
+
 @unittest.skipUnless(ZSH, "zsh is required")
 class ModernCliHintTests(ShellStartupHarness):
     def source_hints(

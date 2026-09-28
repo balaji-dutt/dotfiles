@@ -98,7 +98,9 @@ existing `agent-worktree-merge` suite.
 
 Capabilities name one executable with `command`, or ordered alternatives with
 `commands`, and may include a non-interactive probe. The first executable found
-on `PATH` runs the probe with a 30-second timeout. Capability commands and
+on the runner's inherited `PATH` runs the probe by absolute path with a
+30-second timeout; a failed probe leaves the capability unavailable. The
+runner's guard shims do not satisfy capability checks. Capability commands and
 probes support the same `{python}` and `{repo}` placeholders as step argv
 arrays. For example:
 
@@ -162,9 +164,14 @@ seconds and accepts values from 30 through 900. No similarly prefixed credential
 or secret variables are allowed.
 
 The runner prepends fail-closed `bd` and `dolt` commands. An accidental call
-therefore cannot reach this checkout's real Beads database. A test that needs
-those commands must prepend its own fake-bin fixture, which takes precedence
-over the guards. Tests must still avoid live networks, GUI automation,
+therefore cannot reach this checkout's real Beads database. Tests that need
+those commands normally prepend their own fake-bin fixture, which takes
+precedence over the guards. The POSIX `beads-isolated-worktree` integration
+step is the exception: after a successful `bd --version` probe, the runner
+passes the resolved real executable as `DOTFILES_TEST_BD` to that step only.
+The step uses a temporary repository and still runs with the guarded `PATH`;
+if `bd` is missing or its probe fails, the step is skipped (or fails when the
+capability is required). Tests must still avoid live networks, GUI automation,
 installers, secrets, and destructive host operations by default.
 The registered live devcontainer step is the exception only when
 `DEVCONTAINER_SMOKE=1`; its capability probe otherwise leaves the step as a

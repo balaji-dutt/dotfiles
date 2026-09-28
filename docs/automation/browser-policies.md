@@ -56,8 +56,10 @@ profiles under:
 ```
 
 When staged files change, the script opens them with `open` and starts System
-Settings. Install the Chrome and Firefox profiles from General > Device
-Management, or from Profiles on older macOS versions.
+Settings unless `browser_policies.justthebrowser.macos_open_profiles_on_update`
+is `false`. In that case, install the staged Chrome and Firefox profiles
+manually from General > Device Management, or from Profiles on older macOS
+versions.
 
 Rollback on macOS: remove the installed Chrome and Firefox settings profiles
 from System Settings / Device Management.

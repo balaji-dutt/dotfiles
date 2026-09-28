@@ -11,7 +11,7 @@ set -eu
 {{- if hasKey . "ansible_key" -}}
 {{- $ansibleKey = .ansible_key -}}
 {{- end -}}
-{{- if $ansibleKey -}}
+{{ if $ansibleKey }}
 mkdir -p ~/.ssh && cd ~/.ssh
 cp "{{ $ansibleKey }}" root_terraform_ansible
 chmod 0600 ~/.ssh/root_terraform_ansible

@@ -467,6 +467,82 @@ class CodeWrapperTests(unittest.TestCase):
             self.assertEqual(payload["argv"], ["name;not-shell"])
 
 
+@unittest.skipIf(os.name == "nt", "POSIX bash is required")
+class PromptfooWrapperTests(unittest.TestCase):
+    def test_default_and_override_forward_exact_arguments_and_exit_status(self) -> None:
+        with isolated_environment(prefix="promptfoo wrapper ") as fixture:
+            default_log = fixture.root / "default.json"
+            override_log = fixture.root / "override.json"
+            env = {
+                "HOME": str(fixture.home),
+                "PATH": f"{fixture.fake_bin}:/usr/bin:/bin",
+                "LC_ALL": "C",
+                "FAKE_EXIT": "27",
+            }
+            default = fixture.home / ".local/share/promptfoo-runtime/node_modules/.bin/promptfoo"
+            override_dir = fixture.root / "override runtime with spaces"
+            override = override_dir / "node_modules/.bin/promptfoo"
+            for binary, log, run_env in (
+                (default, default_log, env),
+                (override, override_log, env | {"PROMPTFOO_RUNTIME_DIR": str(override_dir)}),
+            ):
+                write_env_logger(binary, log)
+                result = run_script(
+                    BIN / "executable_promptfoo",
+                    "--config",
+                    "name with spaces",
+                    "",
+                    "literal;value",
+                    env=run_env,
+                )
+                self.assertEqual(result.returncode, 27, result.stderr)
+                self.assertEqual(
+                    json.loads(log.read_text(encoding="utf-8"))["argv"],
+                    ["--config", "name with spaces", "", "literal;value"],
+                )
+            self.assertTrue(default_log.exists())
+            self.assertTrue(override_log.exists())
+
+            result = run_script(
+                BIN / "executable_promptfoo",
+                "--help",
+                env=env | {"PROMPTFOO_RUNTIME_DIR": ""},
+            )
+            self.assertEqual(result.returncode, 27, result.stderr)
+            self.assertEqual(json.loads(default_log.read_text(encoding="utf-8"))["argv"], ["--help"])
+            self.assertEqual(
+                json.loads(override_log.read_text(encoding="utf-8"))["argv"],
+                ["--config", "name with spaces", "", "literal;value"],
+            )
+
+    def test_missing_or_nonexecutable_runtime_reports_error_without_dispatch(self) -> None:
+        with isolated_environment(prefix="promptfoo failure ") as fixture:
+            env = {
+                "HOME": str(fixture.home),
+                "PATH": f"{fixture.fake_bin}:/usr/bin:/bin",
+                "LC_ALL": "C",
+            }
+            wrapper = BIN / "executable_promptfoo"
+            missing = run_script(wrapper, "synthetic-private-arg", env=env)
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn("managed Promptfoo runtime is missing", missing.stderr)
+            self.assertIn(str(fixture.home), missing.stderr)
+            self.assertNotIn("synthetic-private-arg", missing.stderr)
+
+            runtime = fixture.root / "nonexec runtime"
+            binary = runtime / "node_modules/.bin/promptfoo"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("not executable\n", encoding="utf-8")
+            refused = run_script(
+                wrapper,
+                "synthetic-private-arg",
+                env=env | {"PROMPTFOO_RUNTIME_DIR": str(runtime)},
+            )
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn(str(binary), refused.stderr)
+            self.assertNotIn("synthetic-private-arg", refused.stderr)
+
+
 class WslOpenWrapperTests(unittest.TestCase):
     def test_handler_override_receives_url_verbatim_and_propagates_failure(self) -> None:
         with isolated_environment(prefix="wsl open ") as fixture:

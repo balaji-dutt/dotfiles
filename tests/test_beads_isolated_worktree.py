@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-BD = shutil.which("bd")
+BD = os.environ.get("DOTFILES_TEST_BD") or shutil.which("bd")
 
 
 def run(argv, cwd, check=True):
