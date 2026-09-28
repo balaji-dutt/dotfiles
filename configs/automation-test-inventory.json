@@ -274,7 +274,7 @@
         "test_paths": ["tests/test_claude_review_gate.py", "tests/test_claude_review_hook_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Offline unit and temporary-Git suites cover review-gate state transitions, transcript and SubagentHandback verdict validation, in-flight reviewer suppression and expiry, checkout isolation, path policy, legacy migration, Bash snapshot diffing with Stop-time reconciliation of background and interrupted commands, per-checkout gating of native Claude Code worktrees (including a removed worktree's hand-off to the project checkout), hook wiring, a Stop that keeps the gate when git cannot be checked, and conservative wrapper fallbacks."
+      "rationale": "Offline unit and temporary-Git suites cover review-gate state transitions, transcript and SubagentHandback verdict validation, in-flight reviewer suppression and expiry, checkout isolation, path policy, legacy migration, Bash snapshot diffing with Stop-time reconciliation of background and interrupted commands, per-checkout gating of native Claude Code worktrees (including a removed worktree's hand-off to the project checkout), hook wiring, a Stop that keeps the gate when git cannot be checked, bounded Stop git budgets, and conservative wrapper fallbacks."
     },
     {
       "id": "claude-token-check",
@@ -717,11 +717,11 @@
         "suite_id": "shell-startup",
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
-        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
-        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
+        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_macos_shell_startup_smoke.py", "tests/test_shell_startup.py"],
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup. At review, evaluate a throwaway WSL2 account for shell-startup-only smoke with an isolated home and disabled or stubbed credential, Windows-mount, socket, and network integrations; an account alone does not isolate provisioning.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
-      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS smoke remains planned and WSL2 platform smoke remains unverified under a reviewable waiver."
+      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). Ordinary runs skip this suite without explicit opt-in and that account. WSL2 interactive smoke remains unverified under a reviewable waiver and tracked under dots-4jy.10.17."
     },
     {
       "id": "sync-tooling",

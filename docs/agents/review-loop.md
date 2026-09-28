@@ -86,8 +86,9 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   checkout's current branch still needs review; a worktree that git refuses
   to open (for example `safe.directory`) keeps its files and the block.
   Finding the worktree costs no git call while `cwd` is inside the project
-  checkout, and the git calls that find worktrees and diff snapshots share
-  an 8-second budget per hook run, under the 10-second hook timeout.
+  checkout, and the git calls that find the checkout, find worktrees, and
+  diff snapshots share an 8-second budget per hook run, under the 10-second
+  hook timeout. Stop's pending-work check gets a separate 20-second budget.
   - Known gaps: a command run from the project checkout that edits a
     worktree by path, or one that edits a third checkout, is not diffed
     there. While the session is in a worktree, project-checkout files can be
@@ -223,6 +224,15 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   determined, so the gate stays and Stop blocks with a reason saying git
   could not be checked. This holds for scoped and legacy gates alike; a git
   failure in another gated checkout keeps its files pending instead.
+  Git time on Stop is bounded: at most 8 seconds for finding the checkout and
+  reconciling snapshots, then a fresh 20 seconds for the pending-work check,
+  so 28 seconds against the Stop hook's `timeout` of 60 in
+  `.claude/settings.json`. The timeout is pinned because a Stop hook killed
+  by it lets the stop through, and Claude Code's default has changed
+  before. A check that runs out of budget counts as a git failure and
+  blocks as above. Running out of budget changes the outcome only for a
+  gate that would otherwise clear; a gate with pending work blocks either
+  way.
   While a reviewer that started after the latest gated edit is still in
   flight, Stop does not block; it shows a "Dotfiles review in flight"
   notice instead. The finished background reviewer re-invokes the agent,
