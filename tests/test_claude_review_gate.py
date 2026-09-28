@@ -141,6 +141,9 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.environment = mock.patch.dict(os.environ, env, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        deadline = mock.patch.object(review_gate, "GIT_DEADLINE", [None])
+        deadline.start()
+        self.addCleanup(deadline.stop)
         self.repo = self.make_home()
 
     def make_home(self) -> Path:
@@ -447,6 +450,24 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.assertIn("in flight", payload["systemMessage"])
         self.assertNotIn("decision", payload)
         self.assertTrue(gate.exists())
+
+    def test_enforce_keeps_the_gate_when_the_stop_git_budget_runs_out(self) -> None:
+        gate = self.mark("edited.txt")
+        (self.repo / "edited.txt").unlink()
+        with mock.patch.object(review_gate, "STOP_GIT_BUDGET", 0):
+            self.assert_unchecked_block(gate)
+        real_run = subprocess.run
+
+        def budget_spent_by_diff(args, **kwargs):
+            result = real_run(args, **kwargs)
+            if args[3:4] == ["diff"]:
+                review_gate.GIT_DEADLINE[0] = time.monotonic() - 1
+            return result
+
+        with mock.patch.object(review_gate.subprocess, "run", budget_spent_by_diff):
+            self.assert_unchecked_block(gate)
+        self.assertEqual(self.enforce(), "")
+        self.assertFalse(gate.exists())
 
     def test_clear_uses_main_transcript_only_without_agent_path(self) -> None:
         now = int(time.time())
@@ -1094,6 +1115,45 @@ class ReviewGateRepositoryTests(unittest.TestCase):
         self.assertEqual(self.snapshots(), [])
         self.assertIn("not checked there", stderr.getvalue())
 
+    def test_run_git_and_git_toplevel_honor_the_git_deadline(self) -> None:
+        self.assertTrue(review_gate.same_path(review_gate.git_toplevel(str(self.repo)), str(self.repo)))
+        with mock.patch.object(review_gate, "GIT_DEADLINE", [time.monotonic() - 1]):
+            self.assertIsNone(review_gate.run_git(str(self.repo), ["status"]))
+            self.assertIsNone(review_gate.git_toplevel(str(self.repo)))
+
+    def test_every_stop_git_call_ends_by_its_deadline(self) -> None:
+        wt = self.worktree()
+        (wt / "w.txt").write_text("x\n", encoding="utf-8")
+        review_gate.cmd_mark(self.edit_payload(wt / "w.txt", wt), str(self.repo))
+        self.mark("edited.txt")
+        self.commit("edited.txt")
+        self.gate("").write_text(str(int(time.time())), encoding="utf-8")
+        self.snapshot("t1")
+        real_run = subprocess.run
+        calls = []
+
+        def bounded(args, **kwargs):
+            if args[:1] == ["git"]:
+                calls.append((args[3], time.monotonic() + kwargs["timeout"], review_gate.GIT_DEADLINE[0]))
+            return real_run(args, **kwargs)
+
+        review_gate.GIT_DEADLINE[0] = time.monotonic() + review_gate.HOOK_GIT_BUDGET
+        with mock.patch.object(review_gate.subprocess, "run", bounded):
+            payload = json.loads(self.enforce())
+        self.assertEqual(payload["decision"], "block")
+        self.assertNotIn("git could not be checked", payload["reason"])
+        for name, ends_by, deadline in calls:
+            with self.subTest(git=name):
+                self.assertIsNotNone(deadline)
+                self.assertLessEqual(ends_by, deadline + 0.5)
+        names = {name for name, _, _ in calls}
+        self.assertTrue({"--no-optional-locks", "rev-parse", "diff", "ls-files", "log"} <= names, calls)
+
+    def test_stop_git_budgets_fit_well_inside_the_stop_hook_timeout(self) -> None:
+        settings = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))
+        [timeout] = [hook.get("timeout") for group in settings["hooks"]["Stop"] for hook in group["hooks"]]
+        self.assertLessEqual(2 * (review_gate.HOOK_GIT_BUDGET + review_gate.STOP_GIT_BUDGET), timeout)
+
     def test_a_toplevel_mismatch_is_unknown_not_gone(self) -> None:
         wt = self.worktree()
         real_run = subprocess.run
@@ -1132,7 +1192,9 @@ class ReviewGateRepositoryTests(unittest.TestCase):
             review_gate, "reconcile_snapshots", reconcile_spends_the_budget
         ), mock.patch.object(review_gate.sys, "stdout", output):
             review_gate.cmd_enforce({"session_id": "session/one", "cwd": str(wt)}, str(self.repo))
-        self.assertIn("git -C " + shlex.quote(str(self.repo)) + " diff -- home.txt", json.loads(output.getvalue())["reason"])
+        reason = json.loads(output.getvalue())["reason"]
+        self.assertIn("git -C " + shlex.quote(str(self.repo)) + " diff -- home.txt", reason)
+        self.assertNotIn("git could not be checked", reason)
 
     def test_a_merged_then_removed_worktree_still_blocks(self) -> None:
         wt = self.worktree()
