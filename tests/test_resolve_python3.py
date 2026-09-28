@@ -33,7 +33,7 @@ SH = shutil.which("sh")
 
 @unittest.skipIf(SH is None, "sh is required")
 class ResolvePython3Tests(unittest.TestCase):
-    """The Claude Bash hooks run through this, so a wrong pick silences them."""
+    """The Claude Python hooks run through this, so a wrong pick silences them."""
 
     def _run(self, path_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -48,6 +48,12 @@ class ResolvePython3Tests(unittest.TestCase):
         path_dir = root / "fake bin"
         path_dir.mkdir(parents=True)
         return path_dir
+
+    def _working_python3(self, path_dir: Path) -> None:
+        write_executable(
+            path_dir / "python3",
+            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n',
+        )
 
     def test_broken_python3_shim_is_rejected_and_py_is_used(self) -> None:
         with tempfile.TemporaryDirectory(prefix="resolve python3 ") as raw:
@@ -75,10 +81,7 @@ class ResolvePython3Tests(unittest.TestCase):
     def test_exit_status_propagates_from_the_resolved_interpreter(self) -> None:
         with tempfile.TemporaryDirectory(prefix="resolve python3 ") as raw:
             path_dir = self._fake_bin(Path(raw).resolve())
-            write_executable(
-                path_dir / "python3",
-                f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n',
-            )
+            self._working_python3(path_dir)
 
             result = self._run(path_dir, "--", "-c", "raise SystemExit(23)")
 
@@ -121,18 +124,46 @@ class ResolvePython3Tests(unittest.TestCase):
             self.assertEqual(result.returncode, 64, "2 is Claude Code's blocking code")
             self.assertIn("requires a Python script", result.stderr)
 
+    def test_missing_script_fails_open_with_a_notice(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="resolve python3 ") as raw:
+            root = Path(raw).resolve()
+            path_dir = self._fake_bin(root)
+            self._working_python3(path_dir)
+            missing = root / "missing hook.py"
+
+            result = self._run(path_dir, "--", str(missing), "pre")
+
+            self.assertEqual(result.returncode, 66, "2 is Claude Code's blocking code")
+            self.assertEqual(result.stdout, "", "no JSON permission decision")
+            first_line = result.stderr.splitlines()[0]
+            self.assertIn("hook script not found", first_line)
+            self.assertIn(str(missing), first_line)
+
+    def test_existing_script_path_with_spaces_runs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="resolve python3 ") as raw:
+            root = Path(raw).resolve()
+            path_dir = self._fake_bin(root)
+            self._working_python3(path_dir)
+            script = root / "hook script.py"
+            script.write_text(
+                "import sys\nprint(sys.argv[1])\nraise SystemExit(23)\n",
+                encoding="utf-8",
+            )
+
+            result = self._run(path_dir, "--", str(script), "pre")
+
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertEqual(result.stdout.strip(), "pre")
+
 
 class HookWiringTests(unittest.TestCase):
     """The regression was a command string, not the shim, so pin the wiring."""
 
-    def _bash_hook_commands(self, settings: Path) -> list[str]:
+    def _hook_commands(self, settings: Path) -> list[str]:
         payload = json.loads(settings.read_text(encoding="utf-8"))
         found = []
         for entries in (payload.get("hooks") or {}).values():
             for entry in entries:
-                # Substring, so an alternation matcher such as "Bash|Edit" counts.
-                if "Bash" not in (entry.get("matcher") or ""):
-                    continue
                 for hook in entry.get("hooks", []):
                     found.append(hook.get("command", ""))
         return found
@@ -140,8 +171,11 @@ class HookWiringTests(unittest.TestCase):
     def test_python_hooks_are_invoked_through_the_resolver(self) -> None:
         for settings in (SETTINGS_BASE, MIRROR_SETTINGS_BASE):
             with self.subTest(settings=settings.name):
-                commands = self._bash_hook_commands(settings)
-                self.assertTrue(commands, f"no Bash hooks found in {settings}")
+                commands = self._hook_commands(settings)
+                self.assertTrue(
+                    any(".py" in command for command in commands),
+                    f"no Python hooks found in {settings}",
+                )
                 for command in commands:
                     if ".py" not in command:
                         continue
