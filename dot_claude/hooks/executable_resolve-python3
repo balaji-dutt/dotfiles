@@ -5,12 +5,21 @@ set -eu
 if [ "${1:-}" = "--" ]; then
   shift
 fi
-# Claude Code treats hook exit 2 as "block the tool call", so a usage error
-# here reports 64 and leaves 2 to the Python hook's own blocking decision.
+# Claude Code blocks the tool call on hook exit 2 and reports any other nonzero
+# exit as a non-blocking error, so resolver failures never exit 2.
 if [ "$#" -eq 0 ]; then
   echo "ERROR: resolve-python3 requires a Python script or arguments." >&2
   exit 64
 fi
+case "$1" in
+  -*) ;;
+  *)
+    if [ ! -f "$1" ]; then
+      echo "ERROR: hook script not found: $1" >&2
+      exit 66
+    fi
+    ;;
+esac
 
 # Native Windows ships a python3 app-execution alias that resolves in PATH but
 # exits 49 without running, so every candidate is executed before it is used.
