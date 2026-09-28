@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -349,6 +351,180 @@ PY
         self.assertEqual(result.returncode, 1)
         self.assertIn("version mismatch between vendored copies", result.stderr)
         self.assertFalse(marker.exists())
+
+
+@unittest.skipUnless(os.name != "nt" and BASH, "POSIX bash is required")
+class KanbanPinTests(unittest.TestCase):
+    SITES = (
+        ".chezmoiscripts/run_onchange_after_install_better_beads_kanban.sh.tmpl",
+        ".chezmoiscripts/run_onchange_after_install_better_beads_kanban.ps1.tmpl",
+        "private_Documents/development/container-dotfiles/devcontainers/"
+        "gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh",
+    )
+    def setUp(self) -> None:
+        context = isolated_environment(prefix="kanban-pin-")
+        self.fixture = context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
+        self.repo = self.fixture.root / "repo with spaces"
+        self.script = self.repo / "assets/sync-beads-kanban-pin.sh"
+        self.script.parent.mkdir(parents=True)
+        shutil.copy2(ASSETS / self.script.name, self.script)
+        self.sites = [self.repo / name for name in self.SITES]
+        for source_name, target in zip(self.SITES, self.sites):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO_ROOT / source_name, target)
+        source = self.sites[0].read_bytes()
+        version_match = re.search(rb'^FORK_VERSION="([^"]+)"', source, re.MULTILINE)
+        sha_match = re.search(rb'^EXPECTED_SHA="([0-9a-f]{64})"', source, re.MULTILINE)
+        assert version_match and sha_match
+        self.version = version_match.group(1).decode("ascii")
+        self.asset_name = f"better-beads-kanban-{self.version}.vsix"
+        self.old_sha = sha_match.group(1).decode("ascii")
+        self.asset = b"fixture VSIX content\n"
+        self.sha = hashlib.sha256(self.asset).hexdigest()
+        self.assertNotEqual(self.old_sha, self.sha)
+        self.log = self.fixture.root / "curl.jsonl"
+        self.env = {
+            "HOME": str(self.fixture.home),
+            "TMPDIR": str(self.fixture.root / "tmp"),
+            "PATH": f"{self.fixture.fake_bin}:/usr/bin:/bin",
+            "LC_ALL": "C",
+            "FIXTURE_CURL_LOG": str(self.log),
+            "FIXTURE_ASSET_HEX": self.asset.hex(),
+            "FIXTURE_ASSET_NAME": self.asset_name,
+        }
+        write_executable(
+            self.fixture.fake_bin / "curl",
+            f"#!{sys.executable}\n"
+            "import hashlib, json, os, pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "with open(os.environ['FIXTURE_CURL_LOG'], 'a', encoding='utf-8') as handle:\n"
+            "    handle.write(json.dumps(args) + '\\n')\n"
+            "url, target = args[1], pathlib.Path(args[args.index('-o') + 1])\n"
+            "mode = os.environ.get('FIXTURE_CURL_MODE', 'manifest')\n"
+            "asset = bytes.fromhex(os.environ['FIXTURE_ASSET_HEX'])\n"
+            "if url.endswith('/SHA256SUMS'):\n"
+            "    if mode in ('manifest_fail', 'asset_fail'):\n"
+            "        sys.exit(22)\n"
+            "    digest = 'invalid' if mode == 'manifest_bad' else hashlib.sha256(asset).hexdigest()\n"
+            "    name = 'other.vsix' if mode == 'manifest_missing' else os.environ['FIXTURE_ASSET_NAME']\n"
+            "    separator = ' *' if mode == 'manifest_star' else '  '\n"
+            "    target.write_text(digest + separator + name + '\\n', encoding='utf-8')\n"
+            "elif mode == 'asset_fail':\n"
+            "    sys.exit(22)\n"
+            "else:\n"
+            "    target.write_bytes(asset)\n",
+        )
+
+    def run_pin(self, *args: str, mode: str = "manifest") -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [BASH or "bash", str(self.script), *args],
+            cwd=self.repo,
+            env=self.env | {"FIXTURE_CURL_MODE": mode},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=20,
+        )
+
+    def snapshot(self) -> list[bytes]:
+        return [site.read_bytes() for site in self.sites]
+
+    def test_check_write_default_and_help_keep_other_content(self) -> None:
+        before = self.snapshot()
+        check = self.run_pin("--check")
+        self.assertEqual(check.returncode, 1)
+        self.assertEqual(check.stderr.count("EXPECTED_SHA drifted"), 3)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(len(read_json_lines(self.log)), 1)
+
+        help_result = self.run_pin("--help")
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("--check", help_result.stdout)
+        self.assertEqual(len(read_json_lines(self.log)), 1)
+
+        write = self.run_pin("--write")
+        self.assertEqual(write.returncode, 0, write.stderr)
+        self.assertEqual(write.stdout.count("wrote "), 3)
+        after = self.snapshot()
+        for original, updated in zip(before, after):
+            self.assertEqual(original.count(self.old_sha.encode()), 1)
+            self.assertEqual(updated, original.replace(self.old_sha.encode(), self.sha.encode()))
+        self.assertEqual(self.run_pin("--check").returncode, 0)
+        self.assertIn("no changes", self.run_pin().stdout)
+        self.assertEqual(self.snapshot(), after)
+
+    def test_manifest_fallback_hashes_asset_and_reports_download_failure(self) -> None:
+        for mode in ("manifest_missing", "manifest_fail", "manifest_star"):
+            with self.subTest(mode=mode):
+                before = self.snapshot()
+                result = self.run_pin("--write", mode=mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = read_json_lines(self.log)
+                if mode == "manifest_star":
+                    self.assertTrue(calls[-1][1].endswith("/SHA256SUMS"))
+                else:
+                    self.assertIn("hashing the asset instead", result.stdout)
+                    self.assertTrue(calls[-2][1].endswith("/SHA256SUMS"))
+                    self.assertTrue(calls[-1][1].endswith("/" + self.asset_name))
+                for updated, original in zip(self.snapshot(), before):
+                    self.assertEqual(updated, original.replace(self.old_sha.encode(), self.sha.encode()))
+                for site, original in zip(self.sites, before):
+                    site.write_bytes(original)
+
+        before = self.snapshot()
+        failure = self.run_pin("--write", mode="asset_fail")
+        self.assertEqual(failure.returncode, 1)
+        self.assertIn("failed downloading", failure.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_bad_inputs_and_missing_sites_fail_without_writing(self) -> None:
+        before = self.snapshot()
+        unknown = self.run_pin("--wrong")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("unknown argument", unknown.stderr)
+        self.assertFalse(self.log.exists())
+
+        bad_sum = self.run_pin("--write", mode="manifest_bad")
+        self.assertEqual(bad_sum.returncode, 1)
+        self.assertIn("could not resolve a sha256", bad_sum.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+        second = self.sites[1]
+        original = second.read_bytes()
+        second.write_bytes(original.replace(b'"' + self.version.encode() + b'"', b'"9.9.9"', 1))
+        mismatch = self.run_pin("--check")
+        self.assertEqual(mismatch.returncode, 1)
+        self.assertIn("pinned version mismatch", mismatch.stderr)
+        second.write_bytes(original)
+        second.unlink()
+        missing = self.run_pin("--check")
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("missing install site", missing.stderr)
+        self.assertEqual(self.sites[0].read_bytes(), before[0])
+        self.assertEqual(self.sites[2].read_bytes(), before[2])
+
+    def test_sentinel_and_rewrite_failure_preserve_fixture_sources(self) -> None:
+        before = self.snapshot()
+        first = self.sites[0]
+        first.write_bytes(before[0].replace(b'EXPECTED_SHA="' + self.old_sha.encode() + b'"', b'EXPECTED_SHA="missing"'))
+        missing_sha = self.run_pin("--write")
+        self.assertEqual(missing_sha.returncode, 1)
+        self.assertIn("no expected-sha sentinel", missing_sha.stderr)
+        first.write_bytes(before[0])
+
+        write_executable(
+            self.fixture.fake_bin / "sed",
+            f"#!{sys.executable}\n"
+            "import os, sys\n"
+            "if len(sys.argv) > 2 and sys.argv[2].startswith('s#'):\n"
+            "    sys.exit(73)\n"
+            "os.execv('/usr/bin/sed', ['sed', *sys.argv[1:]])\n",
+        )
+        failure = self.run_pin("--write")
+        self.assertEqual(failure.returncode, 73)
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":
