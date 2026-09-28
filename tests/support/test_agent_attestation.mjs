@@ -428,6 +428,29 @@ test('approved Plan participation requires a uniquely observed tool call and exp
   assert.equal(await store.selected(command), undefined);
 });
 
+test('approved Plan receipts use one identity for aliased worktree paths', async t => {
+  const root = await temporary(t), repo = path.join(root, 'repo'), alias = path.join(root, 'repo alias');
+  const storage = path.join(root, 'state');
+  checked('git', ['init', '-q', repo]);
+  checked('git', ['symbolic-ref', 'HEAD', 'refs/heads/feature'], { cwd: repo });
+  await fs.symlink(repo, alias, windows ? 'junction' : 'dir');
+  const planner = { info: { sessionID: 'planning', role: 'assistant', agent: 'plan', providerID: 'provider', modelID: 'observed' },
+    parts: [{ type: 'tool', tool: 'submit_plan', callID: 'approval' }] };
+  const client = { session: { messages: async () => ({ data: [planner] }) } };
+  const env = { AI_ATTESTATION_PLAN_ISSUE: 'dots-jmh.2' };
+  const original = approvalStore({ client, directory: repo, worktree: alias }, { root: storage, env, warn: quiet });
+  await original.approved({ tool: 'submit_plan', sessionID: 'planning', callID: 'approval' }, { output: 'Plan approved!' });
+  const files = await fs.readdir(path.join(storage, 'opencode', 'approvals'));
+  assert.equal(files.length, 1);
+  env.AI_ATTESTATION_PLAN_RECEIPT = path.basename(files[0], '.json');
+  const saved = await readJson(path.join(storage, 'opencode', 'approvals', files[0]));
+  assert.equal(saved.worktree, await fs.realpath(repo));
+  const nextSession = approvalStore({ client, directory: alias, worktree: repo }, { root: storage, env, warn: quiet });
+  assert.deepEqual(await nextSession.selected("oc-commit -m 'Refs: dots-jmh.2'"),
+    { tool: 'opencode', agent: 'plan', role: 'planner', model: 'provider/observed' });
+  assert.equal(await nextSession.selected("oc-commit -m 'Refs: dots-jmh.3'"), undefined);
+});
+
 test('OpenCode commit handoff includes selected approved Plan from another session', async t => {
   const root = await temporary(t), repo = path.join(root, 'repo'), storage = path.join(root, 'state');
   checked('git', ['init', '-q', repo]);

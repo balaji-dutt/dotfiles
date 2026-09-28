@@ -114,7 +114,8 @@ channel as the explicit agent title rather than relying on oh-my-zsh's separate
 OSC 1 and OSC 2 updates, which can leave iTerm's Session Name showing the last
 application after it exits. Because OSC 0 also changes the window title, the
 hook follows it with OSC 2 to restore `ZSH_THEME_TERM_TITLE_IDLE`; the normal
-short-tab/long-window split remains intact.
+short-tab/long-window split remains intact. `antidote load` runs only when the
+plugin bundle exists.
 
 The hook also returns early when stdout is not a terminal, so escape bytes
 never land in redirected output such as `zsh -ic claude | tee log`.
