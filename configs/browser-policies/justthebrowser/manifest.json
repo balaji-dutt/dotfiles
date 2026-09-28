@@ -4,7 +4,7 @@
   "name": "justthebrowser",
   "upstream": {
     "repo": "corbindavenport/just-the-browser",
-    "version": "v1.9"
+    "version": "v1.10"
   },
   "scope": {
     "browsers": ["chrome", "firefox"],
@@ -15,7 +15,7 @@
     {
       "path": "chrome/install.reg",
       "source_path": "chrome/install.reg",
-      "sha256": "d3a9409bf2b35892ce67cfb2ec56da7224aa9af760921e33bc155c0a59f12dbb"
+      "sha256": "ce3137710990d5a177da5f1ccb4b8a78b0a67c01f5bd798545e66921789917a7"
     },
     {
       "path": "chrome/uninstall.reg",
@@ -25,12 +25,12 @@
     {
       "path": "chrome/chrome.mobileconfig",
       "source_path": "chrome/chrome.mobileconfig",
-      "sha256": "c58bcaa42f283f4be08b8a42d60f916f09eae1c9e2afda3b91ab4dca021b3dcb"
+      "sha256": "0533611701a4aee53004ea96351c11c31419f4d8fc79fb9201d3f03f461fdf0a"
     },
     {
       "path": "firefox/install.reg",
       "source_path": "firefox/install.reg",
-      "sha256": "b8c2c724142d66aea1537b3190c4227ec2716ea6f2e6d61ff2895d280aa4f82f"
+      "sha256": "96d2b95125b6d1553e8c1bbf4a0cf5324bf848a8a38ae03f65313e87ec8f5b93"
     },
     {
       "path": "firefox/uninstall.reg",
@@ -40,7 +40,7 @@
     {
       "path": "firefox/firefox.mobileconfig",
       "source_path": "firefox/firefox.mobileconfig",
-      "sha256": "f71bca9ed50b65d1a2a63046b794db2127e4bf33a11df9bc0da3698c23beb1b0"
+      "sha256": "540b89e12eaadb16e6edbf84a6c890e0c8937603fb478f327295a958df6fe8df"
     }
   ],
   "notes": [

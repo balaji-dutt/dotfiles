@@ -40,6 +40,16 @@
 			<integer>2</integer>
 			<key>SearchContentSharingSettings</key>
 			<integer>1</integer>
+			<key>HelpMeReadSettings</key>
+			<integer>2</integer>
+			<key>AutofillPredictionSettings</key>
+			<integer>2</integer>
+			<key>ChromeSuggestionsSettings</key>
+			<integer>1</integer>
+			<key>FindsSettings</key>
+			<integer>2</integer>
+			<key>ThirdPartyAiChatSettings</key>
+			<integer>1</integer>
 		</dict>
 	</array>
 	<key>PayloadDisplayName</key>
