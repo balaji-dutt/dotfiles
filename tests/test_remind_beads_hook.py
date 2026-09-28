@@ -264,6 +264,19 @@ class UnverifiedTests(GateTestCase):
         reason = self.assert_block(self.run_hook(with_bd=False), "unverified")
         self.assertIn("bd", reason)
 
+    def test_aborting_resolver_still_blocks_and_names_the_resolver(self) -> None:
+        # Copy first: the fixture's symlink points at the real resolver.
+        link = self.repo / ".claude/hooks"
+        link.unlink()
+        shutil.copytree(ROOT / ".claude/hooks", link)
+        resolver = link / "lib/resolve-python.sh"
+        self.write_state_for()
+        for body in ("if then\n", "x=$UNSET_VAR\n", "exit 0\n", ":\n"):
+            with self.subTest(resolver=body):
+                resolver.write_text(body, encoding="utf-8")
+                reason = self.assert_block(self.run_hook(), "unverified")
+                self.assertIn("resolver failed to load", reason)
+
     def test_connection_error_is_unverified_not_stale(self) -> None:
         # Same rc=1 as a missing issue, but nothing parseable on stdout. Pins
         # the other side of the discrimination against the not-found case.

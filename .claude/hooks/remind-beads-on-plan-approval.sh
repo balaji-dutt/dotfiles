@@ -36,10 +36,18 @@ HELPER=".claude/hooks/lib/beads_state.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
 PY_CMD=()
+py_rc=91
 if [[ -f "$RESOLVER" ]]; then
-  # shellcheck source=lib/resolve-python.sh disable=SC1091
-  . "$RESOLVER"
-  resolve_python || PY_CMD=()
+  # A child shell keeps a resolver that fails to parse, trips set -u, or exits from ending this hook.
+  py_rc=0
+  # shellcheck disable=SC2016 # The child shell expands these, not this hook.
+  py_out="$("$BASH" -euo pipefail -c '. "$1" >&2 || exit 90
+declare -F resolve_python >/dev/null || exit 90
+resolve_python >&2 || exit 91
+printf "%s\n" "${PY_CMD[@]}"' resolve-python "$RESOLVER" </dev/null)" || py_rc=$?
+  if [[ $py_rc -eq 0 && -n "$py_out" ]]; then
+    while IFS= read -r part; do PY_CMD+=("$part"); done <<<"$py_out"
+  fi
 fi
 
 # absent     — no state file; the original create/attach/skip prompt applies.
@@ -53,6 +61,8 @@ if [[ -f "$STATE_FILE" ]]; then
   VERDICT="unverified"
   if [[ ! -f "$HELPER" ]]; then
     REASON="the Beads gate helper is missing ($HELPER)"
+  elif [[ ${#PY_CMD[@]} -eq 0 && $py_rc -ne 91 ]]; then
+    REASON="the Python resolver failed to load ($RESOLVER)"
   elif [[ ${#PY_CMD[@]} -eq 0 ]]; then
     REASON="no working Python 3 to run the Beads gate helper"
   else

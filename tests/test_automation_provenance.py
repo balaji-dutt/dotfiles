@@ -297,6 +297,26 @@ class AutomationProvenanceTests(unittest.TestCase):
         self.convert_to_crlf("container/tool.sh")
         self.assert_failure("mirror content drift")
 
+    def test_mirror_line_ending_attribute_drift_fails(self) -> None:
+        self.fixture.write(".gitattributes", "host/*.sh text eol=lf\nunslop/** text=auto eol=lf\n")
+        self.assert_failure(
+            "mirror line-ending attribute drift: host/tool.sh (eol=lf) != "
+            "container/tool.sh (eol=unspecified)"
+        )
+
+    def test_mirror_attribute_drift_is_reported_before_the_crlf_it_causes(self) -> None:
+        self.fixture.write(".gitattributes", "host/*.sh text eol=lf\nunslop/** text=auto eol=lf\n")
+        self.convert_to_crlf("container/tool.sh")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mirror line-ending attribute drift", result.stderr)
+        self.assertNotIn("mirror content drift", result.stderr)
+
+    def test_mirror_pairs_pass_when_both_sides_share_unspecified_eol(self) -> None:
+        self.fixture.write(".gitattributes", "unslop/** text=auto eol=lf\n")
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_raw_endings_remain_significant_when_git_does_not_normalize(self) -> None:
         self.convert_to_crlf("generated/tool.sh")
         for attributes in ("-text", "!text !eol"):

@@ -168,8 +168,7 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
     for more than 15 minutes when the main session stops. `git stash apply`
     and `git reset --soft` or `--mixed` mark the work they restore.
     Gitignored files are never marked, which matches the pending-work check
-    at Stop. A resolver edit that trips `set -u` or calls `exit` makes the
-    Post hook exit before its legacy mark, so that command goes unchecked.
+    at Stop.
 - Gate file: `.claude/.needs_dotfiles_review.<session_id>` (gitignored),
   JSON with `timestamp`, `firstTimestamp`, `markedAt` (the last mark as a
   float, which orders an edit and a reviewer launch in the same second;
@@ -178,11 +177,28 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   another worktree's path to files relative to it. Without Python or the
   helper script, the `Write|Edit` marker hook falls back to an unconditional
   mark in the legacy unsuffixed `.claude/.needs_dotfiles_review`.
-- All six hooks pick their interpreter through
-  `.claude/hooks/lib/resolve-python.sh`, which tries `python3`, `python`, then
-  `py -3` and executes each candidate before accepting it. A lookup alone is
-  not enough on native Windows, where the Microsoft Store app-execution alias
-  for `python3` is in `PATH` but exits 49 with "Python was not found".
+  That legacy mark has no file list and means "review the whole repo". The
+  next helper mark absorbs it into the session gate by adding every dirty,
+  reviewable path in the project checkout, then deletes it. The legacy mark
+  stays instead in three cases: git cannot list those paths within the
+  hook's time budget, there are more than 200, or a fallback rewrote the
+  mark while they were being listed. Stop then asks for a review of the
+  session gate's files together with every reviewable pending path, clears
+  both gates when neither has pending work, and past 200 paths asks for a
+  whole-repo review instead of a file list.
+- All six hooks, and the plan-approval Beads hook, pick their interpreter
+  through `.claude/hooks/lib/resolve-python.sh`, which tries `python3`,
+  `python`, then `py -3` and executes each candidate before accepting it. A
+  lookup alone is not enough on native Windows, where the Microsoft Store
+  app-execution alias for `python3` is in `PATH` but exits 49 with "Python
+  was not found".
+  Each hook runs the resolver in a child of its own bash (`$BASH`) and reads
+  `PY_CMD` back from its output. A resolver that fails to parse, trips
+  `set -u`, or calls `exit` is a load failure: the hook keeps running without
+  the helper, both markers write the legacy mark (the Bash Post hook skips an
+  unmodified resolver only when it loads and finds no Python), Stop blocks
+  while a gate file exists, and with a state file present the plan-approval
+  hook blocks as unverified and names the resolver.
   `CLAUDE_REVIEW_GATE_PYTHON` prepends a candidate for debugging; it is probed
   like any other. The helper exits non-zero on any unexpected error and the
   hooks do not `exec`, so a helper that starts and then fails, including one
@@ -237,17 +253,45 @@ differently:
   controls auto-approval and is project-wide, so it does not narrow the
   reviewer; it does mean the reviewer inherits pre-approved mutating entries
   such as `Bash(git add:*)` and `Bash(git checkout:*)`. The prompt restricts
-  `Read` to exact paths that scoped status reports as untracked.
+  `Read` to exact paths that scoped status reports as untracked, plus the
+  file where the harness saved one of the reviewer's own truncated outputs.
+  When a gate spans worktrees, the Stop reason writes the commands as
+  `git -C <checkout> diff ...`; the prompt allows `-C` only for a checkout
+  the invocation names and applies it to every command for those files. No
+  `permissions.allow` entry matches a command that starts with `git -C`, so
+  those calls ask for approval. The OpenCode plugin never emits `-C`, so its
+  twin has no such rule and its `git diff*` allowance always matches.
 - OpenCode (`.opencode/agents/dotfiles-reviewer.md`): `permission.bash` is
   deny-by-default with `git status*`, `git diff*`, and `git log*` allowed, and
   `edit`, `glob`, `grep`, and `task` denied. Here the shell and broad-discovery
   rules are hard-enforced. `read` retains inherited sensitive-file protections,
-  while the prompt restricts it to exact paths that scoped status reports as
-  untracked.
+  while the prompt restricts it to the same paths as on the Claude side.
 
 `Grep`/`Glob` are deliberately withheld on the Claude side and `grep`/`glob`
 are denied on the OpenCode side, so the reviewer cannot fall back to scanning
 the working tree when it should be reading scoped diffs or untracked files.
+Both prompts forbid `--no-index` and `--output` on `git diff` and `git log`,
+and a path outside the worktree on `git diff`: those read arbitrary files or
+write one. All of them pass the `git diff*` and `git log*` allowances, so this
+rule is prompt-level on both harnesses.
+
+The call budget is also prompt-level: 6 tool calls for a normal review, plus
+one `Read` per untracked in-scope file. On Claude Code, Bash output past
+`BASH_MAX_OUTPUT_LENGTH` (20,000 characters) is saved to a file, and each
+`Read` is capped at about 4,000 tokens by
+`CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS`; both are set in
+`dot_claude/settings-base.json`. The OpenCode twin uses the same thresholds
+under OpenCode's own output limits. The reviewer sizes the change with
+`git diff HEAD --stat` first. Above about 200 changed lines, or when the one
+`Read` of an untracked in-scope file comes back truncated or rejected, it
+switches to large-diff mode with a cap of 20 calls: whole-file
+`git diff HEAD -U0` batches of about 200 changed lines, a separate
+`git diff --cached` for files staged and then edited again (`MM`), and
+`Read` pages of about 150 lines (`offset`/`limit`) through any saved output
+or long untracked file. If either budget runs out, or a call is denied
+permission, it returns FAIL and lists the unreviewed or partly reviewed
+files so the caller can review them in a separate run. On Claude Code each
+checkout the Stop reason names gets its own budget.
 
 ## Automation coverage review
 
@@ -326,7 +370,8 @@ the same session, so verify changes to it from a fresh session.
   `.opencode/opencode.jsonc`
 - Claude gate helper (mark/snapshot/enforce/clear logic):
   `.claude/hooks/lib/review_gate.py`
-- Claude interpreter resolver (sourced by all six hooks):
+- Claude interpreter resolver (run in a child shell by all six hooks and the
+  plan-approval hook):
   `.claude/hooks/lib/resolve-python.sh`
 - Claude marker hook:
   `.claude/hooks/mark-needs-review.sh`
