@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -8,12 +9,25 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support.fixtures import isolated_environment, write_executable
+from tests.support.fixtures import isolated_environment, read_json_lines, write_fake_command
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SESSION_SCRIPT = REPO_ROOT / "configs/espanso/aoe-session-name.py"
 PAYMENT_SCRIPT = REPO_ROOT / "configs/espanso/payment-from-copyq.py"
+PINNED_COPYQ_CLI = "\n".join(
+    (
+        "import importlib.util, sys",
+        "spec = importlib.util.spec_from_file_location('payment_under_test', sys.argv[1])",
+        "module = importlib.util.module_from_spec(spec)",
+        "sys.modules[spec.name] = module",
+        "spec.loader.exec_module(module)",
+        "fake_copyq = sys.argv[2]",
+        "module.resolve_copyq_path = lambda: fake_copyq",
+        "sys.argv = [sys.argv[1], *sys.argv[3:]]",
+        "raise SystemExit(module.main())",
+    )
+)
 
 
 def load_script(name: str, path: Path):
@@ -221,6 +235,33 @@ class PaymentParsingTests(unittest.TestCase):
 
 
 class CopyQContractTests(unittest.TestCase):
+    def assert_fake_copyq_resolution(self, env: dict[str, str], fake_copyq: Path) -> None:
+        with mock.patch.dict(os.environ, env, clear=True):
+            resolved = payment.resolve_copyq_path()
+        self.assertEqual(Path(resolved).resolve(), fake_copyq.resolve())
+
+    def run_fake_copyq_cli(
+        self, env: dict[str, str], fake_copyq: Path, *args: str,
+    ) -> subprocess.CompletedProcess[str]:
+        self.assert_fake_copyq_resolution(env, fake_copyq)
+        return subprocess.run(
+            [sys.executable, "-c", PINNED_COPYQ_CLI, str(PAYMENT_SCRIPT), str(fake_copyq), *args],
+            env=env,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def test_resolution_preflight_rejects_non_fixture_copyq(self) -> None:
+        with isolated_environment(prefix="espanso-payment-preflight-") as fixture:
+            fake_copyq = write_fake_command(
+                fixture.fake_bin, "copyq", log_path=fixture.root / "copyq-calls.jsonl",
+            )
+            with mock.patch.object(payment.shutil, "which", return_value=str(PAYMENT_SCRIPT)):
+                with self.assertRaises(AssertionError):
+                    self.assert_fake_copyq_resolution(fixture.env, fake_copyq)
+
     def test_resolve_copyq_prefers_path_and_deduplicates_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             executable = Path(temp_dir) / "copyq"
@@ -269,33 +310,21 @@ class CopyQContractTests(unittest.TestCase):
 
     def test_cli_uses_fake_copyq_and_never_reads_real_clipboard(self) -> None:
         with isolated_environment(prefix="espanso-payment-") as fixture:
-            write_executable(
-                fixture.fake_bin / "copyq",
-                f"#!{sys.executable}\n"
-                "import sys\n"
-                "assert sys.argv[1:] == ['tab', 'Synthetic Tab', 'read', '0']\n"
-                f"sys.stdout.write({STANCHART_RECEIPT!r})\n",
+            log_path = fixture.root / "copyq-calls.jsonl"
+            fake_copyq = write_fake_command(
+                fixture.fake_bin, "copyq", log_path=log_path, stdout=STANCHART_RECEIPT,
             )
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(PAYMENT_SCRIPT),
-                    "--variant",
-                    "paidcc",
-                    "--bank-portal",
-                    "StanChart Internet Banking",
-                    "--copyq-tab",
-                    "Synthetic Tab",
-                ],
-                env=fixture.env,
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            result = self.run_fake_copyq_cli(
+                fixture.env, fake_copyq,
+                "--variant", "paidcc",
+                "--bank-portal", "StanChart Internet Banking",
+                "--copyq-tab", "Synthetic Tab",
             )
+            calls = read_json_lines(log_path)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SAFE-REF-123", result.stdout)
         self.assertEqual(result.stderr, "")
+        self.assertEqual([call["argv"] for call in calls], [["tab", "Synthetic Tab", "read", "0"]])
 
     def test_cli_empty_clipboard_and_subprocess_failure_are_secret_safe(self) -> None:
         empty = subprocess.run(
@@ -346,28 +375,23 @@ class CopyQContractTests(unittest.TestCase):
 
         secret = "SECRET-TOOL-DIAGNOSTIC"
         with isolated_environment(prefix="espanso-payment-error-") as fixture:
-            write_executable(
-                fixture.fake_bin / "copyq",
-                f"#!{sys.executable}\nimport sys\nsys.stderr.write({secret!r})\nraise SystemExit(7)\n",
+            log_path = fixture.root / "copyq-calls.jsonl"
+            fake_copyq = write_fake_command(
+                fixture.fake_bin, "copyq", log_path=log_path, stderr=secret, exit_code=7,
             )
-            failed = subprocess.run(
-                [
-                    sys.executable,
-                    str(PAYMENT_SCRIPT),
-                    "--variant",
-                    "paidcc",
-                    "--bank-portal",
-                    "StanChart Internet Banking",
-                ],
-                env=fixture.env,
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            failed = self.run_fake_copyq_cli(
+                fixture.env, fake_copyq,
+                "--variant", "paidcc",
+                "--bank-portal", "StanChart Internet Banking",
             )
+            calls = read_json_lines(log_path)
         self.assertEqual(failed.returncode, 0)
         self.assertIn("CopyQ failed while reading", failed.stdout)
         self.assertNotIn(secret, failed.stdout + failed.stderr)
+        self.assertTrue(calls)
+        self.assertEqual(
+            [call["argv"][-2:] for call in calls], [["read", "0"]] * len(calls),
+        )
 
 
 if __name__ == "__main__":
