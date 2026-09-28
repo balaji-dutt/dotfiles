@@ -125,6 +125,7 @@ bin/executable_opencode-notifier-bridge	chezmoi-executable,shebang
 bin/executable_opencode-plannotator-custom.tmpl	chezmoi-executable,shebang
 bin/executable_opencode-plannotator.tmpl	chezmoi-executable,shebang
 bin/executable_promptfoo	chezmoi-executable,executable-mode,shebang
+bin/executable_repo-ops	chezmoi-executable,shebang
 bin/executable_sync-devcontainer-all.sh.tmpl	chezmoi-executable,script-extension,shebang
 bin/executable_vnc_monitor.sh	chezmoi-executable,script-extension,shebang
 bin/executable_wsl-open	chezmoi-executable,shebang
@@ -406,6 +407,7 @@ tests/test_promptfoo_runtime.py	script-extension
 tests/test_remind_beads_hook.py	script-extension
 tests/test_renovate_ci_amend.py	script-extension
 tests/test_repo_opencode_plugins.py	script-extension
+tests/test_repo_ops.py	script-extension
 tests/test_resolve_python3.py	script-extension
 tests/test_retire_legacy_cbm_mise.py	script-extension
 tests/test_shell_lifecycle.py	script-extension
