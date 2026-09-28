@@ -740,8 +740,8 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
-      "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, statusline drift, and workspace override merging and remapping. Behavioral coverage for sync-plannotator-assets.py remains planned."
+      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_plannotator_sync.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
+      "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, statusline drift, workspace override merging and remapping, and Plannotator check/write, failure, path and partial-write behavior with mocked remote responses. Other sync-tooling gaps remain planned."
     },
     {
       "id": "test-foundation",
