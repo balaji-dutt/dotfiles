@@ -10,7 +10,7 @@ Every blocking assertion checks *which class* of block was emitted, via the
 that reclassifies a Beads tooling failure as staleness (or the reverse) is a
 test failure, not a wording change.
 
-Run: python3 tests/test_remind_beads_hook.py
+Run: python3 -m unittest tests.test_remind_beads_hook
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ import tempfile
 import textwrap
 import time
 import unittest
+
+from tests.support.fixtures import BROKEN_RESOLVERS
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".claude/hooks/remind-beads-on-plan-approval.sh"
@@ -268,8 +270,8 @@ class UnverifiedTests(GateTestCase):
         shutil.copytree(ROOT / ".claude/hooks", link)
         resolver = link / "lib/resolve-python.sh"
         self.write_state_for()
-        for body in ("if then\n", "x=$UNSET_VAR\n", "exit 0\n", ":\n"):
-            with self.subTest(resolver=body):
+        for label, body in BROKEN_RESOLVERS.items():
+            with self.subTest(resolver=label):
                 resolver.write_bytes(body.encode("utf-8"))
                 reason = self.assert_block(self.run_hook(), "unverified")
                 self.assertIn("resolver failed to load", reason)

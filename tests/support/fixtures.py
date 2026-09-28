@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Iterator
 
 
+BROKEN_RESOLVERS = {
+    "syntax error": "if then\n",
+    "set -u": "x=$UNSET_VAR\n",
+    "exit": "exit 0\n",
+    "no function": ":\n",
+}
+
+
 @dataclass(frozen=True)
 class IsolatedEnvironment:
     root: Path

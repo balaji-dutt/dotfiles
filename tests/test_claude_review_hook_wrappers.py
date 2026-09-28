@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 
-from tests.support.fixtures import init_git_repository, isolated_environment, run_git
+from tests.support.fixtures import BROKEN_RESOLVERS, init_git_repository, isolated_environment, run_git
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,12 +52,10 @@ def resolve_hook_bash() -> str | None:
 
 
 BASH = resolve_hook_bash()
-BROKEN_RESOLVERS = {
-    "syntax error": "if then\n",
-    "set -u": "x=$UNSET_VAR\n",
-    "exit": "exit 0\n",
-    "no function": ":\n",
-}
+
+
+def resolver_hooks() -> list[Path]:
+    return [hook for hook in sorted(HOOKS.glob("*.sh")) if "resolve-python.sh" in hook.read_text(encoding="utf-8")]
 
 
 def hook_shells() -> list[str]:
@@ -504,12 +502,16 @@ class ReviewHookWrapperTests(unittest.TestCase):
         env = self.env.copy()
         env["PATH"] = os.pathsep.join((str(self.isolated.fake_bin), str(Path(git).parent)))
         init_git_repository(self.repo, env=env)
-        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_bytes(b"x=$UNSET_VAR\n")
-        run_git(self.repo, "add", ".claude/hooks", env=env)
-        run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
-        post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
-        self.assertEqual(post.returncode, 0, post.stderr)
-        self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+        legacy = self.repo / ".claude/.needs_dotfiles_review"
+        for label, body in BROKEN_RESOLVERS.items():
+            with self.subTest(resolver=label):
+                (self.repo / ".claude/hooks/lib/resolve-python.sh").write_bytes(body.encode("utf-8"))
+                run_git(self.repo, "add", ".claude/hooks", env=env)
+                run_git(self.repo, "commit", "-q", "-m", f"hooks: {label}", env=env)
+                legacy.unlink(missing_ok=True)
+                post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+                self.assertEqual(post.returncode, 0, post.stderr)
+                self.assertEqual(legacy.read_text(encoding="utf-8"), "1234567890\n")
 
     def test_committed_no_function_resolver_requires_guard(self) -> None:
         env = self.committed_hooks_without_python()
@@ -532,13 +534,27 @@ class ReviewHookWrapperTests(unittest.TestCase):
 
     def test_no_hook_sources_the_resolver_in_process(self) -> None:
         in_process = re.compile(r'(?:^|\s)(?:\.|source)\s+"?\$\{?RESOLVER\b', re.MULTILINE)
-        hooks = [hook for hook in sorted(HOOKS.glob("*.sh")) if "resolve-python.sh" in hook.read_text(encoding="utf-8")]
+        hooks = resolver_hooks()
         self.assertEqual(len(hooks), 7)
         for hook in hooks:
             with self.subTest(hook=hook.name):
                 text = hook.read_text(encoding="utf-8")
                 self.assertNotRegex(text, in_process)
                 self.assertIn('"$BASH" -euo pipefail -c', text)
+
+    def test_every_hook_inlines_the_same_resolver_snippet(self) -> None:
+        snippet = re.compile(r"^ *# shellcheck disable=SC2016 .*?^ *fi$", re.MULTILINE | re.DOTALL)
+        hooks = resolver_hooks()
+        self.assertEqual(len(hooks), 7)
+        snippets = {}
+        for hook in hooks:
+            with self.subTest(hook=hook.name):
+                found = snippet.findall(hook.read_text(encoding="utf-8"))
+                self.assertEqual(len(found), 1)
+                snippets[hook.name] = found[0]
+        common = max(snippets.values(), key=list(snippets.values()).count)
+        self.assertIn("declare -F resolve_python", common)
+        self.assertEqual(sorted(name for name, text in snippets.items() if text != common), [])
 
     def test_settings_wire_bash_hooks(self) -> None:
         hooks = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]

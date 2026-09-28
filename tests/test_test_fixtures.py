@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.support.fixtures import (
+    BROKEN_RESOLVERS,
     append_json_line,
     init_git_repository,
     isolated_environment,
@@ -115,6 +116,9 @@ class TestFixtureTests(unittest.TestCase):
             run_git(repo, "commit", "-m", "fixture", env=fixture.env)
             self.assertEqual(run_git(repo, "log", "-1", "--format=%an", env=fixture.env).stdout.strip(), "Test User")
             self.assertEqual(run_git(repo, "status", "--short", env=fixture.env).stdout, "")
+
+    def test_broken_resolvers_include_one_that_defines_no_function(self) -> None:
+        self.assertIn(":\n", BROKEN_RESOLVERS.values())
 
     def test_loopback_listener_uses_ephemeral_local_port_and_closes(self) -> None:
         with loopback_listener() as listener:
