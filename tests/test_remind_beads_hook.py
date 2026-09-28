@@ -112,7 +112,8 @@ class GateTestCase(unittest.TestCase):
         body += "exit %d\n" % code
         write_executable(self.bin_dir / "bd", body)
 
-    def env(self, *, with_bd: bool = True, timeout: str | None = None) -> dict:
+    def env(self, *, with_bd: bool = True, timeout: str | None = None,
+            project_dir: Path | None = None) -> dict:
         env = dict(os.environ)
         env.pop("CLAUDE_BEADS_GATE_TIMEOUT", None)
         # A minimal PATH keeps a real `bd` from leaking in from the developer's
@@ -130,7 +131,7 @@ class GateTestCase(unittest.TestCase):
             # real bd instead. Skip rather than assert something untrue.
             self.skipTest("a real bd is on the minimal PATH")
         env["BD_CALL_LOG"] = str(self.call_log)
-        env["CLAUDE_PROJECT_DIR"] = str(self.repo)
+        env["CLAUDE_PROJECT_DIR"] = str(project_dir or self.repo)
         if timeout is not None:
             env["CLAUDE_BEADS_GATE_TIMEOUT"] = timeout
         return env
@@ -262,6 +263,16 @@ class UnverifiedTests(GateTestCase):
         self.write_state_for()
         reason = self.assert_block(self.run_hook(with_bd=False), "unverified")
         self.assertIn("bd", reason)
+
+    def test_missing_project_dir_blocks_and_names_the_dir(self) -> None:
+        missing = self.temp / 'missing "dir" \\ here'
+        result = self.run_hook(project_dir=missing)
+        reason = self.assert_block(result, "unverified")
+        self.assertIn(str(missing), reason)
+        self.assertIn("cannot enter the project directory", reason)
+        self.assertIn(str(missing), result.stderr)
+        self.assertFalse(missing.exists())
+        self.assertEqual(self.bd_calls(), [])
 
     def test_aborting_resolver_still_blocks_and_names_the_resolver(self) -> None:
         # Copy first: the fixture's symlink points at the real resolver.

@@ -205,6 +205,12 @@ shared logic lives in `.claude/hooks/lib/review_gate.py`.
   broken by the edit under review, takes each hook's conservative branch.
   The markers write the legacy mark, and Stop blocks rather than erroring
   open.
+- A hook that cannot `cd` into the project directory cannot reach its gate
+  files. The markers exit 2 with a stderr line, which Claude sees, saying
+  the change was not marked for review. Stop blocks with a reason that
+  names the directory and the `CLAUDE_ENFORCE_REVIEW` escape hatch, and the
+  plan-approval hook blocks as unverified. The Bash Pre hook and the
+  SubagentStart and SubagentStop hooks exit 0, so they never block.
 - `record-reviewer-start.sh` (SubagentStart) writes
   `.claude/.dotfiles_review_inflight.<session_id>.<agent_id>` (gitignored)
   holding the start time, only when `agent_type` is the configured

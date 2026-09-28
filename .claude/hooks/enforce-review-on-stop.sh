@@ -20,7 +20,16 @@ if [[ "$PROJECT_DIR" =~ ^[A-Za-z]:\\ ]] && command -v cygpath >/dev/null 2>&1; t
   PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
 fi
 
-cd "$PROJECT_DIR"
+if ! cd "$PROJECT_DIR"; then
+  dir="${PROJECT_DIR//\\/\\\\}"
+  dir="${dir//\"/\\\"}"
+  dir="${dir//$'\t'/\\t}"
+  dir="${dir//$'\r'/}"
+  dir="${dir//$'\n'/\\n}"
+  printf '{\n  "decision": "block",\n  "reason": "%s"\n}\n' \
+    "Dotfiles review gate could not be checked: cannot enter the project directory ${dir}.\n\nRestore access to that directory, or set CLAUDE_ENFORCE_REVIEW=0 to stop without the check.\n"
+  exit 0
+fi
 
 HELPER=".claude/hooks/lib/review_gate.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"

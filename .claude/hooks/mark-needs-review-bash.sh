@@ -19,7 +19,10 @@ if [[ "$PROJECT_DIR" =~ ^[A-Za-z]:\\ ]] && command -v cygpath >/dev/null 2>&1; t
   PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
 fi
 
-cd "$PROJECT_DIR"
+if ! cd "$PROJECT_DIR"; then
+  printf '%s\n' "mark-needs-review-bash: cannot enter project dir $PROJECT_DIR; this change was not marked for review" >&2
+  exit 2
+fi
 
 HELPER=".claude/hooks/lib/review_gate.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"

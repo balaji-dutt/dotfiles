@@ -577,6 +577,42 @@ class ReviewHookWrapperTests(unittest.TestCase):
             [('bash "$CLAUDE_PROJECT_DIR/.claude/hooks/mark-needs-review.sh"', None)],
         )
 
+    def test_hooks_handle_a_missing_project_dir(self) -> None:
+        self.install_fallback_commands()
+        self.fake_python("python3", probe=0)
+        missing = self.isolated.root / 'missing "dir" \\ here'
+        env = self.env.copy()
+        env["CLAUDE_PROJECT_DIR"] = str(missing)
+        edit = {"cwd": str(self.repo), "session_id": "s", "tool_input": {"file_path": str(self.repo / "a.txt")}}
+        subagent = {"session_id": "s", "agent_id": "a1", "agent_type": "dotfiles-reviewer"}
+        for shell in hook_shells():
+            for name, payload in (("mark-needs-review.sh", edit), ("mark-needs-review-bash.sh", self.bash_payload("t1"))):
+                with self.subTest(shell=shell, hook=name):
+                    result = self.run_hook(name, payload, env=env, shell=shell)
+                    self.assertEqual((result.returncode, result.stdout), (2, ""), result.stderr)
+                    self.assertIn("was not marked for review", result.stderr)
+                    self.assertIn(str(missing), result.stderr)
+            with self.subTest(shell=shell, hook="enforce-review-on-stop.sh"):
+                result = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, env=env, shell=shell)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                decoded = json.loads(result.stdout)
+                self.assertEqual(decoded["decision"], "block")
+                self.assertIn(str(missing), decoded["reason"])
+                self.assertIn("CLAUDE_ENFORCE_REVIEW=0", decoded["reason"])
+            with self.subTest(shell=shell, hook="enforce-review-on-stop.sh", escape_hatch=True):
+                result = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, env={**env, "CLAUDE_ENFORCE_REVIEW": "0"}, shell=shell)
+                self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+            for name, payload in (
+                ("snapshot-before-bash.sh", self.bash_payload("t1")),
+                ("record-reviewer-start.sh", subagent),
+                ("clear-needs-review-on-pass.sh", subagent),
+            ):
+                with self.subTest(shell=shell, hook=name):
+                    result = self.run_hook(name, payload, env=env, shell=shell)
+                    self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+        self.assertEqual(list((self.repo / ".claude").glob(".needs_dotfiles_review*")), [])
+        self.assertFalse(missing.exists())
+
     def test_subagent_hooks_without_project_context_exit_harmlessly(self) -> None:
         env = self.env.copy()
         env.pop("CLAUDE_PROJECT_DIR")

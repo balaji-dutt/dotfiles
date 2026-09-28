@@ -22,7 +22,7 @@ if [[ "$PROJECT_DIR" =~ ^[A-Za-z]:\\ ]] && command -v cygpath >/dev/null 2>&1; t
   PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
 fi
 
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 0
 
 HELPER=".claude/hooks/lib/review_gate.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"

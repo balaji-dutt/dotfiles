@@ -26,16 +26,56 @@ fi
 if [[ "$PROJECT_DIR" =~ ^[A-Za-z]:\\ ]] && command -v cygpath >/dev/null 2>&1; then
   PROJECT_DIR="$(cygpath -u "$PROJECT_DIR")"
 fi
-cd "$PROJECT_DIR"
+STATE_FILE=".beads/in-progress-claude.json"
+PY_CMD=()
+
+HANDOFF="Ask once: (1) create a new Beads issue from this plan [default], (2) attach to an existing issue (collect ID), or (3) skip Beads for this session.
+
+If create/attach: delegate to the beads-issue-author subagent with the EXACT ExitPlanMode plan file path (~/.claude/plans/<slug>.md, or ~/.plannotator/plans/<slug>-YYYY-MM-DD-approved.md under claude-plannotator). For a backlog-only plan, route to beads-backlog-manager instead (see the disambiguation rules).
+
+Reply 'skip' to proceed without a Bead."
+
+# Emit the block payload. The body always carries quotes and newlines, and on
+# the Python path REASON is helper output that can add backslashes too, so the
+# reason is encoded rather than interpolated raw.
+emit_block() {
+  if [[ ${#PY_CMD[@]} -gt 0 ]]; then
+    BEADS_GATE_BODY="$1" "${PY_CMD[@]}" -c 'import json, os, sys
+sys.stdout.write(json.dumps(
+    {"decision": "block", "reason": os.environ["BEADS_GATE_BODY"]},
+    indent=2,
+) + "\n")'
+  else
+    # Hand-rolled JSON string escape: backslash first, then quote, then fold
+    # real newlines to \n. Order matters — escaping backslashes last would
+    # double-escape the ones introduced by the earlier steps. The fixed bodies
+    # never carry other control bytes (\b, \f, ...); a project path that does
+    # yields invalid JSON.
+    esc="${1//\\/\\\\}"
+    esc="${esc//\"/\\\"}"
+    esc="${esc//$'\t'/\\t}"
+    esc="${esc//$'\r'/}"
+    esc="${esc//$'\n'/\\n}"
+    printf '{\n  "decision": "block",\n  "reason": "%s"\n}\n' "$esc"
+  fi
+}
+
+if ! cd "$PROJECT_DIR"; then
+  printf 'remind-beads-on-plan-approval: cannot enter project dir %s\n' "$PROJECT_DIR" >&2
+  emit_block "[BEADS_GATE: unverified] Approved plan, but the Beads plan gate cannot enter the project directory (${PROJECT_DIR}), so it cannot tell whether this repo uses Beads or whether ${STATE_FILE} names a live issue. Surface this to the user before the first edit.
+
+If the user chooses to proceed regardless, complete the Beads plan handoff in .claude/CLAUDE.md.
+
+${HANDOFF}"
+  exit 0
+fi
 
 # Only act in Beads-enabled repos.
 [[ -f ".beads/metadata.json" ]] || exit 0
 
-STATE_FILE=".beads/in-progress-claude.json"
 HELPER=".claude/hooks/lib/beads_state.py"
 RESOLVER=".claude/hooks/lib/resolve-python.sh"
 
-PY_CMD=()
 py_rc=91
 if [[ -f "$RESOLVER" ]]; then
   # A child shell keeps a resolver that fails to parse, trips set -u, or exits from ending this hook.
@@ -86,12 +126,6 @@ if [[ -f "$STATE_FILE" ]]; then
   fi
 fi
 
-HANDOFF="Ask once: (1) create a new Beads issue from this plan [default], (2) attach to an existing issue (collect ID), or (3) skip Beads for this session.
-
-If create/attach: delegate to the beads-issue-author subagent with the EXACT ExitPlanMode plan file path (~/.claude/plans/<slug>.md, or ~/.plannotator/plans/<slug>-YYYY-MM-DD-approved.md under claude-plannotator). For a backlog-only plan, route to beads-backlog-manager instead (see the disambiguation rules).
-
-Reply 'skip' to proceed without a Bead."
-
 case "$VERDICT" in
   stale)
     BODY="[BEADS_GATE: stale] Approved plan in a Beads-enabled repo. ${STATE_FILE} is STALE — ${REASON} — so it does not represent live work and cannot stand in for the Beads plan handoff in .claude/CLAUDE.md.
@@ -119,27 +153,5 @@ ${HANDOFF}"
     ;;
 esac
 
-# Emit the block payload. BODY always carries quotes and newlines, and on the
-# Python path REASON is helper output that can add backslashes too, so the
-# reason is encoded rather than interpolated raw.
-if [[ ${#PY_CMD[@]} -gt 0 ]]; then
-  BEADS_GATE_BODY="$BODY" "${PY_CMD[@]}" -c 'import json, os, sys
-sys.stdout.write(json.dumps(
-    {"decision": "block", "reason": os.environ["BEADS_GATE_BODY"]},
-    indent=2,
-) + "\n")'
-else
-  # Hand-rolled JSON string escape: backslash first, then quote, then fold
-  # real newlines to \n. Order matters — escaping backslashes last would
-  # double-escape the ones introduced by the earlier steps. Only the three
-  # fixed no-Python bodies reach here (absent, helper-missing, no-Python),
-  # all backslash-free, so the remaining C0 escapes (\b, \f) cannot occur.
-  esc="${BODY//\\/\\\\}"
-  esc="${esc//\"/\\\"}"
-  esc="${esc//$'\t'/\\t}"
-  esc="${esc//$'\r'/}"
-  esc="${esc//$'\n'/\\n}"
-  printf '{\n  "decision": "block",\n  "reason": "%s"\n}\n' "$esc"
-fi
-
+emit_block "$BODY"
 exit 0
