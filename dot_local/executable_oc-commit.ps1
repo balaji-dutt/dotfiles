@@ -71,7 +71,7 @@ function Test-Role([string]$Value) {
 
 function Test-SourceDefinition([string]$Value) {
     return $null -ne $Value -and $Value.Length -ge 1 -and $Value.Length -le 512 -and
-        $Value -cmatch '\A[A-Za-z0-9][A-Za-z0-9._@+\-]*(/[A-Za-z0-9][A-Za-z0-9._@+\-]*)*\z'
+        $Value -cmatch '\A(\.opencode/)?[A-Za-z0-9][A-Za-z0-9._@+\-]*(/[A-Za-z0-9][A-Za-z0-9._@+\-]*)*\z'
 }
 
 function Test-SourceDigest([string]$Value) {
@@ -190,7 +190,7 @@ def role:
   test("\\A[a-z0-9][a-z0-9-]*\\z");
 def source_definition:
   type == "string" and length >= 1 and length <= 512 and
-  test("\\A[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*\\z");
+  test("\\A(\\.opencode/)?[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*\\z");
 def source_digest:
   type == "string" and test("\\Asha256:[0-9a-f]{64}\\z");
 def optional_identifier($value): if ($value | identifier) then $value else "" end;

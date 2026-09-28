@@ -589,7 +589,7 @@
     {
       "id": "managed-ai-attestation",
       "classification": "owned",
-      "paths": ["dot_claude/skills/agent-attestation/lib/**", "dot_claude/skills/agent-attestation/scripts/**", "private_dot_config/opencode/attestation/collector.mjs", "private_dot_config/opencode/attestation/diagnostics.mjs", "private_dot_config/opencode/attestation/sources.mjs", "private_dot_config/opencode/plugins/opencode-agent-attestation.js"],
+      "paths": ["dot_claude/skills/agent-attestation/lib/**", "dot_claude/skills/agent-attestation/scripts/**", "private_dot_config/opencode/attestation/approvals.mjs", "private_dot_config/opencode/attestation/collector.mjs", "private_dot_config/opencode/attestation/diagnostics.mjs", "private_dot_config/opencode/attestation/sources.mjs", "private_dot_config/opencode/plugins/opencode-agent-attestation.js"],
       "owner": {"kind": "repository", "name": "agent attestation producers"},
       "languages": ["javascript"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -603,6 +603,7 @@
         "test_paths": ["tests/test_agent_attestation.py"],
         "behavior_requirements": [
           {"id": "failure-malformed-and-bounded-state", "kind": "failure", "description": "Bound malformed transcripts, pagination and sharing failures without blocking commits.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]},
+          {"id": "safety-approval-selection", "kind": "safety", "description": "Require an observed approved Plan call, runtime model, explicit issue selection and matching worktree and branch before emitting a cross-session planner.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]},
           {"id": "safety-session-and-source-evidence", "kind": "safety", "description": "Keep session trees and explicit payloads isolated, omit unverified source fields and persist metadata only.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]},
           {"id": "success-live-harness-provenance", "kind": "success", "description": "Live WSL and native Windows plugin/delegate verification is manual, not automated coverage; Claude source-pair emission is explicitly deferred.", "status": "planned", "test_paths": []},
           {"id": "success-native-wrapper-handoff", "kind": "success", "description": "Feed runtime provenance through real POSIX and native PowerShell wrappers with exit and environment preservation.", "status": "covered", "test_paths": ["tests/test_agent_attestation.py"]}

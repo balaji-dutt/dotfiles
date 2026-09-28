@@ -2,6 +2,7 @@ import { handoff } from './shared/records.mjs';
 import { Ledger } from './shared/storage.mjs';
 import { recognize } from './shared/commands.mjs';
 import { createDiagnostics } from './diagnostics.mjs';
+import { approvalStore } from './approvals.mjs';
 
 const housekeeping = new Set(['title', 'summary', 'compaction']);
 const callKey = input => JSON.stringify([input.sessionID, input.callID]);
@@ -22,6 +23,7 @@ export function createCollector({ client, directory, worktree }, {
 } = {}) {
   const pending = new Map();
   const snapshots = new Map();
+  const approvals = approvalStore({ client, directory, worktree }, { root, env, warn });
   const safe = fn => async (...args) => {
     try { return await fn(...args); } catch { warn('collection-unavailable'); }
   };
@@ -100,21 +102,26 @@ export function createCollector({ client, directory, worktree }, {
         return;
       }
       if (pending.size >= 128) pending.delete(pending.keys().next().value);
-      pending.set(callKey(input), Date.now());
+      pending.set(callKey(input), { started: Date.now(), command });
     }),
     'shell.env': safe(async (input, output) => {
-      const started = pending.get(callKey(input));
+      const pendingCall = pending.get(callKey(input));
       pending.delete(callKey(input));
-      if (!started || Date.now() - started > 600000) return;
+      if (!pendingCall || Date.now() - pendingCall.started > 600000) return;
       if (Object.hasOwn(env, 'AI_ATTESTATION_JSON') || Object.hasOwn(output.env, 'AI_ATTESTATION_JSON')) return;
       const session = await rootSession(input.sessionID);
       const ledger = new Ledger('opencode', session, worktree || directory, { root, warn });
       try { await reconcile(session, ledger); } catch { warn('history-unavailable'); }
       const records = await ledger.records();
       if (records.some(record => !record.sourceDefinition)) warn('source-evidence-unavailable');
+      const planner = await approvals.selected(pendingCall.command);
+      if (planner) records.unshift(planner);
       output.env.AI_ATTESTATION_JSON = handoff(records, 'opencode', warn);
     }),
-    'tool.execute.after': async input => { pending.delete(callKey(input)); },
+    'tool.execute.after': safe(async (input, output) => {
+      pending.delete(callKey(input));
+      await approvals.approved(input, output);
+    }),
     dispose: async () => { pending.clear(); snapshots.clear(); },
   };
 }

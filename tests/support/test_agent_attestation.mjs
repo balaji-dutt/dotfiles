@@ -12,7 +12,8 @@ import { sourceSnapshot, relativeSource } from '../../dot_claude/skills/agent-at
 import { response, reconcileTranscript } from '../../dot_claude/skills/agent-attestation/lib/transcript.mjs';
 import { handleHook } from '../../dot_claude/skills/agent-attestation/lib/collector.mjs';
 import { createCollector, responseRecord } from '../../private_dot_config/opencode/attestation/collector.mjs';
-import { sourceResolver, parseJsonc } from '../../private_dot_config/opencode/attestation/sources.mjs';
+import { approvalStore } from '../../private_dot_config/opencode/attestation/approvals.mjs';
+import { sourceResolver, parseJsonc, markdownBody } from '../../private_dot_config/opencode/attestation/sources.mjs';
 import { createDiagnostics } from '../../private_dot_config/opencode/attestation/diagnostics.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -243,6 +244,41 @@ test('OpenCode file expansion trims boundaries but source digests retain every b
   });
 });
 
+test('OpenCode Markdown agents resolve project source and managed global definitions', async t => {
+  const root = await temporary(t), project = path.join(root, 'project'), config = path.join(root, 'global');
+  const projectAgent = path.join(project, '.opencode', 'agents', 'local.md');
+  const globalAgent = path.join(config, 'agents', 'beads-issue-author.md');
+  const sourceAgent = path.join(root, 'source', 'private_dot_config', 'opencode', 'agents', 'beads-issue-author.md');
+  await fs.mkdir(path.dirname(projectAgent), { recursive: true });
+  await fs.mkdir(path.dirname(globalAgent), { recursive: true });
+  await fs.mkdir(path.dirname(sourceAgent), { recursive: true });
+  const local = Buffer.from('---\r\ndescription: reviewer\r\n---\r\nLocal\r\nline\r\n');
+  const global = Buffer.from('---\ndescription: issue author\n---\nBeads\n');
+  await fs.writeFile(projectAgent, local);
+  await fs.writeFile(globalAgent, global);
+  await fs.writeFile(sourceAgent, global);
+  assert.equal(markdownBody(local.toString()), 'Local\r\nline');
+  assert.equal(markdownBody('---\nname: override\n---\nPrompt'), undefined);
+  let effective = { local: 'Local\r\nline', 'beads-issue-author': 'Beads' };
+  const resolver = sourceResolver({ directory: project, worktree: project, client: { app: { agents: async () => ({ data: Object.entries(effective).map(([name, prompt]) => ({ name, prompt })) }) } } }, {
+    configDirectory: config, env: {}, execute: async (_exe, args) => args.length === 1 ? path.join(root, 'source') : sourceAgent,
+  });
+  const loaded = { agent: { local: { prompt: effective.local }, 'beads-issue-author': { prompt: effective['beads-issue-author'] } } };
+  await resolver.config(loaded);
+  assert.deepEqual(await resolver.source({ agent: 'local' }), { sourceDefinition: '.opencode/agents/local.md', sourceDigest: digest(local) });
+  assert.deepEqual(await resolver.source({ agent: 'beads-issue-author' }), { sourceDefinition: 'private_dot_config/opencode/agents/beads-issue-author.md', sourceDigest: digest(global) });
+  effective.local = 'modified';
+  assert.deepEqual(await resolver.source({ agent: 'local' }), {});
+  effective.local = loaded.agent.local.prompt;
+  await fs.mkdir(path.join(project, '.opencode', 'agent'));
+  await fs.writeFile(path.join(project, '.opencode', 'agent', 'local.md'), local);
+  await resolver.config(loaded);
+  assert.deepEqual(await resolver.source({ agent: 'local' }), {});
+  await fs.writeFile(path.join(project, 'opencode.json'), JSON.stringify({ agent: { 'beads-issue-author': { prompt: 'Beads' } } }));
+  await resolver.config(loaded);
+  assert.deepEqual(await resolver.source({ agent: 'beads-issue-author' }), {});
+});
+
 const claudeRecord = (id, model = 'claude-observed', agentId) => ({
   type: 'assistant', sessionId: 'session', uuid: id, agentId, isSidechain: Boolean(agentId), timestamp: '2026-09-20T12:00:00Z',
   message: { id, role: 'assistant', model, content: [{ type: 'text', text: 'PRIVATE RESPONSE' }] },
@@ -357,6 +393,66 @@ test('OpenCode excludes synthetic and housekeeping responses', () => {
   assert.equal(responseRecord(ocInfo()).model, 'provider/runtime');
 });
 
+test('approved Plan participation requires a uniquely observed tool call and explicit selection', async t => {
+  const root = await temporary(t), repo = path.join(root, 'repo'), storage = path.join(root, 'state');
+  await fs.mkdir(repo);
+  let branch = 'feature';
+  const env = { AI_ATTESTATION_PLAN_ISSUE: 'dots-jmh.2' };
+  let messages = [{ info: { id: 'assistant', sessionID: 'planning', role: 'assistant', agent: 'plan', providerID: 'provider', modelID: 'actual' },
+    parts: [{ type: 'tool', tool: 'submit_plan', callID: 'approval' }] }];
+  const client = { session: { messages: async () => ({ data: messages }) } };
+  const options = { root: storage, env, warn: quiet,
+    execute: async (_tool, args) => args.includes('--show-toplevel') ? repo : branch };
+  const store = approvalStore({ client, directory: repo, worktree: repo }, options);
+  const input = { tool: 'submit_plan', sessionID: 'planning', callID: 'approval' };
+  await store.approved(input, { output: 'YOUR PLAN WAS NOT APPROVED' });
+  assert.deepEqual(await fs.readdir(storage).catch(() => []), []);
+  messages = [...messages, messages[0]];
+  await store.approved(input, { output: 'Plan approved!' });
+  assert.deepEqual(await fs.readdir(storage).catch(() => []), []);
+  messages = messages.slice(0, 1);
+  await store.approved(input, { output: 'Plan approved with notes!\nProceed with implementation' });
+  const files = await fs.readdir(path.join(storage, 'opencode', 'approvals'));
+  assert.equal(files.length, 1);
+  env.AI_ATTESTATION_PLAN_RECEIPT = path.basename(files[0], '.json');
+  const command = "oc-commit -m 'change' -m 'Refs: dots-jmh.2'";
+  assert.deepEqual(await store.selected(command), { tool: 'opencode', agent: 'plan', role: 'planner', model: 'provider/actual' });
+  assert.equal(await store.selected("oc-commit -m 'Refs: dots-jmh.3'"), undefined);
+  assert.equal(await store.selected("oc-commit -m 'Refs: dots-jmh.20'"), undefined);
+  branch = 'other';
+  assert.equal(await store.selected(command), undefined);
+  branch = 'feature';
+  const alternate = approvalStore({ client, directory: repo, worktree: path.join(root, 'another') }, options);
+  assert.equal(await alternate.selected(command), undefined);
+  delete env.AI_ATTESTATION_PLAN_RECEIPT;
+  assert.equal(await store.selected(command), undefined);
+});
+
+test('OpenCode commit handoff includes selected approved Plan from another session', async t => {
+  const root = await temporary(t), repo = path.join(root, 'repo'), storage = path.join(root, 'state');
+  checked('git', ['init', '-q', repo]);
+  checked('git', ['symbolic-ref', 'HEAD', 'refs/heads/feature'], { cwd: repo });
+  const planner = { info: { id: 'plan-message', sessionID: 'planning', role: 'assistant', agent: 'plan', providerID: 'provider', modelID: 'observed' },
+    parts: [{ type: 'tool', tool: 'submit_plan', callID: 'approved-call' }] };
+  const client = fakeClient([ocInfo()]);
+  const messages = client.session.messages;
+  client.session.messages = async input => input.path.id === 'planning' ? { data: [planner] } : messages(input);
+  const env = { AI_ATTESTATION_PLAN_ISSUE: 'dots-jmh.2' };
+  const hooks = createCollector({ client, directory: repo, worktree: repo }, { root: storage, env, warn: quiet });
+  await hooks['tool.execute.after']({ tool: 'submit_plan', sessionID: 'planning', callID: 'approved-call' }, { output: 'Plan approved!' });
+  const files = await fs.readdir(path.join(storage, 'opencode', 'approvals'));
+  env.AI_ATTESTATION_PLAN_RECEIPT = path.basename(files[0], '.json');
+  const input = { tool: 'bash', sessionID: 'root', callID: 'commit' };
+  await hooks['tool.execute.before'](input, { args: { command: windows ? "oc-commit.ps1 -m 'Refs: dots-jmh.2'" : "oc-commit -m 'Refs: dots-jmh.2'" } });
+  const output = { env: {} };
+  await hooks['shell.env'](input, output);
+  assert.deepEqual(JSON.parse(output.env.AI_ATTESTATION_JSON).participants, [
+    { tool: 'opencode', agent: 'plan', role: 'planner', model: 'provider/observed' },
+    { tool: 'opencode', agent: 'build', model: 'provider/runtime' },
+  ]);
+  await hooks.dispose();
+});
+
 test('OpenCode per-call environment uses output.args and isolates calls, retries and session trees', async t => {
   const root = await temporary(t);
   const hooks = createCollector({ client: fakeClient([ocInfo(), { ...ocInfo('child', 'child-model', 'msg2'), agent: 'reviewer' }]), directory: root, worktree: root }, { root, warn: quiet, env: {} });
@@ -417,6 +513,15 @@ test('actual commit wrappers consume invocation-local provenance and preserve fa
     assert.ok(trailers.includes('Source-Definition: agents/test.yaml'));
     assert.ok(trailers.includes(`Source-Digest: ${record.sourceDigest}`));
     assert.ok(message.includes('Second line; $literal'));
+    if (tool === 'oc') {
+      const planner = { tool: 'opencode', agent: 'plan', role: 'planner', model: 'provider/observed' };
+      const local = { ...record, agent: 'local-reviewer', sourceDefinition: '.opencode/agents/local-reviewer.md' };
+      checked(executable, [...args, inject(`${windows ? '& ' : ''}${quote(wrapper)} --allow-empty -m 'Cross-session'`, handoff([planner, record, local], 'opencode'), shell)], { cwd: repo });
+      const planned = checked('git', ['log', '-1', '--format=%B'], { cwd: repo });
+      assert.match(planned, /AI-Participant: tool=opencode; agent=plan; role=planner; model=provider\/observed\nAI-Participant: tool=opencode; agent=test-agent/);
+      assert.ok(planned.includes('Source-Definition: .opencode/agents/local-reviewer.md'));
+      assert.equal((planned.match(/Source-Definition:/g) ?? []).length, 2);
+    }
     const failed = execute(executable, [...args, inject(`${windows ? '& ' : ''}${quote(wrapper)} -m empty`, json, shell)], { cwd: repo });
     assert.notEqual(failed.status, 0, failed.stdout);
   }

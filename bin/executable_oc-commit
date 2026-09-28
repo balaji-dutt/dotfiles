@@ -50,7 +50,7 @@ if [[ -n "$payload" ]] && command -v jq >/dev/null 2>&1; then
     test("\\A[a-z0-9][a-z0-9-]*\\z");
   def source_definition:
     type == "string" and length >= 1 and length <= 512 and
-    test("\\A[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*\\z");
+    test("\\A(\\.opencode/)?[A-Za-z0-9][A-Za-z0-9._@+-]*(/[A-Za-z0-9][A-Za-z0-9._@+-]*)*\\z");
   def source_digest:
     type == "string" and test("\\Asha256:[0-9a-f]{64}\\z");
   def optional_identifier($value): if ($value | identifier) then $value else "" end;

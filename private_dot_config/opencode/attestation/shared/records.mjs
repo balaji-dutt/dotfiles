@@ -7,7 +7,7 @@ const role = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export function portable(value) {
   return typeof value === 'string' && value.length <= 512 &&
-    /^[A-Za-z0-9][A-Za-z0-9._@+-]*(?:\/[A-Za-z0-9][A-Za-z0-9._@+-]*)*$/.test(value);
+    /^(?:\.opencode\/)?[A-Za-z0-9][A-Za-z0-9._@+-]*(?:\/[A-Za-z0-9][A-Za-z0-9._@+-]*)*$/.test(value);
 }
 
 export function participant(input) {

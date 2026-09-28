@@ -117,7 +117,9 @@ the complete runtime prompt stack.
 ### Hand-authored agents
 
 For a hand-authored definition, emit its slash-normalized path relative to the
-owning dotfiles source root. Hash the exact bytes of that referenced file.
+owning source root (the dotfiles source for managed global agents, or the Git
+worktree for project-local `.opencode/agent(s)/*.md`). Hash the exact bytes of
+that referenced file.
 Equivalent commands include:
 
 ```sh
@@ -257,27 +259,62 @@ for direct wrapper calls; run `git status` and `git log` in separate calls.
 
 ### Evidence and limits
 
-Records describe cumulative observed participation in one harness session and
-its explicitly linked descendants, not proof of contribution to each committed
-diff. Runtime responses supply models; selected defaults and launch-only or
-synthetic messages do not. OpenCode excludes its housekeeping agents. A model
-switch can produce another participant record. Unknown agent names and roles
-are omitted. Complete identical records are deduplicated, and only the first
-eight distinct records are emitted; overflow produces a partial diagnostic.
+Records normally describe cumulative observed participation in one harness
+session and its explicitly linked descendants, not proof of contribution to
+each committed diff. Runtime responses supply models; selected defaults,
+launch-only and synthetic messages do not. OpenCode excludes its housekeeping
+agents. A model switch can produce another participant record. Unknown agent
+names and roles are omitted. Complete identical records are deduplicated, and
+only the first eight distinct records are emitted; overflow produces a partial
+diagnostic.
 
-OpenCode source pairs currently require an unambiguous explicit `{file:...}`
-prompt reference, matching loaded and effective prompt text, and an exact
-chezmoi source mapping. OpenCode 1.18.31 and 1.18.32 expand file references by
+OpenCode source pairs require an unambiguous explicit `{file:...}` prompt
+reference with exact chezmoi source mapping, or a uniquely named Markdown
+agent in a scanned global or project-local agent directory. Both require
+matching loaded and effective prompt text; Markdown definitions with duplicate
+names or JSON prompt collisions are omitted. Repo-local Markdown definitions
+are identified relative to their owning worktree, not the user's global
+dotfiles. OpenCode 1.18.31 and 1.18.32 expand file references by
 decoding UTF-8 and applying JavaScript `.trim()`; the resolver compares that
 expansion exactly against both runtime values, without normalizing either.
 Generated matches use the manifest's canonical source pair; hand-authored
 definitions hash the unmodified source bytes, including boundary whitespace
 and line endings. LF and CRLF checkouts can therefore have different digests.
-Built-in, inline, historically reconciled, and unresolved Markdown-agent
-definitions may lack
-source pairs. Claude hooks do not establish the loaded definition path and
-bytes, so its plugin currently omits source pairs rather than guessing from an
-agent name. These omissions do not discard verified agent/model metadata.
+Built-in, inline, historically reconciled, and ambiguous Markdown-agent
+definitions lack source pairs. Claude hooks do not establish the loaded
+definition path and bytes, so its plugin omits source pairs rather than
+guessing from an agent name. These omissions do not discard verified
+agent/model metadata.
+
+### Cross-session Plan handoff
+
+An OpenCode Plan approval can produce a private receipt when `submit_plan`
+returns `Plan approved!` or `Plan approved with notes!` and a unique matching
+assistant tool call exposes the actual Plan agent and runtime provider/model.
+The receipt stores only the call identity, worktree, branch and participant
+metadata; it does not store the plan, its hash or the approval text. A receipt
+asserts that this Plan agent submitted an approved plan, not that it authored
+every line. No receipt is inferred from a saved Plannotator plan or from an
+unverified historical session. Missing evidence silently leaves the planner
+out of a later handoff. A selected planner uses one of the eight participant
+slots, so overflow can omit an observed current-session participant.
+
+To use a receipt in a **later** Build session, the user must explicitly select
+its 64-character ID and the Beads issue at handoff, then launch OpenCode in
+that same worktree with `AI_ATTESTATION_PLAN_RECEIPT` and
+`AI_ATTESTATION_PLAN_ISSUE` set to those values. The receipt ID is the basename
+without `.json` under the private `opencode/approvals/` state directory below.
+The plugin does not select the latest receipt. It validates the selected ID,
+worktree and branch and requires a literal `Refs: <issue>` in the direct
+`oc-commit` command. When the checks pass, the earlier Plan agent appears as
+`AI-Participant: tool=opencode; agent=plan; role=planner; model=<observed>`
+ahead of current-session participants, without a source pair. It indicates
+that the approved Plan informed the later work; it is not a claim that the
+planner ran in the committing session. The chosen issue is supplied by the
+user, not inferred from the approval tool output. Do not use the receipt for
+an unrelated issue or for a plan that did not inform the change. If either
+variable is unset, the commit lacks a `Refs:` argument, or validation fails,
+the normal session-only attestation is used.
 
 OpenCode sends diagnostics to its structured logs under service
 `agent-attestation`, once per code per plugin instance, without writing to the

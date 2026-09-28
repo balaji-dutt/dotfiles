@@ -245,6 +245,7 @@ private_Documents/development/container-dotfiles/dotfiles/dot_zshrc	shell-startu
 private_Documents/development/container-dotfiles/dotfiles/install.sh.tmpl	script-extension,shebang
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_pre-commit	chezmoi-executable,executable-mode,shebang
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/executable_prepare-commit-msg	chezmoi-executable,shebang
+private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/approvals.mjs	script-extension
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/collector.mjs	script-extension
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/diagnostics.mjs	script-extension
 private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/shared/commands.mjs	script-extension
@@ -283,6 +284,7 @@ private_dot_config/git/template/hooks/executable_pre-commit	chezmoi-executable,e
 private_dot_config/git/template/hooks/executable_pre-push	chezmoi-executable,shebang
 private_dot_config/git/template/hooks/executable_pre-rebase	chezmoi-executable,executable-mode,shebang
 private_dot_config/git/template/hooks/executable_prepare-commit-msg	chezmoi-executable,shebang
+private_dot_config/opencode/attestation/approvals.mjs	script-extension
 private_dot_config/opencode/attestation/collector.mjs	script-extension
 private_dot_config/opencode/attestation/diagnostics.mjs	script-extension
 private_dot_config/opencode/attestation/shared/commands.mjs	script-extension
