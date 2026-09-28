@@ -237,7 +237,7 @@ ansible_container_syntax() {
 }
 
 ansible_syntax() (
-  local file_rel="$1" syntax_file="$1" tmpdir import_path
+  local file_rel="$1" syntax_file="$1" tmpdir import_path quote_pair="''"
   case "$file_rel" in
     ansible/tasks/*.yml|ansible/tasks/*.yaml)
       mkdir -p "$ROOT/.cz-audit" || return
@@ -247,7 +247,7 @@ ansible_syntax() (
       trap 'exit 130' INT
       trap 'exit 143' TERM
       syntax_file="${tmpdir#"$ROOT/"}/playbook.yml"
-      import_path="../../${file_rel//\'/\'\'}"
+      import_path="../../${file_rel//\'/$quote_pair}"
       printf '%s\n' '- hosts: localhost' '  gather_facts: false' '  tasks:' \
         '    - ansible.builtin.import_tasks:' "        file: '$import_path'" >"$syntax_file" || return
       ;;

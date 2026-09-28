@@ -157,12 +157,18 @@ class ZshStartupOrderTests(ShellStartupHarness):
     )
 
     def test_missing_optional_files_produce_no_output_or_hang(self) -> None:
+        calls = self.fixture.root / "antidote.log"
+        self.write_home(
+            ".antidote/antidote.zsh",
+            'antidote() { print -r -- "$*" >> $ANTIDOTE_LOG; }\n',
+        )
         zshrc = self.write_home(".zshrc", render_template("dot_zshrc.tmpl", "linux"))
-        result = self.run_zsh(f'source "{zshrc}"')
+        result = self.run_zsh(f'source "{zshrc}"', env_updates={"ANTIDOTE_LOG": str(calls)})
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertEqual(result.stderr, "")
+        self.assertFalse(calls.exists())
 
     def test_helpers_load_in_order_and_opencode_installs_last(self) -> None:
         log = self.fixture.root / "startup.log"

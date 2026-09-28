@@ -202,7 +202,7 @@ class PlannotatorSyncTests(unittest.TestCase):
         target.write_bytes(b"old skill\n")
         before = self.manifest_file.read_bytes()
         original_write = Path.write_bytes
-        second = self.repo / self.artifacts[1]["path"]
+        second = (self.repo / self.artifacts[1]["path"]).resolve()
 
         def write_or_fail(path: Path, data: bytes):
             if path == second:

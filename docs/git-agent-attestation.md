@@ -306,7 +306,10 @@ that same worktree with `AI_ATTESTATION_PLAN_RECEIPT` and
 without `.json` under the private `opencode/approvals/` state directory below.
 The plugin does not select the latest receipt. It validates the selected ID,
 worktree and branch and requires a literal `Refs: <issue>` in the direct
-`oc-commit` command. When the checks pass, the earlier Plan agent appears as
+`oc-commit` command. Worktree identity uses resolved filesystem paths, so
+aliases for the same checkout share receipts. Receipts recorded with an
+unresolved path alias require a new approval. When the checks pass, the earlier
+Plan agent appears as
 `AI-Participant: tool=opencode; agent=plan; role=planner; model=<observed>`
 ahead of current-session participants, without a source pair. It indicates
 that the approved Plan informed the later work; it is not a claim that the

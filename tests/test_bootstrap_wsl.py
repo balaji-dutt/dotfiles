@@ -53,6 +53,7 @@ def run_bootstrap(
     )
 
 
+@unittest.skipUnless(sys.platform.startswith("linux") and Path("/etc/os-release").is_file(), "Linux distro metadata is required")
 class BootstrapWslTests(unittest.TestCase):
     def install_fakes(
         self,

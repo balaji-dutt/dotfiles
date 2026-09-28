@@ -10,15 +10,15 @@ const issueId = /^[a-z][a-z0-9-]*-[a-z0-9.]+$/;
 export function approvalStore({ client, directory, worktree }, {
   root = stateRoot(), env = process.env, execute = run, warn = () => {},
 } = {}) {
-  const owner = path.resolve(worktree || directory);
   const folder = path.join(root, 'opencode', 'approvals');
 
   async function branch() {
+    const owner = await fs.realpath(path.resolve(worktree || directory));
     const top = (await execute('git', ['rev-parse', '--show-toplevel'], directory)).trim();
-    if (path.resolve(top) !== owner) throw new Error('approval-worktree');
+    if (await fs.realpath(path.resolve(top)) !== owner) throw new Error('approval-worktree');
     const name = (await execute('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], directory)).trim();
     if (!name || name.length > 256) throw new Error('approval-branch');
-    return name;
+    return { owner, name };
   }
 
   async function approved(input, output) {
@@ -36,13 +36,13 @@ export function approvalStore({ client, directory, worktree }, {
       if (!['plan', 'plan-GPT-xhigh'].includes(info.agent) || !info.providerID || !info.modelID) return;
       const record = participant({ tool: 'opencode', agent: info.agent, role: 'planner', model: `${info.providerID}/${info.modelID}` });
       if (!record?.model) return;
-      const current = await branch();
-      const id = key(JSON.stringify([input.sessionID, input.callID, owner, current]));
+      const { owner, name } = await branch();
+      const id = key(JSON.stringify([input.sessionID, input.callID, owner, name]));
       const entries = await fs.readdir(folder).catch(() => []);
       if (entries.length >= 256) { warn('approval-limit'); return; }
       await atomicJson(path.join(folder, `${id}.json`), {
         version: 1, id, sessionID: input.sessionID, callID: input.callID,
-        worktree: owner, branch: current, record,
+        worktree: owner, branch: name, record,
       }, { exclusive: true });
     } catch { warn('approval-unavailable'); }
   }
@@ -55,7 +55,8 @@ export function approvalStore({ client, directory, worktree }, {
       !new RegExp(`Refs: ${issue.replaceAll('.', '\\.')}(?=[^a-zA-Z0-9.-]|$)`).test(command)) return;
     try {
       const saved = await readJson(path.join(folder, `${id}.json`), 2048);
-      if (saved.version !== 1 || saved.id !== id || saved.worktree !== owner || saved.branch !== await branch() ||
+      const { owner, name } = await branch();
+      if (saved.version !== 1 || saved.id !== id || saved.worktree !== owner || saved.branch !== name ||
         !saved.sessionID || !saved.callID ||
         key(JSON.stringify([saved.sessionID, saved.callID, owner, saved.branch])) !== id) return;
       const record = participant(saved.record);

@@ -85,10 +85,12 @@ fi
 if (( ${+functions[antidote]} )); then
     _antidote_bundle="${ZDOTDIR:-$HOME}/.zsh_plugins.txt"
     _antidote_static="${_antidote_bundle:r}.zsh"
-    if [[ -s "$_antidote_bundle" && -f "$_antidote_static" && ! -s "$_antidote_static" ]]; then
-        command rm -f -- "$_antidote_static"
+    if [[ -f "$_antidote_bundle" ]]; then
+        if [[ -s "$_antidote_bundle" && -f "$_antidote_static" && ! -s "$_antidote_static" ]]; then
+            command rm -f -- "$_antidote_static"
+        fi
+        antidote load "$_antidote_bundle" "$_antidote_static"
     fi
-    antidote load "$_antidote_bundle" "$_antidote_static"
     unset _antidote_bundle _antidote_static
 fi
 
