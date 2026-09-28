@@ -3,7 +3,7 @@
   "schema_version": 1,
   "capabilities": {
     "bash": {"command": "bash"},
-    "bd": {"command": "bd"},
+    "bd": {"command": "bd", "probe": ["bd", "--version"]},
     "devcontainer-smoke": {"command": "python3", "probe": ["python3", "assets/devcontainer-smoke.py", "--probe"]},
     "chezmoi": {"command": "chezmoi"},
     "git": {"command": "git"},

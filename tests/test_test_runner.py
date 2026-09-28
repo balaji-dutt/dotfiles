@@ -188,6 +188,93 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(strict.returncode, 1)
         self.assertIn("FAIL alpha: missing capability absent", strict.stdout)
 
+    def test_guard_shim_does_not_satisfy_bd_capability(self) -> None:
+        empty_bin = self.fixture.root / "empty-bin"
+        empty_bin.mkdir()
+        self.fixture.capabilities = {"bd": {"command": "bd", "probe": ["bd", "--version"]}}
+        self.fixture.steps[0]["requires"] = ["bd"]
+        self.fixture.write_registry()
+        env = {**os.environ, "PATH": str(empty_bin), "BASH_FUNC_bd%%": "() { return 0; }"}
+
+        skipped = self.fixture.run(env=env)
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
+        self.assertIn("SKIP alpha: missing capability bd (bd)", skipped.stdout)
+        self.assertNotIn("RUN  alpha", skipped.stdout)
+
+        strict = self.fixture.run("--require-capability", "bd", env=env)
+        self.assertEqual(strict.returncode, 1, strict.stderr)
+        self.assertIn("FAIL alpha: missing capability bd (bd)", strict.stdout)
+        self.assertNotIn("RUN  alpha", strict.stdout)
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
+    def test_isolated_beads_step_receives_real_executable_without_unblocking_path(self) -> None:
+        fake_bin = self.fixture.root / "fake-bin"
+        fake_bin.mkdir()
+        fake_bd = fake_bin / "bd"
+        fake_bd.write_text("#!/bin/sh\n[ \"$1\" = --version ]\n", encoding="utf-8")
+        fake_bd.chmod(0o755)
+        output = self.fixture.root / "bd-paths.json"
+        self.fixture.write_script(
+            "pass.py",
+            "import json, os, pathlib, shutil, subprocess\n"
+            "bd = os.environ['DOTFILES_TEST_BD']\n"
+            "guard = shutil.which('bd')\n"
+            "result = subprocess.run([guard, '--version'], capture_output=True)\n"
+            f"pathlib.Path({str(output)!r}).write_text(json.dumps({{"
+            "'bd': bd, 'guard': guard, 'guard_exit': result.returncode, "
+            "'bd_exit': subprocess.run([bd, '--version']).returncode}))\n",
+        )
+        self.fixture.capabilities = {"bd": {"command": "bd", "probe": ["bd", "--version"]}}
+        self.fixture.steps = [
+            self.fixture.step("beads-isolated-worktree", ["fast"], "pass.py", requires=["bd"])
+        ]
+        self.fixture.write_registry()
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', os.defpath)}"}
+        env["BASH_FUNC_bd%%"] = "() { return 88; }"
+
+        result = self.fixture.run(env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS beads-isolated-worktree", result.stdout)
+        actual = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(actual["bd"], str(fake_bd.resolve()))
+        self.assertEqual(actual["bd_exit"], 0)
+        self.assertEqual(actual["guard_exit"], 97)
+        self.assertNotEqual(actual["guard"], actual["bd"])
+
+        self.fixture.steps = [self.fixture.step("alpha", ["fast"], "pass.py")]
+        self.fixture.write_script(
+            "pass.py",
+            "import os, shutil\n"
+            "assert 'DOTFILES_TEST_BD' not in os.environ\n"
+            "assert 'guard-bin' in (shutil.which('bd') or '')\n",
+        )
+        self.fixture.write_registry()
+        other = self.fixture.run(env=env)
+        self.assertEqual(other.returncode, 0, other.stderr)
+        self.assertIn("PASS alpha", other.stdout)
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
+    def test_bd_probe_failure_skips_before_running_step(self) -> None:
+        fake_bin = self.fixture.root / "fake-bin"
+        fake_bin.mkdir()
+        fake_bd = fake_bin / "bd"
+        self.fixture.capabilities = {"bd": {"command": "bd", "probe": ["bd", "--version"]}}
+        self.fixture.steps[0]["requires"] = ["bd"]
+        self.fixture.write_registry()
+        env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', os.defpath)}"}
+
+        for script, reason in (
+            ("#!/bin/sh\nexit 97\n", "exit 97"),
+            ("#!/nonexistent-bd-test-interpreter\n", "cannot execute"),
+        ):
+            with self.subTest(reason=reason):
+                fake_bd.write_text(script, encoding="utf-8")
+                fake_bd.chmod(0o755)
+                result = self.fixture.run(env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"SKIP alpha: capability probe failed for bd ({reason})", result.stdout)
+                self.assertNotIn("RUN  alpha", result.stdout)
+
     def test_capability_uses_first_available_command_alternative(self) -> None:
         self.fixture.capabilities = {
             "python-runtime": {
