@@ -274,7 +274,7 @@
         "test_paths": ["tests/test_claude_review_gate.py", "tests/test_claude_review_hook_wrappers.py"],
         "behavior_requirements": []
       },
-      "rationale": "Offline unit and temporary-Git suites cover review-gate state transitions, transcript and SubagentHandback verdict validation, in-flight reviewer suppression and expiry, checkout isolation, path policy, legacy migration, Bash snapshot diffing with Stop-time reconciliation of background and interrupted commands, per-checkout gating of native Claude Code worktrees (including a removed worktree's hand-off to the project checkout), hook wiring, a Stop that keeps the gate when git cannot be checked, and conservative wrapper fallbacks."
+      "rationale": "Offline unit and temporary-Git suites cover review-gate state transitions, transcript and SubagentHandback verdict validation, in-flight reviewer suppression and expiry, checkout isolation, path policy, legacy migration, Bash snapshot diffing with Stop-time reconciliation of background and interrupted commands, per-checkout gating of native Claude Code worktrees (including a removed worktree's hand-off to the project checkout), hook wiring, a Stop that keeps the gate when git cannot be checked, bounded Stop git budgets, and conservative wrapper fallbacks."
     },
     {
       "id": "claude-token-check",
