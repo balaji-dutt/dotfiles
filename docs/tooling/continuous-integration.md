@@ -137,8 +137,15 @@ stash is restored and dropped.
 Rebase conflict, CI failure, timeout, override, remote movement, stash-restore
 failure, and cleanup failure preserve recovery state and any applicable stash or
 evidence ref. Inspect it with `./assets/guarded-main-sync status`, then use the
-reported `resume`, `finalize`, or `abort` action. The helper never pushes main or
-tags. After success, run the reported command separately:
+reported recovery action. After resolving a rebase conflict, run
+`git rebase --continue` until the rebase finishes, then run
+`./assets/guarded-main-sync resume` to validate the rewritten tip and obtain CI
+evidence. `abort` is for an active rebase; `finalize` removes verified state
+after restoring and dropping any recorded stash. If the sync was deliberately
+abandoned, run `./assets/guarded-main-sync discard --confirm` once no rebase is
+in progress. Discard leaves HEAD and the recorded stash untouched, and retains
+state if a recorded CI ref cannot be safely cleaned. The helper never pushes
+main or tags. After success, run the reported command separately:
 
 ```sh
 git push

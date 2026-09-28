@@ -231,6 +231,12 @@ For humans, `gpls` delegates to `guarded-main-sync` only when policy-guarded mai
 is both ahead and behind its remote. It performs a recorded rebase, publishes
 and monitors only the rewritten exact tip on a reserved temporary ref, restores
 an exact dirty-worktree stash, and reports the separate final `git push`.
+If a rebase conflicts, finish `git rebase --continue` and run
+`./assets/guarded-main-sync resume` before finalizing. For an abandoned sync
+without an active rebase, `./assets/guarded-main-sync discard --confirm` removes
+recovery state without changing HEAD or dropping the recorded stash; it retains
+state when a recorded CI ref cannot be safely cleaned. Use `abort` during an
+active rebase and `finalize` only after CI verification and stash restoration.
 `agent-wt-merge prepare-main-ci` remains the agent-facing compatibility command
 for a clean rewritten main that is already ahead and not diverged. None of these
 commands pushes main or tags.
