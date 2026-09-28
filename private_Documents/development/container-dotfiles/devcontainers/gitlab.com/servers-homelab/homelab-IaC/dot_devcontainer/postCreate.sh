@@ -1010,12 +1010,6 @@ done_step "Run host dotfiles installer (if present)"
 
 post_create_materialization_phase
 
-step "Install Better Beads Kanban VSIX (if VS Code CLI is available)"
-if ! install_better_beads_kanban_vscode_extension; then
-  echo "WARN: Better Beads Kanban VSIX install failed; continuing container setup." >&2
-fi
-done_step "Install Better Beads Kanban VSIX (if VS Code CLI is available)"
-
 step "Ensure Dolt CLI"
 install_dolt_if_missing
 done_step "Ensure Dolt CLI"

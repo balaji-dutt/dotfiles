@@ -152,6 +152,10 @@ class DevcontainerSmokeContractTests(unittest.TestCase):
                 '"postStartCommand": ["bash", "/tmp/host-homelab-devcontainer/postStart.sh"',
                 template,
             )
+            self.assertIn(
+                '"postAttachCommand": ["bash", "/tmp/host-homelab-devcontainer/postAttach.sh"]',
+                template,
+            )
 
     def test_runtime_configuration_composes_smoke_safe_phases_in_order(self) -> None:
         command = f"""source {RUNTIME / 'postStart.sh'}

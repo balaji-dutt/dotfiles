@@ -203,7 +203,7 @@ elif args[0] not in ('stop', 'rm'):
             base = self.base_args(workspace, config, env)
             self.assertEqual(
                 read_json_lines(log),
-                [["up", *base], ["exec", *base, "--container-id", CONTAINER_ID, "--", "zsh", "-l"]],
+                [["up", *base, "--skip-post-attach"], ["exec", *base, "--container-id", CONTAINER_ID, "--", "zsh", "-l"]],
             )
 
     def test_environment_overrides_paths_and_shell_without_word_loss(self) -> None:
@@ -234,7 +234,7 @@ elif args[0] not in ('stop', 'rm'):
             base = self.base_args(workspace, config, env)
             self.assertEqual(
                 read_json_lines(log),
-                [["up", *base], ["exec", *base, "--container-id", CONTAINER_ID, "--", "bash", "-lc", "printf literal; value"]],
+                [["up", *base, "--skip-post-attach"], ["exec", *base, "--container-id", CONTAINER_ID, "--", "bash", "-lc", "printf literal; value"]],
             )
 
     def test_exec_and_rebuild_preserve_arguments_flags_and_exit_status(self) -> None:
@@ -266,9 +266,9 @@ elif args[0] not in ('stop', 'rm'):
             self.assertEqual(
                 read_json_lines(log),
                 [
-                    ["up", *base],
+                    ["up", *base, "--skip-post-attach"],
                     ["exec", *base, "--container-id", CONTAINER_ID, "--", "python3", "argument with spaces", "semi;literal"],
-                    ["up", *base, "--remove-existing-container", "--build-no-cache"],
+                    ["up", *base, "--skip-post-attach", "--remove-existing-container", "--build-no-cache"],
                 ],
             )
 
@@ -459,7 +459,7 @@ elif args[0] not in ('stop', 'rm'):
                     result = run_launcher(script, "sample", action, env=env)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"),
-                                     [["up", *self.base_args(workspace, config, env), *flags]])
+                                      [["up", *self.base_args(workspace, config, env), "--skip-post-attach", *flags]])
 
     def test_stop_and_down_missing_noops_and_stopped_behavior(self):
         for state in (None, "exited", "paused", "restarting"):
@@ -858,7 +858,7 @@ else:
                 self.assertIn("Opening Sample Tool (sample-tool)", result.stderr)
                 base = self.base_args(workspace, config, env)
                 calls = read_json_lines(fixture.root / "devcontainer.jsonl")
-                self.assertEqual(calls[0], ["up", *base])
+                self.assertEqual(calls[0], ["up", *base, "--skip-post-attach"])
                 self.assertEqual(calls[1][-5:], ["--container-id", CONTAINER_ID, "--", "zsh", "-l"])
                 self.assertEqual(json.loads(record.read_text())["pid"], pid)
 

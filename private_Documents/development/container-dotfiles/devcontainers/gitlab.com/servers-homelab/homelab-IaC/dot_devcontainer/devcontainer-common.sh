@@ -889,6 +889,8 @@ find_vscode_cli() {
     [[ -n "$root" ]] || continue
 
     for candidate in \
+      "$root"/cli/servers/Stable-*/server/bin/code-server \
+      "$root"/cli/servers/Insiders-*/server/bin/code-insiders-server \
       "$root"/bin/*/bin/code-server \
       "$root"/bin/*/bin/code-insiders-server; do
       if [[ -x "$candidate" ]]; then
@@ -899,16 +901,6 @@ find_vscode_cli() {
     done
   done
   eval "$nullglob_state"
-
-  if command -v code >/dev/null 2>&1; then
-    command -v code
-    return 0
-  fi
-
-  if command -v code-insiders >/dev/null 2>&1; then
-    command -v code-insiders
-    return 0
-  fi
 
   return 1
 }
@@ -931,7 +923,11 @@ install_better_beads_kanban_vscode_extension() {
   upstream_extension_id="davidcforbes.beads-kanban"
 
   if ! code_cmd="$(find_vscode_cli)"; then
-    echo "INFO: VS Code CLI not found; skipping Better Beads Kanban VSIX install."
+    echo "INFO: VS Code Server CLI not found; skipping Better Beads Kanban VSIX install."
+    return 0
+  fi
+  if ! list_output="$("$code_cmd" --list-extensions --show-versions 2>&1)"; then
+    echo "INFO: VS Code Server CLI is not ready; skipping Better Beads Kanban VSIX install."
     return 0
   fi
   echo "Using VS Code CLI for Better Beads Kanban install: $code_cmd"
@@ -958,14 +954,10 @@ install_better_beads_kanban_vscode_extension() {
   download_url="https://github.com/${repo}/releases/download/${tag}/${asset}"
   mkdir -p "$cache_root"
 
-  # Both ids contribute beadsKanban.openBoard, and VS Code treats each
-  # extension id as a separate install.
-  "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
-  "$code_cmd" --uninstall-extension "$legacy_fork_extension_id" >/dev/null 2>&1 || true
-
   if [[ -f "$marker_path" ]] && [[ "$(<"$marker_path")" == "$expected_sha" ]]; then
-    if list_output="$("$code_cmd" --list-extensions --show-versions 2>&1)" && \
-      grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
+    if grep -Fxq "${fork_extension_id}@${fork_version}" <<<"$list_output"; then
+      "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
+      "$code_cmd" --uninstall-extension "$legacy_fork_extension_id" >/dev/null 2>&1 || true
       echo "Better Beads Kanban VSIX already installed: ${fork_extension_id}@${fork_version}"
       return 0
     fi
@@ -997,6 +989,8 @@ install_better_beads_kanban_vscode_extension() {
     mv -f "$tmp_file" "$vsix_path"
   fi
 
+  "$code_cmd" --uninstall-extension "$upstream_extension_id" >/dev/null 2>&1 || true
+  "$code_cmd" --uninstall-extension "$legacy_fork_extension_id" >/dev/null 2>&1 || true
   echo "Installing Better Beads Kanban VSIX: ${fork_extension_id}@${fork_version}"
   if ! install_output="$("$code_cmd" --install-extension "$vsix_path" --force 2>&1)"; then
     printf '%s\n' "$install_output" >&2

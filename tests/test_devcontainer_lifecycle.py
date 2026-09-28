@@ -8,7 +8,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from tests.support.fixtures import isolated_environment, init_git_repository, run_git
+from tests.support.fixtures import isolated_environment, init_git_repository, run_git, write_executable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +20,7 @@ RUNTIME_DIR = (
 COMMON = RUNTIME_DIR / "devcontainer-common.sh"
 POST_CREATE = RUNTIME_DIR / "postCreate.sh"
 POST_START = RUNTIME_DIR / "postStart.sh"
+POST_ATTACH = RUNTIME_DIR / "postAttach.sh"
 DEVCONTAINER_CONFIG = RUNTIME_DIR / "devcontainer.json.tmpl"
 PROMPTFOO_SOURCE = RUNTIME_DIR.parent / "configs/promptfoo-runtime"
 BASH = shutil.which("bash")
@@ -62,6 +63,7 @@ class DevcontainerLifecycleTests(unittest.TestCase):
         cases = (
             (POST_CREATE, "post_create", "postCreate.log"),
             (POST_START, "post_start", "postStart.log"),
+            (POST_ATTACH, "post_attach", "postAttach.log"),
         )
         for source, prefix, log_name in cases:
             with self.subTest(source=source.name):
@@ -91,7 +93,7 @@ set -e
                 self.assertFalse(log_path.exists())
 
     def test_lifecycle_scripts_reject_a_failed_common_helper_source(self) -> None:
-        for source in (POST_CREATE, POST_START):
+        for source in (POST_CREATE, POST_START, POST_ATTACH):
             with self.subTest(source=source.name):
                 runtime = self.fixture.root / source.stem
                 runtime.mkdir()
@@ -116,6 +118,144 @@ set -e
                 )
                 self.assertEqual(direct.returncode, 1, direct.stdout + direct.stderr)
                 self.assertIn("Failed to source shared devcontainer helper", direct.stderr)
+
+    def make_bbk_cli(self, *, modern: bool = False) -> Path:
+        root = self.fixture.home / ".vscode-server"
+        relative = (
+            "cli/servers/Stable-test/server/bin/code-server" if modern
+            else "bin/test/bin/code-server"
+        )
+        return write_executable(
+            root / relative,
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "state = pathlib.Path(os.environ['BBK_STATE'])\n"
+            "log = pathlib.Path(os.environ['BBK_CLI_LOG'])\n"
+            "with log.open('a') as handle: handle.write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "args = sys.argv[1:]\n"
+            "if os.environ.get('BBK_BROKEN') == '1': raise SystemExit(2)\n"
+            "installed = state.read_text().splitlines() if state.exists() else []\n"
+            "if args[0] == '--list-extensions':\n"
+            "    if os.environ.get('BBK_FAIL_LIST') == '1': raise SystemExit(2)\n"
+            "    if os.environ.get('BBK_FAIL_LIST_AFTER_INSTALL') == '1' and "
+            "'balaji-dutt.better-beads-kanban@2.2.2' in installed: raise SystemExit(2)\n"
+            "    print('\\n'.join(installed))\n"
+            "elif args[0] == '--uninstall-extension':\n"
+            "    state.write_text('\\n'.join(line for line in installed "
+            "if not line.startswith(args[1] + '@')) + '\\n')\n"
+            "elif args[0] == '--install-extension':\n"
+            "    if os.environ.get('BBK_FAIL_INSTALL') == '1': raise SystemExit(2)\n"
+            "    state.write_text('\\n'.join(installed + "
+            "['balaji-dutt.better-beads-kanban@2.2.2']) + '\\n')\n"
+            "else: raise SystemExit(3)\n",
+        )
+
+    def bbk_env(self) -> dict[str, str]:
+        env = dict(self.env)
+        env.pop("VSCODE_AGENT_FOLDER", None)
+        env.update({
+            "BBK_STATE": str(self.fixture.root / "extensions.txt"),
+            "BBK_CLI_LOG": str(self.fixture.root / "cli.log"),
+            "LOG_FILE": str(self.fixture.root / "postAttach.log"),
+        })
+        return env
+
+    def make_bbk_download_tools(self) -> None:
+        write_executable(
+            self.fixture.fake_bin / "curl",
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "with open(os.environ['BBK_CURL_LOG'], 'a') as handle: handle.write('called\\n')\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text("
+            "os.environ.get('BBK_PAYLOAD', 'good'))\n",
+        )
+        write_executable(
+            self.fixture.fake_bin / "sha256sum",
+            "#!/usr/bin/env python3\n"
+            "import pathlib, sys\n"
+            "value = pathlib.Path(sys.argv[1]).read_text()\n"
+            "digest = '7bf8f1073d527424bcfc46dde132a79b35f013d28209f21a0efa67169d8afcfa' "
+            "if value == 'good' else '0' * 64\n"
+            "print(digest, sys.argv[1])\n",
+        )
+
+    def test_bbk_skips_without_server_even_with_code_on_path(self) -> None:
+        write_executable(
+            self.fixture.fake_bin / "code",
+            "#!/bin/sh\nprintf 'bad code invoked' >&2\nexit 1\n",
+        )
+        env = self.bbk_env()
+        result = self.run_bash('source "$1"; install_better_beads_kanban_vscode_extension',
+                               str(COMMON), env=env)
+        self.assert_success(result)
+        self.assertIn("VS Code Server CLI not found", result.stdout)
+        self.assertNotIn("bad code invoked", result.stderr)
+        self.assertFalse((self.fixture.home / ".cache/dotfiles").exists())
+
+    def test_bbk_skips_broken_server_without_mutation(self) -> None:
+        self.make_bbk_cli(modern=True)
+        env = self.bbk_env() | {"BBK_BROKEN": "1"}
+        result = self.run_bash('source "$1"; install_better_beads_kanban_vscode_extension',
+                               str(COMMON), env=env)
+        self.assert_success(result)
+        self.assertIn("Server CLI is not ready", result.stdout)
+        self.assertFalse((self.fixture.home / ".cache/dotfiles").exists())
+        self.assertEqual((self.fixture.root / "cli.log").read_text().splitlines(),
+                         ["--list-extensions --show-versions"])
+
+    def test_bbk_install_removes_conflicts_and_is_idempotent(self) -> None:
+        self.make_bbk_cli(modern=True)
+        self.make_bbk_download_tools()
+        env = self.bbk_env() | {"BBK_CURL_LOG": str(self.fixture.root / "curl.log")}
+        state = self.fixture.root / "extensions.txt"
+        state.write_text("davidcforbes.beads-kanban@1.0\n"
+                         "balaji-dutt.beads-kanban-bd-fixes@2.0\n")
+        first = self.run_bash('source "$1"; install_better_beads_kanban_vscode_extension',
+                              str(COMMON), env=env)
+        second = self.run_bash('source "$1"; install_better_beads_kanban_vscode_extension',
+                               str(COMMON), env=env)
+        self.assert_success(first)
+        self.assert_success(second)
+        self.assertIn("Installed Better Beads Kanban VSIX", first.stdout)
+        self.assertIn("already installed", second.stdout)
+        self.assertEqual(state.read_text().strip(), "balaji-dutt.better-beads-kanban@2.2.2")
+        self.assertEqual((self.fixture.root / "curl.log").read_text().splitlines(), ["called"])
+        calls = (self.fixture.root / "cli.log").read_text().splitlines()
+        self.assertEqual(sum("--install-extension" in call for call in calls), 1)
+        self.assertEqual(sum("--uninstall-extension" in call for call in calls), 4)
+
+    def test_bbk_rejects_bad_checksum_and_attach_remains_nonblocking(self) -> None:
+        self.make_bbk_cli()
+        self.make_bbk_download_tools()
+        env = self.bbk_env() | {"BBK_CURL_LOG": str(self.fixture.root / "curl.log"),
+                                "BBK_PAYLOAD": "bad"}
+        result = self.run_bash('bash "$1"', str(POST_ATTACH), env=env)
+        self.assert_success(result)
+        self.assertIn("checksum mismatch", result.stdout)
+        self.assertIn("continuing attachment", result.stdout)
+        self.assertFalse((self.fixture.root / "extensions.txt").exists())
+        self.assertFalse((self.fixture.home / ".cache/dotfiles/better-beads-kanban-vsix/v2.2.2.installed").exists())
+
+    def test_bbk_failed_install_does_not_write_marker(self) -> None:
+        self.make_bbk_cli()
+        self.make_bbk_download_tools()
+        env = self.bbk_env() | {"BBK_CURL_LOG": str(self.fixture.root / "curl.log"),
+                                "BBK_FAIL_INSTALL": "1"}
+        result = self.run_bash('bash "$1"', str(POST_ATTACH), env=env)
+        self.assert_success(result)
+        self.assertIn("continuing attachment", result.stdout)
+        self.assertFalse((self.fixture.home / ".cache/dotfiles/better-beads-kanban-vsix/v2.2.2.installed").exists())
+
+    def test_bbk_failed_post_install_list_does_not_write_marker(self) -> None:
+        self.make_bbk_cli()
+        self.make_bbk_download_tools()
+        env = self.bbk_env() | {"BBK_CURL_LOG": str(self.fixture.root / "curl.log"),
+                                "BBK_FAIL_LIST_AFTER_INSTALL": "1"}
+        result = self.run_bash('bash "$1"', str(POST_ATTACH), env=env)
+        self.assert_success(result)
+        self.assertIn("Failed listing VS Code extensions", result.stdout)
+        self.assertIn("continuing attachment", result.stdout)
+        self.assertFalse((self.fixture.home / ".cache/dotfiles/better-beads-kanban-vsix/v2.2.2.installed").exists())
 
     def test_load_opencode_env_preserves_allexport_state(self) -> None:
         config_dir = self.fixture.home / ".config" / "opencode"
