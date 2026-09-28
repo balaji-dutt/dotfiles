@@ -270,7 +270,7 @@ class UnverifiedTests(GateTestCase):
         self.write_state_for()
         for body in ("if then\n", "x=$UNSET_VAR\n", "exit 0\n", ":\n"):
             with self.subTest(resolver=body):
-                resolver.write_text(body, encoding="utf-8")
+                resolver.write_bytes(body.encode("utf-8"))
                 reason = self.assert_block(self.run_hook(), "unverified")
                 self.assertIn("resolver failed to load", reason)
 

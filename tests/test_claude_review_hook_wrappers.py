@@ -11,14 +11,47 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
-from tests.support.fixtures import init_git_repository, isolated_environment, run_git, write_executable
+from tests.support.fixtures import init_git_repository, isolated_environment, run_git
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / ".claude/hooks"
-BASH = shutil.which("bash")
+
+
+def resolve_hook_bash() -> str | None:
+    candidates = [shutil.which("bash")]
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            candidates.insert(0, str(Path(git).parent.parent / "bin" / "bash.exe"))
+    for candidate in dict.fromkeys(candidates):
+        if not candidate or not Path(candidate).is_file():
+            continue
+        try:
+            probe = subprocess.run(
+                [
+                    candidate,
+                    "-c",
+                    'test -f "$1" && test -d "$2"',
+                    "bash",
+                    str(HOOKS / "mark-needs-review-bash.sh"),
+                    tempfile.gettempdir(),
+                ],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+BASH = resolve_hook_bash()
 BROKEN_RESOLVERS = {
     "syntax error": "if then\n",
     "set -u": "x=$UNSET_VAR\n",
@@ -38,7 +71,23 @@ def hook_shells() -> list[str]:
     return shells
 
 
-@unittest.skipUnless(BASH, "requires bash")
+def write_shell_executable(path: Path, body: str) -> None:
+    path.write_bytes(body.encode("utf-8"))
+    path.chmod(0o755)
+
+
+def shell_command(name: str) -> str | None:
+    candidate = shutil.which(name)
+    if candidate:
+        return candidate
+    if os.name == "nt" and BASH:
+        bundled = Path(BASH).parent.parent / "usr" / "bin" / f"{name}.exe"
+        if bundled.is_file():
+            return str(bundled)
+    return None
+
+
+@unittest.skipUnless(BASH, "requires bash that can access the checkout and temporary files")
 class ReviewHookWrapperTests(unittest.TestCase):
     def setUp(self) -> None:
         self.context = isolated_environment(prefix="review-hook-wrapper-")
@@ -50,10 +99,15 @@ class ReviewHookWrapperTests(unittest.TestCase):
         self.env = self.isolated.env.copy()
         self.env["CLAUDE_PROJECT_DIR"] = str(self.repo)
         self.env["PATH"] = str(self.isolated.fake_bin)
+        if os.name == "nt":
+            bash_env = self.isolated.root / "bash-env"
+            bash_env.write_bytes(b'PATH="$(cygpath -u "$REVIEW_FAKE_BIN"):$PATH"\n')
+            self.env["BASH_ENV"] = str(bash_env)
+            self.env["REVIEW_FAKE_BIN"] = str(self.isolated.fake_bin)
 
     def fake_python(self, name: str, *, probe: int, helper: int | None = None) -> None:
         helper_code = probe if helper is None else helper
-        write_executable(
+        write_shell_executable(
             self.isolated.fake_bin / name,
             "#!/bin/sh\n"
             f"if [ \"${{1:-}}\" = \"-3\" ]; then shift; fi\n"
@@ -62,12 +116,12 @@ class ReviewHookWrapperTests(unittest.TestCase):
         )
 
     def install_fallback_commands(self) -> None:
-        mkdir = shutil.which("mkdir")
-        cat = shutil.which("cat")
+        mkdir = shell_command("mkdir")
+        cat = shell_command("cat")
         assert mkdir and cat
-        write_executable(self.isolated.fake_bin / "mkdir", f'#!/bin/sh\nexec "{mkdir}" "$@"\n')
-        write_executable(self.isolated.fake_bin / "date", "#!/bin/sh\nprintf '1234567890\\n'\n")
-        write_executable(self.isolated.fake_bin / "cat", f'#!/bin/sh\nexec "{cat}" "$@"\n')
+        write_shell_executable(self.isolated.fake_bin / "mkdir", f'#!/bin/sh\nexec "{mkdir}" "$@"\n')
+        write_shell_executable(self.isolated.fake_bin / "date", "#!/bin/sh\nprintf '1234567890\\n'\n")
+        write_shell_executable(self.isolated.fake_bin / "cat", f'#!/bin/sh\nexec "{cat}" "$@"\n')
 
     def real_helper_env(self) -> dict[str, str]:
         env = self.env.copy()
@@ -371,7 +425,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
     def test_bash_mark_marks_when_a_modified_resolver_finds_no_python(self) -> None:
         env = self.committed_hooks_without_python()
         resolver = self.repo / ".claude/hooks/lib/resolve-python.sh"
-        resolver.write_text(resolver.read_text(encoding="utf-8") + "\n# edited\n", encoding="utf-8")
+        resolver.write_bytes((resolver.read_text(encoding="utf-8") + "\n# edited\n").encode("utf-8"))
         post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
         self.assertEqual(post.returncode, 0, post.stderr)
         self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
@@ -404,7 +458,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
     def test_broken_resolver_never_blocks_bash_and_still_marks(self) -> None:
         self.install_fallback_commands()
         self.fake_python("python3", probe=0)
-        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_text("if then\n", encoding="utf-8")
+        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_bytes(b"if then\n")
         pre = self.run_hook("snapshot-before-bash.sh", self.bash_payload("t1"))
         self.assertEqual((pre.returncode, pre.stdout), (0, ""), pre.stderr)
         post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"))
@@ -421,7 +475,7 @@ class ReviewHookWrapperTests(unittest.TestCase):
         for shell in hook_shells():
             for label, body in BROKEN_RESOLVERS.items():
                 with self.subTest(shell=shell, resolver=label):
-                    resolver.write_text(body, encoding="utf-8")
+                    resolver.write_bytes(body.encode("utf-8"))
                     legacy.unlink(missing_ok=True)
                     stop = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, shell=shell)
                     self.assertEqual((stop.returncode, stop.stdout), (0, ""), stop.stderr)
@@ -432,6 +486,8 @@ class ReviewHookWrapperTests(unittest.TestCase):
                         mark = self.run_hook(name, payload, shell=shell)
                         self.assertEqual(mark.returncode, 0, mark.stderr)
                         self.assertEqual(legacy.read_text(encoding="utf-8"), "1234567890\n")
+                        if label == "no function" and name == "mark-needs-review-bash.sh":
+                            self.assertNotIn("resolve_python: command not found", mark.stderr)
                     for name in ("record-reviewer-start.sh", "clear-needs-review-on-pass.sh"):
                         result = self.run_hook(name, subagent, shell=shell)
                         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
@@ -448,12 +504,31 @@ class ReviewHookWrapperTests(unittest.TestCase):
         env = self.env.copy()
         env["PATH"] = os.pathsep.join((str(self.isolated.fake_bin), str(Path(git).parent)))
         init_git_repository(self.repo, env=env)
-        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_text("x=$UNSET_VAR\n", encoding="utf-8")
+        (self.repo / ".claude/hooks/lib/resolve-python.sh").write_bytes(b"x=$UNSET_VAR\n")
         run_git(self.repo, "add", ".claude/hooks", env=env)
         run_git(self.repo, "commit", "-q", "-m", "hooks", env=env)
         post = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
         self.assertEqual(post.returncode, 0, post.stderr)
         self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+    def test_committed_no_function_resolver_requires_guard(self) -> None:
+        env = self.committed_hooks_without_python()
+        resolver = self.repo / ".claude/hooks/lib/resolve-python.sh"
+        resolver.write_bytes(b":\n")
+        run_git(self.repo, "add", str(resolver), env=env)
+        run_git(self.repo, "commit", "-q", "-m", "no-function resolver", env=env)
+        mark = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+        self.assertEqual(mark.returncode, 0, mark.stderr)
+        self.assertNotIn("resolve_python: command not found", mark.stderr)
+        self.assertEqual((self.repo / ".claude/.needs_dotfiles_review").read_text(encoding="utf-8"), "1234567890\n")
+
+        hook = self.repo / ".claude/hooks/mark-needs-review-bash.sh"
+        guard = b"declare -F resolve_python >/dev/null || exit 90\n"
+        original = hook.read_bytes()
+        self.assertEqual(original.count(guard), 1)
+        hook.write_bytes(original.replace(guard, b""))
+        without_guard = self.run_hook("mark-needs-review-bash.sh", self.bash_payload("t1"), env=env)
+        self.assertIn("resolve_python: command not found", without_guard.stderr)
 
     def test_no_hook_sources_the_resolver_in_process(self) -> None:
         in_process = re.compile(r'(?:^|\s)(?:\.|source)\s+"?\$\{?RESOLVER\b', re.MULTILINE)
