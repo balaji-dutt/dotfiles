@@ -718,7 +718,7 @@
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
         "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
-        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
+        "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup. At review, evaluate a throwaway WSL2 account for shell-startup-only smoke with an isolated home and disabled or stubbed credential, Windows-mount, socket, and network integrations; an account alone does not isolate provisioning.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
       "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior; disposable native macOS smoke remains planned and WSL2 platform smoke remains unverified under a reviewable waiver."
