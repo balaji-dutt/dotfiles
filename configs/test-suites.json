@@ -365,8 +365,8 @@
     {
       "id": "lifecycle-windows",
       "suites": ["integration", "platform", "render"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_powershell_lifecycle"],
-      "covers": ["tests/test_powershell_lifecycle.py"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_powershell_lifecycle", "tests.test_windows_lifecycle_boundaries"],
+      "covers": ["tests/test_powershell_lifecycle.py", "tests/test_windows_lifecycle_boundaries.py"],
       "platforms": ["windows"],
       "requires": ["chezmoi", "pester"]
     },

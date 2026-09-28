@@ -408,4 +408,5 @@ tests/test_sync_tooling.py	script-extension
 tests/test_test_fixtures.py	script-extension
 tests/test_test_runner.py	script-extension
 tests/test_user_command_wrappers.py	script-extension
+tests/test_windows_lifecycle_boundaries.py	script-extension
 tests/test_windows_shell.py	script-extension
