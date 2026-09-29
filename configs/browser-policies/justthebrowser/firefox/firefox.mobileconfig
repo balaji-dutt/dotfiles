@@ -46,7 +46,7 @@
 				<key>TabGroups</key>
 				<false/>
 				<key>Locked</key>
-				<true/>
+				<false/>
 			</dict>
 			<key>AIControls</key>
 			<dict>
@@ -55,7 +55,7 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>Translations</key>
 				<dict>
@@ -76,28 +76,28 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>LinkPreviewKeyPoints</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SidebarChatbot</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SmartWindow</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 			</dict>
 			<key>SearchEngines</key>
@@ -109,6 +109,13 @@
 			</dict>
 			<key>IPProtectionAvailable</key>
 			<true/>
+			<key>FirefoxSuggest</key>
+			<dict>
+				<key>SponsoredSuggestions</key>
+				<false/>
+			</dict>
+			<key>VisualSearchEnabled</key>
+			<false/>
 		</dict>
 		<!-- Firefox Developer Edition -->
 		<dict>
@@ -152,7 +159,7 @@
 				<key>TabGroups</key>
 				<false/>
 				<key>Locked</key>
-				<true/>
+				<false/>
 			</dict>
 			<key>AIControls</key>
 			<dict>
@@ -161,7 +168,7 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>Translations</key>
 				<dict>
@@ -182,28 +189,28 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>LinkPreviewKeyPoints</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SidebarChatbot</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SmartWindow</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 			</dict>
 			<key>SearchEngines</key>
@@ -215,6 +222,13 @@
 			</dict>
 			<key>IPProtectionAvailable</key>
 			<true/>
+			<key>FirefoxSuggest</key>
+			<dict>
+				<key>SponsoredSuggestions</key>
+				<false/>
+			</dict>
+			<key>VisualSearchEnabled</key>
+			<false/>
 		</dict>
 		<!-- Firefox Nightly -->
 		<dict>
@@ -258,7 +272,7 @@
 				<key>TabGroups</key>
 				<false/>
 				<key>Locked</key>
-				<true/>
+				<false/>
 			</dict>
 			<key>AIControls</key>
 			<dict>
@@ -267,7 +281,7 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>Translations</key>
 				<dict>
@@ -288,28 +302,28 @@
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>LinkPreviewKeyPoints</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SidebarChatbot</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 				<key>SmartWindow</key>
 				<dict>
 					<key>Value</key>
 					<string>blocked</string>
 					<key>Locked</key>
-					<true/>
+					<false/>
 				</dict>
 			</dict>
 			<key>SearchEngines</key>
@@ -321,6 +335,13 @@
 			</dict>
 			<key>IPProtectionAvailable</key>
 			<true/>
+			<key>FirefoxSuggest</key>
+			<dict>
+				<key>SponsoredSuggestions</key>
+				<false/>
+			</dict>
+			<key>VisualSearchEnabled</key>
+			<false/>
 		</dict>
 	</array>
 	<!-- Configuration metadata -->

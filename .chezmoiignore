@@ -72,6 +72,8 @@ bin/wsl-open
 {{/* Devcontainer helpers should exist ONLY on macOS or Debian WSL2 */}}
 {{ if not $isDevcontainerHost }}
 bin/devcontainer-launch
+bin/repo-ops
+.config/tmux/repo-ops.conf
 bin/sync-devcontainer-all.sh
 Documents/development/vscode-workspace/container-homelab-IaC.code-workspace
 {{ end }}

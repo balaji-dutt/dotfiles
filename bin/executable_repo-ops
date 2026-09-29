@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+socket=repo-ops
+theme="$HOME/.config/tmux/repo-ops.conf"
+layouts="$HOME/.config/tmuxp"
+
+fail() { printf 'repo-ops: %s\n' "$*" >&2; exit 1; }
+notice() { tmux -L "$socket" -f "$theme" display-message -d 4000 -- "$*"; }
+
+case "${1:-}" in
+  pane)
+    case "${2:-}" in
+      container)
+        [[ $# == 5 && ( "$4" == shell || "$4" == backlog ) ]] || fail 'usage: repo-ops pane container <key> shell|backlog --'
+        [[ "$5" == -- && "$3" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || fail 'invalid container key'
+        "$0" tag "$4"
+        command -v devcontainer-launch >/dev/null 2>&1 || fail 'devcontainer-launch not found'
+        exec devcontainer-launch "$3" exec --existing -- zsh -i
+        ;;
+      host)
+        [[ $# -ge 5 && ( "$3" == shell || "$3" == backlog ) && "$4" == -- ]] || fail 'usage: repo-ops pane host shell|backlog -- <command> [args...]'
+        "$0" tag "$3"
+        shift 4
+        exec "$@"
+        ;;
+      *) fail 'usage: repo-ops pane container|host ...' ;;
+    esac
+    ;;
+  tag)
+    [[ $# == 2 && ( "$2" == shell || "$2" == backlog ) ]] || fail 'usage: repo-ops tag shell|backlog'
+    [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" && "${TMUX%%,*}" == */"$socket" ]] || fail 'tag must run in a repo-ops pane'
+    tmux -L "$socket" -f "$theme" set-option -p -t "$TMUX_PANE" @repo_ops_role "$2"
+    exit
+    ;;
+  focus)
+    [[ $# == 2 && "$2" == %* ]] || fail 'usage: repo-ops focus <pane-id>'
+    pane="$2"
+    info="$(tmux -L "$socket" -f "$theme" display-message -p -t "$pane" '#{session_name}|#{window_id}|#{@repo_ops_role}|#{pane_dead}')" || fail 'pane is unavailable'
+    IFS='|' read -r session window role dead <<< "$info"
+    [[ "$session" == repo-ops-* ]] || fail 'pane belongs to another session'
+    [[ -n "$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)" ]] || fail 'unowned session'
+    case "$role" in
+      shell) wanted=backlog ;;
+      backlog) wanted=shell ;;
+      *) notice 'Current pane has no shell/backlog role'; exit 1 ;;
+    esac
+    [[ "$dead" != 1 ]] || { notice 'Current pane has exited'; exit 1; }
+    target=''
+    count=0
+    failed=0
+    while IFS='|' read -r candidate candidate_role candidate_dead; do
+      [[ "$candidate_role" == "$wanted" ]] || continue
+      ((count+=1))
+      [[ "$candidate_dead" != 1 ]] || { failed=1; continue; }
+      target="$candidate"
+    done < <(tmux -L "$socket" -f "$theme" list-panes -t "$window" -F '#{pane_id}|#{@repo_ops_role}|#{pane_dead}')
+    [[ "$count" == 1 && "$failed" == 0 ]] || { notice "No unique live $wanted pane in this window"; exit 1; }
+    tmux -L "$socket" -f "$theme" select-pane -Z -t "$target"
+    exit
+    ;;
+esac
+
+[[ $# == 1 ]] || fail 'usage: repo-ops <layout>'
+layout="$1"
+[[ "$layout" =~ ^[a-z][a-z0-9_-]*$ ]] || fail 'layout must begin with a lowercase letter and contain only lowercase letters, numbers, _ or -'
+[[ -z "${TMUX:-}" ]] || fail 'detach from tmux before launching a workspace on the dedicated server'
+for tool in tmux tmuxp; do
+  command -v "$tool" >/dev/null 2>&1 || fail "$tool not found; install managed packages before launching"
+done
+[[ -f "$theme" ]] || fail "missing managed tmux config: $theme"
+config="$layouts/$layout.yaml"
+[[ -f "$config" && ! -L "$config" ]] || fail "missing private workspace YAML: $config"
+session="repo-ops-$layout"
+
+lock="${TMPDIR:-/tmp}/repo-ops-$UID-$layout.lock"
+mkdir "$lock" 2>/dev/null || fail "workspace launch already in progress (or stale lock: $lock)"
+trap 'rmdir "$lock"' EXIT
+
+if tmux -L "$socket" -f "$theme" has-session -t "=$session" 2>/dev/null; then
+  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)"
+  [[ "$owner" == "$config" ]] || fail "session name collision: $session is owned by another layout or is unmarked"
+else
+  tmuxp load -d -y -L "$socket" -f "$theme" -s "$session" "$config" || fail "tmuxp failed; inspect $session on the dedicated server before retrying"
+  tmux -L "$socket" -f "$theme" has-session -t "=$session" || fail "tmuxp did not create $session"
+  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)"
+  [[ -z "$owner" ]] || fail "session name collision: $session was created by another launcher"
+  tmux -L "$socket" -f "$theme" set-option -t "=$session" @repo_ops_layout "$config"
+fi
+trap - EXIT
+rmdir "$lock"
+tmux -L "$socket" -f "$theme" attach-session -t "=$session"

@@ -12,6 +12,11 @@ Windows Registry Editor Version 5.00
 "DefaultBrowserSettingEnabled"=dword:00000000
 "DevToolsGenAiSettings"=dword:00000002
 "SearchContentSharingSettings"=dword:00000001
+"HelpMeReadSettings"=dword:00000002
+"AutofillPredictionSettings"=dword:00000002
+"ChromeSuggestionsSettings"=dword:00000001
+"FindsSettings"=dword:00000002
+"ThirdPartyAiChatSettings"=dword:00000001
 
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\JustTheBrowserChrome]
 "DisplayName"="Just the Browser configuration - Google Chrome"
