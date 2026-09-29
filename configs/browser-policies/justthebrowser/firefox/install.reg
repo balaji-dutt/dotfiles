@@ -5,6 +5,7 @@ Windows Registry Editor Version 5.00
 "DisableTelemetry"=dword:00000001
 "DontCheckDefaultBrowser"=dword:00000001
 "IPProtectionAvailable"=dword:00000001
+"VisualSearchEnabled"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\FirefoxHome]
 "SponsoredStories"=dword:00000000
@@ -16,11 +17,11 @@ Windows Registry Editor Version 5.00
 "Chatbot"=dword:00000000
 "LinkPreviews"=dword:00000000
 "TabGroups"=dword:00000000
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\Default]
 "Value"="blocked"
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\Translations]
 "Value"="available"
@@ -32,22 +33,25 @@ Windows Registry Editor Version 5.00
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SmartTabGroups]
 "Value"="blocked"
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\LinkPreviewKeyPoints]
 "Value"="blocked"
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SidebarChatbot]
 "Value"="blocked"
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\AIControls\SmartWindow]
 "Value"="blocked"
-"Locked"=dword:00000001
+"Locked"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\SearchEngines\Remove]
 "1"="Perplexity"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox\FirefoxSuggest]
+"SponsoredSuggestions"=dword:00000000
 
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\JustTheBrowserFirefox]
 "DisplayName"="Just the Browser configuration - Mozilla Firefox"
