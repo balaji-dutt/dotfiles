@@ -215,16 +215,28 @@ if [ -s "$UV_FILE" ]; then
     echo "Syncing UV Tools..."
 
     if resolve_native_command uv >/dev/null 2>&1; then
+        installed_tools="$(run_native_command uv tool list)"
         while IFS= read -r tool; do
             [[ -z "$tool" || "$tool" =~ ^# ]] && continue
-            # Check if already installed to save time
-            if ! run_native_command uv tool list | grep -q "^$tool "; then
+            name="${tool%%==*}"
+            version=""
+            [[ "$tool" != *'=='* ]] || version="${tool#*==}"
+            found=false
+            while IFS= read -r installed_line; do
+                if [[ -n "$version" && "$installed_line" == "$name v$version" ]] ||
+                   [[ -z "$version" && "$installed_line" == "$name v"* ]]; then
+                    found=true
+                    break
+                fi
+            done <<< "$installed_tools"
+            if [[ "$found" == false ]]; then
                 echo "   + Installing $tool..."
-                run_native_command uv tool install "$tool" --force
+                run_native_command uv tool install "$tool" --force --no-build --no-python-downloads
             fi
         done < "$UV_FILE"
     else
-        echo "uv binary not found. Check mise install."
+        echo "uv binary not found. Check mise install." >&2
+        exit 1
     fi
 fi
 

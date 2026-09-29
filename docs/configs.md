@@ -36,6 +36,10 @@
 | `configs/espanso/base.yml` | shared Espanso base match config |
 | `configs/espanso/*.py` | shared Espanso script helpers rendered into platform config dirs |
 
+The host `tmuxp` pin in `configs/uv_tools.txt` supports the dedicated workspaces
+described in [repo-ops](tooling/repo-ops.md). Workspace layouts live in the
+separate private chezmoi source.
+
 The standalone `configs/schemas/pipeline-guard.v1.schema.json` supports an opt-in
 `configs/pipeline-guard.json` in consuming GitHub repositories. There is no active
 instance here: dotfiles keeps its GitLab policy. The two policy paths may not

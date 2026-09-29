@@ -478,6 +478,14 @@
       "requires": ["node"]
     },
     {
+      "id": "repo-ops",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_repo_ops"],
+      "covers": ["tests/test_repo_ops.py"],
+      "platforms": ["macos", "wsl2"],
+      "requires": ["bash"]
+    },
+    {
       "id": "resolve-python3",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_resolve_python3"],

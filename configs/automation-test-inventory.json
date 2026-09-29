@@ -493,13 +493,14 @@
         "suite_id": "lifecycle-posix",
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": ["tests/test_cbm_auto_index_hook.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_opencode_v1.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py"],
+        "test_paths": ["tests/test_cbm_auto_index_hook.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_opencode_v1.py", "tests/test_repo_ops.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py"],
         "behavior_requirements": [
           {"id": "failure-cbm-auto-index-gate", "kind": "failure", "description": "Skip with a warning and zero status when the CBM CLI will not start while CBM sessions hold the daemon admission gate, and fail with the underlying diagnostic when no live session explains the failure.", "status": "covered", "test_paths": ["tests/test_cbm_auto_index_hook.py"]},
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Homebrew holds.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
           {"id": "failure-shell-lifecycle-errors", "kind": "failure", "description": "Propagate commit-template writes, installer checksum validation, and selected lifecycle command failures without replacing valid state.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
+          {"id": "failure-uv-tool-unavailable", "kind": "failure", "description": "Stop macOS hydration with an actionable error when a nonempty uv manifest cannot be installed without uv.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Prevent unsupported-host mutation, unrelated formula or tap removal in untested retirement hooks, installer side effects, and production secret access across untested lifecycle hooks.", "status": "planned", "test_paths": []},
           {"id": "safety-isolated-sublime-promptfoo-browser-hooks", "kind": "safety", "description": "Limit synthetic Sublime syntax copies, Promptfoo runtime installation, and browser policy staging to disposable homes without network or credential-provider calls.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "safety-legacy-cbm-retirement-scope", "kind": "safety", "description": "Retire only fully qualified versions discovered under the exact UBI backend on Darwin or WSL2 while preserving unrelated installs and unsupported hosts.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
@@ -509,11 +510,12 @@
           {"id": "success-cbm-auto-index-reconciliation", "kind": "success", "description": "Leave an already-enabled cache untouched, set auto_index only when the cache reports a non-true value, reverify it afterwards, and probe for live CBM sessions with a pattern that still matches a Linux-truncated process name.", "status": "covered", "test_paths": ["tests/test_cbm_auto_index_hook.py"]},
           {"id": "success-legacy-cbm-retirement", "kind": "success", "description": "Remove all inactive legacy UBI CBM versions, reshim, verify the active GitHub replacement, and no-op idempotently when the backend is absent.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "success-opencode-hold", "kind": "success", "description": "Establish and reassert a stable-v1 Homebrew pin idempotently against synthetic package state.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
+          {"id": "success-pinned-uv-tool-hydration", "kind": "success", "description": "Skip the pinned tmuxp tool at the installed version and install a mismatched version only from binary wheels without implicit Python downloads.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
           {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Linux, macOS, Windows, and WSL2 data and parse non-empty POSIX outputs.", "status": "covered", "test_paths": ["tests/test_chezmoi_lifecycle_render.py"]},
           {"id": "success-selected-idempotent-hooks", "kind": "success", "description": "Render and execute selected host refresh, commit-template, cleanup, installer, and retirement hooks idempotently against synthetic state.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py", "tests/test_shell_lifecycle.py"]}
         ]
       },
-      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected commit-template, cleanup, installer, host-refresh, CBM auto-index reconciliation, and exact-backend CBM retirement paths have isolated behavior tests. Mnemo retirement, synthetic WSL key and Sublime syntax copies, fake Promptfoo/Mise dispatch, browser policy staging, and fake Docker image dispatch have offline behavioral tests. Selected macOS-only hooks have Linux no-op checks; absolute-path host commands and other secret-bearing hooks still lack isolated active-path coverage, so the broad host/secret requirement remains planned."
+      "rationale": "All lifecycle templates render across synthetic platform fixtures and their non-empty POSIX outputs pass shell syntax checks. Selected commit-template, cleanup, installer, pinned uv tool hydration, host-refresh, CBM auto-index reconciliation, and exact-backend CBM retirement paths have isolated behavior tests. Mnemo retirement, synthetic WSL key and Sublime syntax copies, fake Promptfoo/Mise dispatch, browser policy staging, and fake Docker image dispatch have offline behavioral tests. Selected macOS-only hooks have Linux no-op checks; absolute-path host commands and other secret-bearing hooks still lack isolated active-path coverage, so the broad host/secret requirement remains planned."
     },
     {
       "id": "lifecycle-windows",
@@ -695,6 +697,30 @@
       "rationale": "Isolated Node contract tests cover review event and state transitions, strict gate clearing, Bash dirty-snapshot success and failure paths, editor suppression lifecycle, redacted event logging, malformed inputs, and swallowed client or filesystem failures without npm or host-state dependencies."
     },
     {
+      "id": "repo-ops",
+      "classification": "owned",
+      "paths": ["bin/executable_repo-ops"],
+      "owner": {"kind": "repository", "name": "dedicated tmuxp workspace launcher"},
+      "languages": ["bash"],
+      "platforms": ["macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "suite_id": "repo-ops",
+        "status": "covered",
+        "work_item": "dots-n1wb",
+        "test_paths": ["tests/test_repo_ops.py"],
+        "behavior_requirements": [
+          {"id": "failure-invalid-layout", "kind": "failure", "description": "Reject invalid, missing, symlinked, nested, and unowned layouts before selecting a session.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
+          {"id": "safety-existing-container", "kind": "safety", "description": "Require an existing container without falling back to a host shell on failure.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
+          {"id": "safety-role-selection", "kind": "safety", "description": "Select only the unique live counterpart by pane role and reject missing, dead, or duplicate roles.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
+          {"id": "success-repeat-attach", "kind": "success", "description": "Attach repeated launches without rebuilding and keep different layout sessions independent.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]}
+        ]
+      },
+      "rationale": "Synthetic tmux and tmuxp fixtures exercise ownership, attach, role, and container failure contracts without contacting host services or reading private workspace data."
+    },
+    {
       "id": "shell-startup",
       "classification": "owned",
       "paths": [
@@ -863,10 +889,11 @@
           {"id": "safety-disposable-wsl-boundary", "kind": "safety", "description": "Run a full provisioning smoke only in disposable WSL2 state without developer-host or secret mutation.", "status": "planned", "test_paths": []},
           {"id": "safety-fixture-bootstrap-boundary", "kind": "safety", "description": "Exercise bootstrap and rendered provisioning dispatch with fake commands, synthetic tokens, and temporary source and config paths.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
           {"id": "success-bootstrap-dispatch-rerun", "kind": "success", "description": "Install or skip bootstrap tools as appropriate, preserve paths with spaces, initialize the selected source, and rerun rendered Ansible dispatch with stable arguments.", "status": "covered", "test_paths": ["tests/test_bootstrap_wsl.py"]},
-          {"id": "success-full-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []}
+          {"id": "success-full-idempotent-provisioning", "kind": "success", "description": "Complete bootstrap and Ansible provisioning idempotently with the expected WSL2 state.", "status": "planned", "test_paths": []},
+          {"id": "success-pinned-uv-tool-provisioning", "kind": "success", "description": "Install the pinned tmuxp wheel only when the exact uv tool version is absent and fail provisioning rather than building from source or downloading Python implicitly.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, rendered Ansible dispatch, and real isolated Ansible command-task failure diagnostics. Full provisioning, idempotence, and disposable WSL2 host isolation remain unverified and planned under a reviewable platform-smoke waiver."
+      "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, rendered Ansible dispatch, and real isolated Ansible command-task failure diagnostics. The pinned uv tool installation gate still needs a synthetic Ansible task test on a WSL2-capable runner. Full provisioning, idempotence, and disposable WSL2 host isolation remain unverified and planned under a reviewable platform-smoke waiver."
     }
   ]
 }
