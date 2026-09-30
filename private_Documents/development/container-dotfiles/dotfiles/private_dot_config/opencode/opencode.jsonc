@@ -212,7 +212,7 @@
     "@franlol/opencode-md-table-formatter@0.0.6",
     "@tarquinen/opencode-dcp@3.2.0",
     "@mohak34/opencode-notifier@0.3.0",
-    ["@plannotator/opencode@0.27.21", {
+    ["@plannotator/opencode@0.27.23", {
       "workflow": "plan-agent",
       "runtime": "cli",
       "planningAgents": [
