@@ -30,7 +30,7 @@ These rules apply to all OpenCode sessions regardless of repository.
   and include exactly one copy:
 
   ```md
-  > On AI assistance: <assistant attribution> helped me narrow down the behavior and draft the wording below, including the repro steps. The investigation, the actual issue, and the workflow are mine. — @balaji-dutt
+  > On AI assistance: <assistant attribution> helped me narrow down the behavior and draft the wording below, including the repro steps. The actual issue and workflow are mine. — @balaji-dutt
   ```
 
 - Replace only `<assistant attribution>`, including the angle brackets. Keep the
