@@ -584,6 +584,14 @@
       "covers": ["tests/test_bootstrap_wsl.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash", "chezmoi"]
+    },
+    {
+      "id": "wsl-lifecycle-boundaries",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_wsl_lifecycle_boundaries"],
+      "covers": ["tests/test_wsl_lifecycle_boundaries.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi", "git"]
     }
   ]
 }
