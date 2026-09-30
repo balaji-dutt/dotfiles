@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
+import select
+import shutil
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, read_json_lines, write_executable
+
+if os.name == "posix":
+    import pty
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +21,82 @@ SOURCE = ROOT / "bin/executable_repo-ops"
 
 
 class RepoOpsTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix" and shutil.which("tmux") and shutil.which("tmuxp"),
+                         "requires tmux, tmuxp, and a POSIX PTY")
+    def test_real_tmuxp_detached_load_and_repeat_attach(self):
+        with isolated_environment(prefix="repo-ops-live-") as fixture:
+            theme = fixture.home / ".config/tmux/repo-ops.conf"
+            theme.parent.mkdir(parents=True)
+            theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())
+            layouts = fixture.home / ".config/tmuxp"
+            layouts.mkdir(parents=True)
+            for layout in ("alpha", "beta"):
+                (layouts / f"{layout}.yaml").write_text(
+                    f"session_name: repo-ops-{layout}\n"
+                    "windows:\n"
+                    f"  - window_name: sample\n    start_directory: {fixture.home}\n"
+                    "    panes:\n      - shell_command:\n          - repo-ops tag shell\n"
+                )
+            launcher = write_executable(fixture.fake_bin / "repo-ops", SOURCE.read_text())
+            env = dict(fixture.env, TMUX_TMPDIR=str(fixture.root / "tmp"))
+            env.pop("TMUX", None)
+            env.pop("TMUX_PANE", None)
+            tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
+
+            def run_tmux(*args):
+                return subprocess.run([*tmux, *args], env=env, capture_output=True, text=True)
+
+            def attach(layout):
+                master, slave = pty.openpty()
+                process = subprocess.Popen([str(launcher), layout], env=env, stdin=slave,
+                                           stdout=slave, stderr=slave)
+                os.close(slave)
+                output = b""
+                try:
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        readable, _, _ = select.select([master], [], [], 0.1)
+                        if readable:
+                            try:
+                                output += os.read(master, 65536)
+                            except OSError:
+                                pass
+                        if process.poll() is not None:
+                            break
+                        sessions = run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}|#{session_attached}")
+                        attached = next((line.split("|")[1] for line in sessions.stdout.splitlines()
+                                         if line.startswith(f"repo-ops-{layout}|") and line.endswith("|1")), None)
+                        if attached:
+                            detached = run_tmux("detach-client", "-s", attached)
+                            self.assertEqual(detached.returncode, 0, detached.stderr)
+                            break
+                    process.wait(timeout=5)
+                    sessions = run_tmux("list-sessions", "-F", "#{session_name} #{session_attached}")
+                    self.assertEqual(process.returncode, 0,
+                                     f"{output.decode(errors='replace')}\nsessions: {sessions.stdout!r} {sessions.stderr!r}")
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                    os.close(master)
+
+            try:
+                attach("alpha")
+                session_id = run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.strip().split("|")[1]
+                first = run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}")
+                self.assertEqual(first.returncode, 0, first.stderr)
+                self.assertEqual(run_tmux("show-option", "-qv", "-t", session_id,
+                                          "@repo_ops_layout").stdout.strip(), str(layouts / "alpha.yaml"))
+                attach("beta")
+                self.assertEqual(len(run_tmux("list-sessions", "-F", "#{session_name}").stdout.splitlines()), 2)
+                attach("alpha")
+                self.assertEqual(run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}").stdout,
+                                 first.stdout)
+                self.assertIn(f"repo-ops-alpha|{session_id}",
+                              run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.splitlines())
+            finally:
+                run_tmux("kill-server")
+
     def prepare(self, fixture):
         home = fixture.home
         theme = home / ".config/tmux/repo-ops.conf"
@@ -34,21 +117,34 @@ with log_path.open('a') as stream:
     stream.write(json.dumps([pathlib.Path(sys.argv[0]).name, *args]) + '\n')
 if pathlib.Path(sys.argv[0]).name == 'tmuxp':
     session = args[args.index('-s') + 1]
-    state.setdefault(session, {'owner': '', 'panes': {}})
+    if not os.environ.get('OPS_TMUXP_NO_SESSION'):
+        state.setdefault(session, {'owner': '', 'panes': {}})
 else:
-    command = next((word for word in args if word in ('has-session', 'show-option', 'set-option', 'attach-session', 'display-message', 'list-panes', 'select-pane')), '')
+    command = next((word for word in args if word in ('list-sessions', 'has-session', 'show-option', 'set-option', 'attach-session', 'display-message', 'list-panes', 'select-pane')), '')
     target = args[args.index('-t') + 1] if '-t' in args else ''
-    session = target.lstrip('=')
-    if command == 'has-session':
+    sessions = [key for key in state if key.startswith('repo-ops-')]
+    session = next((key for index, key in enumerate(sessions, 1) if target == f'${index}'), target.lstrip('='))
+    if command == 'list-sessions':
+        for index, key in enumerate(sessions, 1):
+            print(f'{key}|${index}')
+    elif command == 'has-session':
         if session not in state:
             sys.exit(1)
     elif command == 'show-option':
+        if target.startswith('='):
+            sys.exit(1)
         print(state.get(session, {}).get('owner', ''))
     elif command == 'set-option':
+        if target.startswith('=') or os.environ.get('OPS_MARK_FAIL'):
+            sys.stderr.write(f'no such session: {target}\n')
+            sys.exit(1)
         if '-p' in args:
             state.setdefault('role_tags', []).append([target, args[-1]])
         else:
             state[session]['owner'] = args[-1]
+    elif command == 'attach-session' and os.environ.get('OPS_ATTACH_FAIL'):
+        sys.stderr.write('attach failed\n')
+        sys.exit(1)
     elif command == 'display-message':
         if '-p' in args:
             print(os.environ.get('OPS_PANE_INFO', 'repo-ops-alpha|@1|shell|0'))
@@ -81,6 +177,9 @@ state_path.write_text(json.dumps(state))
             calls = read_json_lines(log)
             self.assertEqual(len([row for row in calls if row[0] == "tmuxp"]), 2)
             self.assertEqual(len([row for row in calls if "attach-session" in row]), 3)
+            for row in calls:
+                if any(command in row for command in ("show-option", "set-option", "attach-session")):
+                    self.assertFalse(any(arg.startswith("=repo-ops-") for arg in row))
             contents = json.loads(state.read_text())
             self.assertTrue(contents["repo-ops-alpha"]["owner"].endswith("alpha.yaml"))
             self.assertTrue(contents["repo-ops-beta"]["owner"].endswith("beta.yaml"))
@@ -99,6 +198,26 @@ state_path.write_text(json.dumps(state))
             state.write_text(json.dumps({"repo-ops-alpha": {"owner": "", "panes": {}}}))
             self.assertIn("collision", self.run_ops(launcher, env, "alpha").stderr)
             self.assertFalse(any(row[0] == "tmuxp" for row in read_json_lines(log)))
+
+    def test_missing_session_and_mark_failure_do_not_attach(self):
+        with isolated_environment() as fixture:
+            launcher, _, state, log, env = self.prepare(fixture)
+            missing = self.run_ops(launcher, dict(env, OPS_TMUXP_NO_SESSION="1"), "alpha")
+            self.assertIn("tmuxp did not create repo-ops-alpha", missing.stderr)
+            self.assertFalse(any("attach-session" in row for row in read_json_lines(log)))
+            failed = self.run_ops(launcher, dict(env, OPS_MARK_FAIL="1"), "alpha")
+            self.assertIn("could not mark repo-ops-alpha", failed.stderr)
+            self.assertEqual(json.loads(state.read_text())["repo-ops-alpha"]["owner"], "")
+            self.assertFalse(any("attach-session" in row for row in read_json_lines(log)))
+
+    def test_failed_attach_preserves_owned_session_for_retry(self):
+        with isolated_environment() as fixture:
+            launcher, _, state, log, env = self.prepare(fixture)
+            failure = self.run_ops(launcher, dict(env, OPS_ATTACH_FAIL="1"), "alpha")
+            self.assertIn("could not attach repo-ops-alpha", failure.stderr)
+            self.assertTrue(json.loads(state.read_text())["repo-ops-alpha"]["owner"].endswith("alpha.yaml"))
+            self.assertEqual(self.run_ops(launcher, env, "alpha").returncode, 0)
+            self.assertEqual(len([row for row in read_json_lines(log) if row[0] == "tmuxp"]), 1)
 
     def test_focus_uses_role_not_position_and_fails_closed(self):
         with isolated_environment() as fixture:

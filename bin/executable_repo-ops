@@ -7,6 +7,17 @@ layouts="$HOME/.config/tmuxp"
 
 fail() { printf 'repo-ops: %s\n' "$*" >&2; exit 1; }
 notice() { tmux -L "$socket" -f "$theme" display-message -d 4000 -- "$*"; }
+session_id_for() {
+  local name="$1" listed candidate id
+  listed="$(tmux -L "$socket" -f "$theme" list-sessions -F '#{session_name}|#{session_id}' 2>/dev/null)" || return 1
+  while IFS='|' read -r candidate id; do
+    if [[ "$candidate" == "$name" && -n "$id" ]]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+  done <<< "$listed"
+  return 1
+}
 
 case "${1:-}" in
   pane)
@@ -39,7 +50,8 @@ case "${1:-}" in
     info="$(tmux -L "$socket" -f "$theme" display-message -p -t "$pane" '#{session_name}|#{window_id}|#{@repo_ops_role}|#{pane_dead}')" || fail 'pane is unavailable'
     IFS='|' read -r session window role dead <<< "$info"
     [[ "$session" == repo-ops-* ]] || fail 'pane belongs to another session'
-    [[ -n "$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)" ]] || fail 'unowned session'
+    session_id="$(session_id_for "$session")" || fail 'pane session is unavailable'
+    [[ -n "$(tmux -L "$socket" -f "$theme" show-option -qv -t "$session_id" @repo_ops_layout)" ]] || fail 'unowned session'
     case "$role" in
       shell) wanted=backlog ;;
       backlog) wanted=shell ;;
@@ -77,16 +89,16 @@ lock="${TMPDIR:-/tmp}/repo-ops-$UID-$layout.lock"
 mkdir "$lock" 2>/dev/null || fail "workspace launch already in progress (or stale lock: $lock)"
 trap 'rmdir "$lock"' EXIT
 
-if tmux -L "$socket" -f "$theme" has-session -t "=$session" 2>/dev/null; then
-  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)"
+if session_id="$(session_id_for "$session")"; then
+  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "$session_id" @repo_ops_layout)"
   [[ "$owner" == "$config" ]] || fail "session name collision: $session is owned by another layout or is unmarked"
 else
   tmuxp load -d -y -L "$socket" -f "$theme" -s "$session" "$config" || fail "tmuxp failed; inspect $session on the dedicated server before retrying"
-  tmux -L "$socket" -f "$theme" has-session -t "=$session" || fail "tmuxp did not create $session"
-  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "=$session" @repo_ops_layout)"
+  session_id="$(session_id_for "$session")" || fail "tmuxp did not create $session; inspect tmux -L $socket list-sessions"
+  owner="$(tmux -L "$socket" -f "$theme" show-option -qv -t "$session_id" @repo_ops_layout)"
   [[ -z "$owner" ]] || fail "session name collision: $session was created by another launcher"
-  tmux -L "$socket" -f "$theme" set-option -t "=$session" @repo_ops_layout "$config"
+  tmux -L "$socket" -f "$theme" set-option -t "$session_id" @repo_ops_layout "$config" || fail "could not mark $session; inspect tmux -L $socket list-sessions"
 fi
 trap - EXIT
 rmdir "$lock"
-tmux -L "$socket" -f "$theme" attach-session -t "=$session"
+tmux -L "$socket" -f "$theme" attach-session -t "$session_id" || fail "could not attach $session; inspect tmux -L $socket list-sessions"

@@ -28,9 +28,13 @@ commands. Different layout tokens create separate sessions on the same
 dedicated server. Launch from inside any tmux session is rejected; detach
 first to avoid nested clients. The launcher refuses a missing/symlinked YAML,
 an invalid token, or an existing session without a matching ownership marker.
-Resolve an interrupted launch manually by inspecting `tmux -L repo-ops
-list-sessions` and the reported lock before removing any stale lock. It does
-not replace or kill unmarked sessions.
+`tmux ls` checks the default server, not this workspace: use `tmux -L repo-ops
+list-sessions -F '#{session_name} #{session_id}'` to inspect the dedicated
+server. An unmarked session may be left by an interrupted launch. You can
+attach to its displayed session ID with `tmux -L repo-ops attach-session -t
+<session-id>` to inspect its panes, but `repo-ops` will not adopt or replace
+it. Resolve an interrupted launch manually after checking the session and the
+reported lock; do not remove a lock while a launch is active.
 
 Each host shell pane in a private layout can run `repo-ops tag shell` as its
 tmuxp `shell_command`. A future backlog TUI pane can run `repo-ops tag
@@ -54,8 +58,9 @@ when the TUI workflow is ready.
 Tmux keeps sessions after client detach or terminal exit, until they are
 killed or the server exits. Attaching in another terminal uses that terminal's
 dimensions; tmux resizes panes with the attached clients, so no fixed size is
-stored in YAML. Run `tmux -L repo-ops list-sessions` to inspect them and
-`tmux -L repo-ops kill-session -t =repo-ops-<layout>` to discard one when
-intentionally reloading its YAML. Then run `repo-ops <layout>` again. Avoid
-`tmux -L repo-ops kill-server` unless all dedicated layouts may be discarded.
+stored in YAML. After inspecting the session name and ID with the command
+above, run `tmux -L repo-ops kill-session -t <session-id>` only if you intend
+to discard that session and reload its YAML. Then run `repo-ops <layout>`
+again. Avoid `tmux -L repo-ops kill-server` unless all dedicated layouts may
+be discarded.
 The default tmux server and its sessions are independent.
