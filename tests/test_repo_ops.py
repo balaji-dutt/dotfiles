@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -21,9 +22,86 @@ SOURCE = ROOT / "bin/executable_repo-ops"
 
 
 class RepoOpsTests(unittest.TestCase):
+    def require_theme_compatible_tmux(self):
+        version = subprocess.run(["tmux", "-V"], capture_output=True, text=True)
+        match = re.search(r"(\d+)\.(\d+)", version.stdout)
+        if version.returncode or not match or tuple(map(int, match.groups())) < (3, 3):
+            self.skipTest("repo-ops theme requires tmux 3.3 or newer")
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
+    def test_dedicated_theme_and_titles(self):
+        self.require_theme_compatible_tmux()
+        with isolated_environment(prefix="repo-ops-theme-") as fixture:
+            theme = fixture.home / ".config/tmux/repo-ops.conf"
+            theme.parent.mkdir(parents=True)
+            theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())
+            env = dict(fixture.env, TMUX_TMPDIR=str(fixture.root / "tmp"))
+            env.pop("TMUX", None)
+            tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
+
+            def run_tmux(*args):
+                return subprocess.run([*tmux, *args], env=env, capture_output=True, text=True)
+
+            def option(name):
+                result = run_tmux("show-option", "-gv", name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout.strip()
+
+            def title():
+                result = run_tmux("display-message", "-p", "-t", "repo-ops-check",
+                                  titles_format)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout.strip()
+
+            started = run_tmux("new-session", "-d", "-s", "repo-ops-check", "-n", "idle",
+                               "bash --noprofile --norc -i")
+            self.assertEqual(started.returncode, 0, started.stderr)
+            try:
+                titles_format = option("set-titles-string")
+                self.assertEqual(option("mouse"), "on")
+                self.assertEqual(option("allow-rename"), "off")
+                self.assertEqual(option("automatic-rename"), "off")
+                self.assertEqual(option("set-titles"), "on")
+                self.assertEqual(option("status-justify"), "absolute-centre")
+                self.assertEqual(option("status-left-length"), "64")
+                self.assertIn("#S", option("status-left"))
+                self.assertIn("colour214", option("window-status-current-style"))
+
+                for _ in range(20):
+                    current = run_tmux("display-message", "-p", "-t", "repo-ops-check",
+                                       "#{pane_current_command}").stdout.strip()
+                    if current == "bash":
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(current, "bash")
+                self.assertEqual(title(), "repo-ops: idle")
+
+                running = run_tmux("new-window", "-d", "-t", "repo-ops-check", "-n", "running", "sleep 60")
+                self.assertEqual(running.returncode, 0, running.stderr)
+                selected = run_tmux("select-window", "-t", "repo-ops-check:running")
+                self.assertEqual(selected.returncode, 0, selected.stderr)
+                for _ in range(20):
+                    if title() == "repo-ops: running | sleep":
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(title(), "repo-ops: running | sleep")
+                self.assertEqual(run_tmux("select-window", "-t", "repo-ops-check:idle").returncode, 0)
+                self.assertEqual(title(), "repo-ops: idle")
+
+                unnamed = run_tmux("new-window", "-dP", "-F", "#{window_id}",
+                                   "-t", "repo-ops-check", "bash --noprofile --norc -i")
+                self.assertEqual(unnamed.returncode, 0, unnamed.stderr)
+                self.assertEqual(run_tmux("select-window", "-t", unnamed.stdout.strip()).returncode, 0)
+                window = run_tmux("display-message", "-p", "-t", "repo-ops-check", "#{window_name}")
+                self.assertEqual(window.returncode, 0, window.stderr)
+                self.assertEqual(title(), f"repo-ops: {window.stdout.strip()}")
+            finally:
+                run_tmux("kill-server")
+
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux") and shutil.which("tmuxp"),
                          "requires tmux, tmuxp, and a POSIX PTY")
     def test_real_tmuxp_detached_load_and_repeat_attach(self):
+        self.require_theme_compatible_tmux()
         with isolated_environment(prefix="repo-ops-live-") as fixture:
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)

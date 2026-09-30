@@ -148,6 +148,10 @@ unreadable. `private_dot_config/agent-of-empires/modify_config.toml` now pins
 `status_bar` and `clipboard` to `"enabled"` so that cannot happen silently
 again.
 
+The separate `repo-ops` server is an exception: its launcher explicitly reads
+`~/.config/tmux/repo-ops.conf` and enables tmux-managed titles there. It does
+not make that file the default server config or change AoE's title settings.
+
 `set-titles` is also server-wide, and there is no per-client form. The tmux
 server pushes a title to every terminal hosting a client, including the tab
 running the `aoe` TUI dashboard, and it has no idea which session that dashboard
