@@ -367,40 +367,14 @@ class CommitWrapperTests(unittest.TestCase):
                 "AI-Participant: tool=opencode"],
             )
 
-    def test_legacy_gitconfig_author_aliases_keep_amend_semantics(self) -> None:
+    def test_gitconfig_has_no_legacy_author_aliases(self) -> None:
         for template in (
             REPO_ROOT / "dot_gitconfig.tmpl",
             REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles/dot_gitconfig.tmpl",
         ):
             with self.subTest(template=template):
                 content = template.read_text(encoding="utf-8")
-                self.assertIn(r'clauth = commit --amend --author=\"Claude <claude@anthropic.com>\" --no-edit', content)
-                self.assertIn(r'ocauth = commit --amend --author=\"OpenCode <noreply@opencode.ai>\" --no-edit', content)
-
-        with isolated_environment(prefix="legacy author alias ") as fixture:
-            repo = fixture.root / "repo"
-            self.init_repository(repo, fixture.env)
-            self.stage_change(repo, fixture.env, "alias.txt", "original")
-            subprocess.run(
-                ["git", "-C", str(repo), "commit", "-m", "Original"],
-                env=fixture.env, check=True, stdout=subprocess.PIPE,
-            )
-            self.stage_change(repo, fixture.env, "alias.txt", "amended")
-            result = subprocess.run(
-                ["git", "-C", str(repo), "-c",
-                 'alias.ocauth=commit --amend --author="OpenCode <noreply@opencode.ai>" --no-edit',
-                 "ocauth"],
-                env=fixture.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                subprocess.run(
-                    ["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>"],
-                    env=fixture.env, check=True, text=True, stdout=subprocess.PIPE,
-                ).stdout.strip(),
-                "OpenCode <noreply@opencode.ai>|Test User <test@example.com>",
-            )
-            self.assertEqual(self.parsed_trailers(repo, fixture.env), [])
+                self.assertNotRegex(content, r"(?m)^\s*(?:clauth|ocauth)\s*=")
 
     def test_help_does_not_invoke_git(self) -> None:
         with isolated_environment(prefix="commit help ") as fixture:
