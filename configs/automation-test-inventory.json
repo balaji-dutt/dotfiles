@@ -713,12 +713,14 @@
         "test_paths": ["tests/test_repo_ops.py"],
         "behavior_requirements": [
           {"id": "failure-invalid-layout", "kind": "failure", "description": "Reject invalid, missing, symlinked, nested, and unowned layouts before selecting a session.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
+          {"id": "failure-session-create-or-mark", "kind": "failure", "description": "Do not attach when tmuxp fails to create the exact session or tmux cannot set its ownership marker.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
           {"id": "safety-existing-container", "kind": "safety", "description": "Require an existing container without falling back to a host shell on failure.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
           {"id": "safety-role-selection", "kind": "safety", "description": "Select only the unique live counterpart by pane role and reject missing, dead, or duplicate roles.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
+          {"id": "safety-session-ownership", "kind": "safety", "description": "Resolve the exact session ID, reject unmarked or mismatched existing sessions, and preserve a marked session when attach fails.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
           {"id": "success-repeat-attach", "kind": "success", "description": "Attach repeated launches without rebuilding and keep different layout sessions independent.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]}
         ]
       },
-      "rationale": "Synthetic tmux and tmuxp fixtures exercise ownership, attach, role, and container failure contracts without contacting host services or reading private workspace data."
+      "rationale": "Synthetic tmux and tmuxp fixtures exercise ownership, attach, role, and container failure contracts without contacting host services or reading private workspace data. A real tmux/tmuxp PTY test uses only test-owned sockets and synthetic layouts, and skips when POSIX PTYs or either tool are unavailable; it is not unconditional macOS runtime evidence."
     },
     {
       "id": "shell-startup",
