@@ -13,6 +13,8 @@
   "requestTimeoutMs": 12000,
   "minIntervalMs": 600000,
   "formatStyle": "singleWindow",
+  "quotaProjection": "runway",
+  "resetTimeDecimals": 0,
   "tuiCommandDisplay": "dialog",
   "sessionTokenScope": "tree",
   "tuiSidebarPanel": {
