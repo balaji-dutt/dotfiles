@@ -299,8 +299,8 @@ Claude Code sessions use the Claude wrapper by default:
 aoe add --cmd claude --launch <repo-path>
 ```
 
-The managed `auto` profile passes OpenCode's `--auto` CLI flag to both OpenCode
-agents:
+For tmux sessions, the managed `auto` profile passes OpenCode's `--auto` CLI
+flag to both OpenCode agents:
 
 ```sh
 aoe --profile auto add --tool opencode --launch <repo-path>
@@ -308,8 +308,12 @@ aoe --profile auto add --tool opencode-custom --launch <repo-path>
 ```
 
 The default profile does not add the flag. The `auto` profile affects newly
-launched processes; it does not change an already-running OpenCode session.
-This intentionally avoids AoE YOLO mode, which injects an
+launched tmux processes; it does not change an already-running OpenCode session.
+Structured ACP sessions do not use these tmux arguments: OpenCode's ACP command
+does not support `--auto`, so the `auto` profile does not auto-approve ACP
+permission requests.
+
+For tmux, this intentionally avoids AoE YOLO mode, which injects an
 `OPENCODE_PERMISSION` environment override that can be shadowed by stricter
 permission configuration. OpenCode `--auto` auto-approves permissions that are
 not explicitly denied.
