@@ -195,6 +195,24 @@ Do not put secrets in `containerEnv` or `remoteEnv` either: those values also
 travel as `docker run` or `docker exec` arguments and show up in
 `docker inspect`.
 
+The template also inherits whatever `devcontainer build` bakes into the
+`homelab-iac:base` image's `devcontainer.metadata` label from the upstream
+`.devcontainer/devcontainer.json`. VS Code and the devcontainer CLI merge that
+label into this template: `remoteEnv` and `containerEnv` key by key, with this
+template winning, and `mounts` along with them. A secret that upstream routes
+through one of those fields reaches `docker exec` argv even though this
+template never names it. Don't override an inherited key with `null`; the CLI
+passes it as the string `null`. After upstream changes its `devcontainer.json`,
+rebuild the base image on each host, then rebuild the dev container: an
+existing container keeps its own copy of the label from when it was created.
+List the image label's env keys without their values:
+
+```sh
+docker image inspect homelab-iac:base \
+  --format '{{ index .Config.Labels "devcontainer.metadata" }}' |
+  jq '[.[] | {remoteEnv: (.remoteEnv // {} | keys), containerEnv: (.containerEnv // {} | keys)}]'
+```
+
 ## homelab-IaC: Beads and Dolt
 
 The homelab project configures Beads for a project-local Dolt server
