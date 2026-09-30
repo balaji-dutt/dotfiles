@@ -233,13 +233,13 @@ install_citrix_dmg() {
   dmg_file="$1"
 
   if checksum="$(resolve_checksum "$CITRIX_DMG_SHA256" "$CITRIX_DMG_SHA256_OP_REF" "Citrix DMG SHA-256")"; then
-    verify_sha256 "$dmg_file" "$checksum"
+    verify_sha256 "$dmg_file" "$checksum" || return $?
   fi
 
   prepare_work_dir
   CITRIX_MOUNT_POINT="$(/usr/bin/mktemp -d "$WORK_DIR/citrix-mount.XXXXXX")"
   log "Mounting Citrix Workspace DMG."
-  /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$CITRIX_MOUNT_POINT" "$dmg_file" >/dev/null
+  /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$CITRIX_MOUNT_POINT" "$dmg_file" >/dev/null || return $?
 
   if ! package_file="$(find_citrix_pkg "$CITRIX_MOUNT_POINT")"; then
     printf 'ERROR: Could not find a Citrix package inside the DMG.\n' >&2
@@ -258,12 +258,13 @@ install_zoom_pkg_from_config() {
     return 0
   fi
 
+  prepare_work_dir
   if ! package_file="$(download_url_to_file "$package_url" "pkg" "zoom-vdi")"; then
     return 0
   fi
 
   if checksum="$(resolve_checksum "$ZOOM_PKG_SHA256" "$ZOOM_PKG_SHA256_OP_REF" "Zoom VDI package SHA-256")"; then
-    verify_sha256 "$package_file" "$checksum"
+    verify_sha256 "$package_file" "$checksum" || return $?
   fi
 
   install_pkg "$package_file" "Zoom VDI"
@@ -273,6 +274,7 @@ install_citrix_from_config() {
   local dmg_url dmg_file candidate_path
 
   if dmg_url="$(read_op_value "$CITRIX_DMG_URL_OP_REF" "Citrix DMG URL")"; then
+    prepare_work_dir
     if dmg_file="$(download_url_to_file "$dmg_url" "dmg" "citrix-workspace")"; then
       install_citrix_dmg "$dmg_file"
       return $?
