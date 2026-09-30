@@ -290,9 +290,15 @@ that follows the rules above.
   the source of truth: `feature.fast_forward_possible` selects `ff` when true
   and `no-ff` when false. The actor-specific match
   (`beads.claude.matches` or `beads.opencode.matches`) is the only signal that
-  authorizes `--close-beads <issue-id>`. After closing the issue, the helper
-  removes the handoff state file; if removal fails, it warns and leaves the
-  closed issue with the state file still present.
+  authorizes `--close-beads <issue-id>` for that exact ID. If the authoritative
+  helper advertises `inspect --beads-issue`, supply the selected issue ID to
+  validate a file or `beads-work anchor:` note; default inspection remains
+  file-only and never queries Beads. The helper rechecks tracking after landing,
+  verifies the close reason by readback, removes only a still-matching local
+  state file, and retains note history. A failed readback is a partial result;
+  do not retry the landed merge. An invalid claim before the merge exits 2
+  without landing; repair it and inspect again. An incomplete close after
+  landing exits 1 and must not be retried as a merge.
 - Cleanup is classified per worktree, not per repo, and the helper checks in
   this order: an `aoe-managed` lock defers to Agent of Empires; native Windows
   always defers cleanup until the active agent exits; an `ai-wt` session

@@ -73,6 +73,7 @@ class GitFixture:
         self.remote = self.root / "origin remote.git"
         self.fake_bin = self.root / "fake bin"
         self.bd_log = self.root / "bd log.json"
+        self.bd_issue = self.root / "bd issue.json"
         self.git_config = self.root / "isolated gitconfig"
         self.git_config.write_text("", encoding="utf-8")
         self.env = os.environ.copy()
@@ -113,13 +114,38 @@ import sys
 from pathlib import Path
 
 log_path = os.environ.get("FAKE_BD_LOG")
+issue_path = Path(os.environ["FAKE_BD_ISSUE"])
+args = sys.argv[1:]
+if args[0] == "show":
+    issue = json.loads(issue_path.read_text(encoding="utf-8")) if issue_path.exists() else {"id": args[1], "status": "in_progress", "notes": ""}
+    if os.environ.get("FAKE_BD_CHANGE_ANCHOR") and os.environ.get("FAKE_BD_SHOW_COUNT"):
+        count_path = Path(os.environ["FAKE_BD_SHOW_COUNT"])
+        count = int(count_path.read_text(encoding="utf-8")) if count_path.exists() else 0
+        count_path.write_text(str(count + 1), encoding="utf-8")
+        if count == 1:
+            anchor = json.loads(issue["notes"].removeprefix("beads-work anchor: "))
+            anchor["started_at"] = "2026-09-30T13:00:00Z"
+            issue["notes"] = "beads-work anchor: " + json.dumps(anchor)
+            issue_path.write_text(json.dumps(issue), encoding="utf-8")
+    if os.environ.get("FAKE_BD_SHOW_FAIL") or (os.environ.get("FAKE_BD_READBACK_FAIL") and issue["status"] == "closed"):
+        raise SystemExit(17)
+    print(json.dumps([issue]))
+    raise SystemExit(0)
 if log_path:
-    Path(log_path).write_text(json.dumps(sys.argv[1:]), encoding="utf-8")
-if os.environ.get("FAKE_BD_REMOVE_STATE"):
-    Path(os.environ["FAKE_BD_REMOVE_STATE"]).unlink(missing_ok=True)
+    Path(log_path).write_text(json.dumps(args), encoding="utf-8")
 if os.environ.get("FAKE_BD_FAIL"):
     print("simulated bd failure", file=sys.stderr)
     raise SystemExit(17)
+issue = json.loads(issue_path.read_text(encoding="utf-8")) if issue_path.exists() else {"id": args[1], "notes": ""}
+issue.update(status="closed", close_reason=args[args.index("--reason") + 1])
+issue_path.write_text(json.dumps(issue), encoding="utf-8")
+if os.environ.get("FAKE_BD_REMOVE_STATE"):
+    Path(os.environ["FAKE_BD_REMOVE_STATE"]).unlink(missing_ok=True)
+if os.environ.get("FAKE_BD_REPLACE_STATE"):
+    state_path = Path(os.environ["FAKE_BD_REPLACE_STATE"])
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["started_at"] = "2026-09-30T13:00:00Z"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
 """,
         )
 
@@ -304,6 +330,7 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
             env.pop(key, None)
         env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
         env["FAKE_BD_LOG"] = str(self.bd_log)
+        env["FAKE_BD_ISSUE"] = str(self.bd_issue)
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -329,6 +356,18 @@ raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
             },
         )
         return state_path
+
+    def write_anchor(self, *, actor: str = "OpenCode", issue_id: str = "dots-test", **overrides) -> dict:
+        anchor = {
+            "id": issue_id, "agent": actor, "branch": "feature",
+            "worktree_path": str(self.feature),
+            "started_sha": self.output(self.main, "rev-parse", "HEAD"),
+            "started_at": "2026-09-30T12:00:00Z",
+        }
+        anchor.update(overrides)
+        write_json(self.bd_issue, {"id": issue_id, "status": "in_progress",
+                                   "notes": "beads-work anchor: " + json.dumps(anchor)})
+        return anchor
 
     def write_ai_wt_session(self, session_id: str = "test-session") -> Path:
         metadata_path = self.main / ".ai-wt" / "sessions" / f"{session_id}.json"
@@ -399,7 +438,7 @@ class AgentWtMergeTests(unittest.TestCase):
         result = fixture.run_helper(fixture.main_helper, fixture.root, "--help")
         self.assert_ok(result)
         self.assertEqual(result.stdout, """Usage:
-  ./assets/agent-wt-merge inspect [--fetch] [--json] [--use-local-helper]
+  ./assets/agent-wt-merge inspect [--fetch] [--json] [--beads-issue <issue-id>] [--use-local-helper]
   ./assets/agent-wt-merge prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [--use-local-helper]
   ./assets/agent-wt-merge prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [--use-local-helper]
   ./assets/agent-wt-merge ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [--use-local-helper]
@@ -568,11 +607,13 @@ Commands:
                 elif state_kind == "unlink-failure":
                     env["FAKE_BD_REMOVE_STATE"] = str(state)
                 result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env=env)
-                self.assertEqual(result.returncode, 0 if state_kind == "matching" else 1, result.stderr)
-                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+                self.assertEqual(result.returncode, 2 if state_kind == "mismatched" else 0 if state_kind == "matching" else 1, result.stderr)
+                if state_kind != "mismatched":
+                    self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
                 self.assertEqual(fixture.output(fixture.remote, "show-ref"), refs)
                 self.assertEqual(state.exists(), state_kind in {"mismatched", "failure"})
-                self.assertIn("aoe", result.stdout.lower())
+                if state_kind != "mismatched":
+                    self.assertIn("aoe", result.stdout.lower())
                 if state_kind == "mismatched":
                     self.assertFalse(fixture.bd_log.exists())
 
@@ -1506,6 +1547,161 @@ Commands:
         self.assertFalse(state_path.exists())
         self.assertIn("Beads issue closed: yes", result.stdout)
         self.assertIn("state cleanup did not complete", result.stdout)
+
+    def test_note_tracking_inspect_and_close_for_both_actors(self) -> None:
+        for actor, merge_type in (("opencode", "ff"), ("claude", "no-ff")):
+            with self.subTest(actor=actor):
+                fixture = self.fixture(ci_gated=False)
+                if merge_type == "no-ff":
+                    fixture.commit_main("main-only", "main\n", "main only")
+                fixture.write_anchor(actor="OpenCode" if actor == "opencode" else "Claude",
+                                     started_sha=fixture.output(fixture.feature, "rev-parse", "HEAD"))
+                default = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--json")
+                self.assert_ok(default)
+                self.assertFalse(json.loads(default.stdout)["beads"][actor]["matches"])
+                inspected = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--beads-issue", "dots-test", "--json")
+                self.assert_ok(inspected)
+                self.assertEqual(json.loads(inspected.stdout)["beads"][actor]["source"], "note")
+                self.assertTrue(json.loads(inspected.stdout)["beads"][actor]["matches"])
+                args = [merge_type, "--actor", actor, "--close-beads", "dots-test"]
+                if merge_type == "no-ff":
+                    args.extend(["-m", "merge note"])
+                merged = fixture.run_helper(fixture.main_helper, fixture.feature, *args)
+                self.assert_ok(merged)
+                self.assertEqual(read_json(fixture.bd_issue)["status"], "closed")
+                self.assertFalse((fixture.feature / ".beads").exists())
+
+    def test_note_tracking_rejects_ambiguous_or_invalid_claim_before_merge(self) -> None:
+        for failure in ("duplicate", "wrong-branch", "wrong-actor", "wrong-path", "bad-sha", "bad-time", "malformed", "conflict", "show-failure", "closed"):
+            with self.subTest(failure=failure):
+                fixture = self.fixture(ci_gated=False)
+                anchor = fixture.write_anchor()
+                issue = read_json(fixture.bd_issue)
+                if failure == "duplicate":
+                    issue["notes"] += "\n" + issue["notes"]
+                elif failure in {"wrong-branch", "wrong-actor", "wrong-path", "bad-sha", "bad-time"}:
+                    key, value = {"wrong-branch": ("branch", "elsewhere"), "wrong-actor": ("agent", "Claude"),
+                                  "wrong-path": ("worktree_path", str(fixture.main)), "bad-sha": ("started_sha", "bad"),
+                                  "bad-time": ("started_at", "yesterday")}[failure]
+                    anchor[key] = value
+                    issue["notes"] = "beads-work anchor: " + json.dumps(anchor)
+                elif failure == "malformed":
+                    issue["notes"] = "beads-work anchor: {"
+                elif failure == "conflict":
+                    fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+                elif failure == "closed":
+                    issue["status"] = "closed"
+                write_json(fixture.bd_issue, issue)
+                env = {"FAKE_BD_SHOW_FAIL": "1"} if failure == "show-failure" else {}
+                before = fixture.output(fixture.main, "rev-parse", "HEAD")
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env=env)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+                self.assertFalse(fixture.bd_log.exists())
+
+    def test_note_tracking_rejects_symlinked_claims(self) -> None:
+        for kind in ("state-file", "state-directory", "worktree-path"):
+            with self.subTest(kind=kind):
+                fixture = self.fixture(ci_gated=False)
+                anchor = fixture.write_anchor()
+                if kind == "state-file":
+                    state = fixture.feature / ".beads" / "in-progress-opencode.json"
+                    state.parent.mkdir()
+                    state.symlink_to(fixture.root / "missing-state.json")
+                elif kind == "state-directory":
+                    directory = fixture.feature / ".beads"
+                    directory.symlink_to(fixture.root / "missing-beads", target_is_directory=True)
+                else:
+                    alias = fixture.root / "alias-feature"
+                    alias.symlink_to(fixture.feature, target_is_directory=True)
+                    anchor["worktree_path"] = str(alias)
+                    write_json(fixture.bd_issue, {"id": "dots-test", "status": "in_progress",
+                                                  "notes": "beads-work anchor: " + json.dumps(anchor)})
+                before = fixture.output(fixture.main, "rev-parse", "HEAD")
+                result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test")
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+                self.assertFalse(fixture.bd_log.exists())
+
+    def test_state_file_with_wrong_actor_cannot_close(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        state = fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+        record = read_json(state)
+        record["agent"] = "Claude"
+        write_json(state, record)
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertTrue(state.exists())
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertFalse(fixture.bd_log.exists())
+
+    def test_legacy_file_allows_resolved_worktree_path_without_agent(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        state = fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+        alias = fixture.root / "alias-feature"
+        alias.symlink_to(fixture.feature, target_is_directory=True)
+        record = read_json(state)
+        record.pop("agent", None)
+        record.pop("started_at", None)
+        record["worktree_path"] = str(alias)
+        write_json(state, record)
+        inspected = fixture.run_helper(fixture.main_helper, fixture.feature, "inspect", "--beads-issue", "dots-test", "--json")
+        self.assert_ok(inspected)
+        self.assertTrue(json.loads(inspected.stdout)["beads"]["opencode"]["matches"])
+        merged = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test")
+        self.assert_ok(merged)
+        self.assertFalse(state.exists())
+
+    def test_close_readback_failure_retains_file_after_landing(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        state = fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env={"FAKE_BD_READBACK_FAIL": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(state.exists())
+        self.assertEqual(read_json(fixture.bd_issue)["status"], "closed")
+
+    def test_ci_gated_merge_closes_selected_note_after_landing(self) -> None:
+        fixture = self.fixture()
+        fixture.set_override(False)
+        fixture.write_anchor()
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test")
+        self.assert_ok(result)
+        self.assertEqual(read_json(fixture.bd_issue)["status"], "closed")
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+        self.assertIsNone(fixture.remote_feature_sha())
+        self.assertFalse((fixture.feature / ".beads").exists())
+
+    def test_anchor_change_after_merge_prevents_close(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        fixture.write_anchor()
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env={"FAKE_BD_CHANGE_ANCHOR": "1", "FAKE_BD_SHOW_COUNT": str(fixture.root / "show count")})
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(fixture.bd_log.exists())
+        self.assertEqual(read_json(fixture.bd_issue)["status"], "in_progress")
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+
+    def test_replaced_file_after_close_is_retained(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        state = fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env={"FAKE_BD_REPLACE_STATE": str(state)})
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(state.exists())
+        self.assertIn("state cleanup did not complete", result.stdout)
+
+    def test_missing_bd_executable_does_not_match_selected_issue(self) -> None:
+        from unittest import mock
+
+        fixture = self.fixture(ci_gated=False)
+        module = load_helper_module()
+        fixture.write_anchor()
+        with mock.patch.object(module.shutil, "which", return_value=None):
+            state = module.inspect_beads_tracking(
+                actor="opencode", issue_id="dots-test", original_worktree=fixture.feature,
+                repo_root=fixture.feature, feature_branch="feature", target_ref="feature",
+            )
+        self.assertFalse(state["matches"])
+        self.assertIn("no bd executable", " ".join(state["problems"]))
 
     def test_direct_invocation_on_main_fails_without_mutation(self) -> None:
         fixture = self.fixture()

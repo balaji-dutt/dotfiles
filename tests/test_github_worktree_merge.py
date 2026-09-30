@@ -142,13 +142,14 @@ class GitHubWorktreeMergeTests(unittest.TestCase):
     def test_record_write_failure_after_merge_retains_feature_and_attempts_beads(self):
         fixture, api, _ = self.fixture()
         sha = fixture.commit_feature("feature.txt", "feature\n", "feature")
+        fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"), issue_id="dots-fixture")
         write_state(api, responses_for(run_data(sha=sha, ref="refs/heads/feature")))
         prepared = fixture.run_helper(fixture.main_helper, fixture.feature, "prepare-ci")
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
         module = load_helper_module()
         output = io.StringIO()
         original_cwd = Path.cwd()
-        env = dict(fixture.env, PATH=str(fixture.fake_bin) + os.pathsep + fixture.env.get("PATH", ""))
+        env = dict(fixture.env, PATH=str(fixture.fake_bin) + os.pathsep + fixture.env.get("PATH", ""), FAKE_BD_ISSUE=str(fixture.bd_issue))
         try:
             os.chdir(fixture.feature)
             with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(output), \

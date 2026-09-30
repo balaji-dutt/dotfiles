@@ -55,7 +55,7 @@ the checked-out guarded main worktree. `prune-evidence` accepts either attached
 worktree. Agent skills resolve and quote the authoritative helper path:
 
 ```sh
-"<main-worktree>/assets/agent-wt-merge" inspect [--fetch] [--json]
+"<main-worktree>/assets/agent-wt-merge" inspect [--fetch] [--json] [--beads-issue <issue-id>]
 "<main-worktree>/assets/agent-wt-merge" prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>]
 "<main-worktree>/assets/agent-wt-merge" prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>]
 "<main-worktree>/assets/agent-wt-merge" ff --actor opencode|claude [--update-main] [--close-beads <issue-id>]
@@ -336,7 +336,13 @@ explicit `--no-verify` remains a reviewed escape hatch, not a security boundary.
 ## Beads closure
 
 The merge commands accept `--close-beads <issue-id>`. Closure happens only after
-the merge succeeds and only when the actor-specific state file validates:
+the merge succeeds and when the actor-specific claim validates. By default,
+`inspect --json` checks local files only and does not invoke `bd`. For an
+explicit selected issue, `inspect --beads-issue <issue-id> --json` checks that
+issue through `bd show <issue-id> --json` from the feature worktree and reports
+`beads.<actor>.source` as `file` or `note`, plus `matches` and `problems`.
+Use the actor-specific match with the exact selected ID before requesting
+closure. The local state files are:
 
 - OpenCode: `.beads/in-progress-opencode.json`
 - Claude: `.beads/in-progress-claude.json`
@@ -344,20 +350,32 @@ the merge succeeds and only when the actor-specific state file validates:
 The state file must contain the explicit issue ID, the current feature branch,
 the current worktree path, and a usable `started_sha`. `branch` means the actual
 Git branch, not the worktree directory basename or a session-suffixed worktree
-label. `worktree_path` means the Git worktree root. If any check fails, the
-helper reports the mismatch and leaves the state file untouched.
+label. `worktree_path` means the Git worktree root. Older state files without
+`agent` or `started_at` remain eligible when their actor-specific filename,
+issue ID, branch, resolved worktree path, and starting commit match. Symlinked
+state files or `.beads` directories are refused. If any check fails, the helper
+reports the mismatch and leaves the state file untouched.
 
-An isolated worktree may record its claim in a verified `beads-work anchor:`
-issue note instead of a state file. The helper does not use notes for
-`--close-beads`; omit that flag and close the issue separately after the merge
-lands, using the issue's verified commit SHAs.
+An isolated worktree may record its claim in a single structured
+`beads-work anchor: {"id":...,"agent":...,"branch":...,"worktree_path":...,
+"started_sha":...,"started_at":...}` issue-note line instead. The selected
+issue must still be in progress. The helper rejects malformed, duplicate,
+wrong-actor, wrong-branch, wrong-worktree, non-ancestral, or conflicting claims,
+including a note alongside a local state file. Missing or unreadable `bd`
+prevents selected-issue closure. Do not create a stub `.beads/` in an isolated
+worktree. Note paths must be absolute, canonical worktree roots (no symlinked
+path components). An older helper without the inspect option remains file-only.
 
-On success, the helper prints the exact close reason sent to `bd close`. The
-reason contains commits introduced by the feature merge session, excluding
-unrelated main-only or pre-session commits. A requested close that does not
-complete, or a successful close followed by state-file cleanup failure, exits
-non-zero and states that the Git merge already succeeded. Do not rerun or roll
-back the merge in response to that partial result.
+With `--close-beads`, a failed claim check before the merge exits 2: no merge
+landed, so repair the claim and inspect again. After landing, the helper checks
+the claim again and confirms that the feature tip was merged. On success, it
+reads back the closed status and exact
+reason sent to `bd close`. Only a still-matching file is removed; note history
+remains untouched. The reason contains commits introduced by the feature merge
+session, excluding unrelated main-only or pre-session commits. A requested
+close that does not complete, or successful closure followed by state-file
+cleanup failure, exits 1 and states that Git already merged. Do not rerun or
+roll back a landed merge in response to that partial result.
 
 ## Local cleanup
 
