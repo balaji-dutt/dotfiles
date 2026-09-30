@@ -1,6 +1,27 @@
 const names = { bash: 'Bash', powershell: 'PowerShell' };
 
-function direct(command, wrapper, shell) {
+function mergeArguments(tokens) {
+  if (tokens[0] !== 'no-ff') return false;
+  let actor, message = false;
+  for (let i = 1; i < tokens.length; i++) {
+    const word = tokens[i];
+    if (word === '--actor' || word === '-m' || word === '--message' || word === '--close-beads') {
+      const value = tokens[++i];
+      if (!value || ((word === '--actor' || word === '--close-beads') && value.startsWith('-'))) return false;
+      if (word === '--actor') {
+        if (actor || !['claude', 'opencode'].includes(value)) return false;
+        actor = value;
+      }
+      if (word === '-m' || word === '--message') message = true;
+    } else if (word.startsWith('--actor=')) {
+      if (actor || !['claude', 'opencode'].includes(word.slice(8))) return false;
+      actor = word.slice(8);
+    } else if (!['--update-main', '--use-local-helper'].includes(word)) return false;
+  }
+  return message ? actor : undefined;
+}
+
+function direct(command, wrapper, shell, merge = false) {
   if (typeof command !== 'string' || command.length > 65536) return undefined;
   if (command.includes('AI_ATTESTATION_JSON')) return undefined;
   const tokens = [];
@@ -34,10 +55,21 @@ function direct(command, wrapper, shell) {
   if (started) tokens.push(token);
   if (shell === 'bash' && tokens[0] === 'command') tokens.shift();
   if (shell === 'powershell' && tokens[0] === '&') tokens.shift();
-  const executable = tokens[0]?.split(shell === 'powershell' ? /[\\/]/ : /\//).at(-1);
+  const basename = value => value?.split(shell === 'powershell' ? /[\\/]/ : /\//).at(-1);
+  const executable = basename(tokens[0]);
   if (!executable || !tokens.length) return undefined;
-  const expected = shell === 'powershell' ? [wrapper, `${wrapper}.ps1`] : [wrapper];
-  if (!expected.includes(shell === 'powershell' ? executable.toLowerCase() : executable)) return undefined;
+  if (merge) {
+    if (shell === 'powershell' ? executable.toLowerCase() === wrapper : executable === wrapper) tokens.shift();
+    else if (['python', 'python3'].includes(executable?.toLowerCase()) && basename(tokens[1]) === wrapper) tokens.splice(0, 2);
+    else if (executable?.toLowerCase() === 'py' && tokens[1] === '-3' && basename(tokens[2]) === wrapper) tokens.splice(0, 3);
+    else return undefined;
+    const actor = mergeArguments(tokens);
+    if (!actor) return undefined;
+    return { command, shell, actor };
+  } else {
+    const expected = shell === 'powershell' ? [wrapper, `${wrapper}.ps1`] : [wrapper];
+    if (!expected.includes(shell === 'powershell' ? executable.toLowerCase() : executable)) return undefined;
+  }
   return { command, shell };
 }
 
@@ -78,7 +110,7 @@ function bashWords(command) {
   return words;
 }
 
-function bashPowerShell(command, wrapper) {
+function bashPowerShell(command, wrapper, merge = false) {
   const words = bashWords(command);
   if (!words?.length) return undefined;
   let index = 0;
@@ -102,13 +134,23 @@ function bashPowerShell(command, wrapper) {
   }
   if (words[index++]?.value.toLowerCase() !== '-command') return undefined;
   const script = words[index++];
-  if (!script || script.operator || index !== words.length || !direct(script.value, wrapper, 'powershell')) return undefined;
-  return { command, shell: 'bash', offset: executable.start };
+  if (!script || script.operator || index !== words.length) return undefined;
+  const inner = direct(script.value, wrapper, 'powershell', merge);
+  if (!inner) return undefined;
+  return { command, shell: 'bash', offset: executable.start, actor: inner.actor };
 }
 
 export function recognize(command, wrapper, shell = 'bash') {
   if (typeof command !== 'string' || command.length > 65536 || command.includes('AI_ATTESTATION_JSON')) return undefined;
   return direct(command, wrapper, shell) || (shell === 'bash' ? bashPowerShell(command, wrapper) : undefined);
+}
+
+export function recognizeMerge(command, actor, shell = 'bash') {
+  if (typeof command !== 'string' || command.length > 65536 || command.includes('AI_ATTESTATION_JSON')) return undefined;
+  const invocation = direct(command, 'agent-wt-merge', shell, true) ||
+    (shell === 'bash' ? bashPowerShell(command, 'agent-wt-merge', true) : undefined);
+  if (!invocation) return undefined;
+  return invocation.actor === actor ? invocation : undefined;
 }
 
 export function inject(command, json, shell, invocation = {}) {

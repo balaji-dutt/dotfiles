@@ -13,6 +13,8 @@ try {
         'private_dot_config/opencode/plugins/opencode-agent-attestation.js',
         'dot_local/executable_cc-commit.ps1',
         'dot_local/executable_oc-commit.ps1',
+        'assets/agent-wt-merge',
+        'assets/resolve-python3',
         'tests/support/test_agent_attestation.mjs'
     )
     foreach ($entry in $entries) {

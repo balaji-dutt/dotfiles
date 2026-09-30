@@ -71,8 +71,12 @@ worktree. Agent skills resolve and quote the authoritative helper path:
   tip, including rewritten or batched history, through a reserved temporary CI
   ref with the same polling defaults.
 - `ff` runs only `git merge --ff-only` from the main worktree.
-- `no-ff` runs only `git merge --no-ff` from the main worktree and uses the
-  selected actor for merge commit authorship.
+- `no-ff` prepares `git merge --no-ff --no-commit` in the main worktree, then
+  invokes the selected actor's `oc-commit` or `cc-commit` wrapper there with the
+  supplied message paragraphs. The wrapper supplies commit identity, bot
+  co-authorship (OpenCode), and agent attestation trailers. It must be
+  available before the merge begins. On native Windows the helper selects
+  `pwsh` and the corresponding `.ps1` script, never the `.cmd` stub.
 - `prune-evidence` previews GitHub receipt eligibility; `--apply` separately
   authorizes deletion of eligible local metadata, not Git refs or worktrees.
 
@@ -113,6 +117,12 @@ Rolling back a conflict is deliberate, and it differs from a plain `ff`/`no-ff`
 conflict, which is left in the worktree for inspection because that path never
 moved main. The conflicted paths are still named in the helper's own report, so
 the diagnostic survives the abort.
+
+A plain `no-ff` wrapper or commit-hook failure also leaves the prepared merge
+in main for inspection. `--no-commit` runs the wrapper's `git commit` hooks
+(`pre-commit` and `commit-msg`), not Git's `pre-merge-commit` hook. The helper
+verifies the resulting merge commit and actor identity before evidence,
+remote cleanup, or Beads closure.
 
 The rollback refuses rather than forces when the main worktree is dirty, when a
 merge cannot be aborted, or when main is at a SHA this run did not create. Those
