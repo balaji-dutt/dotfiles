@@ -12,8 +12,9 @@ Install managed packages through the normal dotfiles provisioning workflow and
 apply the public and private chezmoi sources separately when ready. Neither
 `repo-ops` nor this documentation invokes apply, sync, an agent, or an
 infrastructure command. Check `tmux --version` and `tmuxp --version` before
-launching. If uv cannot use a prebuilt wheel or its managed Python runtime is
-unavailable, provisioning fails rather than compiling on the host.
+launching; the dedicated theme requires tmux 3.3 or newer. If uv cannot use a
+prebuilt wheel or its managed Python runtime is unavailable, provisioning
+fails rather than compiling on the host.
 
 The private layouts must use distinct lowercase filename tokens, for example
 `<layout>.yaml`, and use matching `session_name: repo-ops-<layout>`. Declare
@@ -55,6 +56,26 @@ A missing, dead, or duplicate counterpart shows a tmux message and selects
 nothing. Put paired roles in the same window; add a counterpart explicitly
 when the TUI workflow is ready.
 
+The dark, Gruvbox-inspired status bar displays the full session name on the
+left at ordinary terminal widths, the numbered window list centered across the
+bar, and the clock/date on the right. The window list grows outward as windows
+are added; a narrow terminal can still clip it. Mouse clicks select windows.
+The default **Ctrl+b, then 0–9** selects the corresponding numbered window
+without a custom binding. The colors and segments are built into the dedicated
+tmux config; no theme plugin, powerline font, or `tmuxpack` is required.
+`tmuxp` is still needed to load the private workspace layouts.
+
+On terminals that accept application-set titles, the tab reads `repo-ops:
+<window name>` and adds ` | <executable>` while tmux detects a foreground
+program other than an interactive shell. The name is the foreground executable,
+not the full command line; wrappers and container panes may report the outer
+process instead. Idle shells have no suffix. The private layout's window names
+stay fixed; use tmux's window-rename command (**Ctrl+b, then ,**) to change
+one. For iTerm2, enable application title setting as described in
+[terminal tab titles](iterm-titles.md); in Windows Terminal, leave **Suppress
+application title** disabled in the profile. This server's tmux-managed title
+does not change the default or Agent of Empires tmux server.
+
 Tmux keeps sessions after client detach or terminal exit, until they are
 killed or the server exits. Attaching in another terminal uses that terminal's
 dimensions; tmux resizes panes with the attached clients, so no fixed size is
@@ -64,3 +85,8 @@ to discard that session and reload its YAML. Then run `repo-ops <layout>`
 again. Avoid `tmux -L repo-ops kill-server` unless all dedicated layouts may
 be discarded.
 The default tmux server and its sessions are independent.
+After applying a new `repo-ops.conf`, an already running dedicated server keeps
+its loaded options. To see theme/title changes without discarding sessions,
+explicitly reload that server when ready with `tmux -L repo-ops -f
+~/.config/tmux/repo-ops.conf source-file ~/.config/tmux/repo-ops.conf`, or wait
+until it can be restarted. Do not reload the default tmux server.
