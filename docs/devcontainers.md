@@ -1016,11 +1016,16 @@ For a direct shortcut, replace `--pick` with a registry key such as
 
 #### iTerm profile
 
-Create a profile with **Command** set to **Custom Command**:
+In the profile's **General** settings, set **Command** to **Custom Command**
+and enable **Run command through your shell** so the launcher can find Docker
+on your shell-configured `PATH` (including OrbStack's Docker CLI):
 
 ```sh
 /Users/<user>/bin/devcontainer-launch --pick
 ```
+
+Do not quote the entire command in the iTerm field; `--pick` must be a separate
+argument.
 
 If using an iTerm Dynamic Profile manually, use a JSON property list such as:
 
@@ -1036,6 +1041,9 @@ If using an iTerm Dynamic Profile manually, use a JSON property list such as:
   ]
 }
 ```
+
+The quotes around the JSON `Command` value are JSON syntax, not characters to
+paste into the iTerm command field.
 
 After importing a Dynamic Profile, set **After a session ends** to
 **No Action** in its Session settings.
