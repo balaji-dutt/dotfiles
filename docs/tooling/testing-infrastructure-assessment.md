@@ -1,7 +1,6 @@
 # Testing infrastructure assessment
 
-**Status:** Draft for independent review, not an accepted decision.
-**Evidence date:** 2026-09-29.
+**Status:** Assessed — 2026-09-29. Point-in-time findings, not an accepted decision.
 **Worktree baseline:** `ee3aa3c8d004129ce9c670f94e773c5c330ef2cd` on
 `feat/assess-testing-plan`. Counts below refer to this checkout unless attributed
 to the independent review of local `main` at `7d531e77`.
@@ -317,7 +316,7 @@ weak boolean diagnostics or mocks without discarding whole-script tests.
 5. Which intended native cases should gate a change, and who owns runner safety,
    WSL isolation, and dated exceptions? Which provider can support that budget?
 
-Keep this as a public, reviewable draft; `docs/decisions/` is appropriate for an
+Keep this as a public point-in-time assessment; `docs/decisions/` is appropriate for an
 ADR **after** an architecture is accepted, not while these choices are open.
 No Beads epic was opened for this assessment.
 
