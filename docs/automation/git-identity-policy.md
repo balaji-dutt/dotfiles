@@ -53,7 +53,6 @@ GitLab and GitHub APIs. "GitHub login" is the top-level
 | Renovate initial commit | `Renovate Bot <service_account_group_65498163_…@noreply.gitlab.com>` | same | GitLab `/user` of the `RENOVATE_TOKEN` owner (`personalfiles-renovatebot`) | Configured Renovate co-author trailer; live verification pending | null / null |
 | Renovate commit amended by CI (`statusline-sync`, `beads-kanban-pin-sync`, `browser-policy-sync`) | Renovate's original author, kept by Git | `Renovate Bot` (same address) | `GIT_COMMITTER_*` in `.gitlab-ci.yml`; the job's `GIT_AUTHOR_*` exports have no effect under `--amend --no-edit` | Original message kept, with trailer when present | null / null |
 | Renovate automerge merge commit | `Renovate Bot` | same | GitLab merge performed as the token owner | none | null / null |
-| `git ocauth` / `git clauth` aliases | `--author` value | the user's own identity | `dot_gitconfig.tmpl` alias | none | superseded by `oc-commit` / `cc-commit`; retirement is a follow-up |
 
 Renovate's effective `gitAuthor` resolution in this deployment runs from the
 highest priority down:
