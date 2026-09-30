@@ -100,6 +100,36 @@ class OpenCodePolicyTests(unittest.TestCase):
                     self.assertEqual(policy['minimumGroupSize'], 2)
                     self.assertEqual(policy['groupName'], 'opencode v1 cli')
 
+    def test_quota_v4_registrations_and_refresh_policy(self):
+        runtime_files = (
+            'private_dot_config/opencode/opencode.jsonc',
+            'private_dot_config/opencode/tui.json',
+            'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc',
+            'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/tui.json',
+        )
+        for file_name in runtime_files:
+            with self.subTest(file_name=file_name):
+                config = LOAD_JSON(ROOT / file_name, jsonc=file_name.endswith('.jsonc'))
+                self.assertEqual(config['plugin'].count('@slkiser/opencode-quota@4'), 1)
+                self.assertFalse(any(dep['depName'] == '@slkiser/opencode-quota'
+                                     for dep, _ in self.extract(file_name)))
+                self.assertTrue(any(dep['depName'] == '@tarquinen/opencode-dcp'
+                                    for dep, _ in self.extract(file_name)))
+
+        sentinel = 'configs/host-ai-plugin-refresh.jsonc'
+        manifest = LOAD_JSON(ROOT / sentinel, jsonc=True)
+        versions = [plugin['version'] for plugin in manifest['opencode']['plugins']
+                    if plugin['package'] == '@slkiser/opencode-quota']
+        self.assertEqual(len(versions), 1)
+        self.assertRegex(versions[0], r'^4\.\d+\.\d+$')
+        quota_deps = [dep for dep, _ in self.extract(sentinel)
+                      if dep['depName'] == '@slkiser/opencode-quota']
+        self.assertEqual([dep['currentValue'] for dep in quota_deps], versions)
+        for update in ('patch', 'minor', 'major'):
+            with self.subTest(update=update):
+                policy = self.effective_policy('@slkiser/opencode-quota', sentinel, update)
+                self.assertEqual(policy['allowedVersions'], '>=4.0.0 <5.0.0')
+
     def test_unrelated_policies_and_self_update_remain_intact(self):
         self.assertEqual(self.config['minimumReleaseAge'], '7 days')
         self.assertEqual(self.effective_policy('@beads/bd', NPM, 'patch')['minimumReleaseAge'], '14 days')

@@ -100,10 +100,10 @@ from devcontainer package installation and lifecycle updates.
 
 - Host runtime configs may use `@latest`. OpenCode sentinel versions should
   come from the host package cache or npm latest, not devcontainer package pins.
-- `@slkiser/opencode-quota` and `@tarquinen/opencode-dcp` each use a coordinated
-  exact version across five references: host/container runtime configs,
-  host/container TUI configs, and the refresh sentinel. Renovate groups each
-  plugin's references so version changes and cache refreshes stay together.
+- `@slkiser/opencode-quota` uses `@4` in the host/container runtime and TUI
+  configs; its numeric refresh sentinel tracks v4 releases through Renovate.
+  `@tarquinen/opencode-dcp` uses a coordinated exact version across those four
+  configs and the refresh sentinel.
 - Update the manifest when host Claude/OpenCode plugin entries change. Only
   the manifest is hashed into the onchange trigger; edits to runtime configs or
   `settings-base.json` alone do not trigger a refresh.
