@@ -22,6 +22,7 @@ exec "$resolver" -- "$0" "$@"
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -539,10 +540,14 @@ def read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else {"_read_error": "JSON root is not an object"}
 
 
-def resolve_state_worktree(raw_path: Any) -> Path | None:
+def resolve_state_worktree(raw_path: Any, *, canonical: bool = False) -> Path | None:
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None
-    return Path(raw_path).expanduser().resolve()
+    candidate = Path(raw_path).expanduser()
+    if canonical and not candidate.is_absolute():
+        return None
+    resolved = candidate.resolve()
+    return resolved if not canonical or candidate == resolved else None
 
 
 def inspect_beads_state(
@@ -553,6 +558,7 @@ def inspect_beads_state(
     original_worktree: Path,
     repo_root: Path,
     target_ref: str,
+    actor: str | None = None,
 ) -> dict[str, Any]:
     info: dict[str, Any] = {
         "state_file": str(state_file),
@@ -562,8 +568,18 @@ def inspect_beads_state(
         "worktree_path": None,
         "started_sha": None,
         "matches": False,
+        "source": "file",
+        "symlink": False,
         "problems": [],
     }
+    if state_file.is_symlink():
+        info["symlink"] = True
+        info["problems"].append("state file is a symlink")
+        return info
+    if state_file.parent.is_symlink():
+        info["symlink"] = True
+        info["problems"].append("state directory is a symlink")
+        return info
     data = read_json(state_file)
     if data is None:
         info["problems"].append("state file is absent")
@@ -571,6 +587,8 @@ def inspect_beads_state(
     if "_read_error" in data:
         info["problems"].append(f"could not read state file: {data['_read_error']}")
         return info
+    if actor is not None and data.get("agent") not in (None, ACTORS[actor]["name"]):
+        info["problems"].append("state file agent does not match actor")
 
     issue_id = str(data.get("id", "")).strip()
     info["issue_id"] = issue_id or None
@@ -609,7 +627,100 @@ def inspect_beads_state(
         info["problems"].append(f"started_sha {started_sha} is not an ancestor of {target_ref}")
 
     info["matches"] = not info["problems"]
+    if info["matches"]:
+        info["anchor"] = {key: data.get(key) for key in ("id", "agent", "branch", "worktree_path", "started_sha", "started_at")}
     return info
+
+
+def read_beads_issue(worktree: Path, issue_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    # CreateProcess needs PATHEXT resolution for native Windows .cmd/.bat shims.
+    bd_command = shutil.which("bd")
+    if bd_command is None:
+        return None, "no bd executable was found in PATH"
+    try:
+        result = subprocess.run(
+            [bd_command, "show", issue_id, "--json"], cwd=str(worktree), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=15,
+        )
+        if result.returncode != 0:
+            return None, f"bd show failed: {result.stderr.strip()}"
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
+        return None, f"bd show could not be read: {exc}"
+    if isinstance(data, list) and len(data) == 1:
+        data = data[0]
+    if not isinstance(data, dict) or data.get("id") != issue_id:
+        return None, "bd show did not return the selected issue"
+    return data, None
+
+
+def inspect_beads_tracking(
+    *, actor: str, issue_id: str, original_worktree: Path, repo_root: Path,
+    feature_branch: str, target_ref: str,
+) -> dict[str, Any]:
+    state = inspect_beads_state(
+        state_file=original_worktree / ".beads" / ACTORS[actor]["state_file"],
+        expected_issue_id=issue_id, feature_branch=feature_branch,
+        original_worktree=original_worktree, repo_root=repo_root, target_ref=target_ref,
+        actor=actor,
+    )
+    issue, error = read_beads_issue(original_worktree, issue_id)
+    if error:
+        state["matches"] = False
+        state["problems"].append(error)
+        return state
+    assert issue is not None
+    if issue.get("status") != "in_progress":
+        state["matches"] = False
+        state["problems"].append("selected issue is not in progress")
+    notes = issue.get("notes", "")
+    if not isinstance(notes, str):
+        state["matches"] = False
+        state["problems"].append("issue notes are not text")
+        return state
+    lines = [line for line in notes.splitlines() if line.startswith("beads-work anchor:")]
+    if len(lines) > 1:
+        state["matches"] = False
+        state["problems"].append("multiple beads-work anchors on selected issue")
+        return state
+    if not lines:
+        return state
+    try:
+        anchor = json.loads(lines[0].removeprefix("beads-work anchor: "))
+    except ValueError:
+        anchor = None
+    if not isinstance(anchor, dict) or set(anchor) != {"id", "agent", "branch", "worktree_path", "started_sha", "started_at"}:
+        state["matches"] = False
+        state["problems"].append("malformed beads-work anchor")
+        return state
+    note_problems = []
+    if anchor["id"] != issue_id or anchor["agent"] != ACTORS[actor]["name"]:
+        note_problems.append("anchor issue or actor does not match")
+    if anchor["branch"] != feature_branch:
+        note_problems.append("anchor branch does not match")
+    note_path = resolve_state_worktree(anchor["worktree_path"], canonical=True)
+    if note_path != original_worktree.resolve():
+        note_problems.append("anchor worktree does not match")
+    started_sha = anchor["started_sha"]
+    if (not isinstance(started_sha, str)
+            or not re.fullmatch(r"[0-9a-fA-F]{40}", started_sha)
+            or not commit_exists(repo_root, started_sha)
+            or not is_ancestor(repo_root, started_sha, target_ref)):
+        note_problems.append("anchor started_sha is not an ancestor")
+    try:
+        timestamp = datetime.datetime.fromisoformat(anchor["started_at"].replace("Z", "+00:00"))
+        if timestamp.utcoffset() != datetime.timedelta(0):
+            raise ValueError("not UTC")
+    except (AttributeError, ValueError):
+        note_problems.append("anchor started_at is not a UTC timestamp")
+    if state["exists"] or state["symlink"]:
+        note_problems.append("both state file and issue anchor exist")
+    state["matches"] = not note_problems and issue.get("status") == "in_progress"
+    state["problems"] = note_problems + (["selected issue is not in progress"] if issue.get("status") != "in_progress" else [])
+    if state["matches"]:
+        state.update({"source": "note", "issue_id": issue_id, "branch": anchor["branch"],
+                      "worktree_path": str(note_path), "started_sha": started_sha, "anchor": anchor})
+    return state
 
 
 def inspect_all_beads(
@@ -618,16 +729,20 @@ def inspect_all_beads(
     repo_root: Path,
     feature_branch: str,
     target_ref: str,
+    issue_id: str | None = None,
 ) -> dict[str, Any]:
     return {
-        actor: inspect_beads_state(
+        actor: (inspect_beads_tracking(
+            actor=actor, issue_id=issue_id, original_worktree=original_worktree,
+            repo_root=repo_root, feature_branch=feature_branch, target_ref=target_ref,
+        ) if issue_id else inspect_beads_state(
             state_file=original_worktree / ".beads" / spec["state_file"],
             expected_issue_id=None,
             feature_branch=feature_branch,
             original_worktree=original_worktree,
             repo_root=repo_root,
             target_ref=target_ref,
-        )
+        ))
         for actor, spec in ACTORS.items()
     }
 
@@ -722,6 +837,7 @@ def build_context(
     fetch: bool,
     helper: HelperProvenance,
     remote_name: str = "origin",
+    beads_issue: str | None = None,
 ) -> MergeContext:
     original_worktree = resolve_repo_root()
     worktrees = parse_worktrees(original_worktree)
@@ -760,6 +876,7 @@ def build_context(
         repo_root=original_worktree,
         feature_branch=feature_branch,
         target_ref=feature_branch,
+        issue_id=beads_issue,
     )
     return MergeContext(
         original_worktree=original_worktree,
@@ -1479,26 +1596,28 @@ def close_beads_issue(
     issue_id: str | None,
     before_sha: str,
     after_sha: str,
+    preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if issue_id is None:
         return {"requested": False, "closed": False, "reason": "not requested"}
 
     spec = ACTORS[actor]
     state_file = ctx.original_worktree / ".beads" / spec["state_file"]
-    state = inspect_beads_state(
-        state_file=state_file,
-        expected_issue_id=issue_id,
-        feature_branch=ctx.feature_branch,
-        original_worktree=ctx.original_worktree,
-        repo_root=ctx.original_worktree,
+    state = inspect_beads_tracking(
+        actor=actor, issue_id=issue_id, feature_branch=ctx.feature_branch,
+        original_worktree=ctx.original_worktree, repo_root=ctx.original_worktree,
         target_ref=after_sha,
     )
-    if not state["matches"]:
+    if (not state["matches"] or not preflight
+            or state.get("source") != preflight.get("source")
+            or state.get("anchor") != preflight.get("anchor")
+            or (state["source"] == "file" and state_identity(state_file) != preflight.get("identity"))
+            or not is_ancestor(ctx.main_worktree, ctx.feature_sha, after_sha)):
         return {
             "requested": True,
             "closed": False,
             "state_file": str(state_file),
-            "reason": "state did not validate",
+            "reason": "tracking anchor did not validate after merge",
             "problems": state["problems"],
         }
 
@@ -1515,8 +1634,6 @@ def close_beads_issue(
     if not reason_shas:
         reason_shas = git_output(ctx.main_worktree, ["rev-parse", "--short", after_sha])
     reason = f"Fixed with commit(s) {reason_shas}"
-    # CreateProcess only ever appends .exe, so resolve through PATHEXT to reach a
-    # .cmd or .bat Beads shim on native Windows.
     bd_command = shutil.which("bd")
     if bd_command is None:
         return {
@@ -1552,6 +1669,24 @@ def close_beads_issue(
             "stdout": result.stdout.strip(),
             "stderr": result.stderr.strip(),
         }
+    readback, read_error = read_beads_issue(ctx.original_worktree, issue_id)
+    if read_error or readback is None or readback.get("status") != "closed" or readback.get("close_reason") != reason:
+        return {"requested": True, "closed": False, "source": state["source"],
+                "reason": "bd close readback could not confirm status and reason",
+                "problems": [read_error] if read_error else []}
+    if state["source"] == "note":
+        notes = readback.get("notes", "")
+        try:
+            anchors = [json.loads(line.removeprefix("beads-work anchor: ")) for line in notes.splitlines() if line.startswith("beads-work anchor:")]
+        except (AttributeError, ValueError):
+            anchors = []
+        if anchors != [preflight["anchor"]]:
+            return {"requested": True, "closed": False, "source": "note",
+                    "reason": "bd close readback did not preserve the tracking anchor"}
+        return {"requested": True, "closed": True, "source": "note", "reason": reason}
+    if state_identity(state_file) != preflight.get("identity"):
+        return {"requested": True, "closed": True, "source": "file", "reason": reason,
+                "warning": "state file changed after closure; it was retained"}
     try:
         state_file.unlink()
     except OSError as exc:
@@ -1563,6 +1698,14 @@ def close_beads_issue(
             "warning": f"could not remove state file: {exc}",
         }
     return {"requested": True, "closed": True, "state_file": str(state_file), "reason": reason}
+
+
+def state_identity(state_file: Path) -> tuple[int, int, int, int] | None:
+    try:
+        meta = state_file.lstat()
+    except OSError:
+        return None
+    return meta.st_dev, meta.st_ino, meta.st_mtime_ns, meta.st_size
 
 
 def beads_partial_failure(beads: dict[str, Any]) -> bool:
@@ -1797,13 +1940,20 @@ def perform_merge(
     runtime = load_pipeline_runtime(helper, resolve_main_branch(repo_root)) if ci_gated else None
     remote_name = runtime.remote_name if runtime else "origin"
     ctx = ensure_merge_preconditions(
-        build_context(fetch=True, helper=helper, remote_name=remote_name),
+        build_context(fetch=True, helper=helper, remote_name=remote_name, beads_issue=parsed.close_beads),
         ci_gated=ci_gated,
         remote_name=remote_name,
         update_main=parsed.update_main,
     )
     before_sha = ctx.main_sha
     feature_sha = ctx.feature_sha
+    preflight = None
+    if parsed.close_beads:
+        preflight = ctx.beads[parsed.actor]
+        if not preflight["matches"]:
+            die(f"Beads tracking does not match {parsed.close_beads}: {'; '.join(preflight['problems'])}")
+        if preflight["source"] == "file":
+            preflight = {**preflight, "identity": state_identity(ctx.original_worktree / ".beads" / ACTORS[parsed.actor]["state_file"])}
     updating_main = bool(ctx.origin_behind_count and parsed.update_main)
     if not updating_main:
         if merge_type == "ff":
@@ -1903,6 +2053,7 @@ def perform_merge(
             issue_id=parsed.close_beads,
             before_sha=before_sha,
             after_sha=after_sha,
+            preflight=preflight,
         )
     except (AgentWtMergeError, OSError) as exc:
         beads_result = {
@@ -1943,11 +2094,12 @@ def cmd_inspect(raw_args: list[str], *, helper: HelperProvenance) -> int:
     parser = argparse.ArgumentParser(prog=f"{SCRIPT_NAME} inspect")
     parser.add_argument("--fetch", action="store_true", help="run best-effort git fetch before reporting origin status")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    parser.add_argument("--beads-issue", metavar="ISSUE_ID", help="validate a selected issue's tracking anchor")
     add_local_helper_argument(parser)
     parsed = parser.parse_args(raw_args)
     provider = ci_provider(helper.path)
     runtime = load_pipeline_runtime(helper, resolve_main_branch(resolve_repo_root())) if provider == "github" else None
-    ctx = build_context(fetch=parsed.fetch, helper=helper, remote_name=runtime.remote_name if runtime else "origin")
+    ctx = build_context(fetch=parsed.fetch, helper=helper, remote_name=runtime.remote_name if runtime else "origin", beads_issue=parsed.beads_issue)
     payload = context_dict(ctx)
     if runtime is not None:
         shared = pipeline_module()
@@ -1995,7 +2147,7 @@ def cmd_prune_evidence(raw_args: list[str], *, helper: HelperProvenance) -> int:
 
 def usage() -> str:
     text = f"""Usage:
-  ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [{LOCAL_HELPER_FLAG}]
+  ./assets/{SCRIPT_NAME} inspect [--fetch] [--json] [--beads-issue <issue-id>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} prepare-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} prepare-main-ci [--poll-interval <seconds>] [--poll-timeout <seconds>] [{LOCAL_HELPER_FLAG}]
   ./assets/{SCRIPT_NAME} ff --actor <opencode|claude> [--update-main] [--close-beads <issue-id>] [{LOCAL_HELPER_FLAG}]

@@ -40,6 +40,13 @@
             "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py"]
           },
           {
+            "id": "safety-beads-tracking-claims",
+            "kind": "safety",
+            "description": "Validate selected file or note claims before and after landing, reject ambiguous, symlinked, or changed tracking, verify close readback, and retain note history or replaced state files.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
             "id": "safety-unchanged-merge-actors",
             "kind": "safety",
             "description": "Preserve fast-forward feature commits and Claude no-ff messages and identity without adding OpenCode attribution.",

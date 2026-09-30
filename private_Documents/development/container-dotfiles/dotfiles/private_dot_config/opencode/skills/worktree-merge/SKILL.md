@@ -58,8 +58,8 @@ only improves cleanup suggestions.
 - Never pass `--update-main` unless the user approved updating local
   `main`/`master` from `origin/<main>`.
 - Pass `--close-beads <issue-id>` only when inspect reports a matching
-  OpenCode Beads state for that exact issue. Respect the repository's Beads
-  policy if its helper reports close evidence instead of closing the issue.
+  OpenCode Beads tracking claim for that exact issue. Respect the repository's
+  Beads policy if its helper reports close evidence instead of closing the issue.
 - If the helper reports dirty `main`/`master`, detached HEAD, missing main
   worktree, no commits to merge, or mismatched Beads state, stop and report the
   reason instead of guessing.
@@ -225,6 +225,15 @@ After **Helper capability discovery**, from the feature worktree root, run:
 "<merge-helper>" inspect --fetch --json
 ```
 
+If an issue ID is known, and the helper usage explicitly advertises
+`inspect --beads-issue`, add `--beads-issue <issue-id>` to this inspection.
+This opts in to reading only that issue's `bd show --json` record and checks
+its `beads-work anchor:` note against the feature worktree and selected actor.
+If no ID is known, ask for one before seeking note-backed closure. With an
+older helper, retain its file-only inspection contract; never infer a note
+match yourself or close through an unsupported option. Without an issue ID,
+ordinary inspection does not query Beads.
+
 Use the returned JSON as the source of truth. Both modes require these common
 merge facts with valid types and internally consistent values:
 
@@ -249,8 +258,9 @@ helper reports the corresponding data:
 - If `fetch.ok` is false, surface the warning. Local-only fetch is best-effort,
   including offline or no-origin repositories; known behind state still needs
   an approved update, and an update requires a successful fetch.
-- `beads.opencode.matches == true` identifies the only issue ID eligible for
-  `--close-beads`.
+- `beads.opencode.matches == true` with `issue_id` equal to the selected ID
+  identifies the only claim eligible for `--close-beads`. A matching `source`
+  may be `file` or `note`; surface any `problems` before requesting closure.
 - If `cleanup.action` is `suggest` or `defer`, follow that classification. A
   `cleanup` object containing only `workdir` and `commands` is a suggestion.
   If cleanup data is absent or malformed, do not invent cleanup commands.
@@ -306,10 +316,15 @@ publish a feature ref, poll CI, delete a remote feature ref, or claim CI success
   discovery and approval as a new operation; never treat it as a fallback from
   failed CI.
 - Add `--close-beads <issue-id>` only when `beads.opencode.matches` is true and
-  the helper usage advertises that option for the selected merge command. If
-  state is absent or mismatched, or the option is unsupported, omit the flag
-  and report why closure was not requested. Respect helpers that return close
-  evidence rather than mutating Beads state.
+  `beads.opencode.issue_id` equals the selected issue and the helper usage
+  advertises that option for the selected merge command. If tracking is absent,
+  ambiguous, or mismatched, omit the flag and report why closure was not
+  requested. The helper revalidates before and after landing, verifies Beads
+  readback, removes only its matching local state file, and retains note history.
+  Respect helpers that return close evidence rather than mutating Beads state.
+  If the helper rejects a claim before merging (exit 2), no merge landed:
+  correct the claim and inspect again. A closure failure after landing (exit 1)
+  is partial; report the main SHA and never rerun the landed merge.
 
 ### 4. Fast-forward when possible
 

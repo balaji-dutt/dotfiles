@@ -204,6 +204,11 @@ The file, when present, is the resume anchor between agents; the verified
 note is its equivalent in isolated sessions. Never infer an anchor from the
 latest Git HEAD on resume. This repo's `AGENTS.md` requires closure only
 after landing on main, regardless of the generic close step below.
+For a worktree merge, use the `worktree-merge` skill: when the authoritative
+helper advertises `inspect --beads-issue`, inspect the explicit issue ID and
+pass `--close-beads` only for a matching OpenCode claim. The helper handles both
+file and note anchors, verifies closure after landing, and retains note history.
+Do not separately close a note-backed issue before the merge lands.
 On native Windows use the Write tool for an eligible local JSON file; invoke
 `bd.exe update`/`bd.exe show` in PowerShell for note mode. Do not run the POSIX
 shell examples in PowerShell.
