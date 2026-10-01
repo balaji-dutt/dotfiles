@@ -132,6 +132,7 @@
         },
         "task": {
           "*": "deny",
+          "plan-reviewer": "allow",
           "dotfiles-reviewer": "allow"
         }
       }
@@ -251,6 +252,7 @@
         },
         "task": {
           "*": "deny",
+          "plan-reviewer": "allow",
           "dotfiles-reviewer": "allow",
           "beads-issue-author": "allow",
           "beads-backlog-manager": "allow"
@@ -311,6 +313,7 @@
         },
         "task": {
           "*": "deny",
+          "plan-reviewer": "allow",
           "dotfiles-reviewer": "allow",
           "beads-issue-author": "allow",
           "beads-backlog-manager": "allow"

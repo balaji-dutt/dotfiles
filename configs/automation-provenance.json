@@ -5,16 +5,16 @@
     "manifest": ".agentic-tooling/generated-manifest.json",
     "accepted_divergences": [
       {
-        "path": "dot_claude/agents/agent-engineer.md",
-        "accepted_digest": "sha256:db2d32d95ccf60cba0aefe73653512ec4c43718b4df64facf520d737f641bc21",
-        "required_markers": ["mcpServers:", "model: fable"],
-        "rationale": "Claude-specific model, tool, skill, and MCP frontmatter is maintained after generation."
+        "path": "private_dot_config/opencode/agents/agent-engineer.md",
+        "accepted_digest": "sha256:8b6dce350f9ef1b9a74063579c06dbe226f919895d78359460d2bb4d5e4c845a",
+        "required_markers": ["permission:", "source: agents/agent-engineer.yaml"],
+        "rationale": "Only permission.task is omitted from generated frontmatter so host and project JSONC own delegation policy."
       },
       {
-        "path": "dot_claude/agents/special-builder.md",
-        "accepted_digest": "sha256:b78c9c759cc550f44dc6df3b10dd63fc6578895ef423d7af31c4983cc08fba74",
-        "required_markers": ["mcpServers:", "model: fable"],
-        "rationale": "Claude-specific model, tool, and MCP frontmatter is maintained after generation."
+        "path": "private_dot_config/opencode/agents/special-builder.md",
+        "accepted_digest": "sha256:ed4ecb15c106ad79be5ec43a903f917031981d6557379ae22e73fe79c2e7a805",
+        "required_markers": ["permission:", "source: agents/special-builder.yaml"],
+        "rationale": "Only permission.task is omitted from generated frontmatter so host and project JSONC own delegation policy."
       }
     ]
   },
