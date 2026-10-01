@@ -13,12 +13,14 @@
 {{ $isDebianWSL2 := false }}
 {{ $isUbuntuWSL2 := false }}
 {{ $isDevcontainerHost := false }}
+{{ $isDevcontainer := false }}
 
 {{ if $isLinux }}
   {{ $osrel = (get .chezmoi.kernel "osrelease" | default "" | lower) }}
   {{ $osID  = (get .chezmoi.osRelease "id" | default "") }}
   {{ $isWSL = or (get . "isWSL" | default false) ($osrel | contains "microsoft") }}
   {{ $isWSL2 = or (get . "isWSL2" | default false) (and $isWSL ($osrel | contains "wsl2")) }}
+  {{ $isDevcontainer = or (get . "isDevcontainer" | default false) (eq (env "DEVCONTAINER") "1") (stat "/.dockerenv") (stat "/run/.containerenv") }}
 {{ end }}
 {{ $isDebianWSL2 = or (get . "isDebianWSL2" | default false) (and $isWSL2 (eq $osID "debian")) }}
 {{ $isUbuntuWSL2 = or (get . "isUbuntuWSL2" | default false) (and $isWSL2 (eq $osID "ubuntu")) }}
@@ -40,6 +42,10 @@ bin/nfs_dot_clean.sh
 {{/* OpenCode notifier bridge is used on macOS and WSL2 only. */}}
 {{ if not (or $isDarwin $isWSL2) }}
 bin/opencode-notifier-bridge
+{{ end }}
+
+{{ if not (or $isWindows (and $isWSL2 (not $isDevcontainer))) }}
+.local/windows-notify.ps1
 {{ end }}
 
 {{/*  Placeholder for Linux */}}
@@ -146,6 +152,7 @@ Documents/PowerShell
 !/.local/oc-commit.cmd
 !/.local/cc-commit.ps1
 !/.local/cc-commit.cmd
+!/.local/windows-notify.ps1
 !/.config/
 /.config/*
 !/.config/starship.toml

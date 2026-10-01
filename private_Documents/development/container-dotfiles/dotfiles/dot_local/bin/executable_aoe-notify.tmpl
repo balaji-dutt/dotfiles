@@ -26,11 +26,13 @@ log_finish() {
   local path
   path=${XDG_CACHE_HOME:-$HOME/.cache}/aoe-notify.log
   mkdir -p "${path%/*}" 2>/dev/null || return 0
-  printf '%s status=%s backend=%s rc=%s pid=%s ppid=%s instance=%s session=%q project=%q new_status=%s\n' \
+  printf '%s status=%s backend=%s rc=%s pid=%s ppid=%s instance=%s session_id=%s tool=%s session=%q project=%q new_status=%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$status" "$backend" "$rc" \
     "$$" "$PPID" \
     "${AOE_INSTANCE_ID:-}" \
+    "${AOE_SESSION_ID:-}" \
+    "${AOE_TOOL:-}" \
     "${AOE_SESSION_TITLE:-}" \
     "${AOE_PROJECT_PATH:-}" \
     "${AOE_NEW_STATUS:-}" \
@@ -79,6 +81,17 @@ bridge_endpoint() {
 
 is_devcontainer() {
   [[ ${DEVCONTAINER:-} == 1 || -f /.dockerenv || -f /run/.containerenv ]]
+}
+
+is_wsl2() {
+  local osrelease
+  [[ $(uname -s 2>/dev/null) == Linux && -r /proc/sys/kernel/osrelease ]] || return 1
+  osrelease=$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/osrelease 2>/dev/null || true)
+  [[ $osrelease == *microsoft* && $osrelease == *wsl2* ]]
+}
+
+is_wsl2_host() {
+  is_wsl2 && ! is_devcontainer
 }
 
 try_bridge() {
@@ -156,10 +169,10 @@ try_macos() {
     "$message" >/dev/null 2>&1
 }
 
-try_windows_popup() {
+try_windows_banner() {
   local title=$1
   local message=$2
-  local powershell_bin
+  local powershell_bin script_path
 
   # On WSL2, AoE's status_hook child shell does not always inherit the
   # Windows-interop PATH additions, so command -v powershell.exe fails
@@ -175,24 +188,15 @@ try_windows_popup() {
     return 1
   fi
 
-  # -NonInteractive blocks Wscript.Shell.Popup from completing on WSL2
-  # (the call hangs until external interrupt), so we omit it. -ExecutionPolicy
-  # Bypass stays as a defence against corporate Windows policies enforcing
-  # execution policy even for -Command invocations.
-  #
-  # PowerShell -Command does not populate $args from CLI positional args
-  # (only -File does). Positional tokens after -Command get parsed as bare
-  # script content and PowerShell rejects them with "Unexpected token".
-  # Interpolate title and message into the command string here and escape
-  # any embedded single quotes by doubling so they land cleanly inside
-  # PowerShell single-quoted literals.
-  local ps_title=${title//\'/\'\'}
-  local ps_message=${message//\'/\'\'}
+  command -v wslpath >/dev/null 2>&1 || return 1
+  [[ -f $HOME/.local/windows-notify.ps1 ]] || return 1
+  script_path=$(wslpath -w "$HOME/.local/windows-notify.ps1") || return 1
 
   "$powershell_bin" \
     -NoProfile \
+    -NonInteractive \
     -ExecutionPolicy Bypass \
-    -Command "\$wshell = New-Object -ComObject Wscript.Shell; \$null = \$wshell.Popup('$ps_message', 5, '$ps_title', 0 + 64)" \
+    -File "$script_path" -Title "$title" -Message "$message" \
     >/dev/null 2>&1
 }
 
@@ -238,6 +242,15 @@ main() {
       ;;
   esac
 
+  if is_wsl2_host; then
+    case "${AOE_TOOL:-}" in
+      opencode|opencode-custom)
+        log_finish suppressed-opencode 0 "$status"
+        return 0
+        ;;
+    esac
+  fi
+
   if [[ -n ${AOE_PROJECT_PATH:-} ]]; then
     message="$message in $(basename "$AOE_PROJECT_PATH")"
   fi
@@ -263,8 +276,13 @@ main() {
     log_finish osascript 0 "$status"
     return 0
   fi
-  if try_windows_popup "$title" "$message"; then
-    log_finish powershell 0 "$status"
+  if is_wsl2_host; then
+    if try_windows_banner "$title" "$message"; then
+      log_finish powershell-banner 0 "$status"
+    else
+      debug 'Windows banner backend failed'
+      log_finish none 1 "$status"
+    fi
     return 0
   fi
   if try_notify_send "$status" "$title" "$message"; then

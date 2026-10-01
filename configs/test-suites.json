@@ -75,6 +75,13 @@
       "requires": ["bash"]
     },
     {
+      "id": "windows-notify",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_windows_notify"],
+      "covers": ["tests/test_windows_notify.py"],
+      "platforms": ["linux", "macos", "windows", "wsl2"]
+    },
+    {
       "id": "audit-tools",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_cz_audit.CzAuditPosixTests"],

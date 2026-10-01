@@ -188,6 +188,7 @@ dot_local/share/zsh/65-package-wrappers.zsh.tmpl	script-extension
 dot_local/share/zsh/70-git-custom-aliases.zsh.tmpl	script-extension
 dot_local/share/zsh/80-path.zsh.tmpl	script-extension
 dot_local/share/zsh/90-late-integrations.zsh.tmpl	script-extension
+dot_local/windows-notify.ps1	script-extension
 dot_zshrc.tmpl	shell-startup
 private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1	script-extension
 private_Documents/PowerShell/Scripts/MapDrives.ps1	script-extension
@@ -419,5 +420,6 @@ tests/test_test_fixtures.py	script-extension
 tests/test_test_runner.py	script-extension
 tests/test_user_command_wrappers.py	script-extension
 tests/test_windows_lifecycle_boundaries.py	script-extension
+tests/test_windows_notify.py	script-extension
 tests/test_windows_shell.py	script-extension
 tests/test_wsl_lifecycle_boundaries.py	script-extension

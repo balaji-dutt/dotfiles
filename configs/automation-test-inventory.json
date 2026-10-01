@@ -857,6 +857,25 @@
       "rationale": "Local parity, version markers, entrypoints, and integrity locks cover provenance without duplicating upstream behavioral suites."
     },
     {
+      "id": "windows-notify",
+      "classification": "owned",
+      "paths": ["dot_local/windows-notify.ps1"],
+      "owner": {"kind": "repository", "name": "Windows notification delivery"},
+      "languages": ["powershell"],
+      "platforms": ["windows", "wsl2"],
+      "risk": "medium",
+      "side_effects": ["gui", "process"],
+      "test_layers": ["contract", "platform-smoke"],
+      "coverage": {
+        "suite_id": "windows-notify",
+        "status": "partial",
+        "work_item": "dots-3fj4",
+        "test_paths": ["tests/test_windows_notify.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Parser and command-contract tests are offline; visible Windows banner delivery requires user confirmation."
+    },
+    {
       "id": "windows-shell",
       "classification": "owned",
       "paths": [

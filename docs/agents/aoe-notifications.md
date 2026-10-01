@@ -16,13 +16,19 @@ AoE `[status_hooks]` `on_waiting` / `on_error`) and the OpenCode plugin
    `http://host.docker.internal:6789/notify`).
 2. **`terminal-notifier`** (macOS) — preferred over `osascript`; see below.
 3. **`osascript`** (macOS) — fallback only.
-4. **`powershell.exe`** popup (Windows / WSL2).
-5. **`notify-send`** (Linux).
+4. **`powershell.exe`** Windows notification banner via
+   `~/.local/windows-notify.ps1` (WSL2 host).
+5. **`notify-send`** (Linux outside the WSL2 host).
 
-The OpenCode notifier plugin uses its own config — `notification: true`
-(macOS osascript) or `command.enabled: true` with an explicit binary. We
-route macOS through `command` → `terminal-notifier` for the same reason
-described next.
+On a WSL2 host, a failed banner does not fall back to `notify-send`.
+The helper uses Windows PowerShell 5.1 and the registered Windows PowerShell
+notification identity; it does not open an OK-button dialog. Devcontainers
+retain their HTTP bridge/Linux behavior. Native Windows OpenCode calls the
+same helper directly from its notifier configuration.
+
+The OpenCode notifier plugin uses its own config with
+`command.enabled: true` and an explicit binary. We route macOS through
+`command` → `terminal-notifier` for the reason described next.
 
 ## Why `terminal-notifier` instead of `osascript` on macOS
 
@@ -51,7 +57,12 @@ whether AoE is actually firing the status hook:
   relevant for OpenCode where AoE has no agent-side hook integration and
   relies on tmux pane content polling).
 - **Lines with `backend=none rc=1`** → the hook fired but every backend
-  failed.
+  failed (on a WSL2 host, check that the helper is installed and reachable
+  through Windows interop).
+- **Lines with `backend=suppressed-opencode rc=0`** → an OpenCode tool's
+  AoE hook was deliberately skipped; the OpenCode plugin owns the banner.
+- **Lines with `backend=powershell-banner rc=0`** → the Windows banner helper
+  returned successfully.
 - **Lines with `backend=terminal-notifier rc=0`** → notification was
   dispatched. If no banner appeared, check the notification permission
   for `terminal-notifier` in System Settings.
@@ -61,7 +72,8 @@ Log fields:
 ```
 <iso-timestamp> status=<waiting|error|ignored> backend=<name|none>
   rc=<0|1> pid=<n> ppid=<n>
-  instance=<AOE_INSTANCE_ID> session=<AOE_SESSION_TITLE>
+  instance=<AOE_INSTANCE_ID> session_id=<AOE_SESSION_ID> tool=<AOE_TOOL>
+  session=<AOE_SESSION_TITLE>
   project=<AOE_PROJECT_PATH> new_status=<AOE_NEW_STATUS>
 ```
 
@@ -82,7 +94,7 @@ symptom even outside AoE.
 On macOS and WSL2, `opencode-notifier-bridge` suppresses the plugin's
 `permission` event when the nearest OpenCode ancestor was launched with the
 exact `--auto` argument. OpenCode has already approved that permission by the
-time the detached notification command runs, so the popup would be stale.
+time the detached notification command runs, so the banner would be stale.
 
 Only the `permission` event is suppressed. The plugin's separate `question`
 event remains enabled because an agent question still requires input, and all
@@ -98,27 +110,22 @@ macOS/WSL2 bridge.
 
 ## OpenCode inside AoE on WSL2
 
-AoE's WSL2 OpenCode status detection was fixed upstream after
-[agent-of-empires/agent-of-empires#2022](https://github.com/agent-of-empires/agent-of-empires/issues/2022)
-and
-[`ce6d11c`](https://github.com/agent-of-empires/agent-of-empires/commit/ce6d11cdc2c91381c71350cd1c43ce768a1438cd).
-That means both AoE status hooks and `@mohak34/opencode-notifier` can see the
-same waiting/error moment. To avoid duplicate banners, this dotfiles setup uses
-one notification owner per runtime:
+On a WSL2 host, `@mohak34/opencode-notifier` owns OpenCode notifications both
+inside and outside AoE. `opencode-notifier.json.tmpl` calls
+`~/bin/opencode-notifier-bridge`, which forwards enabled events to the Windows
+banner helper even when `AOE_INSTANCE_ID` is set or tmux reports an `aoe_*`
+session. The bridge still suppresses stale `--auto` permission events.
 
-- **Inside AoE:** AoE owns waiting/error banners through `[status_hooks]` and
-  `~/bin/aoe-notify`.
-- **Native OpenCode:** `@mohak34/opencode-notifier` owns OpenCode banners.
+For `AOE_TOOL=opencode` or `opencode-custom`, `~/bin/aoe-notify` suppresses
+AoE's waiting/error status hooks on the WSL2 host and logs the decision. Other
+AoE tools continue using the status hooks. On macOS and in devcontainers the
+bridge still suppresses OpenCode plugin events inside AoE, leaving the existing
+AoE ownership intact. AoE status detection is not customized here.
 
-On WSL2, `opencode-notifier.json.tmpl` routes the plugin command through
-`~/bin/opencode-notifier-bridge` instead of calling `powershell.exe` directly.
-The bridge exits successfully without sending a popup when `AOE_INSTANCE_ID` is
-set or the current tmux session name starts with `aoe_`; otherwise it uses the
-same PowerShell popup fallback path as `aoe-notify`.
-
-Accepted edge case: a standalone `opencode` launched inside an attached
-leftover `aoe_*` tmux session is treated as AoE-owned and its plugin popup is
-suppressed.
+Install the helper and updated hook/bridge together when applying on WSL2;
+applying only one side can leave duplicate or missing OpenCode banners. Restart
+OpenCode after applying its notifier configuration. Native Windows OpenCode
+invokes the helper via `powershell.exe -File` without a Bash bridge.
 
 For Claude sessions on WSL2, the `[status_hooks]` chain should work end-to-end.
 Claude state comes from `.claude/settings.json` hooks writing to
