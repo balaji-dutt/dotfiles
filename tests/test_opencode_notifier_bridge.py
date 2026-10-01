@@ -81,6 +81,7 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         env.update(
             {
                 "NOTIFIER_LOG": str(self.notifier_log),
+                "HOME": str(self.temp_path / "home"),
                 "PATH": f"{self.fake_bin}{os.pathsep}{env['PATH']}",
             }
         )
