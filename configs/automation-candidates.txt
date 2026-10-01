@@ -89,6 +89,7 @@ assets/check-automation-test-inventory.py	script-extension,shebang
 assets/check-beads-release-notes.py	script-extension,shebang
 assets/check-gitlab-pipeline.py	script-extension,shebang
 assets/check-pipeline.py	script-extension,shebang
+assets/check-plannotator-config.py	script-extension,shebang
 assets/claude-mcp-apply.py	script-extension,shebang
 assets/cz-audit.ps1	executable-mode,script-extension
 assets/cz-audit.sh	executable-mode,script-extension,shebang
@@ -402,6 +403,7 @@ tests/test_opencode_workspace_overrides.py	script-extension
 tests/test_orbstack_ssh_agent_relay.py	script-extension
 tests/test_pipeline_evidence.py	script-extension
 tests/test_pipeline_guard.py	script-extension
+tests/test_plannotator_config.py	script-extension
 tests/test_plannotator_sync.py	script-extension
 tests/test_powershell_lifecycle.py	script-extension
 tests/test_promptfoo_runtime.py	script-extension

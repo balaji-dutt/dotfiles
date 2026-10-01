@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import stat
@@ -488,6 +489,7 @@ printf '%s:%s:%s\n' "$state" "$LIFECYCLE_EXPORTED" "$(printenv LIFECYCLE_EXPORTE
                 backup = self.fixture.root / f"claude backups {index}"
                 for name in UNSLOP_SKILLS:
                     shutil.copytree(root / "dot_claude/skills" / name, source / "skills" / name)
+                shutil.copy2(root / "dot_claude/settings-base.json", source / "settings-base.json")
                 (target / "local-only").mkdir(parents=True)
                 (target / "local-only/SKILL.md").write_text("local\n", encoding="utf-8")
                 (target / "unslop-commit").mkdir()
@@ -502,6 +504,13 @@ install_claude_managed_asset_links
 install_claude_managed_asset_links
 '''
                 self.assert_success(self.run_bash(script, str(COMMON), str(source), env=env))
+                settings_path = home / ".claude/settings.json"
+                self.assertTrue(settings_path.is_file())
+                self.assertFalse(settings_path.is_symlink())
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                self.assertIn("permissions", settings)
+                self.assertIn("hooks", settings)
+                self.assertFalse(settings["extraKnownMarketplaces"]["plannotator"]["autoUpdate"])
                 self.assertFalse(target.is_symlink())
                 for name in UNSLOP_SKILLS:
                     self.assertTrue((target / name).is_symlink())

@@ -1,7 +1,6 @@
 {
   // Renovate-managed host refresh sentinels for Claude Code and OpenCode
-  // plugins. These versions are notification triggers only; runtime configs
-  // remain authoritative and may still use @latest.
+  // plugins. These versions trigger refreshes; runtime pins are authoritative.
   //
   // OpenCode sentinel versions are initialized from the host package cache at
   // ~/.cache/opencode/packages when available, not from devcontainer pins.
@@ -19,7 +18,7 @@
       {
         "id": "plannotator@plannotator",
         "scope": "user",
-        "version": "0.27.19" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
+        "version": "0.27.22" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
       },
       {
         "id": "cc-safety-net@cc-marketplace",
@@ -44,7 +43,7 @@
       },
       {
         "package": "@plannotator/opencode",
-        "version": "0.27.19" // renovate: datasource=npm depName=@plannotator/opencode
+        "version": "0.27.22" // renovate: datasource=npm depName=@plannotator/opencode
       },
       {
         "package": "@gotgenes/opencode-agent-identity",

@@ -19,22 +19,22 @@
     {
       "path": "dot_claude/skills/plannotator-review/SKILL.md",
       "source_path": "apps/skills/claude/plannotator-review/SKILL.md",
-      "sha256": "fdb4b4ab4edad7d98e1835fad17f324a2ecdad7239676a3550b1f671187aa6b2"
+      "sha256": "4bd390eca2ad8c13d1077005b5e3cb2d4f380b8a48c1eb51cbc6192430e3477d"
     },
     {
       "path": "private_dot_config/opencode/commands/plannotator-annotate.md",
       "source_path": "apps/opencode-plugin/commands/plannotator-annotate.md",
-      "sha256": "571a2d05036cf142f76677a15f3c2860e68928933dee48bc5d480c7ec36ccb5d"
+      "sha256": "d7fad3146760872b97668aa4349306d6aabba296179b6f26ed43cdb238e6ab45"
     },
     {
       "path": "private_dot_config/opencode/commands/plannotator-last.md",
       "source_path": "apps/opencode-plugin/commands/plannotator-last.md",
-      "sha256": "ad916c7e6dbb7edef39f78653e662415602cdc78a394ef08c36bf9a150e3258a"
+      "sha256": "4e75c2ed1f4623b27e6cc829bfeb565b9b8a12e09bf51d6213b05f1b4fd23f50"
     },
     {
       "path": "private_dot_config/opencode/commands/plannotator-review.md",
       "source_path": "apps/opencode-plugin/commands/plannotator-review.md",
-      "sha256": "683ccd2a6018414d983e37a91ab3ff3b6a4469795ba8b6f0911726fb606ff506"
+      "sha256": "64d7ac18f242e26cafacc13f87ea3f19324d0b017e1bfeed1a0007c57892eec6"
     }
   ]
 }

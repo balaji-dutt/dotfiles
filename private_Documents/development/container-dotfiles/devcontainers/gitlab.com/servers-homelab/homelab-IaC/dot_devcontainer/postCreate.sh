@@ -933,58 +933,68 @@ done_step "Install MCP server binaries"
 # devcontainer.json.tmpl, sourced from .chezmoidata.yaml).
 step "Install plannotator CLI"
 if [[ -n "${PLANNOTATOR_VERSION:-}" ]]; then
+  [[ "$PLANNOTATOR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid PLANNOTATOR_VERSION" >&2; exit 1; }
   case "$ARCH" in
     x86_64)  PLANNOTATOR_ARCH="x64" ;;
     aarch64) PLANNOTATOR_ARCH="arm64" ;;
     *)
-      echo "WARN: unsupported architecture $ARCH for plannotator; skipping."
-      PLANNOTATOR_ARCH=""
+      echo "ERROR: unsupported architecture $ARCH for plannotator." >&2
+      exit 1
       ;;
   esac
 
-  if [[ -n "$PLANNOTATOR_ARCH" ]]; then
-    PLANNOTATOR_BIN="$HOME/.local/bin/plannotator"
-    PLANNOTATOR_INSTALLED=""
-    if [[ -x "$PLANNOTATOR_BIN" ]]; then
-      PLANNOTATOR_INSTALLED=$(
-        "$PLANNOTATOR_BIN" --version 2>/dev/null \
-          | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
-          | head -1 \
-          || true
-      )
-    fi
-
-    if [[ "$PLANNOTATOR_INSTALLED" == "$PLANNOTATOR_VERSION" ]]; then
-      echo "[plannotator] ${PLANNOTATOR_INSTALLED} already installed; nothing to do."
-    else
-      echo "[plannotator] installing v${PLANNOTATOR_VERSION} (${PLANNOTATOR_ARCH})"
-      PLANNOTATOR_BASE_URL="https://github.com/backnotprop/plannotator/releases/download/v${PLANNOTATOR_VERSION}"
-      PLANNOTATOR_ASSET="plannotator-linux-${PLANNOTATOR_ARCH}"
-      PLANNOTATOR_TMP=$(mktemp -d /tmp/plannotator.XXXXXX)
-
-      curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}.sha256" \
-        -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256"
-      curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}" \
-        -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}"
-
-      PLANNOTATOR_EXPECTED=$(awk '{print $1}' "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256")
-      PLANNOTATOR_ACTUAL=$(sha256sum "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" | awk '{print $1}')
-      if [[ "$PLANNOTATOR_EXPECTED" != "$PLANNOTATOR_ACTUAL" ]]; then
-        echo "ERROR: SHA256 mismatch for ${PLANNOTATOR_ASSET}" >&2
-        echo "  expected: $PLANNOTATOR_EXPECTED" >&2
-        echo "  actual:   $PLANNOTATOR_ACTUAL" >&2
-        rm -rf "$PLANNOTATOR_TMP"
-        exit 1
-      fi
-
-      mkdir -p "$HOME/.local/bin"
-      install -m 0755 "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" "$PLANNOTATOR_BIN"
-      rm -rf "$PLANNOTATOR_TMP"
-      "$PLANNOTATOR_BIN" --version 2>/dev/null || echo "WARN: plannotator --version check failed"
-    fi
+  PLANNOTATOR_BIN="$HOME/.local/bin/plannotator"
+  PLANNOTATOR_INSTALLED=""
+  if [[ -x "$PLANNOTATOR_BIN" ]]; then
+    PLANNOTATOR_INSTALLED=$(
+      "$PLANNOTATOR_BIN" --version 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1 \
+        || true
+    )
   fi
+
+  if [[ "$PLANNOTATOR_INSTALLED" == "$PLANNOTATOR_VERSION" ]]; then
+    echo "[plannotator] ${PLANNOTATOR_INSTALLED} already installed; nothing to do."
+  else
+    echo "[plannotator] installing v${PLANNOTATOR_VERSION} (${PLANNOTATOR_ARCH})"
+    PLANNOTATOR_BASE_URL="https://github.com/backnotprop/plannotator/releases/download/v${PLANNOTATOR_VERSION}"
+    PLANNOTATOR_ASSET="plannotator-linux-${PLANNOTATOR_ARCH}"
+    PLANNOTATOR_TMP=$(mktemp -d /tmp/plannotator.XXXXXX)
+
+    curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}.sha256" \
+      -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256"
+    curl -fsSL "${PLANNOTATOR_BASE_URL}/${PLANNOTATOR_ASSET}" \
+      -o "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}"
+
+    PLANNOTATOR_EXPECTED=$(awk '{print $1}' "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}.sha256")
+    PLANNOTATOR_ACTUAL=$(sha256sum "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" | awk '{print $1}')
+    if [[ "$PLANNOTATOR_EXPECTED" != "$PLANNOTATOR_ACTUAL" ]]; then
+      echo "ERROR: SHA256 mismatch for ${PLANNOTATOR_ASSET}" >&2
+      echo "  expected: $PLANNOTATOR_EXPECTED" >&2
+      echo "  actual:   $PLANNOTATOR_ACTUAL" >&2
+      rm -rf "$PLANNOTATOR_TMP"
+      exit 1
+    fi
+
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 "${PLANNOTATOR_TMP}/${PLANNOTATOR_ASSET}" "$PLANNOTATOR_BIN"
+    rm -rf "$PLANNOTATOR_TMP"
+  fi
+  PLANNOTATOR_VERIFIED=$("$PLANNOTATOR_BIN" --version)
+  PLANNOTATOR_VERIFIED=$(printf '%s\n' "$PLANNOTATOR_VERIFIED" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  if [[ "$PLANNOTATOR_VERIFIED" != "$PLANNOTATOR_VERSION" ]]; then
+    echo "ERROR: installed plannotator does not match PLANNOTATOR_VERSION" >&2
+    exit 1
+  fi
+  PLANNOTATOR_PIN_DIR="$HOME/.config/dotfiles/versions"
+  mkdir -p "$PLANNOTATOR_PIN_DIR"
+  PLANNOTATOR_PIN_TEMP=$(mktemp "$PLANNOTATOR_PIN_DIR/.plannotator.XXXXXXXX")
+  printf '%s\n' "$PLANNOTATOR_VERSION" > "$PLANNOTATOR_PIN_TEMP"
+  command mv -f "$PLANNOTATOR_PIN_TEMP" "$PLANNOTATOR_PIN_DIR/plannotator"
 else
-  echo "WARN: PLANNOTATOR_VERSION not set; skipping plannotator install."
+  echo "ERROR: PLANNOTATOR_VERSION not set." >&2
+  exit 1
 fi
 done_step "Install plannotator CLI"
 

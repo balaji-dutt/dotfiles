@@ -25,6 +25,10 @@ ALLOWED_TARGET_PREFIXES = (
     "private_dot_config/opencode/commands/",
 )
 DIFF_LINE_LIMIT = 40
+OPENCODE_STUBS = {
+    f"private_dot_config/opencode/commands/plannotator-{name}.md"
+    for name in ("annotate", "last", "review")
+}
 
 
 @dataclass(frozen=True)
@@ -115,9 +119,16 @@ def download_artifacts(manifest: dict, version: str) -> list[DownloadedArtifact]
     for artifact in manifest.get("artifacts", []):
         artifact_path = normalize_artifact_path(artifact["path"])
         url = f"{base_url}{normalize_source_path(artifact['source_path'])}"
-        downloads.append(
-            DownloadedArtifact(path=artifact_path, url=url, data=fetch_bytes(url))
-        )
+        data = fetch_bytes(url)
+        if artifact_path in OPENCODE_STUBS:
+            lines = data.splitlines(keepends=True)
+            if not lines or lines[0].strip() != b"---":
+                raise ValueError(f"missing OpenCode command frontmatter: {artifact_path}")
+            end = next((index for index, line in enumerate(lines[1:], start=1) if line.strip() == b"---"), None)
+            if end is None:
+                raise ValueError(f"unterminated OpenCode command frontmatter: {artifact_path}")
+            data = b"".join(lines[:end + 1]) + b"\n"
+        downloads.append(DownloadedArtifact(path=artifact_path, url=url, data=data))
     return downloads
 
 

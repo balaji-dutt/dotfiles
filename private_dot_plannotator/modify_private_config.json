@@ -1,0 +1,12 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $input := trim (get .chezmoi "stdin" | default "") -}}
+{{- $config := dict -}}
+{{- if $input -}}
+{{-   $config = mustFromJson $input -}}
+{{-   if not (kindIs "map" $config) -}}
+{{-     fail "Plannotator config.json must contain a JSON object; leaving it untouched" -}}
+{{-   end -}}
+{{- end -}}
+{{- $_ := set $config "share" "disabled" -}}
+{{- $_ := set $config "jina" false -}}
+{{ $config | toPrettyJson }}

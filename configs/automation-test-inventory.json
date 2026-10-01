@@ -318,8 +318,8 @@
       "test_layers": ["integration", "platform-smoke", "render", "unit"],
       "coverage": {
         "suite_id": "devcontainer-runtime",
-        "status": "covered",
-        "work_item": "dots-4jy.10.6",
+        "status": "partial",
+        "work_item": "dots-1q7k",
         "test_paths": ["tests/test_devcontainer_launch.py", "tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke.py", "tests/test_devcontainer_smoke_live.py", "tests/test_opencode_workspace_overrides.py", "tests/test_orbstack_ssh_agent_relay.py"],
         "behavior_requirements": [
           {"id": "failure-bbk-attach", "kind": "failure", "description": "Keep VS Code attachment non-blocking when the pinned VSIX checksum, install, or post-install verification fails.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
@@ -327,18 +327,21 @@
           {"id": "failure-invalid-relay-input", "kind": "failure", "description": "Reject invalid relay arguments and unsafe socket state with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
           {"id": "failure-invalid-workspace-override-input", "kind": "failure", "description": "Reject malformed workspace override inputs without corrupting the active configuration.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]},
           {"id": "failure-missing-claude-source", "kind": "failure", "description": "Warn and retain existing Claude skills when the managed source is unavailable.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "failure-plannotator-pin", "kind": "failure", "description": "Reject mismatched or corrupt container Plannotator CLI and pin without publishing a false version or dropping Claude safety settings.", "status": "planned", "test_paths": []},
           {"id": "safety-disposable-boundary", "kind": "safety", "description": "Keep live lifecycle validation inside disposable containers without exposing host secrets or config.", "status": "covered", "test_paths": ["tests/test_devcontainer_smoke.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "safety-headless-bbk", "kind": "safety", "description": "Skip post-attach hooks for terminal launcher starts, and leave the VSIX cache and extensions untouched when the VS Code Server CLI is missing or unusable.", "status": "covered", "test_paths": ["tests/test_devcontainer_launch.py", "tests/test_devcontainer_lifecycle.py"]},
           {"id": "safety-host-isolation", "kind": "safety", "description": "Exercise lifecycle functions without running installers or mutating host paths.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
           {"id": "safety-local-skills", "kind": "safety", "description": "Preserve unrelated local skills for both clients and back up conflicting Claude skill directories before linking managed content.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "safety-plannotator-registration", "kind": "safety", "description": "Qualify environment-local Claude settings migration and plugin registration with fake CLI and marketplace commands in an isolated home without touching host state.", "status": "planned", "test_paths": []},
           {"id": "success-bbk-attach", "kind": "success", "description": "Install the pinned Better Beads Kanban VSIX with a usable remote Server CLI, remove conflicting extension IDs, and avoid re-downloading or re-installing after verification.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke.py"]},
           {"id": "success-idempotent-lifecycle-runtime", "kind": "success", "description": "Repeat lifecycle persistence and materialization with the expected container state.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py", "tests/test_devcontainer_smoke_live.py"]},
           {"id": "success-idempotent-relay-runtime", "kind": "success", "description": "Relay concurrent bidirectional SSH-agent traffic and clean up sockets reliably.", "status": "covered", "test_paths": ["tests/test_orbstack_ssh_agent_relay.py"]},
           {"id": "success-idempotent-workspace-override", "kind": "success", "description": "Merge and remap workspace overrides repeatedly with stable output.", "status": "covered", "test_paths": ["tests/test_opencode_workspace_overrides.py"]},
-          {"id": "success-managed-unslop-skills", "kind": "success", "description": "Provision all seven Unslop entrypoints and nested supporting files idempotently through Claude and OpenCode lifecycle helpers; keep Claude installation wired into create and start.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]}
+          {"id": "success-managed-unslop-skills", "kind": "success", "description": "Provision all seven Unslop entrypoints and nested supporting files idempotently through Claude and OpenCode lifecycle helpers; keep Claude installation wired into create and start.", "status": "covered", "test_paths": ["tests/test_devcontainer_lifecycle.py"]},
+          {"id": "success-plannotator-persistence", "kind": "success", "description": "Publish an exact verified CLI pin and materialize idempotent Claude settings while preserving unrelated hooks, models, and safety permissions.", "status": "planned", "test_paths": []}
         ]
       },
-      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Isolated suites cover lifecycle persistence and materialization, workspace override parsing and replacement, and concurrent socket relay behavior without installers or host mutation. The opt-in smoke uses a preloaded image, synthetic read-only inputs, no network, unique resources, bounded commands, and guaranteed cleanup to validate the safe production runtime phases across create, restart, and rerun. Package installers and optional network integrations remain outside the smoke boundary."
+      "rationale": "Ownership remains here until dots-7mx performs the planned same-path submodule split. Isolated suites cover lifecycle persistence and materialization, workspace override parsing and replacement, and concurrent socket relay behavior without installers or host mutation. The opt-in smoke uses a preloaded image, synthetic read-only inputs, no network, unique resources, bounded commands, and guaranteed cleanup to validate the safe production runtime phases across create, restart, and rerun. Plannotator pin publication, Claude settings migration and marketplace installation still need isolated behavioral qualification; package installers and optional network integrations remain outside the smoke boundary."
     },
     {
       "id": "espanso-scripts",
@@ -506,6 +509,7 @@
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "failure-macos-fixture-install-guards", "kind": "failure", "description": "Reject synthetic NFS non-file inputs and failed sudo installs, stop VDI installation on a Citrix checksum mismatch, preserve CopyQ on download failure, and reject invalid OpenUsage generated versions without replacing installed artifacts.", "status": "covered", "test_paths": ["tests/test_macos_lifecycle_boundaries.py"]},
           {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Homebrew holds.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
+          {"id": "failure-plannotator-claude-pin", "kind": "failure", "description": "Qualify installed Claude Plannotator version and enabled-state readback against isolated fixtures; marketplace registration drift is already exercised by the host refresh tests.", "status": "planned", "test_paths": []},
           {"id": "failure-selected-hook-errors", "kind": "failure", "description": "Propagate selected lifecycle hook command and validation failures with actionable diagnostics.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_posix.py"]},
           {"id": "failure-shell-lifecycle-errors", "kind": "failure", "description": "Propagate commit-template writes, installer checksum validation, and selected lifecycle command failures without replacing valid state.", "status": "covered", "test_paths": ["tests/test_shell_lifecycle.py"]},
           {"id": "failure-uv-tool-unavailable", "kind": "failure", "description": "Stop macOS hydration with an actionable error when a nonempty uv manifest cannot be installed without uv.", "status": "covered", "test_paths": ["tests/test_repo_ops.py"]},
@@ -552,6 +556,7 @@
           {"id": "failure-claude-mutation-timeout-retry", "kind": "failure", "description": "Preserve timeout classification through cleanup, stop later Claude mutations after the first timeout, continue OpenCode work, and return nonzero for a later retry.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "failure-lifecycle-command-boundaries", "kind": "failure", "description": "Propagate PowerShell template rendering, invalid path, and scheduled-task registration failures without writing fallback or destination state for unrelated errors; reject missing tokens and unusable WSL ports without external mutation.", "status": "covered", "test_paths": ["tests/test_powershell_lifecycle.py", "tests/test_windows_lifecycle_boundaries.py"]},
           {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Chocolatey holds in PowerShell fixtures.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
+          {"id": "failure-plannotator-claude-pin", "kind": "failure", "description": "Reject a mismatched Claude Plannotator marketplace tag or installed version before reporting success; qualify against an isolated Windows fixture.", "status": "planned", "test_paths": []},
           {"id": "failure-selected-installer-errors", "kind": "failure", "description": "Propagate selected installer, parser, and refresh failures without reporting success.", "status": "covered", "test_paths": ["tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-claude-noninteractive-git-transport", "kind": "safety", "description": "Override interactive Git SSH transport only in Claude mutation children with strict OpenSSH host-key checking and no terminal prompts, without changing caller environment.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
           {"id": "safety-claude-process-tree-containment", "kind": "safety", "description": "Contain each Claude mutation, reap descendants after normal exit or timeout, fail closed before an uncontained launch, and preserve unrelated processes.", "status": "covered", "test_paths": ["tests/test_host_ai_plugin_refresh_windows.py"]},
@@ -769,6 +774,7 @@
       "id": "sync-tooling",
       "classification": "owned",
       "paths": [
+        "assets/check-plannotator-config.py",
         "assets/render-container-configs.sh",
         "assets/sync-devcontainer-all.sh",
         "assets/sync-devcontainer-assets.sh",
@@ -783,7 +789,7 @@
       "risk": "high",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
-      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_plannotator_sync.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
+      "coverage": {"suite_id": "sync-tooling", "status": "partial", "work_item": "dots-4jy.10.2.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_opencode_workspace_overrides.py", "tests/test_plannotator_config.py", "tests/test_plannotator_sync.py", "tests/test_sync_tooling.py"], "behavior_requirements": []},
       "rationale": "Registered offline suites cover devcontainer mirror idempotency and cleanup, sync/render sequencing, fixture-scoped secret rendering, wrapper dispatch, statusline drift, workspace override merging and remapping, and Plannotator check/write, failure, path and partial-write behavior with mocked remote responses. Other sync-tooling gaps remain planned."
     },
     {

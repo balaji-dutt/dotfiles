@@ -276,6 +276,51 @@ class PosixHostAiPluginRefreshTests(unittest.TestCase):
             output.getvalue().count("claude plugin marketplace update shared"), 1
         )
 
+    def test_plannotator_requires_matching_marketplace_tag(self) -> None:
+        plugin = {"id": "plannotator@plannotator", "name": "plannotator", "marketplace": "plannotator", "scope": "user"}
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["claude"]["plugins"] = [{**plugin, "version": "0.27.22"}]
+        self.config.write_text(json.dumps(payload), encoding="utf-8")
+        self.root.joinpath("settings.json").write_text(json.dumps({
+            "extraKnownMarketplaces": {"plannotator": {
+                "autoUpdate": False, "source": {"ref": "v0.27.22"}
+            }}
+        }), encoding="utf-8")
+        location = self.catalog("plannotator", ["plannotator"])
+        valid = self.call("validate_claude_marketplace_catalog", "plannotator", [plugin], [
+            {"name": "plannotator", "ref": "v0.27.22", "installLocation": str(location)}
+        ])
+        invalid = self.call("validate_claude_marketplace_catalog", "plannotator", [plugin], [
+            {"name": "plannotator", "ref": "v0.27.23", "installLocation": str(location)}
+        ])
+        self.assertTrue(valid["available"])
+        self.assertFalse(invalid["available"])
+        self.assertIn("tag differs", invalid["error"])
+
+    def test_plannotator_preflight_blocks_update_on_registration_drift(self) -> None:
+        plugin = {"id": "plannotator@plannotator", "name": "plannotator", "marketplace": "plannotator", "scope": "user"}
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["claude"]["plugins"] = [{**plugin, "version": "0.27.22"}]
+        self.config.write_text(json.dumps(payload), encoding="utf-8")
+        self.root.joinpath("settings.json").write_text(json.dumps({
+            "extraKnownMarketplaces": {"plannotator": {
+                "autoUpdate": False, "source": {"ref": "v0.27.22"}
+            }}
+        }), encoding="utf-8")
+        self.module["claude_failures"].clear()
+        self.module["command_exists"] = lambda command: True
+        self.module["claude_marketplace_inventory"] = lambda: ([
+            {"name": "plannotator", "ref": "v0.27.23"}
+        ], None)
+        self.module["run_claude_checked"] = lambda arguments: self.fail("must not update mismatched marketplace")
+        self.module["sync_claude_plugin"] = lambda current, actions: self.fail("must not sync mismatched plugin")
+        self.module["installed_claude_plugin_ids"] = lambda: set()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.call("refresh_claude", [plugin])
+        self.assertIn("marketplace:plannotator", self.module["claude_failures"])
+        self.assertIn("retargeted", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

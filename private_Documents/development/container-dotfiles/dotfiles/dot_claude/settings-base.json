@@ -277,8 +277,10 @@
     "plannotator": {
       "source": {
         "source": "github",
-        "repo": "backnotprop/plannotator"
-      }
+        "repo": "backnotprop/plannotator",
+        "ref": "v0.27.22"
+      },
+      "autoUpdate": false
     }
   },
   "alwaysThinkingEnabled": true,

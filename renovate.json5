@@ -129,6 +129,16 @@
       ]
     },
     {
+      "customType": "regex",
+      "managerFilePatterns": ["/^dot_claude\\/settings-base\\.json$/"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "backnotprop/plannotator",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "matchStrings": [
+        "\\\"plannotator\\\": \\{[\\s\\S]*?\\\"repo\\\": \\\"backnotprop/plannotator\\\",\\s*\\\"ref\\\": \\\"v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""
+      ]
+    },
+    {
       // Only the version is pinned; the tag (v<version>) and asset name
       // (better-beads-kanban-<version>.vsix) are derived in each script.
       // EXPECTED_SHA cannot be computed by Renovate — assets/sync-beads-kanban-pin.sh
@@ -401,9 +411,11 @@
     },
     {
       "matchManagers": ["custom.regex"],
-      "matchFileNames": [".chezmoidata.yaml"],
-      "matchDepNames": ["backnotprop/plannotator"],
-      "groupName": "plannotator cli"
+      "matchDepNames": ["backnotprop/plannotator", "@plannotator/opencode"],
+      "matchFileNames": [".chezmoidata.yaml", "configs/host-ai-plugin-refresh.jsonc", "dot_claude/settings-base.json"],
+      "groupName": "plannotator aligned",
+      "additionalBranchPrefix": "plannotator-",
+      "minimumReleaseAge": "7 days"
     },
     {
       "matchManagers": ["custom.regex"],
@@ -411,8 +423,6 @@
         "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
-        "backnotprop/plannotator",
-        "@plannotator/opencode",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["patch", "digest"],
@@ -424,8 +434,6 @@
         "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
-        "backnotprop/plannotator",
-        "@plannotator/opencode",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["minor"],
@@ -437,8 +445,6 @@
         "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
-        "backnotprop/plannotator",
-        "@plannotator/opencode",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["major"],

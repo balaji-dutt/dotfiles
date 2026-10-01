@@ -419,6 +419,19 @@ def claude_marketplace_inventory():
     return records, None
 
 
+def plannotator_pin(plugin):
+    if plugin.get("id") != "plannotator@plannotator":
+        return None
+    manifest = json.loads(strip_jsonc(config_path.read_text(encoding="utf-8")))
+    entries = [entry for entry in manifest["claude"]["plugins"] if entry["id"] == plugin["id"]]
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    source = settings["extraKnownMarketplaces"]["plannotator"]
+    pin = entries[0]["version"] if len(entries) == 1 else None
+    if not pin or source["autoUpdate"] is not False or source["source"]["ref"] != f"v{pin}":
+        raise ValueError("Plannotator marketplace tag does not match refresh sentinel")
+    return pin
+
+
 def validate_claude_marketplace_catalog(marketplace, plugins, records):
     matches = [
         record
@@ -431,6 +444,14 @@ def validate_claude_marketplace_catalog(marketplace, plugins, records):
             "error": f"expected one marketplace registration, found {len(matches)}",
             "catalog_path": None,
         }
+
+    for plugin in plugins:
+        try:
+            pin = plannotator_pin(plugin)
+        except (OSError, KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+            return {"available": False, "error": str(exc), "catalog_path": None}
+        if pin and matches[0].get("ref") != f"v{pin}":
+            return {"available": False, "error": "Plannotator marketplace registration tag differs from pin", "catalog_path": None}
 
     install_location = matches[0].get("installLocation")
     if not isinstance(install_location, str) or not install_location.strip():
@@ -528,6 +549,18 @@ def refresh_claude(plugins):
         return
 
     marketplace_names = claude_marketplace_names(plugins)
+    plannotator = next((plugin for plugin in plugins if plugin["id"] == "plannotator@plannotator"), None)
+    if not dry_run and plannotator:
+        records, error = claude_marketplace_inventory()
+        try:
+            pin = plannotator_pin(plannotator)
+            matches = [record for record in records if isinstance(record, dict) and record.get("name") == "plannotator"] if not error else []
+            if len(matches) != 1 or matches[0].get("ref") != f"v{pin}":
+                raise ValueError("Claude Plannotator marketplace registration must be retargeted to the pinned tag before refresh")
+        except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+            print(f"ERROR: {exc}")
+            add_claude_failure("marketplace:plannotator")
+            marketplace_names = [name for name in marketplace_names if name != "plannotator"]
     if dry_run:
         for marketplace in marketplace_names:
             print(
@@ -606,7 +639,7 @@ def refresh_claude(plugins):
                 )
             continue
 
-        if not marketplace_available[plugin["marketplace"]]:
+        if not marketplace_available.get(plugin["marketplace"], False):
             print(
                 f"ERROR: Skipping Claude Code plugin {plugin['id']!r} because "
                 f"marketplace {plugin['marketplace']!r} is unavailable."
@@ -615,6 +648,17 @@ def refresh_claude(plugins):
 
         if not sync_claude_plugin(plugin, actions):
             add_claude_failure(plugin["id"])
+        elif plugin["id"] == "plannotator@plannotator":
+            result = run_capture(["claude", "plugin", "list", "--json"])
+            try:
+                pin = plannotator_pin(plugin)
+                entries = json.loads(result.stdout) if result.returncode == 0 else []
+                installed = [entry for entry in entries if entry.get("id") == plugin["id"]]
+                if len(installed) != 1 or installed[0].get("version") != pin or installed[0].get("enabled") is not True:
+                    raise ValueError("installed Plannotator plugin version differs from pin")
+            except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+                print(f"ERROR: {exc}")
+                add_claude_failure(plugin["id"])
 
     print("INFO: Restart Claude Code to use refreshed plugins.")
 

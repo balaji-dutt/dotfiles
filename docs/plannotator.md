@@ -161,6 +161,15 @@ per plan approval, with both instances contending for the same hook stdin.
 The plugin does **not** supply the `/plannotator-*` slash commands. Those are
 vendored into this repo — see [Vendored slash commands](#vendored-slash-commands).
 
+The managed marketplace registration follows the same `v<plannotator_version>`
+tag as the CLI, with `autoUpdate` disabled. The host refresh hook checks the
+registered tag and installed plugin version before reporting success. If an
+older marketplace registration already exists, retarget it deliberately before
+retrying; do not remove it as an automatic fallback, since removal uninstalls
+the plugin. Devcontainers render their own `~/.claude/settings.json` from the
+mirrored base and local settings instead of following a host settings symlink.
+They only report the plugin as aligned after local CLI and plugin readback.
+
 On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
 `PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote
 mode.
@@ -232,18 +241,40 @@ subcommands by name, and upstream already spells the same operation two ways
 subcommand would break the vendored copies silently. With it, the bump fails
 `--check` until someone re-syncs, and `--write` follows the shared pin directly.
 
-Two limits of that coupling, both intentional:
+The sync helper keeps the OpenCode command files frontmatter-only even if
+upstream adds command bodies. `--check` validates the canonical files against
+the selected release; run the mirror script after `--write` to update
+`private_Documents/development/container-dotfiles/` as well.
 
-- It binds the vendored files to the **CLI** pin in `.chezmoidata.yaml` only. The
-  `plannotator@plannotator` entry in `configs/host-ai-plugin-refresh.jsonc` is a
-  separate Renovate sentinel for the Claude Code plugin, and that file's own
-  header notes its versions are notification triggers rather than enforced pins.
-  Nothing asserts the two agree, and they can land in separate PRs.
-- It does not cover the container-dotfiles mirrors under
-  `private_Documents/development/container-dotfiles/`. Those are generated for
-  every mirrored asset by `assets/sync-devcontainer-assets.sh` and guarded by
-  `configs/devcontainer-sync.jsonc`, the same as the other mirrored skills; run
-  that script after `--write` rather than expecting `--check` to notice.
+## Version and privacy contract
+
+`.chezmoidata.yaml` pins the CLI. Chezmoi renders that
+version to `~/.config/dotfiles/versions/plannotator`. Host OpenCode and the
+homelab devcontainer use the same home-relative `{file:...}` plugin spec;
+the container writes its own version file only after verifying its installed
+CLI. The OpenCode plugin tuple options remain local to each repository:
+`agentic-tooling` keeps its six planning agents, and Beads-Kanban's
+user-managed workflow still requires a separate authorized update.
+
+The Claude marketplace tag and the Claude/OpenCode refresh sentinels must
+match the CLI version, but a refresh sentinel alone never installs or pins a
+plugin. Renovate groups the source versions with a common release-age gate;
+`assets/check-plannotator-config.py` checks the source agreement offline.
+`python3 assets/check-plannotator-config.py --runtime` additionally checks the
+deployed CLI, shared file, privacy config and Claude plugin readback. Run the
+runtime check on a managed host after an approved apply/installation; it
+requires `~/.plannotator/config.json` and is not the container's env-only
+privacy check. A missing file, mismatched registry or unavailable plugin is
+a failure, not proof of alignment. Restart OpenCode and Claude Code after a
+successful update; existing sessions retain their loaded configuration.
+
+Chezmoi's `~/.plannotator/config.json` modify-template manages only
+`share: "disabled"` and `jina: false`, preserving other Plannotator settings.
+Containers use `PLANNOTATOR_SHARE=disabled` and `PLANNOTATOR_JINA=false`.
+An inherited `PLANNOTATOR_SHARE` or `PLANNOTATOR_JINA` override can change
+effective behavior on the host, so check the runtime environment too. Sharing
+disabled removes the sharing workflow; disabling Jina uses direct fetching
+instead of Jina's extraction. Neither setting is a network sandbox.
 
 ## Agents of Empire
 

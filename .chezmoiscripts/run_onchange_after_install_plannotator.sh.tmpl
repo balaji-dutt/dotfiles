@@ -78,6 +78,17 @@ if [[ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
 fi
 
 chmod +x "${TMP_DIR}/${ASSET}"
-mv "${TMP_DIR}/${ASSET}" "$BIN_PATH"
+candidate_version=$("${TMP_DIR}/${ASSET}" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [[ "$candidate_version" != "$PLANNOTATOR_VERSION" ]]; then
+  echo "ERROR: downloaded plannotator version does not match ${PLANNOTATOR_VERSION}" >&2
+  exit 1
+fi
+command mv -f "${TMP_DIR}/${ASSET}" "$BIN_PATH"
+
+published_version=$("$BIN_PATH" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [[ "$published_version" != "$PLANNOTATOR_VERSION" ]]; then
+  echo "ERROR: installed plannotator version does not match ${PLANNOTATOR_VERSION}" >&2
+  exit 1
+fi
 
 echo "plannotator ${PLANNOTATOR_VERSION} installed to ${BIN_PATH}"

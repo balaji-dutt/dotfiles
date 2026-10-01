@@ -122,6 +122,16 @@ class PlannotatorSyncTests(unittest.TestCase):
         self.assertEqual(self.run_sync("--write")[0], 0)
         self.assertEqual(self.manifest_file.read_bytes(), snapshot)
 
+    def test_opencode_commands_keep_frontmatter_only(self) -> None:
+        target = "private_dot_config/opencode/commands/plannotator-last.md"
+        self.artifacts[1]["path"] = target
+        self.payloads[1] = b"---\ndescription: Annotate last response\n---\n\nRun something else\n"
+        self.write_manifest()
+        result, _, errors, _ = self.run_sync("--write")
+        self.assertEqual(result, 0, errors)
+        self.assertEqual((self.repo / target).read_bytes(), b"---\ndescription: Annotate last response\n---\n\n")
+        self.assertEqual(self.run_sync("--check")[0], 0)
+
     def test_invalid_manifest_version_and_paths_do_not_fetch(self) -> None:
         for updates, data, expected in (
             ({"$schema": "wrong"}, None, "manifest $schema"),
