@@ -518,12 +518,10 @@
   // Agents
   // ----------------------------
   "agent": {
-    // Overwrite built-in Plan agent: search-capable planning manager.
-    // Permissions support websearch/webfetch tools too, but your plan model itself is search-capable.
     "plan": {
       "mode": "primary",
-      "description": "Planning manager (Latest GPT model/high reasoning + websearch). Read/grep/list OK; no edits.",
-      "model": "openai/gpt-6-sol",
+      "description": "Read-only planning with Astra/high and retained self-critique.",
+      "model": "openai/gpt-6-astra",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "permission": {
@@ -539,9 +537,9 @@
 
     "plan-GPT-xhigh": {
       "mode": "primary",
-      "description": "Planning manager (Latest GPT model/xhigh reasoning + websearch). Read/grep/list OK; no edits.",
+      "description": "Read-only complex planning with Sol/xhigh and independent plan review.",
       "model": "openai/gpt-6-sol",
-      "prompt": "{file:./prompts/plan-agent.md}",
+      "prompt": "{file:./prompts/plan-gpt-xhigh-agent.md}",
       "reasoningEffort": "xhigh",
       "permission": {
         "edit": "deny",
@@ -549,7 +547,8 @@
         "websearch_cited": "allow",
         "codesearch": "allow",
         "task": {
-          "*": "deny"
+          "*": "deny",
+          "plan-reviewer": "allow"
         }
       }
     },
@@ -576,6 +575,10 @@
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
       "permission": {
+        "task": {
+          "*": "ask",
+          "plan-reviewer": "allow"
+        },
         "webfetch": "allow",
         "websearch_cited": "allow",
         "codesearch": "allow",
@@ -593,6 +596,10 @@
       "model": "openai/gpt-6-sol",
       "reasoningEffort": "xhigh",
       "permission": {
+        "task": {
+          "*": "ask",
+          "plan-reviewer": "allow"
+        },
         "webfetch": "allow",
         "websearch_cited": "allow",
         "codesearch": "allow",

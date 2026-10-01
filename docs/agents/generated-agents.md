@@ -9,12 +9,12 @@
 # Generated agents
 
 Some agent definitions in this repo are rendered by `agentic-tooling` from
-source YAML that lives **outside** this repository. Editing them in place works
-until the next regeneration, which overwrites them.
+source YAML that lives **outside** this repository. Edit canonical prompt bodies
+upstream, not in generated outputs.
 
 ## How to tell
 
-A generated agent carries a banner immediately after its frontmatter:
+A generated agent carries a banner immediately after its runtime frontmatter:
 
 ```
 <!--
@@ -25,70 +25,70 @@ adoption: claude-agent-frontmatter
 -->
 ```
 
-**Read past the frontmatter before editing an agent.** In the Claude renders,
-the banner sits below the frontmatter, so a partial read of the first few lines
-will miss it. (The OpenCode renders have no frontmatter and open with the banner
-on line 1.)
-
-**Only agents carry a banner.** Generated *skill* files have no marking at all.
-For those the manifest is the only signal — see below.
+Read past the frontmatter before editing an agent. Both Claude and OpenCode
+renders have frontmatter above the banner. Only agents carry a banner; generated
+skill files are identified through the manifest.
 
 ## The manifest is authoritative
 
-`.agentic-tooling/generated-manifest.json` (`schemaVersion: 1`, `shape:
-chezmoi`, platforms `claude` and `opencode`) is the real list. Each entry records
-the source path, its `sourceDigest`, and a `digest` for the rendered output file.
-Agent entries have a `.yaml` source; skill entries are copied from `.md`, `.sh`,
-and `.ps1` files.
-
-Check the complete manifest and accepted local exceptions before hand-editing,
-from the repo root:
+`.agentic-tooling/generated-manifest.json` (`schemaVersion: 1`, shape `chezmoi`,
+platforms `claude` and `opencode`) records source paths, source digests, and output
+digests. Check it and accepted exceptions before hand-editing:
 
 ```sh
 python3 assets/check-automation-provenance.py
 ```
 
-The exact accepted digests, required local markers, and rationales live in
-`configs/automation-provenance.json`; see "Accepted divergence" below.
+Exact accepted digests, required markers, and rationales live in
+`configs/automation-provenance.json`.
 
 ## Agents
 
 | Agent | Generated | Notes |
 | :--- | :--- | :--- |
-| `dot_claude/agents/agent-engineer.md` | yes | banner; also rendered for opencode |
-| `dot_claude/agents/special-builder.md` | yes | banner; also rendered for opencode |
+| `dot_claude/agents/agent-engineer.md` | yes | also rendered for OpenCode |
+| `dot_claude/agents/special-builder.md` | yes | also rendered for OpenCode |
 | `dot_claude/agents/beads-issue-author.md` | no | hand-authored |
 | `dot_claude/agents/beads-backlog-manager.md` | no | hand-authored |
 | `.claude/agents/dotfiles-reviewer.md` | no | hand-authored, project-scoped |
+| `private_dot_config/opencode/agents/plan-reviewer.md` | no | hand-authored, global OpenCode reviewer |
 
-The two generated agents each render twice: the Claude copy above, and an
-OpenCode agent under `private_dot_config/opencode/agents/`. OpenCode discovers
-those Markdown files directly; do not add a separate `prompt` file reference.
-The generated frontmatter carries runtime permissions but no `model` key. Model
-and reasoning settings are merged from
-`private_dot_config/opencode/opencode.jsonc` (target
-`~/.config/opencode/opencode.jsonc`), not in the repo-local
-`.opencode/opencode.jsonc`:
+The two generated specialists also render under
+`private_dot_config/opencode/agents/`. OpenCode discovers those Markdown files
+directly; do not add separate prompt references for them. Their frontmatter has
+runtime permissions but no model key. OpenCode models and effort are configured
+in `private_dot_config/opencode/opencode.jsonc`, independently of Claude models.
 
-- `agent-engineer` -> `openai/gpt-6-sol`
-- `special-builder` -> `openai/gpt-6-sol`
+### Planning routes
 
-So the Claude and OpenCode sides of the same agent deliberately run different
-models. Changing one does not change the other.
+| Global agent | Model / effort | Medium/High planning review |
+| :--- | :--- | :--- |
+| `plan` | Astra / high | Self-critique only |
+| `plan-GPT-xhigh` | Sol / xhigh | Self-critique and effective `plan-reviewer` |
+| `special-builder`, `agent-engineer` | Sol / xhigh | Independent review when acting as OpenCode primary |
+| `plan-reviewer` | Astra / high | Read-only leaf reviewer |
 
-The container-dotfiles `opencode.jsonc` is in the mirror's `exclude` list
-(`configs/devcontainer-sync.jsonc`), so its model and reasoning settings remain
-hand-maintained even though generated agent Markdown is synced. Do not assume
-the two JSONC files stay identical.
+Ordinary Plan uses `prompts/plan-agent.md`; the explicitly selected xhigh route
+uses `prompts/plan-gpt-xhigh-agent.md`. Both prompt files are hand-authored in
+dotfiles, not generated upstream. Both retain `Self-critique and fixes` and
+`Independent review summary` in the submitted artifact. Reviewed routes request
+one review and at most one focused re-review. Unavailable review or unresolved
+blockers require a human decision, not a fabricated pass.
+
+A repository-local `plan-reviewer` replaces the global one; do not call both.
+Local planner prompts and governance workflows remain authoritative. Claude and
+specialist subagent invocations retain self-review without nested delegation.
+Build routing is independent of these planning choices.
+
+The container-dotfiles `opencode.jsonc` is excluded from
+`configs/devcontainer-sync.jsonc`; model, effort, prompt references, and task
+policy there are hand-maintained. Agent Markdown and prompt files are mirrored.
 
 ## Skills
 
-Twenty files under `dot_claude/skills/**` are upstream copies (and twenty more
-under `private_dot_config/opencode/`). They are verbatim — `digest` equals
-`sourceDigest` — and, unlike the agents, **carry no banner**. Nothing in the
-file itself warns you off.
-
-They cover the six skills `agent-engineer` preloads:
+Twenty files under `dot_claude/skills/**` and twenty under
+`private_dot_config/opencode/skills/**` are verbatim upstream copies. They carry
+no banner; `digest` equals `sourceDigest`. They cover these six skills:
 
 - `plugin-developer`
 - `prompt-engineer`
@@ -97,121 +97,74 @@ They cover the six skills `agent-engineer` preloads:
 - `skill-creator`
 - `skill-reviewer`
 
-Every `SKILL.md` and `references/**` file under those six directories is
-upstream-owned. Hand-edits there are silently reverted on regeneration and are
-harder to spot than the agent case, because there is no banner to read past.
+Every `SKILL.md` and reference file in those generated bundles is upstream-owned.
+Other skills, such as the `unslop*` family and `beads-work`, are hand-authored.
+Use the manifest rather than the filename alone to establish ownership.
 
-Skills *not* in that list — for example the `unslop*` family and `beads-work` —
-are hand-authored and safe to edit.
+## Regeneration and target-owned metadata
 
-## Accepted divergence: Claude frontmatter
+The generator supports runtime model fields, but these two canonical specs leave
+OpenCode model selection to deployment configuration. Claude model, effort, tool
+vocabulary, skills, and MCP declarations are target-owned frontmatter. The
+`adoption: claude-agent-frontmatter` marker lets the generator preserve that
+frontmatter while refreshing the prompt body and recording its actual digest.
+Do not remove the adoption marker or replace the files with upstream runtime
+copies. Preserve the explicit CBM tool list and embedded server, including for
+native Windows deployments; see `docs/automation/claude-mcp.md` and
+`docs/automation/claude-permissions.md`.
 
-`agent-engineer.md` and `special-builder.md` are deliberately hand-patched after
-generation so their `model:` frontmatter tracks current Claude models. They also
-carry the locally managed codebase-memory-mcp tool allowlist and embedded server
-entry, and a corrected `tools:` vocabulary. Their manifest `digest` entries have
-therefore not matched the files on disk since `9035de0` (2026-06-06, "Refresh
-agentic-tooling generated agents for Claude Code compatibility").
+### Accepted divergence: OpenCode delegation
 
-This is tolerated, not an oversight. The consequences to know about:
+The two OpenCode specialist renders omit **only** `permission.task`. Host and
+container JSONC own their global delegation default (`*`: ask, `plan-reviewer`:
+allow); project JSONC can narrow it. Dotfiles uses default-deny with explicit
+plan-reviewer, dotfiles-reviewer, and Beads-agent allowances. Upstream's
+`repo-reviewer` identity is not a global auto-allow here.
 
-- An `agentic-tooling` verify or drift pass will report both files as tampered.
-- A regeneration silently reverts the `model:` value and local MCP frontmatter.
-  Re-apply both afterwards and re-run
-  `bash ./assets/sync-devcontainer-assets.sh` so the container-dotfiles mirror
-  follows.
+In OpenCode 1.18.33, generated agent task frontmatter can override the project's
+wildcard rule. Keeping that field out of the Markdown allows target-owned JSONC
+policy to compose. Other generated permissions remain untouched. This does not
+resolve unrelated Bash-overlay precedence. Exact accepted hashes and source
+markers live in `configs/automation-provenance.json`; the generator's manifest
+retains the canonical pre-exception digest.
 
-### Why the model isn't fixed upstream
+### Refresh procedure
 
-There is no per-agent model field to fix. The source YAMLs
-(`agents/agent-engineer.yaml`, `agents/special-builder.yaml` in the
-`agentic-tooling` repo) declare capabilities, not models:
+1. From the approved upstream revision, install with the frozen lockfile and
+   build. Preview both selected specs before writing:
 
-```yaml
-model_requirements:
-  reasoning: xhigh
-  context: high
-  reliability: high
-  tool_use: custom
-```
+   ```sh
+   ./dist/bin/agentic-tooling generate \
+     --spec agents/agent-engineer.yaml \
+     --spec agents/special-builder.yaml \
+     --target "$DOTFILES_SOURCE_ROOT" --platform all --shape chezmoi --dry-run
+   ```
 
-Neither the top level nor the `runtime.claude` block accepts a `model:` key —
-`runtime.claude` carries only `enabled`, `skills`, and `tools`. The generator
-resolves `model_requirements` to a concrete model, and that mapping lives in the
-generator's own code rather than in `configs/`.
+2. Compare the manifest path set and skill closure. Obtain write approval, then
+   run the same command without `--dry-run`. Do not use `--force`. Existing
+   adopted Claude outputs refresh automatically; `--adopt=claude-agents` is not
+   needed for these already adopted files.
+3. Verify Claude frontmatter preservation and matching manifest digests. Remove
+   only `permission.task` from the two OpenCode specialist frontmatters, calculate
+   their SHA-256 digests, and update the two accepted-divergence records. Do not
+   rewrite canonical prompt bodies or canonical manifest hashes to hide drift.
+4. Verify composed OpenCode routing and permissions for ordinary and profile
+   launch paths. Check project deny defaults, named allowances, and local reviewer
+   overrides. A config check does not establish live enforcement or model quality.
+5. Run `bash ./assets/sync-devcontainer-assets.sh`, inspect all resulting paths,
+   and run `python3 assets/check-automation-provenance.py`. The sync helper covers
+   all shared assets, not just agents. Audit every changed path and run
+   `chezmoi doctor` as required by `AGENTS.md`.
 
-So pinning these two agents would mean either adding per-agent override support
-to the schema, or changing the global mapping for `reasoning: xhigh` — which
-would move every agent at that tier, not just these two. Hand-patching the
-rendered `.md` is the narrower change, and is the accepted approach here.
-
-Treat a reverted `model:` line after regeneration as expected rather than as a
-new bug.
-
-### Codebase Memory frontmatter
-
-The Claude renders add nine `mcp__cbm__*` tools and an agent-scoped `cbm`
-server. Unlike the model override, these capabilities can be represented by the
-external generator source. That source is not part of this repository, so the
-rendered files use the existing accepted-divergence workflow for now. Move the
-same tool and server declarations into `agents/agent-engineer.yaml` and
-`agents/special-builder.yaml` in `agentic-tooling` before the next intentional
-regeneration; until then, preserve and re-apply the local frontmatter patch.
-
-`cbm` is now also registered at user scope through `configs/claude-mcp.json`, so
-the embedded `mcpServers` block is no longer what grants these two agents access
-to the tools. It is retained anyway: it keeps them working on native Windows,
-where no apply registers Claude MCP servers, and dropping it would be a second
-divergence from the generator source rather than a reduction. The
-`mcp__cbm__*` entries in each `tools:` line are still required — a subagent's
-`tools:` list is an allowlist regardless of where the server is defined. See
-`docs/automation/claude-mcp.md`.
-
-### Tool vocabulary
-
-The generated `tools:` line named tools that Claude Code has since retired. Both
-files were hand-patched to:
-
-```
-tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate, TaskStop, TaskOutput, mcp__cbm__* (nine explicit entries)
-```
-
-The `mcp__cbm__*` shorthand above stands for the nine names spelled out in the
-files themselves; read the real frontmatter before copying this line.
-
-- `LS` and `TodoRead` were dropped. Neither exists in Claude Code 2.1.227.
-- `Grep` and `Glob` were **kept**. Both are still real tools; a session that
-  does not expose them is showing a model- or gate-specific tool list, not a
-  retirement. See `docs/automation/claude-permissions.md` for the evidence and
-  the recipe to re-check after an upgrade.
-- `TaskCreate`, `TaskGet`, `TaskList` and `TaskUpdate` were added beside
-  `TodoWrite`, because a feature gate decides which family a session gets.
-- `TaskStop` and `TaskOutput` were added to close a pre-existing gap: both
-  agents have `Bash` and can therefore background a shell, but the generated
-  list named neither `BashOutput` nor `KillShell`, so they could not read or
-  stop what they started. The canonical names were used deliberately —
-  `KillShell`/`KillBash` and `BashOutput`/`AgentOutput` are aliases *pointing
-  at* `TaskStop`/`TaskOutput` in 2.1.227, and tool lookup at invocation time
-  is alias-aware, so the canonical form is the one that survives either
-  direction of the mapping.
-- The `mcp__deepwiki__*` tools were **not** added. Both agents already have
-  `WebFetch` and `WebSearch`, there is no demonstrated need, and widening a
-  subagent allowlist without one is the wrong default. Revisit only if a
-  concrete task calls for it.
-
-Unlike the `model:` and MCP patches, this one was applied without a matching
-upstream fix queued. `agentic-tooling` is not in active development, so filing
-the change against `agents/agent-engineer.yaml` / `agents/special-builder.yaml`
-was dropped rather than deferred — it would have held the correction open
-indefinitely. If regeneration ever happens, re-apply this patch along with the
-other two.
+For rollout, preview the managed target files from the intended source worktree.
+Apply only with separate approval, then restart OpenCode: existing sessions do
+not reload agent definitions. See the [planning evaluation](../planning-routing-evaluation.md)
+for the evaluated scope and evidence limits.
 
 ## Related
 
-- `docs/devcontainers.md` — the container-dotfiles mirror these agents sync into
-- `configs/devcontainer-sync.jsonc` — the mirror manifest
+- `docs/devcontainers.md` — container-dotfiles mirror
+- `configs/devcontainer-sync.jsonc` — mirror manifest
 - `configs/automation-provenance.json` — exact local divergence policy
-- `docs/inventory/automation-provenance.md` — generated, mirror, and vendored
-  verification contract
-- `docs/automation/claude-permissions.md` — the Claude tool-name vocabulary
-  these `tools:` lines draw from
+- `docs/inventory/automation-provenance.md` — generated and mirror verification
+- `docs/automation/claude-permissions.md` — Claude tool vocabulary
