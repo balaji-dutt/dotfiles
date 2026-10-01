@@ -36,8 +36,9 @@ def render(template: str, target_os: str) -> str:
 
 class OpenCodePolicyTests(unittest.TestCase):
     def assert_sol_agent_policy(self, config):
-        expected = {'plan', 'plan-GPT-xhigh', 'build', 'special-builder', 'agent-engineer'}
+        expected = {'plan-GPT-xhigh', 'build', 'special-builder', 'agent-engineer'}
         agents = config['agent']
+        self.assertEqual(agents['plan']['model'], 'openai/gpt-6-astra', 'plan')
         for name in expected:
             self.assertEqual(agents[name]['model'], 'openai/gpt-6-sol', name)
         for name, agent in agents.items():
