@@ -513,18 +513,35 @@ fingerprinted under `node_modules`, so subsequent launches do not rerun npm.
 The guard verifies that npm left both tracked files byte-for-byte unchanged and
 blocks startup rather than allowing OpenCode to rewrite them.
 
+The homelab-IaC repository uses the other mode: `.opencode/package.json` and
+`package-lock.json` are ignored, disposable state owned by OpenCode. The guard
+skips both npm hydration and CLI/plugin matching when neither file is tracked;
+it still rejects a worktree that tracks only one. Its tracked-file mode above
+remains supported for other repositories. OpenCode may regenerate its ignored
+runtime state during launch; a warm cache is not proof of exact CLI/plugin
+parity. Repository evaluations instead use their own tracked
+`tests/evals/package.json` and lockfile, installed explicitly with
+`npm --prefix tests/evals ci --ignore-scripts --no-audit --no-fund` before
+validation. Do not add their SDK version to the CLI pin update workflow.
+The review-loop plugins explicitly resolve `picomatch` from the container's
+global npm tree relative to the Node or bundled OpenCode executable when it is
+absent from OpenCode's runtime tree. This library (not a CLI) is pinned in
+`npm_packages.txt` for rebuilds; homelab-IaC's
+`.opencode/tests/runtime-validator.test.mjs` tests the fallback without runtime
+metadata.
+
 The devcontainer pins `opencode-ai` to an exact stable v1 in `npm_packages.txt`,
 aligned with the WSL mise pin. Renovate proposes reviewed v1 updates without a
-release-age delay; see [OpenCode v1](automation/opencode-v1.md). Rebuilding after
-a CLI pin update can expose project metadata that needs an intentional update.
-From the owning repository, update and review that metadata separately:
+release-age delay; see [OpenCode v1](automation/opencode-v1.md). Rebuilding a
+repository that *tracks* both runtime files can expose metadata needing an
+intentional update. From that owning repository, update and review its metadata:
 
 ```sh
 plugin_version="$(opencode --version)"
 npm --prefix .opencode install --package-lock-only --save-exact \
   --ignore-scripts --no-audit --no-fund \
   "@opencode-ai/plugin@${plugin_version}"
-./.opencode/bin/opencode-runtime-validate.sh
+opencode-project-deps-guard --opencode-bin "$(command -v opencode)"
 git diff --check -- .opencode/package.json .opencode/package-lock.json
 git diff -- .opencode/package.json .opencode/package-lock.json
 ```
@@ -532,6 +549,10 @@ git diff -- .opencode/package.json .opencode/package-lock.json
 Commit that owning-repository change after review. The guard never updates or
 commits tracked project metadata. Installing a matching older OpenCode CLI is a
 temporary rollback option, not the default update policy.
+
+For existing homelab feature branches that still track the runtime pair, bring
+the homelab migration revision forward before launching with an updated CLI;
+the guard does not migrate branches or change tracked files automatically.
 
 See `docs/plannotator.md` for wrapper usage, Firefox Multi-Account Containers
 setup, and manual smoke tests.

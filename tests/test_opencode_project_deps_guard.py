@@ -52,7 +52,7 @@ class GuardFixture:
             "import json, os, pathlib, sys\n"
             "path = pathlib.Path(os.environ['GUARD_TEST_CALL_LOG'])\n"
             "with path.open('a', encoding='utf-8') as stream:\n"
-            "    stream.write(json.dumps({'tool': 'opencode', 'args': sys.argv[1:]}) + '\\n')\n"
+            "    stream.write(json.dumps({'tool': 'opencode', 'args': sys.argv[1:], 'cwd': os.getcwd(), 'pool': os.environ.get('OPENCODE_PLANNOTATOR_POOL')}) + '\\n')\n"
             "if sys.argv[1:] == ['--version']:\n"
             "    print(os.environ.get('GUARD_TEST_CLI_VERSION', '1.18.15'))\n"
             "    raise SystemExit(0)\n"
@@ -173,6 +173,63 @@ class OpenCodeProjectDepsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.fixture.calls(), [])
 
+    def test_ignored_runtime_metadata_with_tracked_config_skips_hydration(self) -> None:
+        opencode_dir = self.fixture.repo / ".opencode"
+        opencode_dir.mkdir()
+        (opencode_dir / ".gitignore").write_text("*\n!.gitignore\n!opencode.jsonc\n!agents/\n!agents/**\n")
+        (opencode_dir / "opencode.jsonc").write_text("{}\n")
+        (opencode_dir / "agents").mkdir()
+        (opencode_dir / "agents/build.md").write_text("# Build\n")
+        self.fixture.track(".opencode/.gitignore", ".opencode/opencode.jsonc", ".opencode/agents/build.md")
+        self.fixture.metadata(version="1.15.6")
+        tracked_before = subprocess.run(
+            ["git", "diff", "--cached", "--binary"], cwd=self.fixture.repo,
+            check=True, stdout=subprocess.PIPE,
+        ).stdout
+        nested = self.fixture.repo / "nested/deeper"
+        nested.mkdir(parents=True)
+        for cwd in (self.fixture.repo, nested):
+            result = self.fixture.run_guard(cwd=cwd)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.fixture.calls(), [])
+        self.assertFalse((opencode_dir / "node_modules").exists())
+        self.assertEqual(
+            subprocess.run(["git", "diff", "--cached", "--binary"], cwd=self.fixture.repo,
+                           check=True, stdout=subprocess.PIPE).stdout,
+            tracked_before,
+        )
+        for name in ("package.json", "package-lock.json"):
+            result = subprocess.run(
+                ["git", "check-ignore", "-q", f".opencode/{name}"], cwd=self.fixture.repo,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, name)
+
+    def test_linked_worktree_with_git_file_skips_untracked_runtime(self) -> None:
+        (self.fixture.repo / ".opencode").mkdir()
+        (self.fixture.repo / ".opencode/.gitignore").write_text("*\n!.gitignore\n")
+        self.fixture.track(".opencode/.gitignore")
+        tree = subprocess.run(["git", "write-tree"], cwd=self.fixture.repo, check=True,
+                              capture_output=True, text=True).stdout.strip()
+        commit = subprocess.run(
+            ["git", "commit-tree", tree, "-m", "fixture"], cwd=self.fixture.repo, check=True,
+            capture_output=True, text=True,
+            env={**self.fixture.env, "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                 "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"},
+        ).stdout.strip()
+        subprocess.run(["git", "update-ref", "refs/heads/fixture", commit], cwd=self.fixture.repo, check=True)
+        linked = self.fixture.root / "linked"
+        subprocess.run(["git", "worktree", "add", "--quiet", "--detach", str(linked), commit],
+                       cwd=self.fixture.repo, check=True)
+        self.assertTrue((linked / ".git").is_file())
+        (linked / ".opencode/package.json").write_text('{"dependencies":{"@opencode-ai/plugin":"1.0.0"}}\n')
+        (linked / ".opencode/package-lock.json").write_text("{}\n")
+        nested = linked / "nested"
+        nested.mkdir()
+        result = self.fixture.run_guard(cwd=nested)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.fixture.calls(), [])
+
     def test_nested_directory_discovers_worktree_and_hydrates(self) -> None:
         self.track_metadata()
         nested = self.fixture.repo / "src/deep"
@@ -229,7 +286,7 @@ class OpenCodeProjectDepsGuardTests(unittest.TestCase):
         self.assertIn("package.json: 1.15.6", result.stderr)
         self.assertIn("npm --prefix .opencode install", result.stderr)
         self.assertEqual(
-            self.fixture.calls(),
+            [{key: call[key] for key in ("tool", "args")} for call in self.fixture.calls()],
             [{"tool": "opencode", "args": ["--version"]}],
         )
 
@@ -385,6 +442,37 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
                 self.assertEqual(launched["args"], ["--agent", "build", "two words"])
                 expected_pool = "custom" if wrapper_name.endswith("-custom") else "build"
                 self.assertEqual(launched["pool"], expected_pool)
+
+    def test_wrappers_launch_with_ignored_stale_runtime_metadata(self) -> None:
+        for source in WRAPPERS:
+            with self.subTest(wrapper=source.name), tempfile.TemporaryDirectory() as temp_dir:
+                fixture = GuardFixture(Path(temp_dir))
+                opencode_dir = fixture.repo / ".opencode"
+                opencode_dir.mkdir()
+                (opencode_dir / ".gitignore").write_text("*\n!.gitignore\n!opencode.jsonc\n")
+                (opencode_dir / "opencode.jsonc").write_text("{}\n")
+                fixture.track(".opencode/.gitignore", ".opencode/opencode.jsonc")
+                fixture.metadata(version="1.15.6")
+                guard = fixture.bin_dir / "opencode-project-deps-guard"
+                write_executable(guard, GUARD.read_text())
+                wrapper_name = source.name.removeprefix("executable_").removesuffix(".tmpl")
+                wrapper = fixture.bin_dir / wrapper_name
+                self.render_wrapper(source, wrapper)
+                nested = fixture.repo / "nested"
+                nested.mkdir()
+                env = fixture.env
+                env["OPENCODE_BIN"] = str(fixture.opencode)
+                result = subprocess.run(
+                    [str(wrapper), "--agent", "build", "two words"], cwd=nested,
+                    env=env, check=False, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(fixture.calls(), [{
+                    "tool": "opencode", "args": ["--agent", "build", "two words"],
+                    "cwd": os.path.realpath(nested),
+                    "pool": "custom" if "custom" in wrapper_name else "build",
+                }])
+                self.assertFalse((opencode_dir / "node_modules").exists())
 
     def test_dry_run_exits_before_guard_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

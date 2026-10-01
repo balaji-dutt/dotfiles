@@ -127,11 +127,13 @@ procedure for its owner. Neither a Homebrew pin nor these hooks retains old
 artifacts or performs automatic rollback. Do not mix package owners to bypass
 a missing release.
 
-The container project-dependency guard remains separate: tracked
-`.opencode/package.json` and `.opencode/package-lock.json` must match the CLI.
-Update them in their owning repository only after review; see
-[the devcontainer guard workflow](../devcontainers.md). SDK pins in Promptfoo
-are not CLI pins and are not part of this Renovate exception.
+The container project-dependency guard remains separate: if a repository tracks
+both `.opencode/package.json` and `.opencode/package-lock.json`, their plugin
+pin must match the CLI. Homelab-IaC instead ignores both runtime files and lets
+OpenCode own them; its independently locked `tests/evals/` SDK is not a CLI pin.
+Older branches retaining tracked files still need their migration revision.
+See [the devcontainer guard workflow](../devcontainers.md). SDK pins in
+Promptfoo are not CLI pins and are not part of this Renovate exception.
 
 ## Maintenance window and retirement
 
