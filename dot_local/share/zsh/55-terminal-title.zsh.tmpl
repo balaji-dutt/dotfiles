@@ -86,5 +86,28 @@ _agent_title_preexec() {
     printf '\033]0;%s\007' "${tool} · $(_agent_title_context)"
 }
 
+_repo_ops_command_preexec() {
+    emulate -L zsh
+
+    [[ -t 1 && -n ${TMUX:-} && -n ${TMUX_PANE:-} && ${TMUX%%,*} == */repo-ops ]] || return 0
+
+    local -a cmdargs
+    local MATCH MBEGIN MEND
+    local -a match mbegin mend
+    cmdargs=("${(@z)2}")
+    local command_name=${cmdargs[1]:t}
+    [[ $command_name =~ '^[[:alnum:]_.+-]{1,32}$' ]] || return 0
+    command tmux -S "${TMUX%%,*}" set-option -pq -t "$TMUX_PANE" @repo_ops_command "$command_name" 2>/dev/null || return 0
+}
+
+_repo_ops_command_precmd() {
+    emulate -L zsh
+
+    [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && ${TMUX%%,*} == */repo-ops ]] || return 0
+    command tmux -S "${TMUX%%,*}" set-option -pqu -t "$TMUX_PANE" @repo_ops_command 2>/dev/null || return 0
+}
+
 add-zsh-hook precmd _agent_title_precmd
 add-zsh-hook preexec _agent_title_preexec
+add-zsh-hook precmd _repo_ops_command_precmd
+add-zsh-hook preexec _repo_ops_command_preexec
