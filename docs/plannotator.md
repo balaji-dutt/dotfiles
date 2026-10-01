@@ -163,12 +163,14 @@ vendored into this repo — see [Vendored slash commands](#vendored-slash-comman
 
 The managed marketplace registration follows the same `v<plannotator_version>`
 tag as the CLI, with `autoUpdate` disabled. The host refresh hook checks the
-registered tag and installed plugin version before reporting success. If an
-older marketplace registration already exists, retarget it deliberately before
-retrying; do not remove it as an automatic fallback, since removal uninstalls
-the plugin. Devcontainers render their own `~/.claude/settings.json` from the
-mirrored base and local settings instead of following a host settings symlink.
-They only report the plugin as aligned after local CLI and plugin readback.
+registered tag and installed plugin version before reporting success. When the
+marketplace is absent, the hook registers `backnotprop/plannotator` at the pinned
+tag and verifies CLI readback before refreshing plugins. If a registration at
+another tag already exists, retarget it deliberately before retrying; do not
+remove it as an automatic fallback, since removal uninstalls the plugin.
+Devcontainers render their own `~/.claude/settings.json` from the mirrored base
+and local settings instead of following a host settings symlink. They only report
+the plugin as aligned after local CLI and plugin readback.
 
 On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
 `PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote

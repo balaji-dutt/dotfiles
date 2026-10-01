@@ -321,6 +321,89 @@ class PosixHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("marketplace:plannotator", self.module["claude_failures"])
         self.assertIn("retargeted", output.getvalue())
 
+    def test_missing_plannotator_marketplace_is_registered_at_pin(self) -> None:
+        plugin = {"id": "plannotator@plannotator", "name": "plannotator", "marketplace": "plannotator", "scope": "user"}
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["claude"]["plugins"] = [{**plugin, "version": "0.27.22"}]
+        self.config.write_text(json.dumps(payload), encoding="utf-8")
+        self.root.joinpath("settings.json").write_text(json.dumps({
+            "extraKnownMarketplaces": {"plannotator": {
+                "autoUpdate": False, "source": {
+                    "source": "github", "repo": "backnotprop/plannotator", "ref": "v0.27.22"
+                }
+            }}
+        }), encoding="utf-8")
+        location = self.catalog("plannotator", ["plannotator"])
+        record = {"name": "plannotator", "source": "github", "repo": "backnotprop/plannotator", "ref": "v0.27.22", "installLocation": str(location)}
+        registered = False
+        commands: list[list[str]] = []
+        self.module["claude_failures"].clear()
+        self.module["command_exists"] = lambda command: True
+
+        def inventory():
+            return ([record] if registered else []), None
+
+        def run_claude(arguments):
+            nonlocal registered
+            commands.append(list(arguments))
+            if arguments[2] == "add":
+                registered = True
+            return SimpleNamespace(returncode=0, stdout="")
+
+        self.module["claude_marketplace_inventory"] = inventory
+        self.module["run_claude_checked"] = run_claude
+        self.module["installed_claude_plugin_ids"] = lambda: {plugin["id"]}
+        self.module["sync_claude_plugin"] = lambda current, actions: True
+        self.module["run_capture"] = lambda arguments: SimpleNamespace(
+            returncode=0, stdout=json.dumps([{"id": plugin["id"], "version": "0.27.22", "enabled": True}])
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.call("refresh_claude", [plugin])
+        self.assertEqual(commands, [
+            ["plugin", "marketplace", "add", "backnotprop/plannotator#v0.27.22", "--scope", "user"],
+            ["plugin", "marketplace", "update", "plannotator"],
+        ], output.getvalue())
+        self.assertEqual(self.module["claude_failures"], [])
+
+    def test_failed_or_unverified_plannotator_registration_never_updates_marketplace(self) -> None:
+        plugin = {"id": "plannotator@plannotator", "name": "plannotator", "marketplace": "plannotator", "scope": "user"}
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["claude"]["plugins"] = [{**plugin, "version": "0.27.22"}]
+        self.config.write_text(json.dumps(payload), encoding="utf-8")
+        self.root.joinpath("settings.json").write_text(json.dumps({
+            "extraKnownMarketplaces": {"plannotator": {
+                "autoUpdate": False, "source": {
+                    "source": "github", "repo": "backnotprop/plannotator", "ref": "v0.27.22"
+                }
+            }}
+        }), encoding="utf-8")
+        self.module["claude_failures"].clear()
+        self.module["command_exists"] = lambda command: True
+        self.module["installed_claude_plugin_ids"] = lambda: set()
+        self.module["sync_claude_plugin"] = lambda current, actions: self.fail("plugin sync must not run")
+        for exit_code in (1, 0):
+            with self.subTest(exit_code=exit_code):
+                registered = False
+                commands: list[list[str]] = []
+                self.module["claude_failures"].clear()
+
+                def inventory():
+                    return ([{"name": "plannotator", "source": "github", "repo": "backnotprop/plannotator", "ref": "v0.27.21"}] if registered else []), None
+
+                def run_claude(arguments):
+                    nonlocal registered
+                    commands.append(list(arguments))
+                    registered = exit_code == 0
+                    return SimpleNamespace(returncode=exit_code, stdout="")
+
+                self.module["claude_marketplace_inventory"] = inventory
+                self.module["run_claude_checked"] = run_claude
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.call("refresh_claude", [plugin])
+                self.assertEqual(commands, [["plugin", "marketplace", "add", "backnotprop/plannotator#v0.27.22", "--scope", "user"]])
+                self.assertEqual(self.module["claude_failures"], ["marketplace:plannotator"])
+
 
 if __name__ == "__main__":
     unittest.main()

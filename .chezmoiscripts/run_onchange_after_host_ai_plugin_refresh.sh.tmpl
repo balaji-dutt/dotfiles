@@ -554,10 +554,25 @@ def refresh_claude(plugins):
         records, error = claude_marketplace_inventory()
         try:
             pin = plannotator_pin(plannotator)
-            matches = [record for record in records if isinstance(record, dict) and record.get("name") == "plannotator"] if not error else []
-            if len(matches) != 1 or matches[0].get("ref") != f"v{pin}":
+            if error:
+                raise ValueError(f"Could not inspect Claude marketplaces: {error}")
+            matches = [record for record in records if isinstance(record, dict) and record.get("name") == "plannotator"]
+            if not matches:
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                source = settings["extraKnownMarketplaces"]["plannotator"]["source"]
+                if not isinstance(source, dict) or source.get("source") != "github" or source.get("repo") != "backnotprop/plannotator":
+                    raise ValueError("Claude Plannotator marketplace source is not the expected GitHub repository")
+                print(f"INFO: Registering Claude Plannotator marketplace at v{pin}.")
+                result = run_claude_checked(["plugin", "marketplace", "add", f"backnotprop/plannotator#v{pin}", "--scope", "user"])
+                if result.returncode != 0:
+                    raise ValueError(f"Could not register pinned Claude Plannotator marketplace (exit {result.returncode})")
+                records, error = claude_marketplace_inventory()
+                if error:
+                    raise ValueError(f"Could not verify Claude marketplace registration: {error}")
+                matches = [record for record in records if isinstance(record, dict) and record.get("name") == "plannotator"]
+            if len(matches) != 1 or matches[0].get("ref") != f"v{pin}" or matches[0].get("repo") != "backnotprop/plannotator" or matches[0].get("source") != "github":
                 raise ValueError("Claude Plannotator marketplace registration must be retargeted to the pinned tag before refresh")
-        except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             print(f"ERROR: {exc}")
             add_claude_failure("marketplace:plannotator")
             marketplace_names = [name for name in marketplace_names if name != "plannotator"]

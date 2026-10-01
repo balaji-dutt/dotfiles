@@ -919,20 +919,6 @@ function Update-ClaudePlugins {
   }
 
   $marketplaceNames = @(Get-ClaudeMarketplaceNames -Plugins $Plugins)
-  if (-not $DryRun -and $marketplaceNames -ccontains 'plannotator') {
-    try {
-      $pin = Get-PlannotatorPin
-      $registered = Get-ClaudeMarketplaceInventory
-      $plannotatorRecords = @($registered.Records | Where-Object { (Get-JsonProperty $_ 'name') -ceq 'plannotator' })
-      if (-not $registered.Ok -or $plannotatorRecords.Count -ne 1 -or (Get-JsonProperty $plannotatorRecords[0] 'ref') -cne "v$pin") {
-        throw 'Claude Plannotator marketplace registration must be retargeted to the pinned tag before refresh'
-      }
-    } catch {
-      Write-Host "ERROR: $($_.Exception.Message)"
-      Add-ClaudeFailure -Failure 'marketplace:plannotator'
-      $marketplaceNames = @($marketplaceNames | Where-Object { $_ -cne 'plannotator' })
-    }
-  }
   $claudeEnvironment = $null
   if (-not $DryRun) {
     try {
@@ -941,6 +927,41 @@ function Update-ClaudePlugins {
       Write-Host "ERROR: $($_.Exception.Message)"
       Add-ClaudeFailure -Failure "transport:openssh"
       return
+    }
+  }
+  if (-not $DryRun -and $marketplaceNames -ccontains 'plannotator') {
+    try {
+      $pin = Get-PlannotatorPin
+      $registered = Get-ClaudeMarketplaceInventory
+      if (-not $registered.Ok) { throw "Could not inspect Claude marketplaces: $($registered.Error)" }
+      $plannotatorRecords = @($registered.Records | Where-Object { (Get-JsonProperty $_ 'name') -ceq 'plannotator' })
+      if ($plannotatorRecords.Count -eq 0) {
+        $settings = ConvertFrom-Json -InputObject (Get-Content -Raw -LiteralPath $SettingsBasePath)
+        $source = $settings.extraKnownMarketplaces.plannotator.source
+        if ($source.source -cne 'github' -or $source.repo -cne 'backnotprop/plannotator') {
+          throw 'Claude Plannotator marketplace source is not the expected GitHub repository'
+        }
+        Write-Host "INFO: Registering Claude Plannotator marketplace at v$pin."
+        $result = Invoke-ClaudeExternal -Arguments @('plugin', 'marketplace', 'add', "backnotprop/plannotator#v$pin", '--scope', 'user') -EnvironmentVariables $claudeEnvironment
+        if ($result.ExitCode -ne 0) {
+          if ($result.TimedOut) {
+            Write-Host 'ERROR: Claude Plannotator marketplace registration timed out; stopping Claude mutations for a later retry.'
+            Add-ClaudeFailure -Failure 'marketplace:plannotator'
+            return
+          }
+          throw "Could not register pinned Claude Plannotator marketplace (exit $($result.ExitCode))"
+        }
+        $registered = Get-ClaudeMarketplaceInventory
+        if (-not $registered.Ok) { throw "Could not verify Claude marketplace registration: $($registered.Error)" }
+        $plannotatorRecords = @($registered.Records | Where-Object { (Get-JsonProperty $_ 'name') -ceq 'plannotator' })
+      }
+      if ($plannotatorRecords.Count -ne 1 -or (Get-JsonProperty $plannotatorRecords[0] 'ref') -cne "v$pin" -or (Get-JsonProperty $plannotatorRecords[0] 'repo') -cne 'backnotprop/plannotator' -or (Get-JsonProperty $plannotatorRecords[0] 'source') -cne 'github') {
+        throw 'Claude Plannotator marketplace registration must be retargeted to the pinned tag before refresh'
+      }
+    } catch {
+      Write-Host "ERROR: $($_.Exception.Message)"
+      Add-ClaudeFailure -Failure 'marketplace:plannotator'
+      $marketplaceNames = @($marketplaceNames | Where-Object { $_ -cne 'plannotator' })
     }
   }
   if ($DryRun) {
