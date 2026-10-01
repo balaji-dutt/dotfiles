@@ -1,6 +1,8 @@
 # Dedicated tmuxp workspaces
 
 `repo-ops <layout>` opens a tmuxp workspace on the `repo-ops` tmux server.
+Run `repo-ops --help` (or `repo-ops -h`) for a quick reference to workspace
+controls; help works even inside tmux and does not start or attach to a server.
 The launcher reads only `~/.config/tmuxp/<layout>.yaml` and uses
 `~/.config/tmux/repo-ops.conf` via explicit `-L` and `-f` arguments. It never
 loads the default tmux configuration or changes the Agent of Empires server.
@@ -56,22 +58,52 @@ A missing, dead, or duplicate counterpart shows a tmux message and selects
 nothing. Put paired roles in the same window; add a counterpart explicitly
 when the TUI workflow is ready.
 
-The dark, Gruvbox-inspired status bar displays the full session name on the
-left at ordinary terminal widths, the numbered window list centered across the
-bar, and the clock/date on the right. The window list grows outward as windows
-are added; a narrow terminal can still clip it. Mouse clicks select windows.
+| Keys (prefix is Ctrl+b) | Effect |
+| --- | --- |
+| Ctrl+b, then Shift+K | Confirm termination of the current layout session and all its windows/panes. Other layouts survive. |
+| Ctrl+b, then Shift+R | Confirm killing and restarting the active pane's original command. Sibling panes survive. |
+| Ctrl+b, then G | Select the unique live pane with the opposite role in this window. |
+| Ctrl+b, then d | Detach; all panes keep running. |
+
+The confirmation identifies the session or pane selected when you pressed the
+shortcut. Answer `n` to leave it alone. For native termination without the
+custom confirmation, use **Ctrl+b, then :, `kill-session`, Enter**. From outside
+tmux, inspect the session ID and use `tmux -L repo-ops kill-session -t
+'<session-id>'` (quote literal IDs such as `'$0'`). Termination discards that
+session; launch `repo-ops <layout>` again to rebuild it from the private YAML.
+
+At an idle shell prompt, `exec zsh` replaces only that shell and reloads its
+configuration while retaining the current directory; use `exec zsh -l` if login
+initialization is needed. Pane restart is different: tmux's `respawn-pane`
+restarts an exited pane, and `respawn-pane -k` also kills a live command. It
+reuses the pane's original launch command and working directory by default,
+not tmuxp's `shell_command` keystrokes or a fresh YAML layout. A container
+pane still requires an existing running container; restart does not create or
+start it.
+
+The dark, Gruvbox-inspired status bar displays `Layout: core` for session
+`repo-ops-core` on the left, the numbered window list centered across the bar,
+and the clock/date on the right. The window list grows outward as windows are
+added; a narrow terminal can still clip it. Mouse clicks select windows.
 The default **Ctrl+b, then 0–9** selects the corresponding numbered window
 without a custom binding. The colors and segments are built into the dedicated
 tmux config; no theme plugin, powerline font, or `tmuxpack` is required.
 `tmuxp` is still needed to load the private workspace layouts.
 
-On terminals that accept application-set titles, the tab reads `repo-ops:
-<window name>` and adds ` | <executable>` while tmux detects a foreground
-program other than an interactive shell. The name is the foreground executable,
-not the full command line; wrappers and container panes may report the outer
-process instead. Idle shells have no suffix. The private layout's window names
-stay fixed; use tmux's window-rename command (**Ctrl+b, then ,**) to change
-one. For iTerm2, enable application title setting as described in
+The status list and terminal tab both show a command suffix during foreground
+work: `0:dotfiles | git` and `repo-ops: dotfiles | git`. The suffix disappears
+at the next Zsh prompt; arguments are never displayed. Interactive Zsh in the
+dedicated server records the first command name in a pane-local tmux option,
+so shell-backed `git` and `bd` commands show their typed names even when tmux
+only detects the wrapper process. The hook runs only on the `repo-ops` socket;
+other servers are unaffected. For Bash, container shells without this Zsh
+startup hook, or commands that bypass the prompt, tmux falls back to its
+detected foreground executable. An interactive shell or dead pane has no
+suffix; short commands can finish before the next one-second refresh. Only a
+simple command name is accepted by the hook: compound commands, aliases, and
+prefixes such as `env` may display a different name or the native fallback.
+Window names remain fixed; use tmux's window-rename command (**Ctrl+b, then ,**)
+to change one. For iTerm2, enable application title setting as described in
 [terminal tab titles](iterm-titles.md); in Windows Terminal, leave **Suppress
 application title** disabled in the profile. This server's tmux-managed title
 does not change the default or Agent of Empires tmux server.
@@ -79,14 +111,13 @@ does not change the default or Agent of Empires tmux server.
 Tmux keeps sessions after client detach or terminal exit, until they are
 killed or the server exits. Attaching in another terminal uses that terminal's
 dimensions; tmux resizes panes with the attached clients, so no fixed size is
-stored in YAML. After inspecting the session name and ID with the command
-above, run `tmux -L repo-ops kill-session -t <session-id>` only if you intend
-to discard that session and reload its YAML. Then run `repo-ops <layout>`
-again. Avoid `tmux -L repo-ops kill-server` unless all dedicated layouts may
-be discarded.
+stored in YAML. Avoid `tmux -L repo-ops kill-server` unless all dedicated
+layouts may be discarded.
 The default tmux server and its sessions are independent.
-After applying a new `repo-ops.conf`, an already running dedicated server keeps
-its loaded options. To see theme/title changes without discarding sessions,
-explicitly reload that server when ready with `tmux -L repo-ops -f
-~/.config/tmux/repo-ops.conf source-file ~/.config/tmux/repo-ops.conf`, or wait
-until it can be restarted. Do not reload the default tmux server.
+After applying the managed tmux theme and Zsh helper through the normal
+dotfiles workflow, an already running dedicated server still has its old tmux
+options. To update its theme, bindings, status, and titles without discarding
+sessions, explicitly reload only that server with `tmux -L repo-ops -f
+~/.config/tmux/repo-ops.conf source-file ~/.config/tmux/repo-ops.conf`. No
+shell restart is needed for the tmux changes. Existing Zsh panes need
+`exec zsh` to load the new command-name hook. Do not reload the default server.

@@ -20,6 +20,29 @@ session_id_for() {
 }
 
 case "${1:-}" in
+  -h|--help)
+    [[ $# == 1 ]] || fail 'usage: repo-ops --help'
+    printf '%s\n' \
+      'Usage: repo-ops <layout>' \
+      '       repo-ops --help' \
+      '' \
+      'Open or reattach to a named workspace on the dedicated repo-ops tmux server.' \
+      'For <layout>, run outside tmux, whether opening or reattaching.' \
+      'Layout files live at ~/.config/tmuxp/<layout>.yaml.' \
+      '' \
+      'Inside a workspace (tmux prefix is Ctrl+b):' \
+      '  Ctrl+b, Shift+K  Confirm killing this layout session and all its panes.' \
+      '  Ctrl+b, Shift+R  Confirm killing and restarting the current pane command.' \
+      '  Ctrl+b, G        Switch between tagged shell and backlog panes.' \
+      '  Ctrl+b, d        Detach without stopping the workspace.' \
+      '  Ctrl+b, 0-9      Select a numbered window.' \
+      '' \
+      'At a shell prompt, exec zsh reloads only that shell and keeps its directory.' \
+      'Restarting a pane reruns its original launch command, not the layout YAML.' \
+      'Foreground command names appear in the status bar and terminal tab title.' \
+      'See docs/tooling/repo-ops.md for setup and recovery details.'
+    exit 0
+    ;;
   pane)
     case "${2:-}" in
       container)

@@ -86,10 +86,13 @@ for p in plistlib.load(sys.stdin.buffer)["New Bookmarks"]:
 
 ### zsh hook
 
-Fires only for `claude`, `claude-plannotator`, `opencode`,
+The agent-title hook fires only for `claude`, `claude-plannotator`, `opencode`,
 `opencode-plannotator`, and `opencode-plannotator-custom`, so the two `git`
 calls it makes do not run on every command. `ai-wt` is deliberately excluded —
 it sets its own title from the real worktree branch.
+
+The separate repo-ops command-name hook runs on interactive commands in that
+dedicated server without invoking `git`; see the [repo-ops guide](repo-ops.md).
 
 The title context is the branch when it is a feature branch, otherwise the repo
 directory name, falling back to the cwd basename outside a repo:
@@ -117,11 +120,12 @@ hook follows it with OSC 2 to restore `ZSH_THEME_TERM_TITLE_IDLE`; the normal
 short-tab/long-window split remains intact. `antidote load` runs only when the
 plugin bundle exists.
 
-The hook also returns early when stdout is not a terminal, so escape bytes
-never land in redirected output such as `zsh -ic claude | tee log`.
+The agent-title hook also returns early when stdout is not a terminal, so
+escape bytes never land in redirected output such as `zsh -ic claude | tee log`.
 
-Set `DISABLE_AUTO_TITLE=true` to opt out; both the hook and `ai-wt` honour it,
-matching oh-my-zsh.
+Set `DISABLE_AUTO_TITLE=true` to opt out of agent titles; both the agent-title
+hook and `ai-wt` honour it, matching oh-my-zsh. It does not disable tmux-managed
+titles on the dedicated repo-ops server.
 
 ### ai-wt
 
@@ -151,6 +155,11 @@ again.
 The separate `repo-ops` server is an exception: its launcher explicitly reads
 `~/.config/tmux/repo-ops.conf` and enables tmux-managed titles there. It does
 not make that file the default server config or change AoE's title settings.
+Tmux sends OSC 0 titles for the active repo-ops window; the **Session Name**
+title component and **Applications in terminal may change the title** checkbox
+above must both be enabled in the profile hosting that client. If the tab still
+shows the old name, check those GUI settings before changing tmux; see the
+[repo-ops guide](repo-ops.md) for its command-name suffix and reload steps.
 
 `set-titles` is also server-wide, and there is no per-client form. The tmux
 server pushes a title to every terminal hosting a client, including the tab
