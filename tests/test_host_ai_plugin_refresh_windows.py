@@ -996,6 +996,62 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_missing_plannotator_marketplace_registers_at_pin(self) -> None:
+        manifest = self.root / "manifest.jsonc"
+        manifest.write_text(json.dumps({"claude": {"plugins": [{"id": "plannotator@plannotator", "version": "0.27.22"}]}}), encoding="utf-8")
+        settings = self.root / "settings.json"
+        settings.write_text(json.dumps({"extraKnownMarketplaces": {"plannotator": {
+            "autoUpdate": False,
+            "source": {"source": "github", "repo": "backnotprop/plannotator", "ref": "v0.27.22"},
+        }}}), encoding="utf-8")
+        catalog = self.root / "plannotator" / ".claude-plugin" / "marketplace.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_text('{"plugins":[{"name":"plannotator"}]}', encoding="utf-8")
+        body = f"""
+          $ConfigPath = {ps_quote(manifest)}
+          $SettingsBasePath = {ps_quote(settings)}
+          $script:ClaudeFailures = @()
+          $script:Registered = $false
+          $script:Commands = @()
+          function Test-ClaudeCommandAvailable {{ return $true }}
+          function Get-ClaudeOpenSshApplication {{ [pscustomobject]@{{ Source = 'ssh.exe' }} }}
+          function Get-ClaudeMarketplaceInventory {{
+            $records = @()
+            if ($script:Registered) {{
+              $records = @([pscustomobject]@{{ name = 'plannotator'; source = 'github'; repo = 'backnotprop/plannotator'; ref = 'v0.27.22'; installLocation = {ps_quote(catalog.parent.parent)} }})
+            }}
+            return [pscustomobject]@{{ Ok = $true; Records = $records; Error = $null }}
+          }}
+          function Invoke-JobContainedExternal {{
+            param([string] $Command, [string[]] $Arguments, [int] $TimeoutSeconds, [hashtable] $EnvironmentVariables)
+            $script:Commands += ($Arguments -join ' ')
+            if ($Arguments[2] -eq 'add') {{ $script:Registered = $true }}
+            return [pscustomobject]@{{ ExitCode = 0; Output = ''; TimedOut = $false }}
+          }}
+          function Get-InstalledClaudePluginIds {{
+            $ids = [System.Collections.Generic.HashSet[string]]::new()
+            [void] $ids.Add('plannotator@plannotator')
+            return ,$ids
+          }}
+          function Sync-ClaudePlugin {{
+            param($Plugin, [string[]] $Actions, [hashtable] $EnvironmentVariables)
+            return [pscustomobject]@{{ Succeeded = $true; TimedOut = $false }}
+          }}
+          function Invoke-ExternalJson {{
+            return [pscustomobject]@{{ ExitCode = 0; Output = '[{{"id":"plannotator@plannotator","version":"0.27.22","enabled":true}}]' }}
+          }}
+          $plugin = [pscustomobject]@{{ Id = 'plannotator@plannotator'; Name = 'plannotator'; Marketplace = 'plannotator'; Scope = 'user' }}
+          Update-ClaudePlugins -Plugins @($plugin)
+          [pscustomobject]@{{ Commands = @($script:Commands); Failures = @($script:ClaudeFailures) }} | ConvertTo-Json -Compress
+        """
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertEqual(data["Commands"], [
+            "plugin marketplace add backnotprop/plannotator#v0.27.22 --scope user",
+            "plugin marketplace update plannotator",
+        ])
+        self.assertEqual(data["Failures"], [])
+
     def test_stale_claude_install_record_falls_back_to_install(self) -> None:
         body = """
           $plugin = [pscustomobject]@{ Id = 'plannotator@plannotator'; Scope = 'user' }
