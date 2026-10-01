@@ -12,12 +12,6 @@
 {{- end -}}
 {{- $useWindowsWorkaround := or $isWindows $isWSL2 -}}
 {{- $useBridge := or $isDarwin $isWSL2 -}}
-{{- /* macOS uses terminal-notifier via the command path for the same reason
-        aoe-notify does: osascript-based notifications attribute to
-        "Script Editor", which never registers in System Settings >
-        Notifications, so banners silently no-op. WSL2 uses the same bridge so
-        OpenCode notifications can be suppressed inside AoE while staying
-        enabled for native OpenCode runs. */ -}}
 {{- $useCommandPath := or $useWindowsWorkaround $isDarwin -}}
 {
   "sound": false,
@@ -42,8 +36,15 @@
     "path": "powershell.exe",
     "args": [
       "-NoProfile",
-      "-Command",
-      "$wshell = New-Object -ComObject Wscript.Shell; $wshell.Popup('{message}', 5, 'OpenCode - {event}', 0+64)"
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "{{ .chezmoi.homeDir | replace "\\" "/" }}/.local/windows-notify.ps1",
+      "-Title",
+      "OpenCode - {event}",
+      "-Message",
+      "{message}"
     ],
 {{- end }}
     "minDuration": 0

@@ -157,25 +157,67 @@ class AoeNotifyTests(unittest.TestCase):
             self.assertEqual(argv[-1], "A title with 'quotes' is waiting for input")
             self.assertIn("backend=osascript rc=0", self.read_log(fixture))
 
-    def test_powershell_fallback_escapes_single_quotes(self) -> None:
+    def test_powershell_banner_keeps_arguments_as_data(self) -> None:
         with isolated_environment(prefix="aoe powershell ") as fixture:
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
             write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
             log = fixture.root / "powershell.json"
             write_argv_logger(fixture.fake_bin / "powershell.exe", log)
+            helper = fixture.home / ".local/windows-notify.ps1"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("", encoding="utf-8")
+            write_executable(fixture.fake_bin / "wslpath", "#!/bin/sh\nprintf '%s' 'C:/windows-notify.ps1'\n")
 
             result = run_notify(
                 script,
                 "waiting",
-                env=env | {"AOE_SESSION_TITLE": "Agent's work"},
+                env=env | {"AOE_SESSION_TITLE": "Agent's <work>\n雪"},
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             argv = json.loads(log.read_text(encoding="utf-8"))
-            command = argv[argv.index("-Command") + 1]
-            self.assertIn("Agent''s work is waiting for input", command)
-            self.assertIn("backend=powershell rc=0", self.read_log(fixture))
+            self.assertEqual(argv[argv.index("-File") + 1], "C:/windows-notify.ps1")
+            self.assertEqual(argv[argv.index("-Message") + 1], "Agent's <work>\n雪 is waiting for input")
+            self.assertNotIn("-Command", argv)
+            self.assertIn("backend=powershell-banner rc=0", self.read_log(fixture))
+
+    def test_wsl2_opencode_hooks_are_suppressed_without_affecting_other_agents(self) -> None:
+        with isolated_environment(prefix="aoe ownership ") as fixture:
+            script, env = self.prepare(fixture)
+            self.force_explicit_failed_bridge(fixture, env)
+            backend = fixture.root / "powershell.json"
+            write_argv_logger(fixture.fake_bin / "powershell.exe", backend)
+            helper = fixture.home / ".local/windows-notify.ps1"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("", encoding="utf-8")
+            write_executable(fixture.fake_bin / "wslpath", "#!/bin/sh\nprintf 'C:/windows-notify.ps1'\n")
+            for tool in ("opencode", "opencode-custom"):
+                for status in ("waiting", "error"):
+                    result = run_notify(script, status, env=env | {
+                        "AOE_TOOL": tool, "AOE_SESSION_ID": "s-123",
+                    })
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(backend.exists())
+                    self.assertIn(f"status={status} backend=suppressed-opencode rc=0", self.read_log(fixture))
+                    self.assertIn("session_id=s-123 tool=" + tool, self.read_log(fixture))
+            for tool in ("claude", "", "opencode-lookalike"):
+                result = run_notify(script, "waiting", env=env | {"AOE_TOOL": tool})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(backend.exists())
+                backend.unlink()
+
+    def test_devcontainer_retains_aoe_delivery(self) -> None:
+        with isolated_environment(prefix="aoe container ") as fixture:
+            script, env = self.prepare(fixture)
+            bridge = fixture.root / "bridge.json"
+            write_argv_logger(fixture.fake_bin / "curl", bridge)
+            result = run_notify(script, "error", env=env | {
+                "AOE_TOOL": "opencode", "DEVCONTAINER": "1",
+                "AOE_NOTIFY_BRIDGE_URL": "http://localhost:6789/notify",
+            })
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(bridge.exists())
 
     def test_notify_send_uses_critical_urgency_for_errors(self) -> None:
         with isolated_environment(prefix="aoe notify send ") as fixture:
@@ -185,12 +227,12 @@ class AoeNotifyTests(unittest.TestCase):
             log = fixture.root / "notify-send.json"
             write_argv_logger(fixture.fake_bin / "notify-send", log)
 
-            result = run_notify(script, "error", env=env)
+            result = run_notify(script, "error", env=env | {"DEVCONTAINER": "1"})
 
             self.assertEqual(result.returncode, 0, result.stderr)
             argv = json.loads(log.read_text(encoding="utf-8"))
             self.assertIn("--urgency=critical", argv)
-            self.assertTrue((fixture.root / "backend-powershell.exe.json").is_file())
+            self.assertFalse((fixture.root / "backend-powershell.exe.json").exists())
             self.assertEqual(argv[-2:], ["AoE: Error", "An Agent of Empires session hit an error"])
             self.assertIn("backend=notify-send rc=0", self.read_log(fixture))
 
@@ -204,9 +246,26 @@ class AoeNotifyTests(unittest.TestCase):
             result = run_notify(script, "waiting", env=env | {"AOE_NOTIFY_DEBUG": "yes"})
 
             self.assertEqual(result.returncode, 0)
-            self.assertTrue((fixture.root / "backend-powershell.exe.json").is_file())
-            self.assertIn("no notification backend succeeded", result.stderr)
+            self.assertFalse((fixture.root / "backend-powershell.exe.json").exists())
+            self.assertIn("Windows banner backend failed", result.stderr)
             self.assertIn("status=waiting backend=none rc=1", self.read_log(fixture))
+
+    def test_wsl2_banner_failure_does_not_fallback_to_notify_send(self) -> None:
+        with isolated_environment(prefix="aoe banner failure ") as fixture:
+            script, env = self.prepare(fixture)
+            self.force_explicit_failed_bridge(fixture, env)
+            marker = fixture.root / "notify-send.json"
+            write_argv_logger(fixture.fake_bin / "notify-send", marker)
+            helper = fixture.home / ".local/windows-notify.ps1"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("", encoding="utf-8")
+            write_executable(fixture.fake_bin / "wslpath", "#!/bin/sh\nprintf 'C:/windows-notify.ps1'\n")
+
+            result = run_notify(script, "waiting", env=env | {"AOE_TOOL": "claude"})
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("backend=none rc=1", self.read_log(fixture))
 
 
 if __name__ == "__main__":

@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Shim used by opencode-notifier's command.path on macOS and WSL2.
-# Suppresses notifications when running inside AoE and stale permission
-# notifications from OpenCode --auto sessions; otherwise forwards to the
-# platform notifier. AoE fires its own status_hooks (~/bin/aoe-notify) for the
-# same waiting/error events, so this avoids duplicate banners.
-# Accepted edge case: a standalone `opencode` run inside an attached
-# leftover aoe_* tmux session will be silently suppressed.
 set -Eeuo pipefail
 
 die() {
@@ -37,6 +30,14 @@ is_wsl2() {
   [[ -r /proc/sys/kernel/osrelease ]] || return 1
   osrelease=$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/osrelease 2>/dev/null || true)
   [[ $osrelease == *microsoft* && $osrelease == *wsl2* ]]
+}
+
+is_devcontainer() {
+  [[ ${DEVCONTAINER:-} == 1 || -f /.dockerenv || -f /run/.containerenv ]]
+}
+
+is_wsl2_host() {
+  is_wsl2 && ! is_devcontainer
 }
 
 opencode_owner_is_auto() {
@@ -119,8 +120,8 @@ try_terminal_notifier() {
     >/dev/null 2>&1
 }
 
-try_windows_popup() {
-  local powershell_bin ps_title ps_message
+try_windows_banner() {
+  local powershell_bin script_path
 
   if command -v powershell.exe >/dev/null 2>&1; then
     powershell_bin=powershell.exe
@@ -132,18 +133,20 @@ try_windows_popup() {
     return 1
   fi
 
-  ps_title=${title//\'/\'\'}
-  ps_message=${message//\'/\'\'}
+  command -v wslpath >/dev/null 2>&1 || return 1
+  [[ -f $HOME/.local/windows-notify.ps1 ]] || return 1
+  script_path=$(wslpath -w "$HOME/.local/windows-notify.ps1") || return 1
 
   "$powershell_bin" \
     -NoProfile \
+    -NonInteractive \
     -ExecutionPolicy Bypass \
-    -Command "\$wshell = New-Object -ComObject Wscript.Shell; \$null = \$wshell.Popup('$ps_message', 5, '$ps_title', 0 + 64)" \
-    >/dev/null 2>&1
+    -File "$script_path" -Title "$title" -Message "$message" \
+    >/dev/null
 }
 
 main() {
-  if is_aoe_session; then
+  if is_aoe_session && ! is_wsl2_host; then
     exit 0
   fi
 
@@ -157,10 +160,11 @@ main() {
     exit 0
   fi
 
-  if is_wsl2 && try_windows_popup; then
+  if is_wsl2_host && try_windows_banner; then
     exit 0
   fi
 
+  printf 'opencode-notifier-bridge: no notification backend succeeded\n' >&2
   exit 0
 }
 

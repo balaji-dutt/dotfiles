@@ -71,14 +71,17 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         owner_args: tuple[str, ...] = (),
         intermediary: bool = False,
         extra_env: dict[str, str] | None = None,
+        message: str = "test message",
     ) -> subprocess.CompletedProcess[str]:
         self.notifier_log.unlink(missing_ok=True)
         env = os.environ.copy()
         env.pop("AOE_INSTANCE_ID", None)
         env.pop("TMUX", None)
+        env.pop("DEVCONTAINER", None)
         env.update(
             {
                 "NOTIFIER_LOG": str(self.notifier_log),
+                "HOME": str(self.temp_path / "home"),
                 "PATH": f"{self.fake_bin}{os.pathsep}{env['PATH']}",
             }
         )
@@ -110,7 +113,7 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
             "--title",
             f"OpenCode - {event}",
             "--message",
-            "test message",
+            message,
             "--event",
             event,
         ]
@@ -177,11 +180,46 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self._assert_delivered()
 
     def test_aoe_suppression_is_unchanged(self) -> None:
+        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Darwin\n")
         result = self._run_bridge(
             "question",
             extra_env={"AOE_INSTANCE_ID": "test-instance"},
         )
 
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self._assert_suppressed()
+
+    def test_wsl2_aoe_event_reaches_banner_with_literal_arguments(self) -> None:
+        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Linux\n")
+        self._write_executable("wslpath", "#!/bin/sh\nprintf 'C:/windows-notify.ps1'\n")
+        helper = self.temp_path / "home/.local/windows-notify.ps1"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("", encoding="utf-8")
+        log = self.temp_path / "powershell.json"
+        self._write_executable("powershell.exe", f"#!{sys.executable}\nimport json,sys\nfrom pathlib import Path\nPath({str(log)!r}).write_text(json.dumps(sys.argv[1:]),encoding='utf-8')\n")
+        payload = "Agent's <question>\n雪; $(touch /tmp/notifier-unsafe)"
+        result = self._run_bridge("question", message=payload, extra_env={
+            "AOE_INSTANCE_ID": "inside-aoe", "HOME": str(helper.parents[1]),
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        argv = json.loads(log.read_text(encoding="utf-8"))
+        self.assertEqual(argv[argv.index("-Title") + 1], "OpenCode - question")
+        self.assertEqual(argv[argv.index("-Message") + 1], payload)
+        self.assertNotIn("-Command", argv)
+
+    def test_wsl2_banner_failure_does_not_run_another_backend(self) -> None:
+        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Linux\n")
+        marker = self.temp_path / "notify-send-called"
+        self._write_executable("notify-send", f"#!/bin/sh\ntouch {str(marker)!r}\n")
+        result = self._run_bridge("permission", extra_env={"AOE_INSTANCE_ID": "inside-aoe"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no notification backend succeeded", result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_container_aoe_event_stays_suppressed(self) -> None:
+        result = self._run_bridge("question", extra_env={
+            "AOE_INSTANCE_ID": "inside-aoe", "DEVCONTAINER": "1",
+        })
         self.assertEqual(result.returncode, 0, result.stderr)
         self._assert_suppressed()
 
