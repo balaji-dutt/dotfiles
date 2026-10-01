@@ -20,11 +20,9 @@
      chezmoi-owned, and aoe adds a separate group of its own.
 
      The base lives in its own plain-JSON file rather than inline here because
-     the homelab-IaC devcontainer symlinks it straight to ~/.claude/settings.json
-     without running chezmoi (see devcontainer-common.sh
-     install_claude_managed_asset_links) - it needs parseable JSON, not this
-     template. That file is .chezmoiignore'd so chezmoi never applies it to
-     ~/.claude/settings-base.json on the host.
+     the homelab-IaC devcontainer reads it without running chezmoi to build
+     its environment-local settings file. It needs parseable JSON, not this
+     template. The base is .chezmoiignore'd on the host.
 
      On a fresh machine the target does not exist yet, stdin is empty, and only
      the base hooks are written. aoe prompts once on first launch, adds its

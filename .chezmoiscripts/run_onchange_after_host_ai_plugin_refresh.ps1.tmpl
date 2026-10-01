@@ -804,6 +804,16 @@ function Get-ClaudeMarketplaceInventory {
   return [pscustomobject]@{ Ok = $true; Records = @($parsed); Error = $null }
 }
 
+function Get-PlannotatorPin {
+  $manifest = ConvertFrom-JsoncText -Text (Get-Content -Raw -LiteralPath $ConfigPath)
+  $settings = ConvertFrom-Json -InputObject (Get-Content -Raw -LiteralPath $SettingsBasePath)
+  $entries = @($manifest.claude.plugins | Where-Object { $_.id -ceq 'plannotator@plannotator' })
+  if ($entries.Count -ne 1 -or $settings.extraKnownMarketplaces.plannotator.autoUpdate -cne $false -or $settings.extraKnownMarketplaces.plannotator.source.ref -cne "v$($entries[0].version)") {
+    throw 'Plannotator marketplace tag does not match refresh sentinel'
+  }
+  return [string] $entries[0].version
+}
+
 function Test-ClaudeMarketplaceCatalog {
   param(
     [Parameter(Mandatory=$true)] [string] $Marketplace,
@@ -814,6 +824,16 @@ function Test-ClaudeMarketplaceCatalog {
   $registrations = @($Records | Where-Object { (Get-JsonProperty $_ "name") -ceq $Marketplace })
   if ($registrations.Count -ne 1) {
     return [pscustomobject]@{ Available = $false; Error = "expected one marketplace registration, found $($registrations.Count)"; CatalogPath = $null }
+  }
+  if ($Marketplace -ceq 'plannotator') {
+    try {
+      $pin = Get-PlannotatorPin
+      if ((Get-JsonProperty $registrations[0] 'ref') -cne "v$pin") {
+        throw 'Plannotator marketplace registration tag differs from pin'
+      }
+    } catch {
+      return [pscustomobject]@{ Available = $false; Error = $_.Exception.Message; CatalogPath = $null }
+    }
   }
   $installLocation = Get-JsonProperty $registrations[0] "installLocation"
   if ($installLocation -isnot [string] -or [string]::IsNullOrWhiteSpace($installLocation) -or -not [System.IO.Path]::IsPathFullyQualified($installLocation)) {
@@ -899,6 +919,20 @@ function Update-ClaudePlugins {
   }
 
   $marketplaceNames = @(Get-ClaudeMarketplaceNames -Plugins $Plugins)
+  if (-not $DryRun -and $marketplaceNames -ccontains 'plannotator') {
+    try {
+      $pin = Get-PlannotatorPin
+      $registered = Get-ClaudeMarketplaceInventory
+      $plannotatorRecords = @($registered.Records | Where-Object { (Get-JsonProperty $_ 'name') -ceq 'plannotator' })
+      if (-not $registered.Ok -or $plannotatorRecords.Count -ne 1 -or (Get-JsonProperty $plannotatorRecords[0] 'ref') -cne "v$pin") {
+        throw 'Claude Plannotator marketplace registration must be retargeted to the pinned tag before refresh'
+      }
+    } catch {
+      Write-Host "ERROR: $($_.Exception.Message)"
+      Add-ClaudeFailure -Failure 'marketplace:plannotator'
+      $marketplaceNames = @($marketplaceNames | Where-Object { $_ -cne 'plannotator' })
+    }
+  }
   $claudeEnvironment = $null
   if (-not $DryRun) {
     try {
@@ -978,6 +1012,20 @@ function Update-ClaudePlugins {
     $syncResult = Sync-ClaudePlugin -Plugin $plugin -Actions $actions -EnvironmentVariables $claudeEnvironment
     if (-not $syncResult.Succeeded) {
       Add-ClaudeFailure -Failure $plugin.Id
+    } elseif ($plugin.Id -ceq 'plannotator@plannotator') {
+      try {
+        $pin = Get-PlannotatorPin
+        $listed = Invoke-ExternalJson -Command 'claude' -Arguments @('plugin', 'list', '--json')
+        if ($listed.ExitCode -ne 0) { throw 'Could not verify installed Plannotator version' }
+        $installed = ConvertFrom-Json -InputObject $listed.Output -NoEnumerate
+        $entries = @($installed | Where-Object { $_.id -ceq $plugin.Id })
+        if ($entries.Count -ne 1 -or $entries[0].version -cne $pin -or $entries[0].enabled -cne $true) {
+          throw 'Installed Plannotator plugin version differs from pin'
+        }
+      } catch {
+        Write-Host "ERROR: $($_.Exception.Message)"
+        Add-ClaudeFailure -Failure $plugin.Id
+      }
     }
     if ($syncResult.TimedOut) {
       Write-Host "ERROR: Stopping remaining Claude Code plugin mutations after the first timeout; chezmoi will retry this onchange hook on the next apply."

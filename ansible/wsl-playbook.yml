@@ -818,6 +818,14 @@
             state: absent
           when: (plannotator_tmp_dir.path | default('')) | length > 0
 
+    - name: Verify installed plannotator version
+      ansible.builtin.command: "{{ local_bin }}/plannotator --version"
+      register: plannotator_verified
+      changed_when: false
+      failed_when: >-
+        plannotator_verified.rc != 0 or
+        (plannotator_verified.stdout | regex_search('[0-9]+\.[0-9]+\.[0-9]+')) != plannotator_version
+
     - name: Include WSL desktop integration
       ansible.builtin.include_tasks: tasks/wsl-desktop.yml
 

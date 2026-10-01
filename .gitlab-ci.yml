@@ -6,6 +6,71 @@ stages:
   - sync
   - test
 
+plannotator-sync:
+  stage: sync
+  image: python:3.13.7-bookworm
+  timeout: 10m
+  script:
+    - |
+      set -eu
+      case "${CI_PIPELINE_SOURCE}:${CI_COMMIT_REF_NAME}" in
+        push:renovate/plannotator-*)
+          python3 assets/sync-plannotator-assets.py --write
+          bash assets/sync-devcontainer-assets.sh
+          python3 assets/check-plannotator-config.py
+          PLANNOTATOR_FILES='configs/plannotator-assets.json
+          dot_claude/skills/plannotator-annotate/SKILL.md
+          dot_claude/skills/plannotator-last/SKILL.md
+          dot_claude/skills/plannotator-review/SKILL.md
+          private_dot_config/opencode/commands/plannotator-annotate.md
+          private_dot_config/opencode/commands/plannotator-last.md
+          private_dot_config/opencode/commands/plannotator-review.md
+          private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/plannotator-annotate/SKILL.md
+          private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/plannotator-last/SKILL.md
+          private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/plannotator-review/SKILL.md
+          private_Documents/development/container-dotfiles/dotfiles/dot_claude/settings-base.json
+          private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/commands/plannotator-annotate.md
+          private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/commands/plannotator-last.md
+          private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/commands/plannotator-review.md'
+          PLANNOTATOR_FILES=$(printf '%s\n' "$PLANNOTATOR_FILES" | command tr -d ' ')
+          git diff --name-only | while IFS= read -r changed; do
+            if ! printf '%s\n' "$PLANNOTATOR_FILES" | command grep -Fxq "$changed"; then
+              printf 'ERROR: sync modified unrelated path: %s\n' "$changed" >&2
+              exit 1
+            fi
+          done
+          if git diff --quiet -- $(printf '%s\n' "$PLANNOTATOR_FILES"); then
+            exit 0
+          fi
+          if [ -z "${VENDOREDFILE_SYNC_TOKEN:-}" ]; then
+            echo 'ERROR: VENDOREDFILE_SYNC_TOKEN CI variable is not set' >&2
+            exit 1
+          fi
+          git add -- $(printf '%s\n' "$PLANNOTATOR_FILES")
+          export GIT_AUTHOR_NAME='Renovate Bot' GIT_AUTHOR_EMAIL='service_account_group_65498163_3cf840e6e3ac6e34bec3beb607caff8a@noreply.gitlab.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          git commit --amend --no-edit
+          git remote set-url origin "https://oauth2:${VENDOREDFILE_SYNC_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
+          git push --force-with-lease="refs/heads/${CI_COMMIT_REF_NAME}:${CI_COMMIT_SHA}" origin "HEAD:${CI_COMMIT_REF_NAME}"
+          ;;
+        *)
+          python3 assets/check-plannotator-config.py
+          python3 assets/sync-plannotator-assets.py --check
+          ;;
+      esac
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+plannotator-policy:
+  stage: test
+  image: python:3.13.7-bookworm
+  script:
+    - python3 -m unittest tests.test_plannotator_config
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
 statusline-sync:
   stage: sync
   image: alpine:3.20

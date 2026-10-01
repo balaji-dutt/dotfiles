@@ -237,7 +237,7 @@
     "@franlol/opencode-md-table-formatter@latest",
     "@tarquinen/opencode-dcp@3.2.0",
     "@mohak34/opencode-notifier@latest",
-    ["@plannotator/opencode@latest", {
+    ["@plannotator/opencode@{file:~/.config/dotfiles/versions/plannotator}", {
       "workflow": "plan-agent",
       "runtime": "cli",
       "planningAgents": [

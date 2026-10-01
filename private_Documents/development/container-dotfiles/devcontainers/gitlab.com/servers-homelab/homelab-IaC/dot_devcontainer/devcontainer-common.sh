@@ -808,12 +808,8 @@ install_claude_managed_asset_links() {
   claude_config_dir="$HOME/.claude"
   mkdir -p "$claude_config_dir"
 
-  # settings-base.json, not modify_private_settings.json: the latter is a
-  # chezmoi modify-template (Go template source, not JSON) and this container
-  # symlinks host files directly without running chezmoi. The base carries
-  # env/permissions/statusLine and the gate-bd-destructive.sh hook; the aoe
-  # status hooks it omits are host-only anyway.
-  link_claude_managed_path "$source_dir/settings-base.json" "$claude_config_dir/settings.json"
+  materialize_claude_settings "$source_dir/settings-base.json" "$claude_config_dir/settings.json" || return 1
+  sync_container_claude_plannotator || true
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/AGENTS.md"
   link_claude_managed_path "$source_dir/AGENTS.md" "$claude_config_dir/CLAUDE.md"
   # AGENTS.md imports @~/.claude/no-ai-isms.md; the link must exist.
@@ -829,6 +825,125 @@ install_claude_managed_asset_links() {
     rm -f "$claude_config_dir/commands/todo.md"
   fi
   rm -f "$claude_config_dir/commit-docs.sh"
+}
+
+materialize_claude_settings() {
+  local base_file="$1" target_file="$2" version_file="$HOME/.config/dotfiles/versions/plannotator"
+  python3 - "$base_file" "$target_file" "$version_file" <<'PY'
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+base_file, target_file, version_file = map(Path, sys.argv[1:])
+base = json.loads(base_file.read_text(encoding="utf-8"))
+existing = json.loads(target_file.read_text(encoding="utf-8")) if target_file.exists() else {}
+if not isinstance(base, dict) or not isinstance(existing, dict):
+    raise SystemExit("ERROR: Claude settings must be JSON objects")
+marketplace = base["extraKnownMarketplaces"]["plannotator"]
+marketplace["autoUpdate"] = False
+cli_path = Path.home() / ".local/bin/plannotator"
+if version_file.is_file() and os.access(cli_path, os.X_OK):
+    version = version_file.read_text(encoding="utf-8").strip()
+    cli = subprocess.run([str(cli_path), "--version"], capture_output=True, text=True)
+    match = re.search(r"(?<![0-9])([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", cli.stdout)
+    if cli.returncode == 0 and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) and match and match.group(1) == version:
+        marketplace["source"]["ref"] = "v" + version
+    else:
+        print("WARN: container CLI and Plannotator version file disagree; retaining base Claude tag.", file=sys.stderr)
+else:
+    print("WARN: container Plannotator pin or CLI is missing; retaining base Claude tag.", file=sys.stderr)
+models = existing.get("modelSettings", {})
+if not isinstance(models, dict):
+    raise SystemExit("ERROR: Claude modelSettings must be an object")
+models.update(base.get("modelSettings", {}))
+hooks = base.get("hooks", {})
+for event, groups in existing.get("hooks", {}).items():
+    if not isinstance(groups, list):
+        raise SystemExit("ERROR: Claude hooks must be arrays")
+    current = hooks.setdefault(event, [])
+    for group in groups:
+        if group not in current:
+            current.append(group)
+existing.update(base)
+existing["modelSettings"] = models
+existing["hooks"] = hooks
+target_file.parent.mkdir(parents=True, exist_ok=True)
+with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target_file.parent, prefix=".settings-", delete=False) as staged:
+    staged_path = Path(staged.name)
+    try:
+        json.dump(existing, staged, indent=2)
+        staged.write("\n")
+    except BaseException:
+        staged_path.unlink(missing_ok=True)
+        raise
+try:
+    os.replace(staged_path, target_file)
+except BaseException:
+    staged_path.unlink(missing_ok=True)
+    raise
+PY
+}
+
+sync_container_claude_plannotator() {
+  local version cli_version
+  if [[ ! -f "$HOME/.config/dotfiles/versions/plannotator" || ! -x "$HOME/.local/bin/plannotator" ]]; then
+    echo "WARN: Container Plannotator pin or CLI is missing; Claude plugin not verified." >&2
+    return 1
+  fi
+  version=$(<"$HOME/.config/dotfiles/versions/plannotator") || return 1
+  cli_version=$("$HOME/.local/bin/plannotator" --version | command grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | command head -1) || return 1
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$cli_version" != "$version" ]]; then
+    echo "WARN: Container Plannotator pin and CLI disagree; Claude plugin not verified." >&2
+    return 1
+  fi
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "WARN: Claude Code unavailable; Plannotator plugin not verified." >&2
+    return 0
+  fi
+  if claude plugin marketplace list --json | python3 -c '
+import json, sys
+records = json.load(sys.stdin)
+matches = [item for item in records if item.get("name") == "plannotator"]
+sys.exit(0 if len(matches) == 0 else 1)
+'; then
+    if ! claude plugin marketplace add "backnotprop/plannotator#v${version}" --scope user; then
+      echo "WARN: Claude Plannotator marketplace registration failed." >&2
+      return 1
+    fi
+  fi
+  if ! claude plugin marketplace list --json | python3 -c '
+import json, sys
+records = json.load(sys.stdin)
+matches = [item for item in records if item.get("name") == "plannotator"]
+sys.exit(0 if len(matches) == 1 and matches[0].get("ref") == "v" + sys.argv[1] else 1)
+' "$version"; then
+    echo "WARN: Claude Plannotator marketplace targets a different tag; register backnotprop/plannotator#v${version} before installing." >&2
+    return 1
+  fi
+  if claude plugin list --json | python3 -c '
+import json, sys
+records = json.load(sys.stdin)
+matches = [item for item in records if item.get("id") == "plannotator@plannotator"]
+sys.exit(0 if len(matches) == 0 else 1)
+'; then
+    if ! claude plugin install plannotator@plannotator --scope user; then
+      echo "WARN: Claude Plannotator plugin installation failed." >&2
+      return 1
+    fi
+  fi
+  if ! claude plugin list --json | python3 -c '
+import json, sys
+records = json.load(sys.stdin)
+matches = [item for item in records if item.get("id") == "plannotator@plannotator"]
+sys.exit(0 if len(matches) == 1 and matches[0].get("version") == sys.argv[1] and matches[0].get("enabled") is True else 1)
+' "$version"; then
+    echo "WARN: Claude Plannotator plugin is missing or differs from v${version}." >&2
+    return 1
+  fi
 }
 
 # Register the user-scope Claude MCP servers declared by the host dotfiles.
