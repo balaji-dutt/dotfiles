@@ -1,6 +1,6 @@
 import { handoff } from './shared/records.mjs';
 import { Ledger } from './shared/storage.mjs';
-import { recognize } from './shared/commands.mjs';
+import { recognize, recognizeMerge } from './shared/commands.mjs';
 import { createDiagnostics } from './diagnostics.mjs';
 import { approvalStore } from './approvals.mjs';
 
@@ -97,8 +97,8 @@ export function createCollector({ client, directory, worktree }, {
       if (!['bash', 'shell', 'powershell'].includes(input.tool) || !input.callID || !input.sessionID) return;
       const command = output.args?.command;
       const shell = input.tool === 'powershell' || process.platform === 'win32' ? 'powershell' : 'bash';
-      if (!recognize(command, 'oc-commit', shell)) {
-        if (typeof command === 'string' && /\boc-commit\b/.test(command)) warn('unsupported-or-explicit-command');
+      if (!recognize(command, 'oc-commit', shell) && !recognizeMerge(command, 'opencode', shell)) {
+        if (typeof command === 'string' && /\b(?:oc-commit|agent-wt-merge)\b/.test(command)) warn('unsupported-or-explicit-command');
         return;
       }
       if (pending.size >= 128) pending.delete(pending.keys().next().value);

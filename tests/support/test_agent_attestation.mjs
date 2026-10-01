@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { handoff, participant, digest, portable } from '../../dot_claude/skills/agent-attestation/lib/shared/records.mjs';
-import { recognize, inject } from '../../dot_claude/skills/agent-attestation/lib/shared/commands.mjs';
+import { recognize, recognizeMerge, inject } from '../../dot_claude/skills/agent-attestation/lib/shared/commands.mjs';
 import { atomicJson, Ledger, readJson, stateRoot } from '../../dot_claude/skills/agent-attestation/lib/shared/storage.mjs';
 import { sourceSnapshot, relativeSource } from '../../dot_claude/skills/agent-attestation/lib/shared/source.mjs';
 import { response, reconcileTranscript } from '../../dot_claude/skills/agent-attestation/lib/transcript.mjs';
@@ -65,6 +65,43 @@ test('direct commands are distinguished from mentions, compounds and explicit pa
   assert.ok(recognize('& "C:\\a path\\cc-commit.ps1" -m \'one\ntwo\'', 'cc-commit', 'powershell'));
   assert.equal(recognize('& $wrapper -m x', 'cc-commit', 'powershell'), undefined);
   assert.equal(recognize('cc-commit.cmd -m x', 'cc-commit', 'powershell'), undefined);
+});
+
+test('worktree merge recognition binds literal no-ff commands to the selected actor', () => {
+  for (const actor of ['claude', 'opencode']) {
+    for (const command of [
+      `'/main worktree/assets/agent-wt-merge' no-ff --actor ${actor} -m 'Subject' -m '- bullet one\n- bullet two'`,
+      `command agent-wt-merge no-ff --actor=${actor} --message 'Subject' --update-main`,
+      `python3 '/main worktree/assets/agent-wt-merge' no-ff --actor ${actor} -m 'Subject'`,
+      `py -3 'C:/main worktree/assets/agent-wt-merge' no-ff --actor ${actor} -m 'Subject'`,
+    ]) {
+      assert.ok(recognizeMerge(command, actor), command);
+      assert.equal(recognizeMerge(command, actor === 'claude' ? 'opencode' : 'claude'), undefined);
+    }
+  }
+  for (const command of [
+    'agent-wt-merge ff --actor opencode -m subject',
+    'agent-wt-merge no-ff --actor claude -m subject',
+    'agent-wt-merge no-ff --actor opencode',
+    'agent-wt-merge no-ff --actor opencode --actor opencode -m subject',
+    'agent-wt-merge no-ff --act opencode -m subject',
+    'agent-wt-merge no-ff --actor=other -m subject',
+    'agent-wt-merge no-ff --actor opencode -m subject; echo unsafe',
+    'echo agent-wt-merge no-ff --actor opencode -m subject',
+    'python -c agent-wt-merge no-ff --actor opencode -m subject',
+    'py -3.12 agent-wt-merge no-ff --actor opencode -m subject',
+    'cd repo && agent-wt-merge no-ff --actor opencode -m subject',
+    'AI_ATTESTATION_JSON=x agent-wt-merge no-ff --actor opencode -m subject',
+    'agent-wt-merge.ps1 no-ff --actor opencode -m subject',
+  ]) assert.equal(recognizeMerge(command, 'opencode'), undefined, command);
+  const native = "py -3 'C:/main/assets/agent-wt-merge' no-ff --actor opencode -m 'Subject'";
+  assert.ok(recognizeMerge(native, 'opencode', 'powershell'));
+  const bridge = `cd '/feature worktree' && pwsh -NoProfile -Command \"${native}\"`;
+  const match = recognizeMerge(bridge, 'opencode');
+  assert.equal(match.offset, bridge.indexOf('pwsh'));
+  assert.equal(inject(bridge, '{"schemaVersion":1}', 'bash', match),
+    `cd '/feature worktree' && AI_ATTESTATION_JSON='{"schemaVersion":1}' pwsh -NoProfile -Command \"${native}\"`);
+  assert.equal(recognizeMerge(bridge.replace('opencode', 'claude'), 'opencode'), undefined);
 });
 
 test('parallel immutable records preserve all participants and isolate sessions', async t => {
@@ -324,6 +361,9 @@ test('Claude plugin preserves inputs and permission neutrality and links only co
   assert.equal(payload.participants.length, 2);
   assert.ok(payload.participants.some(item => item.agent === 'reviewer' && item.model === 'child-model'));
   assert.ok(!JSON.stringify(payload).includes('MISLEADING'));
+  const merge = await handleHook({ ...input, tool_input: { ...input.tool_input, command: "agent-wt-merge no-ff --actor claude -m 'land feature'" } }, options);
+  assert.deepEqual(JSON.parse(merge.hookSpecificOutput.updatedInput.command.match(/^AI_ATTESTATION_JSON='([^']+)'/)[1]).participants, payload.participants);
+  assert.deepEqual(await handleHook({ ...input, tool_input: { command: "agent-wt-merge no-ff --actor opencode -m 'land'" } }, options), {});
   assert.deepEqual(await handleHook(input, { ...options, env: { AI_ATTESTATION_JSON: '' } }), {});
   assert.deepEqual(await handleHook({ ...input, tool_input: { command: 'echo cc-commit' } }, options), {});
 });
@@ -496,6 +536,15 @@ test('OpenCode per-call environment uses output.args and isolates calls, retries
   const explicit = { env: { AI_ATTESTATION_JSON: 'caller' } };
   await hooks['shell.env'](input, explicit);
   assert.equal(explicit.env.AI_ATTESTATION_JSON, 'caller');
+  const merge = { ...input, callID: 'merge' };
+  await hooks['tool.execute.before'](merge, { args: { command: "agent-wt-merge no-ff --actor opencode -m 'land'" } });
+  const merged = { env: {} };
+  await hooks['shell.env'](merge, merged);
+  assert.equal(JSON.parse(merged.env.AI_ATTESTATION_JSON).participants[0].model, 'provider/runtime');
+  await hooks['tool.execute.before']({ ...merge, callID: 'wrong-actor' }, { args: { command: "agent-wt-merge no-ff --actor claude -m 'land'" } });
+  const rejected = { env: {} };
+  await hooks['shell.env']({ ...merge, callID: 'wrong-actor' }, rejected);
+  assert.deepEqual(rejected.env, {});
 });
 
 test('OpenCode history pagination is bounded and detects APIs ignoring before', async t => {
@@ -547,6 +596,70 @@ test('actual commit wrappers consume invocation-local provenance and preserve fa
     }
     const failed = execute(executable, [...args, inject(`${windows ? '& ' : ''}${quote(wrapper)} -m empty`, json, shell)], { cwd: repo });
     assert.notEqual(failed.status, 0, failed.stdout);
+  }
+});
+
+test('worktree helper commits with the real actor wrapper and collector handoff', async t => {
+  const root = await temporary(t), bin = path.join(root, 'bin');
+  await fs.mkdir(bin);
+  for (const [actor, prefix] of [['opencode', 'oc'], ['claude', 'cc']]) {
+    const wrapper = path.join(bin, `${prefix}-commit${windows ? '.ps1' : ''}`);
+    await fs.copyFile(path.join(repository, windows ? `dot_local/executable_${prefix}-commit.ps1` : `bin/executable_${prefix}-commit`), wrapper);
+    if (!windows) await fs.chmod(wrapper, 0o700);
+  }
+  if (windows) await fs.writeFile(path.join(bin, 'oc-commit.cmd'), '@echo off\r\necho refusing stub invoked 1>&2\r\nexit /b 95\r\n');
+  const env = { ...gitEnv, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  for (const actor of ['opencode', 'claude']) {
+    const main = path.join(root, `${actor} main`), feature = path.join(root, `${actor} feature`);
+    checked('git', ['init', '-b', 'main', main], { env });
+    const assets = path.join(main, 'assets');
+    await fs.mkdir(assets);
+    for (const file of ['agent-wt-merge', 'resolve-python3']) {
+      await fs.copyFile(path.join(repository, 'assets', file), path.join(assets, file));
+      if (!windows) await fs.chmod(path.join(assets, file), 0o700);
+    }
+    await fs.writeFile(path.join(main, 'base.txt'), 'base\n');
+    checked('git', ['add', '.'], { cwd: main, env });
+    checked('git', ['commit', '-m', 'initial'], { cwd: main, env });
+    checked('git', ['worktree', 'add', '-b', 'feature', feature], { cwd: main, env });
+    await fs.writeFile(path.join(feature, 'feature.txt'), 'feature\n');
+    checked('git', ['add', '.'], { cwd: feature, env });
+    checked('git', ['commit', '-m', 'feature'], { cwd: feature, env });
+    await fs.writeFile(path.join(main, 'main.txt'), 'main\n');
+    checked('git', ['add', '.'], { cwd: main, env });
+    checked('git', ['commit', '-m', 'main'], { cwd: main, env });
+    const helper = path.join(assets, 'agent-wt-merge');
+    const quote = value => `'${value.replaceAll("'", windows ? "''" : "'\\''")}'`;
+    const command = `${windows ? `py -3 ${quote(helper)}` : quote(helper)} no-ff --actor ${actor} -m 'Land feature' -m '- bullet one\n- bullet two'`;
+    let payload;
+    if (actor === 'opencode') {
+      const hooks = createCollector({ client: fakeClient([ocInfo()]), directory: feature, worktree: feature }, { root: path.join(root, 'state'), env: {}, warn: quiet });
+      const input = { tool: windows ? 'powershell' : 'bash', sessionID: 'root', callID: `merge-${actor}` };
+      await hooks['tool.execute.before'](input, { args: { command } });
+      const output = { env: {} };
+      await hooks['shell.env'](input, output);
+      payload = output.env.AI_ATTESTATION_JSON;
+      await hooks.dispose();
+    } else {
+      const transcript = path.join(root, 'claude.jsonl');
+      await fs.writeFile(transcript, `${JSON.stringify(claudeRecord('merge'))}\n`);
+      const input = { session_id: 'session', cwd: feature, transcript_path: transcript, hook_event_name: 'PreToolUse', tool_name: windows ? 'PowerShell' : 'Bash', tool_input: { command } };
+      const response = await handleHook(input, { root: path.join(root, 'claude-state'), env: {}, warn: quiet, locateWorktree: async () => feature });
+      assert.ok(response.hookSpecificOutput.updatedInput.command);
+      const rewritten = response.hookSpecificOutput.updatedInput.command;
+      checked(windows ? 'pwsh' : 'bash', windows ? ['-NoProfile', '-Command', rewritten] : ['-c', rewritten], { cwd: feature, env });
+    }
+    if (actor === 'opencode') {
+      assert.ok(payload);
+      checked(windows ? 'pwsh' : 'bash', windows ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd: feature, env: { ...env, AI_ATTESTATION_JSON: payload } });
+    }
+    const message = checked('git', ['log', '-1', '--format=%B'], { cwd: main, env });
+    assert.ok(message.includes('- bullet one\n- bullet two'));
+    assert.match(message, actor === 'opencode' ? /AI-Participant: tool=opencode; agent=build; model=provider\/runtime/ : /AI-Participant: tool=claude-code; model=claude-observed/);
+    assert.equal((message.match(/Co-authored-by: opencode-agent\[bot\]/g) || []).length, actor === 'opencode' ? 1 : 0);
+    const expected = actor === 'opencode' ? 'OpenCode <noreply@opencode.ai>' : 'Claude <noreply@anthropic.com>';
+    assert.equal(checked('git', ['log', '-1', '--format=%an <%ae>|%cn <%ce>'], { cwd: main, env }).trim(), `${expected}|${expected}`);
+    assert.equal(checked('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: main, env }).trim().split(' ').length, 3);
   }
 });
 

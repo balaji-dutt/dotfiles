@@ -228,6 +228,16 @@ OpenCode supplies `AI_ATTESTATION_JSON` through its invocation-local `shell.env`
 hook. Claude uses `PreToolUse` to rewrite a recognized wrapper invocation,
 preserving other tool inputs without granting permission. Run the direct
 wrapper as the entire shell command from the repository working directory.
+Both collectors also recognize a literal `agent-wt-merge no-ff` invocation
+with a matching `--actor opencode|claude` (or `--actor=...`) and at least one
+`-m`/`--message` paragraph. The helper carries the invocation-scoped payload
+through delegation and an approved main update to the actor's commit wrapper.
+POSIX/Git Bash supports a direct helper path; native PowerShell also supports
+`python`/`python3 <helper>` and `py -3 <helper>`. The constrained Bash-to-`pwsh`
+bridge accepts those literal Python forms. Other helper commands, actors,
+interpreter flags, shell compounds, and explicit payload assignments do not
+receive a producer handoff. A direct helper call without a recognized handoff
+still commits with the wrapper's tool-only participant.
 Supported forms include `command cc-commit -m 'message'`,
 `oc-commit -m 'message'`, and `oc-commit -F 'message file'` in Bash, or
 `& 'C:\path with spaces\cc-commit.ps1' -m 'message'` in PowerShell. Literal

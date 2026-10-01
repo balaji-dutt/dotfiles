@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { handoff, key } from './shared/records.mjs';
 import { atomicJson, Ledger, readJson, stateRoot } from './shared/storage.mjs';
-import { recognize, inject, shellFor } from './shared/commands.mjs';
+import { recognize, recognizeMerge, inject, shellFor } from './shared/commands.mjs';
 import { worktree } from './shared/process.mjs';
 import { reconcileTranscript } from './transcript.mjs';
 
@@ -59,9 +59,9 @@ export async function handleHook(input, {
   const shell = shellFor(input.tool_name);
   if (!shell) return {};
   const command = input.tool_input?.command;
-  const invocation = recognize(command, 'cc-commit', shell);
+  const invocation = recognize(command, 'cc-commit', shell) || recognizeMerge(command, 'claude', shell);
   if (!invocation) {
-    if (typeof command === 'string' && /\bcc-commit\b/.test(command)) warn('unsupported-or-explicit-command');
+    if (typeof command === 'string' && /\b(?:cc-commit|agent-wt-merge)\b/.test(command)) warn('unsupported-or-explicit-command');
     return {};
   }
   if (Object.hasOwn(env, 'AI_ATTESTATION_JSON')) return {};

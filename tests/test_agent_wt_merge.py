@@ -104,6 +104,11 @@ class GitFixture:
         self.set_override(ci_gated)
 
         self.fake_bin.mkdir()
+        if os.name != "nt":
+            for actor in ("oc", "cc"):
+                wrapper = self.fake_bin / f"{actor}-commit"
+                shutil.copy2(REPO_ROOT / "bin" / f"executable_{actor}-commit", wrapper)
+                wrapper.chmod(0o700)
         write_python_command(
             self.fake_bin,
             "bd",
@@ -557,35 +562,89 @@ Commands:
                         check=True, text=True, stdout=subprocess.PIPE,
                     ).stdout.splitlines()
                     self.assertIn("Co-authored-by: Teammate <teammate@example.com>", parsed)
-                    self.assertEqual(parsed[-2:], ["AI-Participant: tool=editor", "Source-Digest: sha256:abc"])
+                    self.assertIn("AI-Participant: tool=editor", parsed)
+                    self.assertIn("Source-Digest: sha256:abc", parsed)
+                    self.assertEqual(parsed[-1], "AI-Participant: tool=opencode" if actor == "opencode" else "AI-Participant: tool=claude-code")
                     if actor == "opencode" and not preexisting:
                         self.assertEqual(parsed[0], OPENCODE_BOT)
                     expected = "OpenCode <noreply@opencode.ai>" if actor == "opencode" else "Claude <noreply@anthropic.com>"
                     self.assertEqual(fixture.output(fixture.main, "log", "-1", "--format=%an <%ae>|%cn <%ce>"),
                                      f"{expected}|{expected}")
 
+    def test_no_ff_handoff_is_inherited_and_invalid_handoff_degrades(self) -> None:
+        for actor in ("opencode", "claude"):
+            for payload, expected in (
+                ('{"schemaVersion":1,"participants":[{"tool":"opencode","agent":"build","model":"provider/runtime"}]}',
+                 "AI-Participant: tool=opencode; agent=build; model=provider/runtime"),
+                ("{invalid", "AI-Participant: tool=opencode" if actor == "opencode" else "AI-Participant: tool=claude-code"),
+            ):
+                with self.subTest(actor=actor, payload=payload):
+                    fixture = self.fixture(ci_gated=False)
+                    fixture.commit_main("main-only", "main\n", "local main")
+                    fixture.git_config.write_text("", encoding="utf-8")
+                    result = fixture.run_helper(
+                        fixture.main_helper, fixture.feature, "no-ff", "--actor", actor,
+                        "-m", "land feature", "-m", "- bullet one\n- bullet two",
+                        extra_env={"AI_ATTESTATION_JSON": payload},
+                    )
+                    self.assert_ok(result)
+                    message = fixture.output(fixture.main, "log", "-1", "--format=%B")
+                    self.assertIn(expected, message)
+                    self.assertIn("- bullet one\n- bullet two", message)
+                    self.assertEqual(message.count("AI-Participant:"), 1)
+                    self.assertEqual(message.count(OPENCODE_BOT), 1 if actor == "opencode" else 0)
+
     @PATH_SHIM_INTERCEPTS
-    def test_no_ff_trailer_format_failure_does_not_merge(self) -> None:
+    def test_no_ff_wrapper_success_without_commit_is_not_landing(self) -> None:
         fixture = self.fixture(ci_gated=False)
         fixture.commit_main("main-only", "main\n", "local main")
         before = fixture.output(fixture.main, "rev-parse", "HEAD")
-        real_git = shutil.which("git")
-        self.assertIsNotNone(real_git)
+        write_python_command(fixture.fake_bin, "oc-commit", f"#!{sys.executable}\n")
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("did not complete", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "MERGE_HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+
+    def test_no_ff_commit_hook_rejection_leaves_merge_pending(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        fixture.commit_main("main-only", "main\n", "local main")
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        hooks = fixture.main / fixture.output(fixture.main, "rev-parse", "--git-path", "hooks")
+        write_executable(hooks / "pre-merge-commit", "#!/bin/sh\nexit 97\n")
+        write_executable(hooks / "pre-commit", "#!/bin/sh\nexit 98\n")
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "MERGE_HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+
+    @PATH_SHIM_INTERCEPTS
+    def test_no_ff_wrapper_failure_retains_pending_merge(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        fixture.commit_main("main-only", "main\n", "local main")
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
         write_python_command(
             fixture.fake_bin,
-            "git",
-            f"#!{sys.executable}\n"
-            "import subprocess, sys\n"
-            "if 'interpret-trailers' in sys.argv:\n"
-            "    print('simulated formatter failure', file=sys.stderr)\n"
-            "    raise SystemExit(23)\n"
-            f"raise SystemExit(subprocess.run([{real_git!r}, *sys.argv[1:]]).returncode)\n",
+            "oc-commit",
+            f"#!{sys.executable}\nimport sys\nprint('simulated wrapper failure', file=sys.stderr)\nraise SystemExit(23)\n",
         )
         result = fixture.run_helper(
             fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land feature",
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("simulated formatter failure", result.stderr)
+        self.assertIn("simulated wrapper failure", result.stderr)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "MERGE_HEAD"), fixture.output(fixture.feature, "rev-parse", "HEAD"))
+
+    def test_no_ff_requires_wrapper_before_mutating_main(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        fixture.commit_main("main-only", "main\n", "local main")
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        fixture.env["PATH"] = os.pathsep.join((str(fixture.fake_bin), "/usr/bin", "/bin"))
+        (fixture.fake_bin / "oc-commit").unlink()
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "no-ff", "--actor", "opencode", "-m", "land")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no commit wrapper", result.stderr)
         self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
 
     def test_local_mode_retains_published_feature_and_closes_only_matching_beads(self) -> None:
@@ -1300,10 +1359,15 @@ Commands:
             "-m",
             "merge feature",
             "--update-main",
-            extra_env={"AGENT_WT_MERGE_TEST_MARKER": str(marker)},
+            extra_env={
+                "AGENT_WT_MERGE_TEST_MARKER": str(marker),
+                "AI_ATTESTATION_JSON": '{"schemaVersion":1,"participants":[{"tool":"opencode","agent":"build","model":"provider/runtime"}]}',
+            },
         )
         self.assert_ok(result)
         self.assertEqual(marker.read_text(encoding="utf-8"), "updated\n")
+        self.assertIn("AI-Participant: tool=opencode; agent=build; model=provider/runtime",
+                      fixture.output(fixture.main, "log", "-1", "--format=%B"))
         self.assertIn("Re-executed after main update: yes", result.stdout)
         self.assertEqual(
             fixture.output(fixture.main, "rev-parse", "--abbrev-ref", "HEAD"),
