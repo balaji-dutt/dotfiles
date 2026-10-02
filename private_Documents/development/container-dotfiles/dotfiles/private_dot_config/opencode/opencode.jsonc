@@ -255,6 +255,11 @@
         "websearch_cited": {
           "model": "claude-haiku-4-5"
         }
+      },
+      "models": {
+        "claude-opus-5-5": {
+          "options": { "thinking": { "type": "adaptive", "blockBinding": false } }
+        }
       }
     },
 
