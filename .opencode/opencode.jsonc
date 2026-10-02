@@ -5,6 +5,19 @@
     ".opencode/instructions/beads-plan-handoff.md",
     ".opencode/instructions/beads-backlog-workflow.md"
   ],
+  "plugin": [
+    ["@plannotator/opencode@{file:~/.config/dotfiles/versions/plannotator}", {
+      "workflow": "plan-agent",
+      "runtime": "cli",
+      "planningAgents": [
+        "plan",
+        "plan-GPT-xhigh",
+        "special-builder",
+        "agent-engineer",
+        "Plan-Trial"
+      ]
+    }]
+  ],
   // ----------------------------
   // MCP Servers (repo-specific)
   // ----------------------------
@@ -91,6 +104,45 @@
         "cbm_index_repository": true
       },
       "permission": {
+        "cbm_index_repository": "ask",
+        "bash": {
+          "bd*": "ask",
+          "bd show*": "allow",
+          "bd list*": "allow",
+          "bd create*": "deny",
+          "bd update*": "deny",
+          "bd close*": "deny",
+          "bd delete*": "deny",
+          "bd edit*": "deny"
+        },
+        "task": {
+          "*": "deny",
+          "dotfiles-reviewer": "allow"
+        }
+      }
+    },
+    "Plan-Trial": {
+      "mode": "primary",
+      "description": "Trial ordinary Plan with GPT-6.1 Sol/high.",
+      "model": "openai/gpt-6.1-sol",
+      "prompt": "{file:~/.config/opencode/prompts/plan-agent.md}",
+      "reasoningEffort": "high",
+      "tools": {
+        "cbm_get_graph_schema": true,
+        "cbm_get_architecture": true,
+        "cbm_search_graph": true,
+        "cbm_trace_path": true,
+        "cbm_list_projects": true,
+        "cbm_index_status": true,
+        "cbm_index_repository": true
+      },
+      "permission": {
+        "edit": "deny",
+        "webfetch": "allow",
+        "websearch_cited": "allow",
+        "codesearch": "allow",
+        "question": "allow",
+        "plan_exit": "allow",
         "cbm_index_repository": "ask",
         "bash": {
           "bd*": "ask",

@@ -84,6 +84,34 @@ The container-dotfiles `opencode.jsonc` is excluded from
 `configs/devcontainer-sync.jsonc`; model, effort, prompt references, and task
 policy there are hand-maintained. Agent Markdown and prompt files are mirrored.
 
+### Dotfiles-local planning trial
+
+Select `Plan-Trial` in OpenCode inside this repository to try
+`openai/gpt-6.1-sol` at high effort. Ordinary `plan` remains Astra/high, and
+the default agent is unchanged. Restart OpenCode after updating the checkout;
+this project-local route needs no global chezmoi apply.
+
+The trial references the installed `~/.config/opencode/prompts/plan-agent.md`,
+so the managed global configuration must already be installed. It uses ordinary
+Plan's self-review workflow and equivalent effective permissions, including
+explicit question and plan-exit permissions supplied natively to built-in Plan.
+Use `submit_plan`, not `plan_exit`, for approval. Plannotator permits Markdown
+edits for both routes; the shared prompt still forbids implementation edits.
+
+Use normal/default launches for this timeboxed trial. Composed profiles such as
+`anthropic-api` are unsupported: their Plannotator configuration omits
+`Plan-Trial`, even though the agent remains selectable. Do not use the trial
+through those profiles. No profile-helper change is part of this trial.
+
+This is not a byte-identical model-only comparison: OpenCode's built-in `plan`
+identity has name-specific reminders that a custom agent does not inherit. The
+shared prompt, effort, permission decisions, and Plannotator workflow are held
+constant on supported launches; live quality and cost remain observations to
+make during use. The trial is not defined in global or container configuration.
+
+To end the trial, remove its repo-local agent and Plannotator registration, along
+with the trial-specific tests and this subsection. Nothing global needs unapplying.
+
 ## Skills
 
 Twenty files under `dot_claude/skills/**` and twenty under
