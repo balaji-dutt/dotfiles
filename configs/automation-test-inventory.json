@@ -213,6 +213,7 @@
         "test_paths": ["tests/test_beads_helpers.py", "tests/test_beads_sync.py"],
         "behavior_requirements": [
           {"id": "failure-sync-command-errors", "kind": "failure", "description": "Propagate pull, push, server, and remote failures without claiming synchronization succeeded.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py", "tests/test_beads_sync.py"]},
+          {"id": "safety-bd-upgrade-guards", "kind": "safety", "description": "Refuse pull and push before any other bd call while bd's version is unreconciled with the store, reset only ignored tables present at HEAD and stop when HEAD cannot be listed, push with BD_NO_REMOTE_ADOPT set, and stop init when the reset loses wisp tables.", "status": "covered", "test_paths": ["tests/test_beads_sync.py"]},
           {"id": "safety-platform-and-remote-guards", "kind": "safety", "description": "Reject unsafe remotes and native-Windows peer operations before contacting or mutating Beads state.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py"]},
           {"id": "success-helper-dispatch", "kind": "success", "description": "Dispatch supported shell and launcher operations to the intended guarded command.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py"]}
         ]

@@ -659,6 +659,8 @@ repair reliably recreates them. `beads-sync init` sidesteps cloning entirely:
    remote's tracked tables and history. Dolt treats dolt_ignore'd tables like
    git treats untracked files — **a hard reset preserves them** (verified:
    all 6 wisp tables and `local_metadata` survived; 119 issues adopted).
+   init counts the wisp tables right after `bd init` and again after the
+   reset, and stops if `bd init` created none or the reset changed the count.
 3. From then on the local `main` shares history with the remote, so
    `beads-sync pull`/`push` work normally. A follow-up `dolt_pull` reported
    `Everything up-to-date`.
@@ -947,8 +949,11 @@ dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
 
 Check `select * from dolt_status;` first. Only reset tables that appear in
 `dolt_ignore` (`ignored_schema_migrations`, `local_metadata`, `repo_mtimes`,
-`wisps`, `wisp_%`). Anything else dirty is real data — run `bd dolt commit`
-instead. `beads-sync` enforces this and refuses otherwise.
+`wisps`, `wisp_%`) and exist at HEAD (`show tables as of 'HEAD';`). Anything
+else dirty is real data — run `bd dolt commit` instead. `beads-sync` enforces
+this and refuses otherwise. An ignored table that is absent from HEAD is
+clone-local (bd 1.3 migration 0062 moves `events` there); checking it out
+from HEAD would fail or drop its rows, so `beads-sync` leaves it alone.
 
 **Do not retry `bd dolt pull` in a loop.** Upstream reports that repeated failed
 pull attempts can corrupt the Dolt journal, needing
