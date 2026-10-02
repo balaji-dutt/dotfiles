@@ -1,0 +1,25 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$refresh = Join-Path $HOME ".local\ffpwa-refresh.ps1"
+if (-not (Test-Path -LiteralPath $refresh -PathType Leaf)) {
+  Write-Host "INFO: $refresh not found; skipping the FirefoxPWA runtime check"
+  exit 0
+}
+
+$refreshExitCode = 1
+try {
+  & $refresh auto
+  $refreshExitCode = $LASTEXITCODE
+} catch {
+  Write-Warning $_.Exception.Message
+}
+
+if ($refreshExitCode -ne 0) {
+  Write-Warning "FirefoxPWA runtime refresh failed; see the errors above. Run ffpwa-refresh.ps1 runtime to retry, or ffpwa-refresh.ps1 sites if only web app updates failed."
+}
+exit 0
+{{- end -}}

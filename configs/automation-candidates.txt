@@ -5,12 +5,14 @@
 .chezmoiscripts/run_after_50-publish-devcontainer-overlays-wsl.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_configure_git_templates.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
+.chezmoiscripts/run_after_macos-ffpwa-runtime.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-nfs-config.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-opencode-pin.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_update_copyq.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_windows-beads-client.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-beads-pin.ps1.tmpl	chezmoi-lifecycle,script-extension
+.chezmoiscripts/run_after_windows-ffpwa-runtime.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-opencode-pin.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-sync.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-zz-register-startup-tasks.ps1.tmpl	chezmoi-lifecycle,script-extension
@@ -120,6 +122,7 @@ bin/executable_claude-plannotator.tmpl	chezmoi-executable,shebang
 bin/executable_claude-token-check	chezmoi-executable,shebang
 bin/executable_code	chezmoi-executable,shebang
 bin/executable_devcontainer-launch.tmpl	chezmoi-executable,shebang
+bin/executable_ffpwa-refresh	chezmoi-executable,shebang
 bin/executable_nfs_dot_clean.sh	chezmoi-executable,script-extension,shebang
 bin/executable_oc-commit	chezmoi-executable,shebang
 bin/executable_opencode-notifier-bridge	chezmoi-executable,shebang
@@ -172,6 +175,7 @@ dot_local/config/executable_gitignore_global.txt	chezmoi-executable
 dot_local/executable_ai-wt.cmd	chezmoi-executable,script-extension
 dot_local/executable_cc-commit.cmd	chezmoi-executable,script-extension
 dot_local/executable_cc-commit.ps1	chezmoi-executable,script-extension
+dot_local/executable_ffpwa-refresh.ps1	chezmoi-executable,script-extension
 dot_local/executable_oc-commit.cmd	chezmoi-executable,script-extension
 dot_local/executable_oc-commit.ps1	chezmoi-executable,script-extension
 dot_local/share/beads-helpers.bash	script-extension
@@ -334,6 +338,7 @@ private_dot_config/powershell/prompt.ps1.tmpl	script-extension
 private_dot_config/powershell/repair-path.ps1.tmpl	script-extension
 symlink_dot_p10k.zsh.tmpl	script-extension
 tests/powershell/CbmAutoIndex.Tests.ps1	script-extension
+tests/powershell/FfpwaRefresh.Tests.ps1	script-extension
 tests/powershell/PesterCompat.ps1	script-extension
 tests/powershell/WindowsBootstrap.Tests.ps1	script-extension
 tests/powershell/WindowsDriveMapping.Tests.ps1	script-extension
@@ -382,6 +387,7 @@ tests/test_devcontainer_smoke_live.py	script-extension
 tests/test_envrc.py	script-extension
 tests/test_espanso_utilities.py	script-extension
 tests/test_feature_ci_reminders.py	script-extension
+tests/test_ffpwa_refresh.py	script-extension
 tests/test_git_template_hook_sync.py	script-extension
 tests/test_git_user_hooks.py	script-extension
 tests/test_github_pipeline.py	script-extension

@@ -1,0 +1,14 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+refresh="$HOME/bin/ffpwa-refresh"
+if [[ ! -x "$refresh" ]]; then
+  printf 'INFO: %s not found; skipping the FirefoxPWA runtime check\n' "$refresh"
+  exit 0
+fi
+
+if ! "$refresh" auto; then
+  printf '%s\n' 'WARNING: FirefoxPWA runtime refresh failed; see the errors above. Run ffpwa-refresh runtime to retry, or ffpwa-refresh sites if only web app updates failed.' >&2
+fi
+{{- end }}

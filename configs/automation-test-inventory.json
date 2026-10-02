@@ -503,9 +503,10 @@
         "suite_id": "lifecycle-posix",
         "status": "partial",
         "work_item": "dots-4jy.10.5.2",
-        "test_paths": ["tests/test_cbm_auto_index_hook.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_macos_lifecycle_boundaries.py", "tests/test_opencode_v1.py", "tests/test_repo_ops.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py", "tests/test_wsl_lifecycle_boundaries.py"],
+        "test_paths": ["tests/test_cbm_auto_index_hook.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_ffpwa_refresh.py", "tests/test_host_ai_plugin_refresh_posix.py", "tests/test_macos_lifecycle_boundaries.py", "tests/test_opencode_v1.py", "tests/test_repo_ops.py", "tests/test_retire_legacy_cbm_mise.py", "tests/test_shell_lifecycle.py", "tests/test_wsl_lifecycle_boundaries.py"],
         "behavior_requirements": [
           {"id": "failure-cbm-auto-index-gate", "kind": "failure", "description": "Skip with a warning and zero status when the CBM CLI will not start while CBM sessions hold the daemon admission gate, and fail with the underlying diagnostic when no live session explains the failure.", "status": "covered", "test_paths": ["tests/test_cbm_auto_index_hook.py"]},
+          {"id": "failure-ffpwa-runtime-hook", "kind": "failure", "description": "Report INFO and exit zero when the FirefoxPWA refresh command is not deployed, warn and exit zero when it fails, and skip the runtime reinstall while web apps run or the installed Firefox is not newer.", "status": "covered", "test_paths": ["tests/test_ffpwa_refresh.py"]},
           {"id": "failure-legacy-cbm-retirement-guards", "kind": "failure", "description": "Reject active or malformed legacy backend state, unhealthy GitHub replacements, and failed mise mutations or postconditions with nonzero ERROR diagnostics.", "status": "covered", "test_paths": ["tests/test_retire_legacy_cbm_mise.py"]},
           {"id": "failure-macos-fixture-install-guards", "kind": "failure", "description": "Reject synthetic NFS non-file inputs and failed sudo installs, stop VDI installation on a Citrix checksum mismatch, preserve CopyQ on download failure, and reject invalid OpenUsage generated versions without replacing installed artifacts.", "status": "covered", "test_paths": ["tests/test_macos_lifecycle_boundaries.py"]},
           {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Homebrew holds.", "status": "covered", "test_paths": ["tests/test_opencode_v1.py"]},
@@ -825,6 +826,7 @@
         "bin/executable_claude-plannotator.tmpl",
         "bin/executable_code",
         "bin/executable_devcontainer-launch.tmpl",
+        "bin/executable_ffpwa-refresh",
         "bin/executable_nfs_dot_clean.sh",
         "bin/executable_oc-commit",
         "bin/executable_opencode-notifier-bridge",
@@ -844,7 +846,7 @@
         "suite_id": "user-utilities",
         "status": "partial",
         "work_item": "dots-4jy.10.3",
-        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_ffpwa_refresh.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
       "rationale": "Registered offline suites cover notifications, devcontainer launch actions and the workspace picker, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, VNC preference/process transitions, Kanban pin check/write and release checksum fallback in a disposable repo with fake curl, and Promptfoo runtime dispatch and failure paths in synthetic homes. Maintenance tests use fake system commands and bounded fixture state. Native macOS side effects remain syntax-only rather than platform-smoked, so this broad row stays partial."
@@ -892,6 +894,7 @@
       "paths": [
         "dot_local/executable_cc-commit.cmd",
         "dot_local/executable_cc-commit.ps1",
+        "dot_local/executable_ffpwa-refresh.ps1",
         "dot_local/executable_oc-commit.cmd",
         "dot_local/executable_oc-commit.ps1",
         "private_Documents/PowerShell/**",
@@ -907,7 +910,7 @@
         "suite_id": "windows-shell",
         "status": "partial",
         "work_item": "dots-4jy.10.5.5",
-        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_guarded_main_sync.py", "tests/test_windows_shell.py"],
+        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_ffpwa_refresh.py", "tests/test_guarded_main_sync.py", "tests/test_windows_shell.py"],
         "behavior_requirements": []
       },
       "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Native Pester covers profile and fragment loading, drive mapping retries, and Pageant input, process, quoting, and rerun boundaries with disposable files and mocked host integrations. Registered native-Windows cases also cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state. Live SMB mappings, Pageant IPC, scheduled profile startup, and other host integrations remain explicit platform-smoke gaps."
