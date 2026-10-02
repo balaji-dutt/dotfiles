@@ -19,6 +19,26 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 
 ## Entries
 
+## 2026-10-02
+
+- gotcha: opencode 1.18.31 sends `thinking.block_binding` for Claude 5.1+
+  models (`anthropic/claude-opus-5-5`) together with the
+  `thinking-binding-controls-2026-08-01` beta header.
+  `opencode-claude-bridge@1.10.12` `buildBetaFlags()` replaces the incoming
+  `anthropic-beta` header, so the API rejects the field with
+  `thinking.adaptive.block_binding: Extra inputs are not permitted`
+  (anomalyco/opencode#46729).
+- decision: Set `provider.anthropic.models.claude-opus-5-5.options.thinking`
+  to `{ type: "adaptive", blockBinding: false }` in host and container
+  configs (opt-out from anomalyco/opencode#46820). Keep `type: "adaptive"`:
+  without it opencode deletes the empty `thinking` object, and the bridge only
+  re-adds thinking for 4.x models.
+- context: Setting `ANTHROPIC_BETA_FLAGS` to the bridge defaults plus the
+  binding beta also works over OAuth. It was not adopted because it has to
+  copy the bridge's default list and it makes opencode send `drop_block`.
+- followup: Remove the override once the bridge forwards incoming betas
+  (tracked in dots-v9nd).
+
 ## 2026-08-15
 
 - decision: Native Windows `oc-commit` and `cc-commit` use PowerShell wrappers
