@@ -4,8 +4,10 @@
 
 ## Status
 
-Accepted — 2026-08-12. Config-state observations in this document reflect the
-repo on that date and will drift; see [Revisit triggers](#revisit-triggers).
+Accepted — 2026-08-12. Amended 2026-10-02; see [Amendments](#amendments).
+Config-state observations in this document reflect the repo on 2026-08-12,
+or on the amendment's date for amendment text, and will drift; see
+[Revisit triggers](#revisit-triggers).
 
 ## Context
 
@@ -178,6 +180,87 @@ Reopen this ADR if any of the following occurs:
   — the deny-based boundary is only as good as the rules still matching.
 - Secret-rotation automation lands, changing the cost/benefit of rendered
   plaintext at rest.
+- The AoE sandbox gains per-profile `[sandbox]` configuration — the per-repo
+  knob moves from `--sandbox-image` to profile config.
+- The AoE sandbox gains SSH-agent forwarding — the git-push precondition in
+  the 2026-10-02 amendment changes.
+- A repo needs both a devcontainer and an AoE sandbox — the two-mechanism
+  cost the "both tiers now" option warned about, on a single repo.
+
+## Amendments
+
+### 2026-10-02 — T1 container shapes and the AoE sandbox
+
+**What changed.** Agent of Empires 1.17.0 added a Docker sandbox (`--sandbox`,
+a global `[sandbox]` config section, the `ghcr.io/njbrake/aoe-sandbox` image)
+that mounts the session worktree at `/workspace` and composes with AoE
+worktree mode. This repo pins AoE 1.16.1 and excludes 1.17.0–1.17.2 from
+Renovate updates (`dots-od80`). Repos without a container variant (Beads-Kanban,
+agentic-tooling) accumulate `node_modules` on the host, and the `dots-6e7`
+epic that implements this ADR had no completed children.
+
+**Clarification.** Installed footprint — skinny (toolchain only), slim
+(toolchain plus a harness), fat (the homelab devcontainer, with AoE and shell
+tooling for a human) — is orthogonal to the tier boundary. The boundary is
+what the container can reach: mounted secrets, the SSH-agent socket, host
+dotfiles, egress. The homelab devcontainer is weakly isolated because of what
+it can reach, not because of its tooling; stripping tooling from it does not
+change its tier.
+
+**Container shapes.**
+
+- *Agent-outside*: a toolchain-only image; the agent runs on the host and
+  reaches into the container for builds and tests. This is host hygiene, not
+  a boundary. The agent keeps the host blast radius, and because every test
+  run has to go through the container, agents and humans route around it by
+  running the toolchain on the host.
+- *Agent-inside*: agent and toolchain share the container (devcontainer or
+  AoE sandbox). Only this shape can be a T1 boundary, and only it keeps
+  toolchains off the host.
+
+**Decision.** The AoE Docker sandbox is adopted as a second agent-inside T1
+mechanism for non-dotfiles repos other than homelab-IaC, widening the T1 row
+under [Decision](#decision) beyond devcontainer-based projects. Upstream owns
+the sandbox code, leaving this repo a layered image (`dots-6e7.13`) and
+config to maintain, which answers the maintenance-cost reason of the "both
+tiers now" rejection under [Options considered](#options-considered); its
+other reason (no workload needs T2) still holds, so T2 stays deferred.
+Preconditions, tracked in Beads:
+
+- The first AoE release after 1.17.2 that ships the fixes `dots-od80` names,
+  then a spike confirming the sandbox mount list, auth volumes, egress, and
+  config scope against the upstream source (`dots-6e7.11`). The upstream
+  facts in this amendment come from a DeepWiki summary, not a source read.
+- A per-repo scoped `opencode.env` render (`dots-6e7.12`, after
+  `dots-6e7.1`). The default sandbox mounts `~/.config/opencode` read-only,
+  so until the render is scoped the sandbox inherits every provider key —
+  the exposure recorded under [Context](#context). The scoped render is the
+  sandbox's equivalent of the per-process token in the T1 row.
+- Verified git push without the host SSH-agent socket, which the sandbox
+  does not forward (`dots-6e7.11`). The sandbox mounts `~/.ssh` read-only
+  into every sandboxed repo, against the T1 note that only homelab-IaC gets
+  SSH access; confirm `~/.ssh` holds no private key or agent socket on hosts
+  that run sandboxed sessions, so only the 1Password agent, which the sandbox
+  cannot reach, holds keys. The spike records which credential carries the
+  push; a host-side push or a per-repo token meets the T1 note, and a token
+  every repo can use does not.
+- An egress allowlist equivalent to the T1 row, or a recorded acceptance that
+  sandboxed sessions run without one. The spike (`dots-6e7.11`) determines
+  whether the sandbox exposes network configuration. Until an allowlist
+  exists, sandboxed sessions have no egress control.
+- A node image layered on `aoe-sandbox` for node repos (`dots-6e7.13`); the
+  default image has no project toolchain. `[sandbox]` is global, so the
+  per-repo knob is `--sandbox-image` at session creation; `default_image` in
+  [`private_dot_config/agent-of-empires/modify_config.toml`](../../private_dot_config/agent-of-empires/modify_config.toml)
+  sets the image for every repo.
+
+**Non-goal.** `ai-wt` stays host-only. Its purpose is direct harness use
+outside AoE ([`docs/automation/ai-worktrees.md`](../automation/ai-worktrees.md));
+sandboxed sessions start from AoE.
+
+**Sequencing.** Env hygiene (`dots-6e7.1`) precedes any new container variant:
+its inventory of which tool needs which key is what the scoped render
+(`dots-6e7.12`) consumes. T0 is unchanged.
 
 ## Sources
 
@@ -188,3 +271,13 @@ Collected 2026-08-12: repo survey of
 [`docs/plannotator.md`](../plannotator.md);
 [The lethal trifecta for AI agents](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/)
 (Simon Willison, 2025).
+
+Collected 2026-10-02: Agent of Empires sandbox guide
+(`docs/guides/sandbox.md` in
+[njbrake/agent-of-empires](https://github.com/njbrake/agent-of-empires)), read
+via DeepWiki summary and pending source verification in `dots-6e7.11`;
+[`docs/automation/ai-worktrees.md`](../automation/ai-worktrees.md);
+the AoE pins in [`configs/packages.yaml`](../../configs/packages.yaml) and the
+homelab devcontainer template, and the version exclusion in
+[`renovate.json5`](../../renovate.json5); Beads epic `dots-6e7` state on that
+date.
