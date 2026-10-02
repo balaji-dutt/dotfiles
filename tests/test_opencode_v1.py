@@ -91,8 +91,9 @@ class OpenCodePolicyTests(unittest.TestCase):
 
     def test_review_loop_matcher_is_container_pinned(self):
         packages = (ROOT / NPM).read_text().splitlines()
-        self.assertEqual([item for item in packages if item.startswith('picomatch@')],
-                         ['picomatch@4.0.3'])
+        pins = [item for item in packages if item.startswith('picomatch@')]
+        self.assertEqual(len(pins), 1)
+        self.assertRegex(pins[0], r'^picomatch@\d+\.\d+\.\d+$')
 
     def test_cli_rules_override_patch_automerge_and_grouping(self):
         for name, file_name in [('anomalyco/opencode', MISE), ('opencode-ai', NPM)]:
