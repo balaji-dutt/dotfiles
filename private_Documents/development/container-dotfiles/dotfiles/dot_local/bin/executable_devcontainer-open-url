@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: ${0##*/} <url>" >&2
+  exit 64
+fi
+
+exec "$(dirname -- "${BASH_SOURCE[0]}")/devcontainer-host-relay" open "$1"
