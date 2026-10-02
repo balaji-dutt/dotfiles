@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # renovate: datasource=github-releases depName=Astro-Han/claude-pace
-CLAUDE_PACE_VERSION="v0.9.4"
+CLAUDE_PACE_VERSION="v0.9.5"
 # Claude Code statusline plugin
 # Line1: model (ctx) effort | project (branch) Nf +A -D
 # Line2: bar PCT% CL | 5h used% [⇡⇣pace] countdown  7d used% [⇡⇣pace] countdown
@@ -119,7 +119,7 @@ _SETTINGS=$(cat "$HOME/.claude/settings.json" 2>/dev/null)
 echo "$_SETTINGS" | jq -e . >/dev/null 2>&1 || _SETTINGS='{}'
 IFS=$'\t' read -r MODEL DIR PCT CTX COST EFF HAS_RL U5 U7 R5 R7 TIN < <(
   jq -r --argjson cfg "$_SETTINGS" \
-    '[(.model.display_name//"?"),(.workspace.project_dir//"."),
+    '[(.model.display_name//"?"),(.workspace.project_dir//"."|gsub("\\\\";"/")),
     (.context_window.used_percentage//0|floor),(.context_window.context_window_size//0),
     (.cost.total_cost_usd//0),
     (.effort.level//$cfg.effortLevel//"default"),
