@@ -82,6 +82,57 @@ class RepoOpsTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"expected {expected!r}, got {result.stdout!r} {result.stderr!r}")
 
+    def tmux_format(self, run, target, fmt):
+        result = run("display-message", "-p", "-t", target, fmt)
+        self.assertEqual(result.returncode, 0, f"{target} {fmt}: {result.stderr}")
+        return result.stdout.strip()
+
+    def disable_paste_detection(self, run, *sessions):
+        for session in sessions:
+            result = run("set-option", "-t", session, "assume-paste-time", "0")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = run("show-option", "-v", "-t", session, "assume-paste-time")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "0", session)
+
+    def wait_for_command_prompt(self, master, timeout=4):
+        output = b""
+        deadline = time.monotonic() + timeout
+        prompt = re.compile(rb"(?:\x1b\[[0-9;]+[Hd]|\r\n)(?:\x1b\[[0-9;]*m)*:")
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output += os.read(master, 65536)
+                except OSError:
+                    break
+                if prompt.search(output):
+                    return
+        self.fail(f"missing command prompt in PTY output {output[-1500:]!r}")
+
+    def wait_for_control_restart(self, run, target, previous_pid, timeout=4):
+        deadline = time.monotonic() + timeout
+        fmt = "#{pane_pid} #{pane_dead} #{@repo_ops_command}"
+        while time.monotonic() < deadline:
+            observed = self.tmux_format(run, target, fmt)
+            pid, _, rest = observed.partition(" ")
+            if pid != previous_pid and rest == "0":
+                return
+            time.sleep(0.05)
+        self.fail(f"{target} restart: expected new live pid and cleared command tag; "
+                  f"got {observed!r}, previous pid {previous_pid!r}")
+
+    def wait_for_control_session_gone(self, run, target, survivor, timeout=4):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            missing = run("has-session", "-t", target)
+            alive = run("has-session", "-t", survivor)
+            self.assertEqual(alive.returncode, 0, f"{survivor}: {alive.stderr}")
+            if missing.returncode != 0:
+                return
+            time.sleep(0.05)
+        self.fail(f"{target} still exists after confirmation; {survivor} remains alive")
+
     def require_theme_compatible_tmux(self):
         version = subprocess.run(["tmux", "-V"], capture_output=True, text=True)
         match = re.search(r"(\d+)\.(\d+)", version.stdout)
@@ -299,19 +350,26 @@ class RepoOpsTests(unittest.TestCase):
         with self.theme_server() as (_, env, tmux, run):
             started = run("new-session", "-d", "-s", "repo-ops-core", "-n", "dotfiles", "sleep 120")
             self.assertEqual(started.returncode, 0, started.stderr)
+            self.disable_paste_detection(run, "repo-ops-core")
+            original_pid = self.tmux_format(run, "repo-ops-core:0.0", "#{pane_pid}")
             for columns in (100, 46):
                 with self.attached_client(tmux, env, "repo-ops-core", columns) as (master, _):
                     self.wait_for_output(master, b"Layout: core")
                     os.write(master, b"\x02:")
-                    self.wait_for_output(master, b":")
+                    self.wait_for_command_prompt(master)
                     os.write(master, b"display-message should-not-run")
-                    self.wait_for_output(master, b"should-not-run")
+                    self.wait_for_output(master, b":display-message should-not-run")
                     os.write(master, b"\x7f\x03")
                     self.wait_for_output(master, b"Layout: core")
+                    self.assertEqual(self.tmux_format(run, "repo-ops-core:0.0", "#{pane_pid} #{pane_dead}"),
+                                     f"{original_pid} 0", f"command prompt cancellation at {columns} columns")
                     os.write(master, b"\x02K")
                     self.wait_for_output(master, b"Kill session repo-ops-core")
                     os.write(master, b"n")
+                    self.wait_for_output(master, b"Layout: core")
                     self.assertEqual(run("has-session", "-t", "repo-ops-core").returncode, 0)
+                    self.assertEqual(self.tmux_format(run, "repo-ops-core:0.0", "#{pane_pid} #{pane_dead}"),
+                                     f"{original_pid} 0", f"rejected kill at {columns} columns")
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_reload_updates_existing_session_without_replacing_panes(self):
@@ -336,10 +394,14 @@ class RepoOpsTests(unittest.TestCase):
             started = run("new-session", "-d", "-s", "repo-ops-core", "-n", "dotfiles", "sleep 120")
             self.assertEqual(started.returncode, 0, started.stderr)
             self.assertEqual(run("new-session", "-d", "-s", "repo-ops-other", "sleep 120").returncode, 0)
+            self.disable_paste_detection(run, "repo-ops-core", "repo-ops-other")
             sibling = run("split-window", "-dP", "-F", "#{pane_id}", "-t", "repo-ops-core:0",
                           "sleep 120").stdout.strip()
             original = run("display-message", "-p", "-t", "repo-ops-core:0.0", "#{pane_id}").stdout.strip()
             self.assertNotEqual(original, sibling)
+            original_pid = self.tmux_format(run, original, "#{pane_pid}")
+            sibling_pid = self.tmux_format(run, sibling, "#{pane_pid}")
+            original_session = self.tmux_format(run, original, "#{session_id}")
             self.assertEqual(run("set-option", "-p", "-t", original, "@repo_ops_role", "shell").returncode, 0)
             self.assertEqual(run("select-pane", "-t", original).returncode, 0)
             bindings = run("list-keys", "-T", "prefix")
@@ -358,33 +420,38 @@ class RepoOpsTests(unittest.TestCase):
                 os.write(master, b"\x02R")
                 self.wait_for_output(master, b"restart pane")
                 os.write(master, b"n")
-                self.assertEqual(run("display-message", "-p", "-t", original, "#{pane_dead}").stdout.strip(), "0")
+                self.wait_for_output(master, b"Layout: core")
+                self.assertEqual(self.tmux_format(run, original, "#{pane_pid} #{pane_dead}"),
+                                 f"{original_pid} 0")
                 os.write(master, b"\x02R")
                 self.wait_for_output(master, b"restart pane")
                 self.assertEqual(run("select-pane", "-t", sibling).returncode, 0)
                 self.assertEqual(run("set-option", "-p", "-t", original,
                                      "@repo_ops_command", "git").returncode, 0)
                 os.write(master, b"y")
+                self.wait_for_control_restart(run, original, original_pid)
                 self.wait_for_format(run, original, "#{pane_current_command}", "sleep")
-                self.assertEqual(run("display-message", "-p", "-t", original,
-                                     "#{@repo_ops_command}").stdout.strip(), "")
-                self.assertEqual(run("show-option", "-qpv", "-t", original,
-                                     "@repo_ops_role").stdout.strip(), "shell")
-                self.assertEqual(run("display-message", "-p", "-t", sibling,
-                                     "#{pane_dead}").stdout.strip(), "0")
-                self.assertEqual(run("display-message", "-p", "-t", original,
-                                     "#{pane_id}").stdout.strip(), original)
+                self.assertEqual(self.tmux_format(run, original, "#{@repo_ops_command}"), "")
+                self.assertEqual(self.tmux_format(run, original, "#{@repo_ops_role}"), "shell")
+                self.assertEqual(self.tmux_format(run, sibling, "#{pane_pid} #{pane_dead}"),
+                                  f"{sibling_pid} 0")
+                self.assertEqual(self.tmux_format(run, original, "#{pane_id}"), original)
+                self.assertEqual(self.tmux_format(run, original, "#{session_id}"), original_session)
+                restarted_pid = self.tmux_format(run, original, "#{pane_pid}")
                 os.write(master, b"\x02K")
                 self.wait_for_output(master, b"Kill session repo-ops-core")
                 os.write(master, b"n")
+                self.wait_for_output(master, b"Layout: core")
                 self.assertEqual(run("has-session", "-t", "repo-ops-core").returncode, 0)
+                self.assertEqual(self.tmux_format(run, original, "#{pane_pid} #{pane_dead}"),
+                                  f"{restarted_pid} 0")
+                self.assertEqual(self.tmux_format(run, sibling, "#{pane_pid} #{pane_dead}"),
+                                  f"{sibling_pid} 0")
                 os.write(master, b"\x02K")
                 self.wait_for_output(master, b"Kill session repo-ops-core")
                 self.assertEqual(run("switch-client", "-t", "repo-ops-other").returncode, 0)
                 os.write(master, b"y")
-                self.wait_for_format(run, "repo-ops-other", "#{session_name}", "repo-ops-other")
-                self.assertNotEqual(run("has-session", "-t", "repo-ops-core").returncode, 0)
-                self.assertEqual(run("has-session", "-t", "repo-ops-other").returncode, 0)
+                self.wait_for_control_session_gone(run, original_session, "repo-ops-other")
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_respawn_exited_launcher_retains_command(self):
