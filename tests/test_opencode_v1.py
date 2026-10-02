@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import fnmatch
 import json
 import os
@@ -160,6 +161,83 @@ class OpenCodePolicyTests(unittest.TestCase):
                 }))
                 with self.assertRaises(AssertionError):
                     self.assert_sol_agent_policy(synthetic)
+
+    def assert_plan_trial_policy(self, global_config, project_config):
+        def merge(base, overlay):
+            result = copy.deepcopy(base)
+            for key, value in overlay.items():
+                if isinstance(result.get(key), dict) and isinstance(value, dict):
+                    result[key] = merge(result[key], value)
+                else:
+                    result[key] = copy.deepcopy(value)
+            return result
+
+        self.assertNotIn('Plan-Trial', global_config['agent'])
+        plan = global_config['agent']['plan']
+        self.assertEqual(plan['prompt'], '{file:./prompts/plan-agent.md}')
+        self.assertEqual(plan['reasoningEffort'], 'high')
+        trial = project_config['agent']['Plan-Trial']
+        self.assertIsInstance(trial['description'], str)
+        self.assertIn('trial', trial['description'].lower())
+        expected = merge(plan, project_config['agent']['plan'])
+        expected.update(
+            model='openai/gpt-6.1-sol', description=trial['description'],
+            prompt='{file:~/.config/opencode/prompts/plan-agent.md}',
+        )
+        native_plan_permissions = {'question': 'allow', 'plan_exit': 'allow'}
+        expected['permission'].update(native_plan_permissions)
+        self.assertEqual(trial, expected)
+
+        def plannotator(config):
+            registrations = [entry for entry in config.get('plugin', [])
+                             if (entry[0] if isinstance(entry, list) else entry)
+                             .startswith('@plannotator/opencode@')]
+            self.assertEqual(len(registrations), 1)
+            self.assertIsInstance(registrations[0], list)
+            return registrations[0]
+
+        global_plugin = plannotator(global_config)
+        self.assertEqual(global_plugin[0],
+                         '@plannotator/opencode@{file:~/.config/dotfiles/versions/plannotator}')
+        expected_plugin = copy.deepcopy(global_plugin)
+        self.assertNotIn('Plan-Trial', expected_plugin[1]['planningAgents'])
+        expected_plugin[1]['planningAgents'].append('Plan-Trial')
+        self.assertEqual(plannotator(project_config), expected_plugin)
+
+    def test_repo_local_plan_trial_matches_ordinary_plan(self):
+        project_config = LOAD_JSON(ROOT / '.opencode/opencode.jsonc', jsonc=True)
+        for file_name in (
+            'private_dot_config/opencode/opencode.jsonc',
+            'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc',
+        ):
+            with self.subTest(file_name=file_name):
+                global_config = LOAD_JSON(ROOT / file_name, jsonc=True)
+                self.assert_sol_agent_policy(global_config)
+                self.assert_plan_trial_policy(global_config, project_config)
+
+    def test_plan_trial_policy_rejects_drift(self):
+        global_config = LOAD_JSON(ROOT / 'private_dot_config/opencode/opencode.jsonc', jsonc=True)
+        project_config = LOAD_JSON(ROOT / '.opencode/opencode.jsonc', jsonc=True)
+        self.assert_plan_trial_policy(global_config, project_config)
+        mutations = (
+            (('agent', 'Plan-Trial', 'reasoningEffort'), 'xhigh'),
+            (('agent', 'Plan-Trial', 'permission', 'task', 'plan-reviewer'), 'allow'),
+            (('agent', 'Plan-Trial', 'permission', 'question'), 'deny'),
+            (('agent', 'Plan-Trial', 'permission', 'edit'), 'allow'),
+            (('agent', 'Plan-Trial', 'tools', 'cbm_index_repository'), False),
+            (('agent', 'Plan-Trial', 'prompt'), '{file:./prompts/trial-copy.md}'),
+            (('plugin', 0, 1, 'planningAgents'), ['plan']),
+            (('plugin', 0, 0), '@plannotator/opencode@latest'),
+        )
+        for keys, value in mutations:
+            with self.subTest(keys=keys):
+                mutated = copy.deepcopy(project_config)
+                target = mutated
+                for key in keys[:-1]:
+                    target = target[key]
+                target[keys[-1]] = value
+                with self.assertRaises(AssertionError):
+                    self.assert_plan_trial_policy(global_config, mutated)
 
     def test_policy_ci_runs_on_renovate_branches(self):
         ci = (ROOT / '.gitlab-ci.yml').read_text()
