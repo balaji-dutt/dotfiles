@@ -113,7 +113,13 @@
           "bd update*": "deny",
           "bd close*": "deny",
           "bd delete*": "deny",
-          "bd edit*": "deny"
+          "bd edit*": "deny",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",
@@ -152,7 +158,13 @@
           "bd update*": "deny",
           "bd close*": "deny",
           "bd delete*": "deny",
-          "bd edit*": "deny"
+          "bd edit*": "deny",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",
@@ -180,7 +192,13 @@
           "bd update*": "deny",
           "bd close*": "deny",
           "bd delete*": "deny",
-          "bd edit*": "deny"
+          "bd edit*": "deny",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",
@@ -241,6 +259,12 @@
           "ai-wt cleanup*": "ask",
           "git worktree remove*": "ask",
           "git branch -d *": "ask",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",
@@ -301,6 +325,12 @@
           "ai-wt cleanup*": "ask",
           "git worktree remove*": "ask",
           "git branch -d *": "ask",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",
@@ -362,6 +392,12 @@
           "ai-wt cleanup*": "ask",
           "git worktree remove*": "ask",
           "git branch -d *": "ask",
+          "bd sync*": "deny",
+          "bd serve*": "deny",
+          "command bd sync*": "deny",
+          "command bd serve*": "deny",
+          "bd.exe sync*": "deny",
+          "bd.exe serve*": "deny"
         },
         "task": {
           "*": "deny",

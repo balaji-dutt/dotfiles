@@ -19,6 +19,13 @@
         "test_paths": ["tests/test_agent_attestation.py", "tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py", "tests/test_pipeline_guard.py"],
         "behavior_requirements": [
           {
+            "id": "failure-beads-close-refusal",
+            "kind": "failure",
+            "description": "Name a Beads close-policy or assignee refusal after landing, keep the tracking state, exit non-zero, and never pass --force.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
             "id": "failure-merge-commit-wrapper",
             "kind": "failure",
             "description": "Require the selected commit wrapper before preparing a merge; leave ordinary failures pending, reject false wrapper success and abort safely on an approved main update.",

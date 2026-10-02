@@ -143,7 +143,13 @@
       "Bash(cz state reset)",
       "Bash(cz state set:*)",
       "Bash(cz unmanage:*)",
-      "Bash(cz upgrade)"
+      "Bash(cz upgrade)",
+      "Bash(bd sync:*)",
+      "Bash(command bd sync:*)",
+      "Bash(bd serve:*)",
+      "Bash(command bd serve:*)",
+      "Bash(bd.exe sync:*)",
+      "Bash(bd.exe serve:*)"
     ]
   }
 }

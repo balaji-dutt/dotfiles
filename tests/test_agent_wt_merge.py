@@ -144,6 +144,9 @@ if log_path:
 if os.environ.get("FAKE_BD_FAIL"):
     print("simulated bd failure", file=sys.stderr)
     raise SystemExit(17)
+if os.environ.get("FAKE_BD_CLOSE_REFUSAL"):
+    print(os.environ["FAKE_BD_CLOSE_REFUSAL"], file=sys.stderr)
+    raise SystemExit(1)
 issue = json.loads(issue_path.read_text(encoding="utf-8")) if issue_path.exists() else {"id": args[1], "notes": ""}
 issue.update(status="closed", close_reason=args[args.index("--reason") + 1])
 issue_path.write_text(json.dumps(issue), encoding="utf-8")
@@ -1593,6 +1596,36 @@ Commands:
         self.assertTrue(state_path.exists())
         self.assertIn("Git merge succeeded", result.stdout)
         self.assertIn("requested Beads closure did not complete", result.stdout)
+
+    def test_close_policy_refusal_is_named_and_never_forced(self) -> None:
+        cases = (
+            ("cannot close dots-test: 2 open child issue(s); close children first or use --force to override", "the issue has open children"),
+            ("cannot close blocked issue: dots-test is blocked by [dots-other]", "the issue has a live blocker"),
+            ('cannot close dots-test: assignee is "OpenCode", actor is "Claude"; reclaim or use --force to override', "assigned to another actor"),
+        )
+        for message, expected in cases:
+            with self.subTest(expected=expected):
+                fixture = self.fixture()
+                started_sha = fixture.output(fixture.main, "rev-parse", "HEAD")
+                state_path = fixture.write_state(started_sha=started_sha)
+                result = fixture.run_helper(
+                    fixture.main_helper,
+                    fixture.feature,
+                    "ff",
+                    "--actor",
+                    "opencode",
+                    "--close-beads",
+                    "dots-test",
+                    extra_env={"FAKE_BD_CLOSE_REFUSAL": message},
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertTrue(state_path.exists())
+                self.assertIn(expected, result.stdout)
+                self.assertIn("never passes --force", result.stdout)
+                next_line = next(line for line in result.stdout.splitlines() if "Next:" in line)
+                self.assertIn("--reason 'Fixed with commit(s)", next_line)
+                self.assertIn("--actor OpenCode", next_line)
+                self.assertNotIn("--force", json.loads(fixture.bd_log.read_text(encoding="utf-8")))
 
     def test_state_cleanup_failure_is_nonzero_after_close(self) -> None:
         fixture = self.fixture()

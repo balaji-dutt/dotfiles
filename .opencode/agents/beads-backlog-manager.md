@@ -55,6 +55,12 @@ permission:
     bd.exe delete*: deny
     command bd reopen*: deny
     bd.exe reopen*: deny
+    command bd sync*: deny
+    bd sync*: deny
+    bd.exe sync*: deny
+    command bd serve*: deny
+    bd serve*: deny
+    bd.exe serve*: deny
 ---
 
 You are the Beads backlog manager for this dotfiles repository.
@@ -214,6 +220,10 @@ that minimize permission prompts. Never source shell rc files or
      `<bd> close <id> --reason <text> --actor "OpenCode"`.
    - Do not use `--commit`; include commit SHAs in the reason only if the
      approved handoff provided them.
+   - If bd refuses the close or a status change into a closed status because
+     the issue has open children, a live blocker, or another actor's
+     assignment, return `Blocked` with bd's message and the blocking IDs.
+     Never add `--force`.
 8. Refresh with `<bd> show <id>` for changed issues. Confirm each stored
    title and type match the request — if a title came through as a bare type
    word (`epic`/`feature`) or the type defaulted to `task`, fix it with

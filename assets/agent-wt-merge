@@ -1596,6 +1596,21 @@ def merge_failure_message(ctx: MergeContext, result: subprocess.CompletedProcess
     return detail
 
 
+CLOSE_REFUSALS = (
+    ("open child issue(s)", "refused by Beads close policy: the issue has open children"),
+    ("cannot close issue with open children", "refused by Beads close policy: the issue has open children"),
+    ("cannot close blocked issue", "refused by Beads close policy: the issue has a live blocker"),
+    ("reclaim or use --force", "refused by Beads: the issue is assigned to another actor"),
+)
+
+
+def classify_close_refusal(output: str) -> str | None:
+    for marker, reason in CLOSE_REFUSALS:
+        if marker in output:
+            return reason
+    return None
+
+
 def close_beads_issue(
     *,
     ctx: MergeContext,
@@ -1651,8 +1666,9 @@ def close_beads_issue(
             "stderr": "no bd executable was found in PATH",
         }
     try:
+        close_argv = ["bd", "close", issue_id, "--reason", reason, "--actor", spec["name"]]
         result = subprocess.run(
-            [bd_command, "close", issue_id, "--reason", reason, "--actor", spec["name"]],
+            [bd_command, *close_argv[1:]],
             cwd=str(ctx.original_worktree),
             text=True,
             stdout=subprocess.PIPE,
@@ -1668,7 +1684,7 @@ def close_beads_issue(
             "stderr": str(exc),
         }
     if result.returncode != 0:
-        return {
+        failure = {
             "requested": True,
             "closed": False,
             "state_file": str(state_file),
@@ -1676,6 +1692,13 @@ def close_beads_issue(
             "stdout": result.stdout.strip(),
             "stderr": result.stderr.strip(),
         }
+        refusal = classify_close_refusal(f"{result.stdout}\n{result.stderr}")
+        if refusal:
+            failure["reason"] = refusal
+            failure["next_step"] = (
+                f"resolve it, then rerun `{shlex.join(close_argv)}`; this helper never passes --force"
+            )
+        return failure
     readback, read_error = read_beads_issue(ctx.original_worktree, issue_id)
     if read_error or readback is None or readback.get("status") != "closed" or readback.get("close_reason") != reason:
         return {"requested": True, "closed": False, "source": state["source"],
@@ -1900,6 +1923,8 @@ def print_merge_report(report: dict[str, Any]) -> None:
             print(f"  - bd stdout: {beads['stdout']}")
         if beads.get("stderr"):
             print(f"  - bd stderr: {beads['stderr']}")
+        if beads.get("next_step"):
+            print(f"  - Next: {beads['next_step']}")
     else:
         print("- Beads issue closed: no (not requested)")
     print_cleanup(report["cleanup"], after_merge=True)

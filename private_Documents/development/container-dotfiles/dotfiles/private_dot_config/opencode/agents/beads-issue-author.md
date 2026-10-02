@@ -38,6 +38,12 @@ permission:
     command bd delete*: deny
     bd delete*: deny
     bd.exe delete*: deny
+    command bd sync*: deny
+    bd sync*: deny
+    bd.exe sync*: deny
+    command bd serve*: deny
+    bd serve*: deny
+    bd.exe serve*: deny
 ---
 
 You are the Beads issue authoring subagent for OpenCode.
