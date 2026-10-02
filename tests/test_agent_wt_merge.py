@@ -134,7 +134,10 @@ if args[0] == "show":
             issue_path.write_text(json.dumps(issue), encoding="utf-8")
     if os.environ.get("FAKE_BD_SHOW_FAIL") or (os.environ.get("FAKE_BD_READBACK_FAIL") and issue["status"] == "closed"):
         raise SystemExit(17)
-    print(json.dumps([issue]))
+    if os.environ.get("FAKE_BD_ENVELOPE"):
+        print(json.dumps({"schema_version": 1, "data": [issue]}))
+    else:
+        print(json.dumps([issue]))
     raise SystemExit(0)
 if log_path:
     Path(log_path).write_text(json.dumps(args), encoding="utf-8")
@@ -1724,6 +1727,14 @@ Commands:
         self.assertEqual(result.returncode, 1)
         self.assertTrue(state.exists())
         self.assertEqual(read_json(fixture.bd_issue)["status"], "closed")
+
+    def test_json_envelope_show_still_matches_and_closes(self) -> None:
+        fixture = self.fixture(ci_gated=False)
+        state = fixture.write_state(started_sha=fixture.output(fixture.main, "rev-parse", "HEAD"))
+        result = fixture.run_helper(fixture.main_helper, fixture.feature, "ff", "--actor", "opencode", "--close-beads", "dots-test", extra_env={"FAKE_BD_ENVELOPE": "1"})
+        self.assert_ok(result)
+        self.assertEqual(read_json(fixture.bd_issue)["status"], "closed")
+        self.assertFalse(state.exists())
 
     def test_ci_gated_merge_closes_selected_note_after_landing(self) -> None:
         fixture = self.fixture()

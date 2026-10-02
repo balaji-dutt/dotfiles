@@ -647,6 +647,9 @@ def read_beads_issue(worktree: Path, issue_id: str) -> tuple[dict[str, Any] | No
         data = json.loads(result.stdout)
     except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
         return None, f"bd show could not be read: {exc}"
+    # BD_JSON_ENVELOPE=1 (bd 1.3+, the default from v2.0) wraps the result.
+    if isinstance(data, dict) and "schema_version" in data and "data" in data:
+        data = data["data"]
     if isinstance(data, list) and len(data) == 1:
         data = data[0]
     if not isinstance(data, dict) or data.get("id") != issue_id:

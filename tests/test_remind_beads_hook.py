@@ -391,6 +391,30 @@ class HelperExitCodeTests(GateTestCase):
                 self.fake_bd(stdout=json.dumps({"error": body}), code=1)
                 self.assertEqual(self.run_helper().returncode, EXIT_UNVERIFIED)
 
+    def test_json_envelope_is_unwrapped(self) -> None:
+        def envelope(data: object) -> str:
+            return json.dumps({"schema_version": 1, "data": data})
+
+        cases = (
+            (envelope(json.loads(issue_body("in_progress"))), 0, EXIT_LIVE),
+            (envelope(json.loads(issue_body("closed"))), 0, EXIT_STALE),
+            (envelope(json.loads(NOT_FOUND_BODY)), 1, EXIT_STALE),
+            (envelope({"error": "database dots not found"}), 1, EXIT_UNVERIFIED),
+            (envelope([]), 0, EXIT_STALE),
+        )
+        for stdout, code, expected in cases:
+            with self.subTest(stdout=stdout):
+                self.write_state_for()
+                self.fake_bd(stdout=stdout, code=code)
+                self.assertEqual(self.run_helper().returncode, expected)
+
+    def test_bd_write_exit_codes_are_unverified(self) -> None:
+        for code in (13, 14):
+            with self.subTest(code=code):
+                self.write_state_for()
+                self.fake_bd(stdout=issue_body("open"), code=code)
+                self.assertEqual(self.run_helper().returncode, EXIT_UNVERIFIED)
+
     def test_absent_state_file_exits_stale(self) -> None:
         self.fake_bd(stdout=issue_body("open"))
         self.assertEqual(self.run_helper().returncode, EXIT_STALE)
