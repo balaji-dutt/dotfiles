@@ -196,6 +196,7 @@ private_Documents/PowerShell/Scripts/MapDrives.ps1	script-extension
 private_Documents/PowerShell/Scripts/Start-WslSshPageant.ps1.tmpl	script-extension
 private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh	script-extension,shebang
 private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl	embedded-devcontainer-command
+private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer_host_relay.py	script-extension,shebang
 private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/opencode-sync-workspace-overrides.sh	script-extension,shebang
 private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/orbstack_ssh_agent_relay.py	script-extension,shebang
 private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postAttach.sh	script-extension,shebang
@@ -238,6 +239,8 @@ private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executab
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_claude-plannotator.tmpl	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_claude-token-check	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_devcontainer-clipboard-osc52	chezmoi-executable,shebang
+private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_devcontainer-host-relay	chezmoi-executable,shebang
+private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_devcontainer-open-url	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_oc-commit	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-claude-bridge-validate	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-plannotator-custom.tmpl	chezmoi-executable,shebang
@@ -375,6 +378,7 @@ tests/test_codebase_memory_mcp_installer_windows.py	script-extension
 tests/test_codebase_memory_mcp_pin.py	script-extension
 tests/test_config_contracts.py	script-extension
 tests/test_cz_audit.py	script-extension
+tests/test_devcontainer_host_relay.py	script-extension
 tests/test_devcontainer_launch.py	script-extension
 tests/test_devcontainer_lifecycle.py	script-extension
 tests/test_devcontainer_smoke.py	script-extension

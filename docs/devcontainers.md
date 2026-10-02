@@ -482,10 +482,59 @@ port of `9999`. Wrapper ranges come from `.chezmoidata.yaml` under
 `plannotator_ports.devcontainer`; see [Plannotator Port Ranges](plannotator.md)
 for the complete host/container table and wrapper selection.
 
-The template does not configure fixed `forwardPorts` or Docker-published
-`appPort` mappings for Plannotator. Forward the port reported when review starts
-and open its localhost URL. VS Code attach can provide forwarding;
-terminal-only `devcontainer-launch` sessions need an explicit forwarding path.
+The template publishes every devcontainer range and `9999` on `127.0.0.1`
+through `appPort`, so the review URL works from the host browser in
+`devcontainer-launch` sessions as well as under VS Code attach.
+`portsAttributes` stops VS Code from auto-forwarding the same ports a second
+time. Only one homelab container can publish these ports at a time; a second
+one fails at container creation with a Docker port-bind error. Stop the other
+container (`devcontainer-launch homelab-IaC status` shows duplicates) before
+retrying. Changes to the published ports apply only after
+`devcontainer-launch homelab-IaC rebuild`.
+
+`BROWSER` in the container points at `devcontainer-open-url`, which hands the
+URL to the host relay below. If the relay is unreachable it exits non-zero,
+and Plannotator falls back to VS Code IPC when VS Code is attached.
+
+### Host relay
+
+`initializeCommand` starts `dot_devcontainer/devcontainer_host_relay.py` on the
+host every time the container comes up. State lives in
+`~/.cache/devcontainer-host-relay/homelab-iac/` (mode `0700`). Only its `sock/`
+subdirectory, which holds `relay.sock` (mode `0600`), is mounted into the
+container at `/tmp/host-relay`. The relay restarts when the port ranges passed
+by the template or the relay script itself change. The container client is
+`devcontainer-host-relay`. If `python3` or the script is missing on the host,
+`initializeCommand` prints a warning and the container starts without the relay.
+
+| Request | Host action |
+| --- | --- |
+| `open <url>` | Opens `http://localhost` or `127.0.0.1` URLs on the published Plannotator ports, and Claude login URLs. Uses `~/bin/wsl-open` on WSL2 and `open` on macOS. |
+| `targets` | Lists the image MIME types on the host clipboard. |
+| `image <type>` | Returns clipboard image bytes, capped at 25 MB. |
+
+A Claude login URL must carry a `redirect_uri` that is either the localhost
+callback or the manual-code callback. The relay rewrites it to
+`https://platform.claude.com/oauth/code/callback`, because the container's
+callback port is unreachable from the host. The browser then shows a code to
+paste at Claude's prompt. All other URLs are refused, so tools such as `gh`
+print their URL instead.
+
+The container's `xclip` shim forwards `-t TARGETS -o` and `-t image/<type> -o`
+to the relay, which gives Claude Code and OpenCode image paste. WSLg offers
+Windows clipboard images only as `image/bmp`, so on WSL2 the relay produces PNG
+through `powershell.exe`. Text clipboard reads stay unsupported: terminal paste
+already covers text, and the relay never exposes host clipboard text to
+container processes. Any process in the container can still open allowlisted
+URLs and read clipboard images.
+
+The relay logs each request's operation and outcome, never the URL or
+clipboard content, to `relay.log` in the state directory, outside the mount.
+
+On macOS with OrbStack the relay is covered only by tests with stubbed
+commands. The socket bind mount, the container user's access to the `0600`
+socket owned by the macOS user, `open`, and the `osascript` image path still
+need a live check there.
 
 Container-installed `opencode-plannotator*` and `claude-plannotator` wrappers
 are verbose by default so terminal sessions show the configured profile and
@@ -801,9 +850,9 @@ workspace/config spellings must be checked with `status` before assuming reuse.
 
 `devcontainer-launch` starts the container through the standalone Dev Container
 CLI and then execs a shell. It does not provide VS Code's automatic
-port-forwarding service. The homelab template does not publish fixed Plannotator
-ports, so terminal-only sessions need VS Code attach or another explicit
-forwarding mechanism for the review UI.
+port-forwarding service. The homelab template therefore publishes the
+Plannotator ranges itself and opens review URLs through the host relay; see
+[Plannotator review UI](#plannotator-review-ui).
 
 Per-machine overrides use the manifest `env_prefix`:
 

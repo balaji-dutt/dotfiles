@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Container client for the host relay started by the devcontainer initializeCommand.
+
+Usage:
+  devcontainer-host-relay open <url>
+  devcontainer-host-relay targets
+  devcontainer-host-relay image <png|bmp|jpeg|gif|webp>
+
+Writes the reply body to stdout and exits 0 on `ok`; exits 1 when the relay is
+unreachable or refuses the request, so callers can fall back.
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+import sys
+
+DEFAULT_SOCKET = "/tmp/host-relay/relay.sock"
+TIMEOUT_SECONDS = 15
+
+
+def fail(message: str) -> int:
+    print(f"devcontainer-host-relay: {message}", file=sys.stderr)
+    return 1
+
+
+def request(line: str) -> tuple[bool, bytes]:
+    path = os.environ.get("DEVCONTAINER_HOST_RELAY_SOCKET", DEFAULT_SOCKET)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(TIMEOUT_SECONDS)
+        client.connect(path)
+        client.sendall(line.encode("ascii") + b"\n")
+        chunks = []
+        while chunk := client.recv(65536):
+            chunks.append(chunk)
+        reply = b"".join(chunks)
+    header, _, body = reply.partition(b"\n")
+    status, _, detail = header.decode("ascii", "replace").partition(" ")
+    if status == "ok" and detail.isdigit() and int(detail) == len(body):
+        return True, body
+    if status == "error":
+        return False, detail.encode("utf-8", "replace")
+    return False, b"malformed relay reply"
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] in ("open", "image"):
+        line = f"{argv[0]} {argv[1]}"
+    elif argv == ["targets"]:
+        line = "targets"
+    else:
+        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        return 2
+    if not line.isascii() or any(char in line for char in "\r\n"):
+        return fail("request must be single-line ASCII")
+    try:
+        ok, body = request(line)
+    except OSError as exc:
+        return fail(f"host relay unavailable ({exc.strerror or exc})")
+    if not ok:
+        return fail(body.decode("utf-8", "replace"))
+    sys.stdout.buffer.write(body)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

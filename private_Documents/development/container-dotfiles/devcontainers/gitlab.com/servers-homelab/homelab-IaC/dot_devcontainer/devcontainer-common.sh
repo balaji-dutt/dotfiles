@@ -934,6 +934,20 @@ sys.exit(0 if len(matches) == 0 else 1)
       echo "WARN: Claude Plannotator plugin installation failed." >&2
       return 1
     fi
+  elif claude plugin list --json | python3 -c '
+import json, sys
+records = json.load(sys.stdin)
+matches = [item for item in records if item.get("id") == "plannotator@plannotator"]
+sys.exit(0 if len(matches) == 1 and matches[0].get("version") != sys.argv[1] else 1)
+' "$version"; then
+    if ! claude plugin marketplace update plannotator; then
+      echo "WARN: Claude Plannotator marketplace refresh failed." >&2
+      return 1
+    fi
+    if ! claude plugin update plannotator@plannotator --scope user; then
+      echo "WARN: Claude Plannotator plugin update failed." >&2
+      return 1
+    fi
   fi
   if ! claude plugin list --json | python3 -c '
 import json, sys

@@ -207,6 +207,14 @@
       "covers": ["tests/test_config_contracts.py"]
     },
     {
+      "id": "devcontainer-host-relay",
+      "suites": ["integration", "platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_host_relay"],
+      "covers": ["tests/test_devcontainer_host_relay.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["bash", "chezmoi"]
+    },
+    {
       "id": "devcontainer-launch",
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_launch"],

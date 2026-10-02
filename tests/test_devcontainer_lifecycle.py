@@ -537,6 +537,64 @@ install_claude_managed_asset_links
         self.assertIn("WARN: Claude managed source not found", result.stderr)
         self.assertEqual(skill.read_text(), "keep\n")
 
+    def write_plannotator_stubs(self, installed: str | None, update_rc: int = 0) -> Path:
+        home = self.fixture.home
+        (home / ".config/dotfiles/versions").mkdir(parents=True)
+        (home / ".config/dotfiles/versions/plannotator").write_text("0.27.22", encoding="utf-8")
+        write_executable(home / ".local/bin/plannotator", "#!/bin/sh\necho 'plannotator 0.27.22'\n")
+        state = self.fixture.root / "claude-plugin-version"
+        if installed is not None:
+            state.write_text(installed, encoding="utf-8")
+        log = self.fixture.root / "claude.log"
+        write_executable(self.fixture.fake_bin / "claude", f'''#!/usr/bin/env bash
+state="{state}"
+printf '%s\\n' "$*" >> "{log}"
+case "$*" in
+  "plugin marketplace list --json")
+    echo '[{{"name": "plannotator", "ref": "v0.27.22"}}]' ;;
+  "plugin list --json")
+    if [[ -f "$state" ]]; then
+      printf '[{{"id": "plannotator@plannotator", "version": "%s", "enabled": true}}]\\n' "$(<"$state")"
+    else
+      echo '[]'
+    fi ;;
+  "plugin marketplace update plannotator") ;;
+  "plugin update plannotator@plannotator --scope user")
+    [[ {update_rc} -eq 0 ]] || exit {update_rc}
+    printf '0.27.22' > "$state" ;;
+  "plugin install plannotator@plannotator --scope user")
+    printf '0.27.22' > "$state" ;;
+  *) exit 99 ;;
+esac
+''')
+        return log
+
+    def test_plannotator_sync_updates_a_stale_installed_plugin(self) -> None:
+        log = self.write_plannotator_stubs("0.19.21")
+        result = self.run_bash('source "$1"; sync_container_claude_plannotator', str(COMMON))
+        self.assert_success(result)
+        self.assertEqual(result.stderr, "")
+        calls = log.read_text(encoding="utf-8").splitlines()
+        self.assertIn("plugin marketplace update plannotator", calls)
+        self.assertLess(
+            calls.index("plugin marketplace update plannotator"),
+            calls.index("plugin update plannotator@plannotator --scope user"),
+        )
+        self.assertNotIn("plugin install plannotator@plannotator --scope user", calls)
+
+    def test_plannotator_sync_leaves_a_current_plugin_alone(self) -> None:
+        log = self.write_plannotator_stubs("0.27.22")
+        result = self.run_bash('source "$1"; sync_container_claude_plannotator', str(COMMON))
+        self.assert_success(result)
+        calls = log.read_text(encoding="utf-8").splitlines()
+        self.assertFalse([call for call in calls if "update" in call or "install" in call], calls)
+
+    def test_plannotator_sync_reports_a_failed_update(self) -> None:
+        self.write_plannotator_stubs("0.19.21", update_rc=1)
+        result = self.run_bash('source "$1"; sync_container_claude_plannotator', str(COMMON))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("WARN: Claude Plannotator plugin update failed.", result.stderr)
+
     def test_both_persistence_phases_install_claude_assets(self) -> None:
         for source, phase in ((POST_CREATE, "post_create_persistence_phase"),
                               (POST_START, "post_start_persistence_phase")):

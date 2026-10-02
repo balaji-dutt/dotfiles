@@ -23,6 +23,10 @@ which hands the URL to the Windows default browser over interop:
 rundll32.exe url.dll,FileProtocolHandler <url>
 ```
 
+The homelab devcontainer's host relay opens container URLs through the same
+`wsl-open` and reads clipboard images with `wl-paste`; see
+[Host relay](devcontainers.md#host-relay).
+
 `rundll32` rather than `explorer.exe` because `explorer.exe` exits non-zero
 even when it succeeds, and callers such as Claude Code treat a non-zero exit as
 a failed launch. Override the handler with `WSL_OPEN_HANDLER` for testing.

@@ -59,10 +59,11 @@ for the child OpenCode process, unless a non-empty value is already set, so
 `opencode-claude-bridge` does not reuse a stale validator-captured Claude Code
 system prompt.
 
-The homelab devcontainer intentionally does not use fixed VS Code
-`forwardPorts` or Docker-published `appPort` mappings for Plannotator. Use VS
-Code attach, manual forwarding, or another explicit forwarding path to reach the
-review UI from terminal-only `devcontainer-launch` sessions.
+The homelab devcontainer publishes its full Plannotator ranges and `9999` on
+`127.0.0.1` with `appPort`, and opens review URLs in the host browser through
+the host relay. See
+[Plannotator review UI](devcontainers.md#plannotator-review-ui) for the relay
+and the one-container constraint.
 The devcontainer-installed wrappers default to verbose mode so terminal sessions
 print the configured profile and range before the agent starts. The selected
 port is reported later by Plannotator when review begins. Host wrappers remain
