@@ -35,6 +35,7 @@ The Windows setup has three distinct ownership classes:
 | OpenCode | `~/.config/opencode/**` except `opencode-quota/**` | `private_dot_config/opencode/**` |
 | OpenCode quota | `~/AppData/Roaming/opencode/opencode-quota/quota-toast.json` | `AppData/Roaming/opencode/opencode-quota/quota-toast.json.tmpl` |
 | Native AI launchers | `~/.local/{ai-wt.py,ai-wt.cmd,oc-commit.ps1,oc-commit.cmd,cc-commit.ps1,cc-commit.cmd}` | `dot_local/**` |
+| FirefoxPWA refresh | `~/.local/ffpwa-refresh.ps1` | `dot_local/executable_ffpwa-refresh.ps1` |
 | PowerShell modules | `~/.config/powershell/*.ps1` | `private_dot_config/powershell/*.ps1.tmpl` |
 | Sublime Merge | `~/AppData/Roaming/Sublime Merge/Packages/**` | `AppData/Roaming/Sublime Merge/Packages/**` |
 | Espanso | `~/AppData/Roaming/espanso/{config,match,scripts}/**` | `AppData/Roaming/espanso/**`, `.chezmoitemplates/espanso/**`, `configs/espanso/**` |
@@ -127,7 +128,7 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these seventeen
+Windows ignores `.chezmoiscripts/**` by default and then admits these nineteen
 rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
@@ -145,6 +146,7 @@ rendered hook targets:
 | `98-migrate-opencode-quota.ps1` | `run_once_after_98-migrate-opencode-quota.ps1.tmpl` | once, after | Remove the obsolete `~/.config` quota sidecar after the APPDATA target exists |
 | `windows-beads-client.ps1` | `run_after_windows-beads-client.ps1.tmpl` | after | Export the WSL2-hosted Beads server connection for native Windows clients |
 | `windows-beads-pin.ps1` | `run_after_windows-beads-pin.ps1.tmpl` | after | Reapply the shared exact-version Winget pin and report installed Beads drift |
+| `windows-ffpwa-runtime.ps1` | `run_after_windows-ffpwa-runtime.ps1.tmpl` | after | Run `ffpwa-refresh.ps1 auto`: reinstall the FirefoxPWA runtime and update web apps when Firefox is newer; warn and continue on failure |
 | `windows-opencode-pin.ps1` | `run_after_windows-opencode-pin.ps1.tmpl` | after | Verify installed stable v1 and reassert its Chocolatey hold; no installation or elevation. Without admin rights it skips the pin write and prints an `-EncodedCommand` line to run elevated |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |

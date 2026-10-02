@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+USERDATA="${FFPWA_REFRESH_USERDATA:-$HOME/Library/Application Support/firefoxpwa}"
+FIREFOX_APP="${FFPWA_REFRESH_FIREFOX_DIR:-/Applications/Firefox.app}"
+RUNTIME_BINARY="$USERDATA/runtime/Firefox.app/Contents/MacOS/firefox"
+RUNTIME_INI="$USERDATA/runtime/Firefox.app/Contents/Resources/application.ini"
+FIREFOX_INI="$FIREFOX_APP/Contents/Resources/application.ini"
+ULID_PATTERN='[0-9A-HJKMNP-TV-Z]{26}'
+
+usage() {
+    cat <<'EOF'
+usage: ffpwa-refresh [sites|runtime|auto]
+
+  sites    Update every FirefoxPWA web app (default). Rebuilds the app bundles,
+           names, and icons, the same as "Update web apps" in the extension.
+  runtime  Reinstall and patch the FirefoxPWA runtime from Mozilla's latest
+           Firefox, then update every web app. Refuses while web apps run.
+  auto     Run "runtime" only when the runtime is older than the installed
+           Firefox. Skips with a warning while web apps run.
+EOF
+}
+
+info() { printf 'INFO: %s\n' "$*"; }
+warn() { printf 'WARNING: %s\n' "$*" >&2; }
+error() { printf 'ERROR: %s\n' "$*" >&2; }
+
+require_firefoxpwa() {
+    if ! command -v firefoxpwa >/dev/null 2>&1; then
+        error 'firefoxpwa is not on PATH'
+        return 1
+    fi
+}
+
+ini_version() {
+    local line
+    [[ -f "$1" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        if [[ "$line" == Version=* ]]; then
+            printf '%s\n' "${line#Version=}"
+            return 0
+        fi
+    done < "$1"
+    return 1
+}
+
+is_numeric_version() {
+    [[ "$1" =~ ^[0-9]+(\.[0-9]+)*$ ]]
+}
+
+version_older() {
+    local -a left right
+    local index count left_part right_part
+    IFS=. read -r -a left <<< "$1"
+    IFS=. read -r -a right <<< "$2"
+    count=${#left[@]}
+    (( ${#right[@]} > count )) && count=${#right[@]}
+    for (( index = 0; index < count; index++ )); do
+        left_part=${left[index]:-0}
+        right_part=${right[index]:-0}
+        (( 10#$left_part < 10#$right_part )) && return 0
+        (( 10#$left_part > 10#$right_part )) && return 1
+    done
+    return 1
+}
+
+runtime_running() {
+    local rc=0
+    pgrep -f -- "$RUNTIME_BINARY" >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *)
+            error "Cannot check for running web apps (pgrep exit $rc)"
+            return 2
+            ;;
+    esac
+}
+
+cmd_sites() {
+    local listing line label rc
+    local -a ids=() names=() failed=()
+    local index updated=0
+
+    require_firefoxpwa || return 1
+    if ! listing=$(firefoxpwa profile list); then
+        error 'firefoxpwa profile list failed'
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        line=${line%$'\r'}
+        if [[ "$line" =~ ^-\ (.+)\ \(($ULID_PATTERN)\)$ ]]; then
+            label=${BASH_REMATCH[1]}
+            ids+=("${BASH_REMATCH[2]}")
+            names+=("${label%%: *}")
+        fi
+    done <<< "$listing"
+
+    if (( ${#ids[@]} == 0 )); then
+        info 'No web apps installed; nothing to update'
+        return 0
+    fi
+
+    for (( index = 0; index < ${#ids[@]}; index++ )); do
+        info "Updating ${names[index]} (${ids[index]})"
+        rc=0
+        firefoxpwa site update "${ids[index]}" || rc=$?
+        if (( rc == 0 )); then
+            updated=$((updated + 1))
+        else
+            warn "Updating ${names[index]} failed (exit $rc)"
+            failed+=("${names[index]}")
+        fi
+    done
+
+    info "Updated $updated of ${#ids[@]} web apps"
+    if (( ${#failed[@]} > 0 )); then
+        local joined
+        joined=$(printf '%s, ' "${failed[@]}")
+        error "Failed to update: ${joined%, }"
+        return 1
+    fi
+}
+
+cmd_runtime() {
+    local rc=0 version
+
+    require_firefoxpwa || return 1
+    runtime_running || rc=$?
+    if (( rc == 0 )); then
+        error 'FirefoxPWA web apps are running; quit them and run ffpwa-refresh runtime again'
+        return 2
+    elif (( rc == 2 )); then
+        return 1
+    fi
+
+    info 'Reinstalling the FirefoxPWA runtime from the latest Mozilla Firefox'
+    if ! firefoxpwa runtime install; then
+        error 'firefoxpwa runtime install failed'
+        return 1
+    fi
+    if version=$(ini_version "$RUNTIME_INI"); then
+        info "FirefoxPWA runtime is now Firefox $version"
+    fi
+
+    cmd_sites
+}
+
+cmd_auto() {
+    local firefox_version runtime_version rc=0
+
+    if ! command -v firefoxpwa >/dev/null 2>&1; then
+        info 'firefoxpwa is not installed; skipping the runtime check'
+        return 0
+    fi
+    if ! firefox_version=$(ini_version "$FIREFOX_INI"); then
+        info "Firefox not found at $FIREFOX_APP; skipping the runtime check"
+        return 0
+    fi
+    if ! runtime_version=$(ini_version "$RUNTIME_INI"); then
+        info 'FirefoxPWA runtime is not installed; skipping the runtime check'
+        return 0
+    fi
+    if ! is_numeric_version "$runtime_version" || ! is_numeric_version "$firefox_version"; then
+        info "Cannot compare runtime $runtime_version with Firefox $firefox_version; skipping the runtime check"
+        return 0
+    fi
+    if ! version_older "$runtime_version" "$firefox_version"; then
+        info "FirefoxPWA runtime is up to date (runtime $runtime_version, Firefox $firefox_version)"
+        return 0
+    fi
+
+    info "FirefoxPWA runtime $runtime_version is older than Firefox $firefox_version"
+    runtime_running || rc=$?
+    if (( rc == 0 )); then
+        warn 'FirefoxPWA web apps are running; skipping the runtime refresh. Quit them and run ffpwa-refresh runtime.'
+        return 0
+    elif (( rc == 2 )); then
+        return 1
+    fi
+
+    cmd_runtime
+}
+
+main() {
+    case "${1:-sites}" in
+        sites) cmd_sites ;;
+        runtime) cmd_runtime ;;
+        auto) cmd_auto ;;
+        -h | --help | help) usage ;;
+        *)
+            usage >&2
+            return 64
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
