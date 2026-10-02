@@ -63,11 +63,11 @@ _bd_run_filtered() {
     repo_root="$(_bd_repo_root_from_workdir "$workdir")"
 
     if _bd_should_filter_auto_import_noise "$repo_root"; then
-        BD_EXPORT_GIT_ADD=false command bd "$@" \
+        BD_EXPORT_GIT_ADD=false BD_NO_REMOTE_ADOPT=1 command bd "$@" \
             > >(_bd_filter_auto_import_noise) \
             2> >(_bd_filter_auto_import_noise >&2)
     else
-        BD_EXPORT_GIT_ADD=false command bd "$@"
+        BD_EXPORT_GIT_ADD=false BD_NO_REMOTE_ADOPT=1 command bd "$@"
     fi
 }
 
@@ -110,14 +110,14 @@ _bd_command_directory() {
                 shift
                 continue
                 ;;
-            --db|--actor|--dolt-auto-commit)
+            --db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)
                 if [[ $# -gt 1 ]]; then
                     shift 2
                     continue
                 fi
                 break
                 ;;
-            --db=*|--actor=*|--dolt-auto-commit=*)
+            --db=*|--database=*|--actor=*|--format=*|--mem-profile=*|--dolt-auto-commit=*)
                 shift
                 continue
                 ;;
@@ -143,14 +143,14 @@ _bd_dolt_sync_action() {
                 shift
                 break
                 ;;
-            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global)
+            -q|--quiet|-v|--verbose|--json|--cpu-profile|--no-color|--ignore-schema-skew|--readonly|--sandbox|--global)
                 shift
                 ;;
-            -C|--directory|--db|--actor|--dolt-auto-commit)
+            -C|--directory|--db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)
                 [[ $# -gt 1 ]] || return 1
                 shift 2
                 ;;
-            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*)
+            -C=*|--directory=*|--db=*|--database=*|--actor=*|--format=*|--mem-profile=*|--dolt-auto-commit=*)
                 shift
                 ;;
             -*)
@@ -210,7 +210,7 @@ _bd_run_dolt_sync() {
             -C=*|--directory=*)
                 shift
                 ;;
-            --db|--actor|--dolt-auto-commit)
+            --db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)
                 unsupported=1
                 [[ $# -gt 1 ]] || break
                 shift 2
@@ -239,6 +239,40 @@ _bd_run_dolt_sync() {
     (cd "$repo_root" && "$sync_script" "$action")
 }
 
+# bd 1.3's `bd sync` pulls natively; pulls here must go through beads-sync.
+_bd_sync_requested() {
+    emulate -L zsh
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --) shift; break ;;
+            -C|--directory|--db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)
+                [[ $# -gt 1 ]] || return 1
+                shift 2
+                ;;
+            -*) shift ;;
+            *) break ;;
+        esac
+    done
+    [[ "${1:-}" == sync ]]
+}
+
+_bd_refuse_sync() {
+    emulate -L zsh
+
+    local workdir repo_root sync_script
+    workdir="$(_bd_command_directory "$@")"
+    repo_root="$(_bd_repo_root_from_workdir "$workdir")"
+    sync_script="$repo_root/assets/beads-sync.sh"
+    if [[ -n "$repo_root" && -f "$sync_script" ]]; then
+        print -u2 -f 'bd: refusing `bd sync`; run `%s pull` or `%s push` instead\n' \
+            "$sync_script" "$sync_script"
+    else
+        print -u2 -- 'bd: refusing `bd sync`; use `command bd sync` to bypass this wrapper deliberately'
+    fi
+    return 2
+}
+
 # Intentionally over-approximate mixed command families: an extra throttled
 # snapshot is safer than missing a write when bd adds a mutating code path.
 _bd_mutation_requested() {
@@ -248,12 +282,12 @@ _bd_mutation_requested() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --) shift; break ;;
-            -q|--quiet|-v|--verbose|--json|--profile|--readonly|--sandbox|--global) shift ;;
-            -C|--directory|--db|--actor|--dolt-auto-commit)
+            -q|--quiet|-v|--verbose|--json|--cpu-profile|--no-color|--ignore-schema-skew|--readonly|--sandbox|--global) shift ;;
+            -C|--directory|--db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)
                 [[ $# -gt 1 ]] || return 1
                 shift 2
                 ;;
-            -C=*|--directory=*|--db=*|--actor=*|--dolt-auto-commit=*) shift ;;
+            -C=*|--directory=*|--db=*|--database=*|--actor=*|--format=*|--mem-profile=*|--dolt-auto-commit=*) shift ;;
             -h|--help|--version|-V) return 1 ;;
             -*) shift ;;
             *) break ;;
@@ -264,11 +298,27 @@ _bd_mutation_requested() {
     shift
 
     case "$primary" in
-        assign|batch|close|comment|create|new|create-form|defer|delete|duplicate|edit|forget|import|link|note|priority|promote|q|remember|rename|reopen|set-state|supersede|tag|undefer|update)
+        assign|batch|close|comment|create|new|create-form|cursor-hook|defer|delete|duplicate|edit|forget|gc|heartbeat|import|link|migrate-personal|note|priority|promote|q|reclaim|remember|rename|reopen|set-state|supersede|tag|unclaim|undefer|update)
             return 0
             ;;
         comments)
             [[ "${1:-}" == add ]]
+            return
+            ;;
+        conflicts)
+            [[ "${1:-}" == resolve ]]
+            return
+            ;;
+        events)
+            [[ "${1:-}" == prune ]]
+            return
+            ;;
+        kv)
+            [[ "${1:-}" == set || "${1:-}" == clear ]]
+            return
+            ;;
+        provenance)
+            [[ "${1:-}" == record ]]
             return
             ;;
         dep)
@@ -333,6 +383,11 @@ bd() {
 
     local exit_code workdir sync_action
     local -a bd_args
+
+    if _bd_sync_requested "$@" && ! _bd_arg_requests_help "$@"; then
+        _bd_refuse_sync "$@"
+        return $?
+    fi
 
     if sync_action="$(_bd_dolt_sync_action "$@")"; then
         _bd_run_dolt_sync "$sync_action" "$@"
