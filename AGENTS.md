@@ -111,6 +111,14 @@ this repo.
   for interactive use. To synchronize this repo, invoke
   `./assets/beads-sync.sh pull|push` or
   `pwsh -NoProfile -File ./assets/beads-sync.ps1 pull|push` explicitly.
+  Never run `bd sync` or `bd serve`: this repo adopts neither bd's own sync
+  nor its HTTP API. Agent permissions deny both; the interactive wrappers
+  also refuse `bd sync`.
+- **bd 1.3 behavior**: `bd close` and `bd update --status` into a closed
+  status refuse when the issue has open children, a live blocker, or another
+  actor's assignment. Report the refusal and ask; never add `--force` on your
+  own. `bd search` includes closed issues by default, so pass
+  `--status open` when only open issues are wanted.
 - **Windows is a client, not a peer**: on native Windows `bd.exe` talks to the
   Dolt server WSL2 hosts, so both machines share one database and there is
   nothing to sync between them. `beads-sync.ps1 status|clean|pull|push|init` is
