@@ -7,10 +7,12 @@ import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 from tests.support.fixtures import isolated_environment, read_json_lines, write_executable
 
@@ -25,24 +27,100 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "bin/executable_repo-ops"
 
 
+@contextmanager
+def tmux_environment(fixture):
+    with tempfile.TemporaryDirectory(prefix="ro-", dir="/tmp") as socket_dir:
+        env = dict(fixture.env, TMUX_TMPDIR=socket_dir)
+        env.pop("TMUX", None)
+        try:
+            yield env
+        finally:
+            result = subprocess.run(["tmux", "-L", "repo-ops", "kill-server"], env=env,
+                                    capture_output=True, text=True)
+            socket = Path(socket_dir) / f"tmux-{os.getuid()}" / "repo-ops"
+            missing_server = (result.stderr.startswith("no server running on ") or
+                              (result.stderr.endswith("(No such file or directory)\n") and
+                               not socket.exists()))
+            if result.returncode and not missing_server:
+                raise RuntimeError(f"repo-ops tmux cleanup failed: {result.stderr}")
+
+
 class RepoOpsTests(unittest.TestCase):
+    def assert_server_exited(self, pid):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        self.fail(f"tmux server {pid} is still running")
+
     @contextmanager
     def theme_server(self):
-        with isolated_environment(prefix="repo-ops-theme-") as fixture:
+        with isolated_environment(prefix="repo-ops-theme-") as fixture, tmux_environment(fixture) as env:
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)
             theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())
-            env = dict(fixture.env, TMUX_TMPDIR=str(fixture.root / "tmp"), TERM="xterm-256color")
-            env.pop("TMUX", None)
+            env["TERM"] = "xterm-256color"
             tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
 
             def run(*args):
                 return subprocess.run([*tmux, *args], env=env, capture_output=True, text=True)
 
-            try:
-                yield fixture, env, tmux, run
-            finally:
-                run("kill-server")
+            yield fixture, env, tmux, run
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
+    def test_socket_path_is_short_under_deep_temporary_root(self):
+        self.require_theme_compatible_tmux()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            deep_root = Path(temp_dir) / ("nested-directory-" * 5)
+            deep_root.mkdir()
+            with mock.patch.object(tempfile, "tempdir", str(deep_root)):
+                with self.theme_server() as (fixture, env, _, run):
+                    self.assertTrue(fixture.root.is_relative_to(deep_root))
+                    self.assertEqual(env["TMPDIR"], str(fixture.root / "tmp"))
+                    old_socket = fixture.root / "tmp" / f"tmux-{os.getuid()}" / "repo-ops"
+                    self.assertGreaterEqual(len(os.fsencode(str(old_socket.resolve()))), 104)
+                    started = run("new-session", "-d", "-s", "repo-ops-check", "sleep 30")
+                    self.assertEqual(started.returncode, 0, started.stderr)
+                    socket = run("display-message", "-p", "-t", "repo-ops-check", "#{socket_path}")
+                    self.assertEqual(socket.returncode, 0, socket.stderr)
+                    self.assertEqual(Path(socket.stdout.strip()).resolve().parent.parent,
+                                     Path(env["TMUX_TMPDIR"]).resolve())
+                    self.assertLess(len(os.fsencode(str(Path(socket.stdout.strip()).resolve()))), 104)
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
+    def test_socket_directory_and_server_cleanup(self):
+        self.require_theme_compatible_tmux()
+        with isolated_environment(prefix="repo-ops-theme-") as fixture:
+            with tmux_environment(fixture) as env:
+                socket_dir = Path(env["TMUX_TMPDIR"])
+                self.assertTrue(socket_dir.is_dir())
+            self.assertFalse(socket_dir.exists())
+
+        for fail_inside in (False, True):
+            with self.subTest(fail_inside=fail_inside):
+                if fail_inside:
+                    with self.assertRaisesRegex(RuntimeError, "intentional failure"):
+                        with self.theme_server() as (_, env, _, run):
+                            socket_dir = Path(env["TMUX_TMPDIR"])
+                            started = run("new-session", "-d", "-s", "repo-ops-check", "sleep 30")
+                            self.assertEqual(started.returncode, 0, started.stderr)
+                            pid_result = run("display-message", "-p", "-t", "repo-ops-check", "#{pid}")
+                            self.assertEqual(pid_result.returncode, 0, pid_result.stderr)
+                            pid = int(pid_result.stdout.strip())
+                            raise RuntimeError("intentional failure")
+                else:
+                    with self.theme_server() as (_, env, _, run):
+                        socket_dir = Path(env["TMUX_TMPDIR"])
+                        started = run("new-session", "-d", "-s", "repo-ops-check", "sleep 30")
+                        self.assertEqual(started.returncode, 0, started.stderr)
+                        pid_result = run("display-message", "-p", "-t", "repo-ops-check", "#{pid}")
+                        self.assertEqual(pid_result.returncode, 0, pid_result.stderr)
+                        pid = int(pid_result.stdout.strip())
+                self.assertFalse(socket_dir.exists())
+                self.assert_server_exited(pid)
 
     @contextmanager
     def attached_client(self, tmux, env, target, columns=100):
@@ -142,12 +220,10 @@ class RepoOpsTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_dedicated_theme_and_titles(self):
         self.require_theme_compatible_tmux()
-        with isolated_environment(prefix="repo-ops-theme-") as fixture:
+        with isolated_environment(prefix="repo-ops-theme-") as fixture, tmux_environment(fixture) as env:
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)
             theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())
-            env = dict(fixture.env, TMUX_TMPDIR=str(fixture.root / "tmp"))
-            env.pop("TMUX", None)
             tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
 
             def run_tmux(*args):
@@ -167,53 +243,50 @@ class RepoOpsTests(unittest.TestCase):
             started = run_tmux("new-session", "-d", "-s", "repo-ops-check", "-n", "idle",
                                "bash --noprofile --norc -i")
             self.assertEqual(started.returncode, 0, started.stderr)
-            try:
-                titles_format = option("set-titles-string")
-                self.assertEqual(option("mouse"), "on")
-                self.assertEqual(option("allow-rename"), "off")
-                self.assertEqual(option("automatic-rename"), "off")
-                self.assertEqual(option("set-titles"), "on")
-                self.assertEqual(option("status-justify"), "absolute-centre")
-                self.assertEqual(option("status-left-length"), "64")
-                self.assertIn("Layout:", option("status-left"))
-                left = run_tmux("display-message", "-p", "-t", "repo-ops-check",
-                                option("status-left"))
-                self.assertIn("Layout: check", left.stdout)
-                self.assertEqual(option("status-interval"), "1")
-                for style in ("message-style", "message-command-style"):
-                    self.assertIn("fill=colour239", option(style))
-                self.assertIn("colour214", option("window-status-current-style"))
+            titles_format = option("set-titles-string")
+            self.assertEqual(option("mouse"), "on")
+            self.assertEqual(option("allow-rename"), "off")
+            self.assertEqual(option("automatic-rename"), "off")
+            self.assertEqual(option("set-titles"), "on")
+            self.assertEqual(option("status-justify"), "absolute-centre")
+            self.assertEqual(option("status-left-length"), "64")
+            self.assertIn("Layout:", option("status-left"))
+            left = run_tmux("display-message", "-p", "-t", "repo-ops-check",
+                           option("status-left"))
+            self.assertIn("Layout: check", left.stdout)
+            self.assertEqual(option("status-interval"), "1")
+            for style in ("message-style", "message-command-style"):
+                self.assertIn("fill=colour239", option(style))
+            self.assertIn("colour214", option("window-status-current-style"))
 
-                for _ in range(20):
-                    current = run_tmux("display-message", "-p", "-t", "repo-ops-check",
-                                       "#{pane_current_command}").stdout.strip()
-                    if current == "bash":
-                        break
-                    time.sleep(0.05)
-                self.assertEqual(current, "bash")
-                self.assertEqual(title(), "repo-ops: idle")
+            for _ in range(20):
+                current = run_tmux("display-message", "-p", "-t", "repo-ops-check",
+                                   "#{pane_current_command}").stdout.strip()
+                if current == "bash":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(current, "bash")
+            self.assertEqual(title(), "repo-ops: idle")
 
-                running = run_tmux("new-window", "-d", "-t", "repo-ops-check", "-n", "running", "sleep 60")
-                self.assertEqual(running.returncode, 0, running.stderr)
-                selected = run_tmux("select-window", "-t", "repo-ops-check:running")
-                self.assertEqual(selected.returncode, 0, selected.stderr)
-                for _ in range(20):
-                    if title() == "repo-ops: running | sleep":
-                        break
-                    time.sleep(0.05)
-                self.assertEqual(title(), "repo-ops: running | sleep")
-                self.assertEqual(run_tmux("select-window", "-t", "repo-ops-check:idle").returncode, 0)
-                self.assertEqual(title(), "repo-ops: idle")
+            running = run_tmux("new-window", "-d", "-t", "repo-ops-check", "-n", "running", "sleep 60")
+            self.assertEqual(running.returncode, 0, running.stderr)
+            selected = run_tmux("select-window", "-t", "repo-ops-check:running")
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            for _ in range(20):
+                if title() == "repo-ops: running | sleep":
+                    break
+                time.sleep(0.05)
+            self.assertEqual(title(), "repo-ops: running | sleep")
+            self.assertEqual(run_tmux("select-window", "-t", "repo-ops-check:idle").returncode, 0)
+            self.assertEqual(title(), "repo-ops: idle")
 
-                unnamed = run_tmux("new-window", "-dP", "-F", "#{window_id}",
-                                   "-t", "repo-ops-check", "bash --noprofile --norc -i")
-                self.assertEqual(unnamed.returncode, 0, unnamed.stderr)
-                self.assertEqual(run_tmux("select-window", "-t", unnamed.stdout.strip()).returncode, 0)
-                window = run_tmux("display-message", "-p", "-t", "repo-ops-check", "#{window_name}")
-                self.assertEqual(window.returncode, 0, window.stderr)
-                self.assertEqual(title(), f"repo-ops: {window.stdout.strip()}")
-            finally:
-                run_tmux("kill-server")
+            unnamed = run_tmux("new-window", "-dP", "-F", "#{window_id}",
+                               "-t", "repo-ops-check", "bash --noprofile --norc -i")
+            self.assertEqual(unnamed.returncode, 0, unnamed.stderr)
+            self.assertEqual(run_tmux("select-window", "-t", unnamed.stdout.strip()).returncode, 0)
+            window = run_tmux("display-message", "-p", "-t", "repo-ops-check", "#{window_name}")
+            self.assertEqual(window.returncode, 0, window.stderr)
+            self.assertEqual(title(), f"repo-ops: {window.stdout.strip()}")
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_attached_foreground_status_and_title(self):
@@ -476,7 +549,7 @@ class RepoOpsTests(unittest.TestCase):
                          "requires tmux, tmuxp, and a POSIX PTY")
     def test_real_tmuxp_detached_load_and_repeat_attach(self):
         self.require_theme_compatible_tmux()
-        with isolated_environment(prefix="repo-ops-live-") as fixture:
+        with isolated_environment(prefix="repo-ops-live-") as fixture, tmux_environment(fixture) as env:
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)
             theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())
@@ -490,8 +563,6 @@ class RepoOpsTests(unittest.TestCase):
                     "    panes:\n      - shell_command:\n          - repo-ops tag shell\n"
                 )
             launcher = write_executable(fixture.fake_bin / "repo-ops", SOURCE.read_text())
-            env = dict(fixture.env, TMUX_TMPDIR=str(fixture.root / "tmp"))
-            env.pop("TMUX", None)
             env.pop("TMUX_PANE", None)
             tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
 
@@ -532,22 +603,19 @@ class RepoOpsTests(unittest.TestCase):
                         process.wait()
                     os.close(master)
 
-            try:
-                attach("alpha")
-                session_id = run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.strip().split("|")[1]
-                first = run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}")
-                self.assertEqual(first.returncode, 0, first.stderr)
-                self.assertEqual(run_tmux("show-option", "-qv", "-t", session_id,
-                                          "@repo_ops_layout").stdout.strip(), str(layouts / "alpha.yaml"))
-                attach("beta")
-                self.assertEqual(len(run_tmux("list-sessions", "-F", "#{session_name}").stdout.splitlines()), 2)
-                attach("alpha")
-                self.assertEqual(run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}").stdout,
-                                 first.stdout)
-                self.assertIn(f"repo-ops-alpha|{session_id}",
-                              run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.splitlines())
-            finally:
-                run_tmux("kill-server")
+            attach("alpha")
+            session_id = run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.strip().split("|")[1]
+            first = run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(run_tmux("show-option", "-qv", "-t", session_id,
+                                      "@repo_ops_layout").stdout.strip(), str(layouts / "alpha.yaml"))
+            attach("beta")
+            self.assertEqual(len(run_tmux("list-sessions", "-F", "#{session_name}").stdout.splitlines()), 2)
+            attach("alpha")
+            self.assertEqual(run_tmux("list-panes", "-t", session_id, "-F", "#{pane_id} #{pane_dead}").stdout,
+                             first.stdout)
+            self.assertIn(f"repo-ops-alpha|{session_id}",
+                          run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}").stdout.splitlines())
 
     def prepare(self, fixture):
         home = fixture.home
