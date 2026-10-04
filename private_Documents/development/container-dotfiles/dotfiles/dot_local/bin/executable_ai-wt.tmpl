@@ -1096,6 +1096,14 @@ def child_process_environment(
 
     if env is None:
         env = os.environ.copy()
+    pin_file = Path.home() / ".config/dotfiles/versions/plannotator"
+    try:
+        pin = pin_file.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        die(f"missing or unreadable Plannotator pin: {pin_file}: {exc}")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pin):
+        die(f"invalid Plannotator pin: {pin_file}")
+    env["PLANNOTATOR_PIN_VERSION"] = pin
     profile = normalize_opencode_profile(opencode_profile, default="build") or "build"
     env["PLANNOTATOR_PORT"] = opencode_port_range(profile)
     env["OPENCODE_PLANNOTATOR_POOL"] = profile

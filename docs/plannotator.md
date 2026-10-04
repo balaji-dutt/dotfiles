@@ -252,24 +252,39 @@ the selected release; run the mirror script after `--write` to update
 ## Version and privacy contract
 
 `.chezmoidata.yaml` pins the CLI. Chezmoi renders that
-version to `~/.config/dotfiles/versions/plannotator`. Host OpenCode and the
-homelab devcontainer use the same home-relative `{file:...}` plugin spec;
-the container writes its own version file only after verifying its installed
-CLI. The OpenCode plugin tuple options remain local to each repository:
-`agentic-tooling` keeps its six planning agents, and Beads-Kanban's
+version to `~/.config/dotfiles/versions/plannotator`. The managed OpenCode
+configs use `@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}`. Interactive
+Bash/Zsh and the native PowerShell profile export the validated local file;
+the OpenCode wrappers and `ai-wt` re-read it before launch, overriding a stale
+inherited value and refusing a missing or invalid pin. The homelab container
+sets the variable in `containerEnv` and writes its own version file only after
+verifying its installed CLI. The internal file remains necessary for CLI and
+Claude alignment. The OpenCode plugin tuple options remain local to each
+repository: `agentic-tooling` keeps its six planning agents, and Beads-Kanban's
 user-managed workflow still requires a separate authorized update.
+
+An unmanaged contributor can leave `PLANNOTATOR_PIN_VERSION` unset or empty:
+OpenCode substitutes an empty version, resolves the latest plugin on first
+installation and then uses its cache. Such contributors must align their own
+Plannotator CLI when version parity matters. An unwrapped OpenCode process
+started outside a managed shell can likewise resolve an unpinned plugin if
+its environment lacks the export; use a managed launcher for enforced parity.
+The unrelated `PLANNOTATOR_VERSION` does not supply the plugin pin. Desktop
+GUI launch environments are outside this contract.
 
 The Claude marketplace tag and the Claude/OpenCode refresh sentinels must
 match the CLI version, but a refresh sentinel alone never installs or pins a
 plugin. Renovate groups the source versions with a common release-age gate;
 `assets/check-plannotator-config.py` checks the source agreement offline.
 `python3 assets/check-plannotator-config.py --runtime` additionally checks the
-deployed CLI, shared file, privacy config and Claude plugin readback. Run the
-runtime check on a managed host after an approved apply/installation; it
-requires `~/.plannotator/config.json` and is not the container's env-only
-privacy check. A missing file, mismatched registry or unavailable plugin is
-a failure, not proof of alignment. Restart OpenCode and Claude Code after a
-successful update; existing sessions retain their loaded configuration.
+deployed CLI, shared file, exported version, privacy config and Claude plugin
+readback. Run the runtime check on a managed host after an approved
+apply/installation; it requires `~/.plannotator/config.json` and is not the
+container's env-only privacy check. A missing export or file, mismatched
+registry or unavailable plugin is a failure, not proof of alignment. After a
+pin update, restart terminal sessions and long-lived AoE/tmux processes to
+inherit the new environment. Restart OpenCode and Claude Code after updating
+their plugins; existing sessions retain their loaded configuration.
 
 Chezmoi's `~/.plannotator/config.json` modify-template manages only
 `share: "disabled"` and `jina: false`, preserving other Plannotator settings.

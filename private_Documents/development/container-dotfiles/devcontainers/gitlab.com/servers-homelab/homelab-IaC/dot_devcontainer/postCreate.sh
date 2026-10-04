@@ -929,11 +929,11 @@ done_step "Install MCP server binaries"
 # --- 5c) plannotator CLI ---
 # Claude Code's plannotator plugin invokes a bare `plannotator` command from
 # PATH; the plugin itself does not ship the CLI. Pin + install it here so
-# every container rebuild matches PLANNOTATOR_VERSION (set in
+# every container rebuild matches PLANNOTATOR_PIN_VERSION (set in
 # devcontainer.json.tmpl, sourced from .chezmoidata.yaml).
 step "Install plannotator CLI"
-if [[ -n "${PLANNOTATOR_VERSION:-}" ]]; then
-  [[ "$PLANNOTATOR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid PLANNOTATOR_VERSION" >&2; exit 1; }
+if [[ -n "${PLANNOTATOR_PIN_VERSION:-}" ]]; then
+  [[ "$PLANNOTATOR_PIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid PLANNOTATOR_PIN_VERSION" >&2; exit 1; }
   case "$ARCH" in
     x86_64)  PLANNOTATOR_ARCH="x64" ;;
     aarch64) PLANNOTATOR_ARCH="arm64" ;;
@@ -954,11 +954,11 @@ if [[ -n "${PLANNOTATOR_VERSION:-}" ]]; then
     )
   fi
 
-  if [[ "$PLANNOTATOR_INSTALLED" == "$PLANNOTATOR_VERSION" ]]; then
+  if [[ "$PLANNOTATOR_INSTALLED" == "$PLANNOTATOR_PIN_VERSION" ]]; then
     echo "[plannotator] ${PLANNOTATOR_INSTALLED} already installed; nothing to do."
   else
-    echo "[plannotator] installing v${PLANNOTATOR_VERSION} (${PLANNOTATOR_ARCH})"
-    PLANNOTATOR_BASE_URL="https://github.com/backnotprop/plannotator/releases/download/v${PLANNOTATOR_VERSION}"
+    echo "[plannotator] installing v${PLANNOTATOR_PIN_VERSION} (${PLANNOTATOR_ARCH})"
+    PLANNOTATOR_BASE_URL="https://github.com/backnotprop/plannotator/releases/download/v${PLANNOTATOR_PIN_VERSION}"
     PLANNOTATOR_ASSET="plannotator-linux-${PLANNOTATOR_ARCH}"
     PLANNOTATOR_TMP=$(mktemp -d /tmp/plannotator.XXXXXX)
 
@@ -983,17 +983,17 @@ if [[ -n "${PLANNOTATOR_VERSION:-}" ]]; then
   fi
   PLANNOTATOR_VERIFIED=$("$PLANNOTATOR_BIN" --version)
   PLANNOTATOR_VERIFIED=$(printf '%s\n' "$PLANNOTATOR_VERIFIED" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-  if [[ "$PLANNOTATOR_VERIFIED" != "$PLANNOTATOR_VERSION" ]]; then
-    echo "ERROR: installed plannotator does not match PLANNOTATOR_VERSION" >&2
+  if [[ "$PLANNOTATOR_VERIFIED" != "$PLANNOTATOR_PIN_VERSION" ]]; then
+    echo "ERROR: installed plannotator does not match PLANNOTATOR_PIN_VERSION" >&2
     exit 1
   fi
   PLANNOTATOR_PIN_DIR="$HOME/.config/dotfiles/versions"
   mkdir -p "$PLANNOTATOR_PIN_DIR"
   PLANNOTATOR_PIN_TEMP=$(mktemp "$PLANNOTATOR_PIN_DIR/.plannotator.XXXXXXXX")
-  printf '%s\n' "$PLANNOTATOR_VERSION" > "$PLANNOTATOR_PIN_TEMP"
+  printf '%s\n' "$PLANNOTATOR_PIN_VERSION" > "$PLANNOTATOR_PIN_TEMP"
   command mv -f "$PLANNOTATOR_PIN_TEMP" "$PLANNOTATOR_PIN_DIR/plannotator"
 else
-  echo "ERROR: PLANNOTATOR_VERSION not set." >&2
+  echo "ERROR: PLANNOTATOR_PIN_VERSION not set." >&2
   exit 1
 fi
 done_step "Install plannotator CLI"

@@ -868,7 +868,7 @@
         "suite_id": "user-utilities",
         "status": "partial",
         "work_item": "dots-4jy.10.3",
-        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_ffpwa_refresh.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
+        "test_paths": ["tests/test_aoe_notify.py", "tests/test_devcontainer_launch.py", "tests/test_ffpwa_refresh.py", "tests/test_macos_maintenance.py", "tests/test_opencode_notifier_bridge.py", "tests/test_plannotator_config.py", "tests/test_sync_tooling.py", "tests/test_user_command_wrappers.py"],
         "behavior_requirements": []
       },
       "rationale": "Registered offline suites cover notifications, devcontainer launch actions and the workspace picker, commit and editor wrappers, WSL browser launch forwarding, host Plannotator profiles, NFS path and lock safety, VNC preference/process transitions, Kanban pin check/write and release checksum fallback in a disposable repo with fake curl, and Promptfoo runtime dispatch and failure paths in synthetic homes. Maintenance tests use fake system commands and bounded fixture state. Native macOS side effects remain syntax-only rather than platform-smoked, so this broad row stays partial."

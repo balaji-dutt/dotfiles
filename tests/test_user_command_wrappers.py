@@ -43,6 +43,7 @@ def write_env_logger(path: Path, log_path: Path) -> Path:
         "    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME',\n"
         "    'GIT_COMMITTER_EMAIL', 'AI_ATTESTATION_JSON', 'PLANNOTATOR_PORT',\n"
         "    'CLAUDE_PLANNOTATOR_POOL', 'OPENCODE_PLANNOTATOR_POOL',\n"
+        "    'PLANNOTATOR_PIN_VERSION',\n"
         "    'ANTHROPIC_SYSTEM_PROMPT_PATH',\n"
         "    'OPENCODE_DISABLE_CLAUDE_CODE_PROMPT',\n"
         "    'OPENCODE_DISABLE_CLAUDE_CODE_SKILLS',\n"
@@ -555,6 +556,12 @@ class WslOpenWrapperTests(unittest.TestCase):
 
 class PlannotatorWrapperTests(unittest.TestCase):
     @staticmethod
+    def write_pin(env: dict[str, str]) -> None:
+        pin = Path(env["HOME"]) / ".config/dotfiles/versions/plannotator"
+        pin.parent.mkdir(parents=True, exist_ok=True)
+        pin.write_text("0.27.22\n", encoding="utf-8")
+
+    @staticmethod
     def clean_port_environment(env: dict[str, str]) -> dict[str, str]:
         cleaned = env.copy()
         for key in (
@@ -610,6 +617,7 @@ class PlannotatorWrapperTests(unittest.TestCase):
 
     def test_opencode_build_and_custom_profiles_export_guard_environment(self) -> None:
         with isolated_environment(prefix="opencode plannotator ") as fixture:
+            self.write_pin(fixture.env)
             agent_log = fixture.root / "opencode.json"
             agent = write_env_logger(fixture.root / "agent tools/opencode", agent_log)
             base_env = self.clean_port_environment(fixture.env)
@@ -629,19 +637,21 @@ class PlannotatorWrapperTests(unittest.TestCase):
                         wrapper,
                         "--agent",
                         "build agent",
-                        env=base_env | {"OPENCODE_BIN": str(agent), "FAKE_EXIT": "23"},
+                        env=base_env | {"OPENCODE_BIN": str(agent), "FAKE_EXIT": "23", "PLANNOTATOR_PIN_VERSION": "0.1.0"},
                     )
                     self.assertEqual(result.returncode, 23)
                     payload = json.loads(agent_log.read_text(encoding="utf-8"))
                     self.assertEqual(payload["argv"], ["--agent", "build agent"])
                     self.assertEqual(payload["env"]["PLANNOTATOR_PORT"], port_range)
                     self.assertEqual(payload["env"]["OPENCODE_PLANNOTATOR_POOL"], profile)
+                    self.assertEqual(payload["env"]["PLANNOTATOR_PIN_VERSION"], "0.27.22")
                     self.assertEqual(payload["env"]["ANTHROPIC_SYSTEM_PROMPT_PATH"], "/dev/null")
                     self.assertEqual(payload["env"]["OPENCODE_DISABLE_CLAUDE_CODE_PROMPT"], "1")
                     self.assertEqual(payload["env"]["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"], "1")
 
     def test_missing_and_nonexecutable_agents_fail_without_leaking_arguments(self) -> None:
         with isolated_environment(prefix="plannotator failure ") as fixture:
+            self.write_pin(fixture.env)
             wrapper = self.render(
                 fixture, "executable_opencode-plannotator.tmpl", "opencode-plannotator"
             )

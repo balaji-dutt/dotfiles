@@ -445,6 +445,31 @@ class OpenCodeProfileEnvironmentTests(unittest.TestCase):
         self.assertNotIn("OPENCODE_PLANNOTATOR_POOL", env)
         self.assertNotIn("ANTHROPIC_SYSTEM_PROMPT_PATH", env)
 
+    def test_opencode_pin_overrides_stale_inherited_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            pin = home / ".config/dotfiles/versions/plannotator"
+            pin.parent.mkdir(parents=True)
+            pin.write_text(" 0.27.22\r\n", encoding="utf-8")
+            with (
+                mock.patch.object(ai_wt.Path, "home", return_value=home),
+                mock.patch.object(ai_wt, "git_process_environment", return_value={"PLANNOTATOR_PIN_VERSION": "0.0.0"}),
+            ):
+                env = ai_wt.child_process_environment("opencode", "build")
+            self.assertEqual(env["PLANNOTATOR_PIN_VERSION"], "0.27.22")
+
+    def test_opencode_rejects_missing_or_malformed_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            pin = home / ".config/dotfiles/versions/plannotator"
+            with mock.patch.object(ai_wt.Path, "home", return_value=home):
+                with self.assertRaisesRegex(ai_wt.AiWtError, "missing or unreadable"):
+                    ai_wt.child_process_environment("opencode", "build")
+                pin.parent.mkdir(parents=True)
+                pin.write_text("0.27.22\n0.27.23\n", encoding="utf-8")
+                with self.assertRaisesRegex(ai_wt.AiWtError, "invalid Plannotator pin"):
+                    ai_wt.child_process_environment("opencode", "build")
+
 
 class OpenCodeProfileResumeTests(unittest.TestCase):
     def test_stored_profile_is_preserved(self) -> None:

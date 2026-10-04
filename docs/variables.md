@@ -47,12 +47,18 @@ because they run outside chezmoi's template data model.
 | `onepassword.url` | 1Password account URL | 1Password setup |
 | `onepassword.email` | 1Password account email | 1Password setup |
 | `plannotator_port` | Plannotator direct-session fallback port | host shell env defaults |
+| `plannotator_version` | Managed CLI and Claude Plannotator release pin | rendered version file, host and container OpenCode exports |
 | `plannotator_ports.host.build` | Host build-handoff native range string | `opencode-plannotator` |
 | `plannotator_ports.host.claude` | Host Claude Code native range string | `claude-plannotator` |
 | `plannotator_ports.host.custom` | Host stay-current native range string | `opencode-plannotator-custom` |
 | `plannotator_ports.devcontainer.build` | Devcontainer build-handoff native range string | devcontainer env + wrapper defaults |
 | `plannotator_ports.devcontainer.claude` | Devcontainer Claude Code native range string | devcontainer env + wrapper defaults |
 | `plannotator_ports.devcontainer.custom` | Devcontainer stay-current native range string | devcontainer env + wrapper defaults |
+
+`PLANNOTATOR_PIN_VERSION` is the OpenCode runtime environment variable, not
+another independent source pin. Managed launchers read the rendered
+`~/.config/dotfiles/versions/plannotator` file; homelab `containerEnv` renders
+the same `.chezmoidata.yaml` value. Unmanaged repositories can leave it unset.
 
 ## macOS Variables
 

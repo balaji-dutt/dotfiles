@@ -5,8 +5,7 @@
 # script.
 #
 # WSL2 is handled by ansible/wsl-playbook.yml. Native Windows is handled by
-# the matching .ps1.tmpl. Dev Containers install plannotator from their
-# postCreate.sh using $PLANNOTATOR_VERSION.
+# the matching .ps1.tmpl.
 {{- if ne .chezmoi.os "darwin" }}
 exit 0
 {{- end }}
@@ -16,12 +15,12 @@ set -euo pipefail
 # Change trigger (chezmoi re-runs on hash change):
 # plannotator_version: {{ .plannotator_version }}
 
-PLANNOTATOR_VERSION="{{ .plannotator_version }}"
+PLANNOTATOR_PIN_VERSION="{{ .plannotator_version }}"
 INSTALL_DIR="${HOME}/.local/bin"
 BIN_PATH="${INSTALL_DIR}/plannotator"
 REPO="backnotprop/plannotator"
 
-if [[ -z "$PLANNOTATOR_VERSION" ]]; then
+if [[ -z "$PLANNOTATOR_PIN_VERSION" ]]; then
   echo "plannotator_version is empty in .chezmoidata.yaml; skipping install."
   exit 0
 fi
@@ -36,7 +35,7 @@ case "$(uname -m)" in
 esac
 
 ASSET="plannotator-darwin-${PLANNOTATOR_ARCH}"
-BASE_URL="https://github.com/${REPO}/releases/download/v${PLANNOTATOR_VERSION}"
+BASE_URL="https://github.com/${REPO}/releases/download/v${PLANNOTATOR_PIN_VERSION}"
 
 INSTALLED_VERSION=""
 if [[ -x "$BIN_PATH" ]]; then
@@ -48,15 +47,15 @@ if [[ -x "$BIN_PATH" ]]; then
   )
 fi
 
-if [[ "$INSTALLED_VERSION" == "$PLANNOTATOR_VERSION" ]]; then
+if [[ "$INSTALLED_VERSION" == "$PLANNOTATOR_PIN_VERSION" ]]; then
   echo "plannotator ${INSTALLED_VERSION} already installed; nothing to do."
   exit 0
 fi
 
 if [[ -n "$INSTALLED_VERSION" ]]; then
-  echo "Updating plannotator: ${INSTALLED_VERSION} -> ${PLANNOTATOR_VERSION}"
+  echo "Updating plannotator: ${INSTALLED_VERSION} -> ${PLANNOTATOR_PIN_VERSION}"
 else
-  echo "Installing plannotator ${PLANNOTATOR_VERSION}..."
+  echo "Installing plannotator ${PLANNOTATOR_PIN_VERSION}..."
 fi
 
 mkdir -p "$INSTALL_DIR"
@@ -79,16 +78,16 @@ fi
 
 chmod +x "${TMP_DIR}/${ASSET}"
 candidate_version=$("${TMP_DIR}/${ASSET}" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-if [[ "$candidate_version" != "$PLANNOTATOR_VERSION" ]]; then
-  echo "ERROR: downloaded plannotator version does not match ${PLANNOTATOR_VERSION}" >&2
+if [[ "$candidate_version" != "$PLANNOTATOR_PIN_VERSION" ]]; then
+  echo "ERROR: downloaded plannotator version does not match ${PLANNOTATOR_PIN_VERSION}" >&2
   exit 1
 fi
 command mv -f "${TMP_DIR}/${ASSET}" "$BIN_PATH"
 
 published_version=$("$BIN_PATH" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-if [[ "$published_version" != "$PLANNOTATOR_VERSION" ]]; then
-  echo "ERROR: installed plannotator version does not match ${PLANNOTATOR_VERSION}" >&2
+if [[ "$published_version" != "$PLANNOTATOR_PIN_VERSION" ]]; then
+  echo "ERROR: installed plannotator version does not match ${PLANNOTATOR_PIN_VERSION}" >&2
   exit 1
 fi
 
-echo "plannotator ${PLANNOTATOR_VERSION} installed to ${BIN_PATH}"
+echo "plannotator ${PLANNOTATOR_PIN_VERSION} installed to ${BIN_PATH}"

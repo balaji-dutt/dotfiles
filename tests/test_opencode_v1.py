@@ -198,7 +198,7 @@ class OpenCodePolicyTests(unittest.TestCase):
 
         global_plugin = plannotator(global_config)
         self.assertEqual(global_plugin[0],
-                         '@plannotator/opencode@{file:~/.config/dotfiles/versions/plannotator}')
+                          '@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}')
         expected_plugin = copy.deepcopy(global_plugin)
         self.assertNotIn('Plan-Trial', expected_plugin[1]['planningAgents'])
         expected_plugin[1]['planningAgents'].append('Plan-Trial')

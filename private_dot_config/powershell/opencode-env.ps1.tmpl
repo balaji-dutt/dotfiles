@@ -35,6 +35,18 @@ if (Test-Path -LiteralPath $env:OPENCODE_ENV_FILE) {
   }
 }
 
+Remove-Item -Path Env:PLANNOTATOR_PIN_VERSION -ErrorAction SilentlyContinue
+$plannotatorPinFile = Join-Path (Join-Path (Join-Path $HOME ".config") "dotfiles") "versions/plannotator"
+try {
+  $plannotatorPin = ([System.IO.File]::ReadAllText($plannotatorPinFile)).Trim()
+  if ($plannotatorPin -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+    throw "invalid Plannotator pin: $plannotatorPinFile"
+  }
+  $env:PLANNOTATOR_PIN_VERSION = $plannotatorPin
+} catch {
+  Write-Warning "OpenCode: missing, unreadable or invalid Plannotator pin: $plannotatorPinFile"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:ANTHROPIC_SYSTEM_PROMPT_PATH)) {
   $env:ANTHROPIC_SYSTEM_PROMPT_PATH = "NUL"
 }

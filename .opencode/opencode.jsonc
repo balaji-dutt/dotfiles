@@ -6,7 +6,7 @@
     ".opencode/instructions/beads-backlog-workflow.md"
   ],
   "plugin": [
-    ["@plannotator/opencode@{file:~/.config/dotfiles/versions/plannotator}", {
+    ["@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}", {
       "workflow": "plan-agent",
       "runtime": "cli",
       "planningAgents": [

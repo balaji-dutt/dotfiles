@@ -141,6 +141,7 @@ class BashStartupTests(ShellStartupHarness):
     def test_rendered_macos_interactive_startup_without_direnv_is_silent(self) -> None:
         if shutil.which("direnv", path="/usr/bin:/bin"):
             self.skipTest("direnv is present on the pinned PATH")
+        self.write_home(".config/dotfiles/versions/plannotator", "0.27.22\n")
         bashrc = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "macos"))
         result = self.run_bash(
             f'source "{bashrc}"',
@@ -155,6 +156,17 @@ class BashStartupTests(ShellStartupHarness):
             r"bash: no job control in this shell\n", "", result.stderr,
         )
         self.assertEqual(stderr, "")
+
+    def test_interactive_shell_discards_stale_pin_if_file_is_missing(self) -> None:
+        bashrc = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "macos"))
+        result = self.run_bash(
+            f'source "{bashrc}"; printf "pin=%s\n" "${{PLANNOTATOR_PIN_VERSION-unset}}"',
+            interactive=True,
+            env_updates={"PLANNOTATOR_PIN_VERSION": "0.0.0", "TERM": "dumb"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pin=unset\n", result.stdout)
+        self.assertIn("missing or unreadable Plannotator pin", result.stderr)
 
 
 @unittest.skipUnless(ZSH, "zsh is required")

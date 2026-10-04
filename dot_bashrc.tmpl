@@ -320,6 +320,22 @@ elif [ -n "${_opencode_restore_allexport:-}" ]; then
   set -a
 fi
 
+unset PLANNOTATOR_PIN_VERSION
+_plannotator_pin_file="$HOME/.config/dotfiles/versions/plannotator"
+if [ -f "$_plannotator_pin_file" ] && [ -r "$_plannotator_pin_file" ]; then
+  _plannotator_pin_value="$(< "$_plannotator_pin_file")"
+  while [[ "$_plannotator_pin_value" == [[:space:]]* ]]; do _plannotator_pin_value="${_plannotator_pin_value#?}"; done
+  while [[ "$_plannotator_pin_value" == *[[:space:]] ]]; do _plannotator_pin_value="${_plannotator_pin_value%?}"; done
+  if [[ "$_plannotator_pin_value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    export PLANNOTATOR_PIN_VERSION="$_plannotator_pin_value"
+  else
+    printf 'OpenCode: invalid Plannotator pin: %s\n' "$_plannotator_pin_file" >&2
+  fi
+else
+  printf 'OpenCode: missing or unreadable Plannotator pin: %s\n' "$_plannotator_pin_file" >&2
+fi
+unset _plannotator_pin_file _plannotator_pin_value
+
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 

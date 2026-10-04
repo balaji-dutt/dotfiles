@@ -9,9 +9,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-PIN = "~/.config/dotfiles/versions/plannotator"
-SPEC = f"@plannotator/opencode@{{file:{PIN}}}"
+SPEC = "@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}"
 HOST = "private_dot_config/opencode/opencode.jsonc"
+PROJECT = ".opencode/opencode.jsonc"
 CONTAINER = (
     "private_Documents/development/container-dotfiles/dotfiles/"
     "private_dot_config/opencode/opencode.jsonc"
@@ -49,7 +49,7 @@ def source_check(root=ROOT):
         if marketplace["autoUpdate"] is not False or marketplace["source"]["ref"] != f"v{version}":
             raise ValueError(f"{relative}: Claude marketplace tag must match CLI and disable autoUpdate")
     expected = f'"{SPEC}"'
-    for relative in (HOST, CONTAINER):
+    for relative in (HOST, PROJECT, CONTAINER):
         if contents(relative).count(expected) != 1:
             raise ValueError(f"{relative}: expected one shared Plannotator plugin spec")
     if contents("private_dot_config/dotfiles/versions/plannotator.tmpl").strip() != "{{ .plannotator_version }}":
@@ -66,8 +66,15 @@ def source_check(root=ROOT):
 
 def runtime_check(version, home=Path.home()):
     deployed = (home / ".config/dotfiles/versions/plannotator").read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", deployed):
+        raise ValueError("deployed Plannotator pin is invalid")
     if deployed != version:
         raise ValueError("deployed OpenCode pin differs from source CLI pin")
+    runtime_pin = os.environ.get("PLANNOTATOR_PIN_VERSION", "")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", runtime_pin):
+        raise ValueError("PLANNOTATOR_PIN_VERSION is missing or invalid")
+    if runtime_pin != deployed:
+        raise ValueError("PLANNOTATOR_PIN_VERSION differs from deployed pin")
     binary = shutil.which("plannotator")
     if binary is None:
         raise ValueError("plannotator CLI is missing from PATH")

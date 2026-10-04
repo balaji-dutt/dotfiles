@@ -242,7 +242,7 @@ class InstallerAndPlatformLifecycleTests(unittest.TestCase):
             write_executable(bin_path, "#!/bin/sh\nprintf 'plannotator 1.0.0\\n'\n")
             write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'x86_64\\n'\n")
             curl_log = fixture.root / "curl.jsonl"
-            payload = b"fixture-plannotator"
+            payload = b"#!/bin/sh\nprintf 'plannotator 1.2.3\\n'\n"
             digest = hashlib.sha256(payload).hexdigest()
             curl = fixture.fake_bin / "curl"
             write_executable(

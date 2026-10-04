@@ -13,6 +13,14 @@ die() {
   exit 1
 }
 
+pin_file="${HOME}/.config/dotfiles/versions/plannotator"
+[ -f "$pin_file" ] && [ -r "$pin_file" ] || die "missing or unreadable Plannotator pin: $pin_file"
+pin_value="$(< "$pin_file")"
+while [[ "$pin_value" == [[:space:]]* ]]; do pin_value="${pin_value#?}"; done
+while [[ "$pin_value" == *[[:space:]] ]]; do pin_value="${pin_value%?}"; done
+[[ "$pin_value" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Plannotator pin: $pin_file"
+export PLANNOTATOR_PIN_VERSION="$pin_value"
+
 is_devcontainer() {
   [ "${DEVCONTAINER:-}" = "1" ] || [ -n "${REMOTE_CONTAINERS:-}" ] || [ -n "${CODESPACES:-}" ]
 }
@@ -61,7 +69,7 @@ export OPENCODE_PLANNOTATOR_POOL="$PROFILE_NAME"
 export ANTHROPIC_SYSTEM_PROMPT_PATH
 
 if [ "${OPENCODE_PLANNOTATOR_VERBOSE:-}" = "1" ] || [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
-  printf '%s: profile=%s range=%s\n' "$SCRIPT_NAME" "$PROFILE_NAME" "$PORT_RANGE" >&2
+  printf '%s: profile=%s range=%s version=%s\n' "$SCRIPT_NAME" "$PROFILE_NAME" "$PORT_RANGE" "$PLANNOTATOR_PIN_VERSION" >&2
 fi
 
 if [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
