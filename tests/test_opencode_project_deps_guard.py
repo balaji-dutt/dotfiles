@@ -377,7 +377,11 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
         }
         for template, value in replacements.items():
             rendered = rendered.replace(template, value)
+        self.assertNotIn("{{", rendered)
         write_executable(destination, rendered)
+        pin = destination.parent / ".config/dotfiles/versions/plannotator"
+        pin.parent.mkdir(parents=True, exist_ok=True)
+        pin.write_text("0.27.22\n", encoding="utf-8")
 
     def test_wrappers_block_exec_on_guard_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -389,6 +393,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
             wrapper = root / "opencode-plannotator"
             self.render_wrapper(WRAPPERS[0], wrapper)
             env = os.environ.copy()
+            env["HOME"] = str(root)
             env["OPENCODE_BIN"] = str(opencode)
             result = subprocess.run(
                 [str(wrapper), "--agent", "build"],
@@ -423,6 +428,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
                 wrapper = root / wrapper_name
                 self.render_wrapper(source, wrapper)
                 env = os.environ.copy()
+                env["HOME"] = str(root)
                 env["OPENCODE_BIN"] = str(opencode)
                 result = subprocess.run(
                     [str(wrapper), "--agent", "build", "two words"],
@@ -461,6 +467,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
                 nested = fixture.repo / "nested"
                 nested.mkdir()
                 env = fixture.env
+                env["HOME"] = str(fixture.bin_dir)
                 env["OPENCODE_BIN"] = str(fixture.opencode)
                 result = subprocess.run(
                     [str(wrapper), "--agent", "build", "two words"], cwd=nested,
@@ -480,6 +487,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
             wrapper = root / "opencode-plannotator"
             self.render_wrapper(WRAPPERS[0], wrapper)
             env = os.environ.copy()
+            env["HOME"] = str(root)
             env["OPENCODE_PLANNOTATOR_DRY_RUN"] = "1"
             env["OPENCODE_BIN"] = str(root / "does-not-exist")
             result = subprocess.run(
@@ -492,6 +500,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("profile=build", result.stderr)
+            self.assertIn("version=0.27.22", result.stderr)
 
 
 if __name__ == "__main__":

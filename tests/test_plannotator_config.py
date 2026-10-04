@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.support.fixtures import write_executable
-from tests.test_chezmoi_lifecycle_render import render_template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,7 +132,16 @@ class PlannotatorWrapperTests(unittest.TestCase):
         for relative in paths:
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
                 home = Path(temporary)
-                wrapper = write_executable(home / Path(relative).name.removeprefix("executable_").removesuffix(".tmpl"), render_template(relative, "macos"))
+                rendered = (ROOT / relative).read_text(encoding="utf-8")
+                for template, value in (
+                    ("{{ .plannotator_ports.host.build }}", "8993-8998"),
+                    ("{{ .plannotator_ports.host.custom }}", "9004-9009"),
+                    ("{{ .plannotator_ports.devcontainer.build }}", "9993-9998"),
+                    ("{{ .plannotator_ports.devcontainer.custom }}", "10004-10009"),
+                ):
+                    rendered = rendered.replace(template, value)
+                self.assertNotIn("{{", rendered)
+                wrapper = write_executable(home / Path(relative).name.removeprefix("executable_").removesuffix(".tmpl"), rendered)
                 pin = home / ".config/dotfiles/versions/plannotator"
                 env = {**os.environ, "HOME": str(home), "PLANNOTATOR_PIN_VERSION": "0.0.0", "OPENCODE_PLANNOTATOR_DRY_RUN": "1"}
 
