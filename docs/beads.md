@@ -101,9 +101,10 @@ provisioning hook is a `run_onchange_before` script: a chezmoi-rendered file
 would land after ansible's `mise install -y` and only take effect on the next
 apply.
 
-On Windows, `configs/winget-packages.json` is an exported inventory rather than
-an automatically imported chezmoi manifest. It records the supported `bd`
-package, but a clean host still needs a manual Winget installation. The managed
+On Windows, `bd.exe` comes from the Winget package `GasTownHall.Beads`,
+installed by hand. The exported `configs/winget-packages.json` inventory no
+longer lists it, so a clean host needs
+`winget.exe install --id GasTownHall.Beads --exact --source winget`. The managed
 `run_after_windows-beads-pin.ps1.tmpl` hook reapplies an exact Gating pin from
 `beads_version` and warns when the installed `bd.exe` reports a different
 version. It does not install, upgrade, or downgrade the package, so every
@@ -514,17 +515,23 @@ Upgrade flow across all machines:
    bd export --all -o ~/dots-backup.jsonl
    ```
 
-3. Migrate and publish:
+3. Migrate and publish. `--force` (or `BD_ALLOW_REMOTE_MIGRATE=1`) is what
+   unlocks the remote-migrate gate; `--yes` only answers bd's prompts and does
+   not:
 
    ```bash
-   BD_ALLOW_REMOTE_MIGRATE=1 bd migrate --yes
-   bd dolt commit        # capture the migration working set
-   bd dolt push
+   bd migrate --force
+   bd migrate schema --force   # confirms "Schema already at v<N>"
+   ./assets/beads-sync.sh push # commits the migration working set, then pushes
    ```
 
-4. Every **other** clone re-bootstraps to adopt the migrated schema (an old
-   clone cannot upgrade in place) — see the recovery section below, since a
-   pre-existing clone will hit `database exists`. The native Windows client is
+4. Every **other** clone rebuilds from the migrated remote, because an old
+   clone cannot upgrade in place. Stop its server and move `.beads/dolt` aside
+   **before** the new `bd` touches it: from 1.3.x a bd-owned server can
+   auto-migrate from its cached remote ref on first open. Then install the new
+   `bd` and run `./assets/beads-sync.sh init` (see **Rebuild a sync peer
+   without cloning**). `bd bootstrap` is no help here on 1.3.x: against an
+   existing database it reports "Nothing to do". The native Windows client is
    not a clone: it reads the WSL2 peer's database, so it has nothing of its own
    to migrate. Keep Windows off `bd` until `bd.exe` matches the
    `beads_version` pin (see **Windows client mode**).
@@ -534,7 +541,7 @@ before any other `bd` command while `bd version` differs from the version the
 store recorded in `local_metadata.bd_version`. bd writes that marker on the
 first open after a binary change, migrating the store if the schema moved, so
 a sync must not be that first open. Step 3 clears the refusal on the
-designated migrator, and re-bootstrapping (step 4) clears it on every other
+designated migrator, and rebuilding (step 4) clears it on every other
 clone. For a release with no schema change, any read such as `command bd
 list` clears it. When the marker cannot be read, the helpers log INFO and do
 not refuse.
