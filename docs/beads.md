@@ -564,8 +564,47 @@ need care:
   changes`**).
 
 Back up with the 1.2.2 binary before installing: under 1.3.x `bd export`
-migrates before it exports. 1.3.1 adds no migration over 1.3.0. The fleet
-order is tracked in dots-v9tt.8.
+migrates before it exports. 1.3.1 adds no migration over 1.3.0.
+
+The fleet moved to 1.3.1 on 2026-10-04 (dots-v9tt.8) in this order:
+
+1. Every peer ran `beads-sync pull`, then `push`, while still on 1.2.2. Each
+   WSL2 server was then stopped, so the native Windows client was offline
+   until step 5.
+2. macOS migrated. Plain `bd migrate --force` was enough, with no
+   `BD_SMART_GATE` or `BD_NO_REMOTE_ADOPT` override. It ran 13 migrations in
+   about 13 seconds, and it untracked a tracked `ignored_schema_migrations`
+   table on the way. `beads-sync push` then published v66.
+3. The pin bump landed on `main`, and macOS ran `chezmoi apply`.
+4. Debian, then Ubuntu: move `.beads/dolt` aside, pull `main`, run
+   `chezmoi apply` (ansible installs the new `bd`), then
+   `./assets/beads-sync.sh init`.
+5. Windows: `chezmoi apply` moves the Winget pin and warns that `bd.exe` is
+   still old. `winget.exe upgrade --id GasTownHall.Beads --exact --source
+   winget` installs the new version.
+6. hliac, inside the homelab-IaC devcontainer: `beads-sync push` and
+   `bd export --all` on 1.2.2, then `bd dolt stop`. Then rebuild the
+   container, which installs the npm pin, and run `bd migrate --force` and
+   `bd dolt push` inside it. The rebuild wipes the container's `known_hosts`,
+   so accept gitlab.com's host key again before pushing.
+
+Things that caught us out:
+
+- A shell or agent session that started before `mise install` keeps the old
+  install directory ahead of the shims on `PATH`. Restart it, or call the new
+  binary by its full path.
+- After the upgrade, doctor warns **Clone-Local FKs** with 0 orphans. The
+  peers rebuilt with `init` showed 8 severed foreign keys on `events` and
+  `wisp_*`; macOS, which never ran `init`, showed 4 on `wisp_*`. Do not clear
+  the warning with a wholesale `--fix` (see **Caution: `bd doctor --fix`**
+  below).
+- A note the migrator wrote and had not pushed collided with peer probes
+  appended to the same issue. Push straight after every write while peers
+  are being rebuilt.
+- 1.3.x creates `.beads.gate.lock` at the repository root and
+  `.beads/dolt.gate.lock`. The `*.gate.lock*` pattern ignores both.
+- `bd close --reason` on an already-closed issue still changes nothing.
+  1.3.1 even prints the new reason in its `✓ Closed` line.
 
 ## Recovery
 
@@ -1193,9 +1232,11 @@ same error — a dirty `config` table, or another database on a shared server.
 bd 1.3.0 includes [#6046](https://github.com/gastownhall/beads/pull/6046)
 (upstream #4356): it untracks a legacy tracked `ignored_schema_migrations`
 table at open, which unwedges `bd dolt pull` on upgraded databases. That is
-adjacent to the deadlock above but not proven to be the same failure, so the
-workaround stays until dots-v9tt.9 retests plain `bd dolt pull` on a 1.3.x
-peer.
+adjacent to the deadlock above but not proven to be the same failure. On
+2026-10-04 (bd 1.3.1, dolt 2.3.5), plain `bd dolt pull` ran twice cleanly on a
+WSL2 peer that was 3 commits behind with a clean working set. That run had no
+dirty ignored tables, the condition the workaround exists for, so the
+workaround stays.
 
 If either upstream bug is fixed, plain `bd dolt pull` can be used again and the
 `pull` command in `beads-sync` can be dropped.
