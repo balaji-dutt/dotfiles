@@ -183,7 +183,9 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
 - The repository-wide release quarantine is 7 days. A final Beads-specific
   package rule raises that to 14 days for both `gastownhall/beads` and
   `@beads/bd` and blocks the known bad versions `1.0.5`, `1.2.0`, `1.2.1`, and
-  `1.3.0`.
+  `1.3.0`. 1.3.0 is blocked because a store without an `events` table goes
+  write-dead after its migration (#6142); 1.3.1 carries the fix (#6547) and is
+  the fleet target, which Renovate will not propose until it is 14 days old.
 - That rule groups the `.chezmoidata.yaml` `beads_version` pin with the
   homelab-IaC `npm_packages.txt` `@beads/bd` pin and requires both updates before
   creating a `renovate/beads-core-*` branch. The release-note check also refuses
@@ -195,7 +197,9 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
 - `assets/check-beads-release-notes.py` lists every published release newer than
   the proposed pin, including prereleases, and blocks when successor notes use
   data-loss, corruption, retraction, or recovery language. API, rate-limit, and
-  malformed-data failures also block. The scan is deliberately conservative:
+  malformed-data failures also block. It never reads the proposed release's own
+  notes, so a pin can pass today and be refused once a successor describes a
+  defect in it. The scan is deliberately conservative:
   warning text needs human review, and an unreported problem can still evade
   the keyword check. The 14-day quarantine remains the independent defense.
 - The annotated `beads_version` and `dolt_version` pins in `.chezmoidata.yaml`
@@ -219,7 +223,12 @@ to restore automerge.
 Sync Beads state through the Dolt remote, not JSONL. The interactive Bash, Zsh,
 and PowerShell `bd` wrappers redirect exact `bd dolt pull` and `bd dolt push`
 commands to the platform helper with a visible notice. Extra arguments are
-refused rather than dropped. Other `bd` commands are unaffected.
+refused rather than dropped. bd 1.3 added a top-level `bd sync` that runs bd's
+own pull and push; the wrappers refuse it (exit 2) and point at the helper,
+and agent permission lists deny it along with `bd serve`. Calls through the
+wrappers set `BD_NO_REMOTE_ADOPT=1`, as does `beads-sync push`, so they cannot
+adopt the public dotfiles git origin as a Dolt remote; direct `command bd` and
+`bd.exe` calls do not set it. Other `bd` commands are not redirected.
 
 Agents and non-interactive automation deliberately bypass those wrappers. Use
 `command bd ...` on POSIX or `bd.exe ...` on native Windows for ordinary Beads
@@ -337,7 +346,14 @@ What the `bd` wrapper does there:
 | ordinary commands (`list`, `create`, `close`, `show`, …) | preflight the port, then run `bd.exe` against the WSL2 server |
 | `bd dolt pull` / `push` | delegated into WSL2, which runs `./assets/beads-sync.sh` with a live `SSH_AUTH_SOCK` |
 | `bd dolt start` / `stop` | refused — this machine is a client, not a host |
+| `bd sync` | refused — run `./assets/beads-sync.sh pull` or `push` in WSL2 |
 | server unreachable | refused with the `wsl` command to start it; `bd.exe` is never invoked, so nothing can start a local server |
+
+Do not run `bd.exe` during a `bd` version bump. `bd.exe` and the WSL2 `bd`
+share one store, so each would rewrite the other's recorded
+`local_metadata.bd_version`, and a `bd.exe` older than the store's schema must
+not touch it at all. Upgrade WSL2 first and keep Windows off `bd` until
+`bd.exe` matches the `beads_version` pin.
 
 The delegation is deliberately independent of WSL2 rc files. `bash -lc` leaves
 `SSH_AUTH_SOCK` empty and resolves `bd` to the `beads-helpers` shell function
@@ -510,8 +526,39 @@ Upgrade flow across all machines:
    clone cannot upgrade in place) — see the recovery section below, since a
    pre-existing clone will hit `database exists`. The native Windows client is
    not a clone: it reads the WSL2 peer's database, so it has nothing of its own
-   to migrate. During rollout, use only a `bd.exe` version verified to target
-   the host's schema, then align it to the shared `beads_version` pin.
+   to migrate. Keep Windows off `bd` until `bd.exe` matches the
+   `beads_version` pin (see **Windows client mode**).
+
+`beads-sync pull` and `push` enforce step 1 locally: they refuse (exit 2)
+before any other `bd` command while `bd version` differs from the version the
+store recorded in `local_metadata.bd_version`. bd writes that marker on the
+first open after a binary change, migrating the store if the schema moved, so
+a sync must not be that first open. Step 3 clears the refusal on the
+designated migrator, and re-bootstrapping (step 4) clears it on every other
+clone. For a release with no schema change, any read such as `command bd
+list` clears it. When the marker cannot be read, the helpers log INFO and do
+not refuse.
+
+### 1.2.2 to 1.3.x
+
+1.3.0 moves the schema from v53 to v66: 13 main-series migrations
+(`0054_add_lease_columns` through `0066_add_events_journal_actor`) plus about
+15 clone-local ones, and the printed counter restarts partway through. Two
+need care:
+
+- `0061` rekeys aux rows to UUIDv5 ids, so the first open is slow. The
+  plan-approval hook's 5-second `bd show` can time out mid-migration and
+  report `[BEADS_GATE: unverified]`; migrate by hand before starting an agent
+  session.
+- `0062` commits a drop of the tracked `events` table and recreates it as a
+  dolt-ignored, clone-local table. Audit events stop replicating between
+  peers, and `beads-sync` never resets a table that is ignored but absent
+  from HEAD (see **`bd dolt pull` always fails: `cannot merge with uncommitted
+  changes`**).
+
+Back up with the 1.2.2 binary before installing: under 1.3.x `bd export`
+migrates before it exports. 1.3.1 adds no migration over 1.3.0. The fleet
+order is tracked in dots-v9tt.8.
 
 ## Recovery
 
@@ -659,6 +706,8 @@ repair reliably recreates them. `beads-sync init` sidesteps cloning entirely:
    remote's tracked tables and history. Dolt treats dolt_ignore'd tables like
    git treats untracked files — **a hard reset preserves them** (verified:
    all 6 wisp tables and `local_metadata` survived; 119 issues adopted).
+   init counts the wisp tables right after `bd init` and again after the
+   reset, and stops if `bd init` created none or the reset changed the count.
 3. From then on the local `main` shares history with the remote, so
    `beads-sync pull`/`push` work normally. A follow-up `dolt_pull` reported
    `Everything up-to-date`.
@@ -947,8 +996,11 @@ dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
 
 Check `select * from dolt_status;` first. Only reset tables that appear in
 `dolt_ignore` (`ignored_schema_migrations`, `local_metadata`, `repo_mtimes`,
-`wisps`, `wisp_%`). Anything else dirty is real data — run `bd dolt commit`
-instead. `beads-sync` enforces this and refuses otherwise.
+`wisps`, `wisp_%`) and exist at HEAD (`show tables as of 'HEAD';`). Anything
+else dirty is real data — run `bd dolt commit` instead. `beads-sync` enforces
+this and refuses otherwise. An ignored table that is absent from HEAD is
+clone-local (bd 1.3 migration 0062 moves `events` there); checking it out
+from HEAD would fail or drop its rows, so `beads-sync` leaves it alone.
 
 **Do not retry `bd dolt pull` in a loop.** Upstream reports that repeated failed
 pull attempts can corrupt the Dolt journal, needing
@@ -1131,6 +1183,13 @@ auto-commit cannot commit `dolt_ignore`d tables, and those are exactly the ones
 leaving the working set dirty. It appears to address a different variant of the
 same error — a dirty `config` table, or another database on a shared server.
 
+bd 1.3.0 includes [#6046](https://github.com/gastownhall/beads/pull/6046)
+(upstream #4356): it untracks a legacy tracked `ignored_schema_migrations`
+table at open, which unwedges `bd dolt pull` on upgraded databases. That is
+adjacent to the deadlock above but not proven to be the same failure, so the
+workaround stays until dots-v9tt.9 retests plain `bd dolt pull` on a 1.3.x
+peer.
+
 If either upstream bug is fixed, plain `bd dolt pull` can be used again and the
 `pull` command in `beads-sync` can be dropped.
 
@@ -1150,7 +1209,8 @@ bd import /mnt/devdrive/beads-snapshots/dots/<machine>/<snapshot>.jsonl
 An isolated disposable-repo test on 2026-08-10 used `bd version 1.1.2`
 (`20e493e56`) and exercised scalar fields, labels, comments, and dependencies.
 These results remain in the live runbook because 1.2.2 was cut from the 1.1.2
-code line and the current recovery procedure depends on these import semantics:
+code line and the current recovery procedure depends on these import semantics.
+They have not been re-verified on 1.3.x; dots-v9tt.9 owns that check:
 
 - An older incoming row was reported in `stale_skipped_ids`. Newer local scalar
   fields and local collections survived; collections from that stale row did

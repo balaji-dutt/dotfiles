@@ -14,6 +14,9 @@ tooling is broken" are different events and must not share a message):
   10  STALE       a real answer came back and it disqualifies the state file
   20  UNVERIFIED  nothing is known about the issue; Beads tooling failed
 
+bd exit codes other than 0 and 1, including bd 1.3's 13 (guard_mismatch) and
+14 (MIGRATION-FREEZE), land in UNVERIFIED.
+
 A STALE verdict means bd answered. An UNVERIFIED verdict means it did not,
 and the caller is expected to say so out loud rather than report it as
 staleness. Both are non-zero because staying silent is the bug this guards
@@ -99,6 +102,13 @@ def load_state(state_file):
     return issue_id, None, ""
 
 
+def unwrap_envelope(payload):
+    """Unwrap BD_JSON_ENVELOPE output; legacy error bodies lack "data", so both keys are required."""
+    if isinstance(payload, dict) and "schema_version" in payload and "data" in payload:
+        return payload["data"]
+    return payload
+
+
 def status_of(payload):
     """Pull a status string out of whatever shape bd returned, or None."""
     entry = None
@@ -167,7 +177,7 @@ def query_bd(issue_id, timeout):
     )
 
     try:
-        payload = json.loads(proc.stdout)
+        payload = unwrap_envelope(json.loads(proc.stdout))
     except ValueError:
         return (
             EXIT_UNVERIFIED,

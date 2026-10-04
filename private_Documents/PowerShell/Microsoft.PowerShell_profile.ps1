@@ -37,14 +37,14 @@ function global:Test-BdMutation([object[]] $BdArgs) {
     while ($index -lt $BdArgs.Count) {
         $arg = [string]$BdArgs[$index]
         if ($arg -eq '--') { $index++; break }
-        if ($arg -in @('-q', '--quiet', '-v', '--verbose', '--json', '--profile', '--readonly', '--sandbox', '--global')) {
+        if ($arg -in @('-q', '--quiet', '-v', '--verbose', '--json', '--cpu-profile', '--no-color', '--ignore-schema-skew', '--readonly', '--sandbox', '--global')) {
             $index++; continue
         }
-        if ($arg -in @('-C', '--directory', '--db', '--actor', '--dolt-auto-commit')) {
+        if ($arg -in @('-C', '--directory', '--db', '--database', '--actor', '--format', '--mem-profile', '--dolt-auto-commit')) {
             if ($index + 1 -ge $BdArgs.Count) { return $false }
             $index += 2; continue
         }
-        if ($arg -match '^(?:-C|--directory|--db|--actor|--dolt-auto-commit)=') { $index++; continue }
+        if ($arg -match '^(?:-C|--directory|--db|--database|--actor|--format|--mem-profile|--dolt-auto-commit)=') { $index++; continue }
         if ($arg -in @('-h', '--help', '--version', '-V')) { return $false }
         if ($arg.StartsWith('-')) { $index++; continue }
         break
@@ -54,14 +54,19 @@ function global:Test-BdMutation([object[]] $BdArgs) {
     $index++
     $alwaysWrite = @(
         'assign', 'batch', 'close', 'comment', 'create', 'new', 'create-form',
-        'defer', 'delete', 'duplicate', 'edit', 'forget', 'import', 'link',
-        'note', 'priority', 'promote', 'q', 'remember', 'rename', 'reopen',
-        'set-state', 'supersede', 'tag', 'undefer', 'update'
+        'cursor-hook', 'defer', 'delete', 'duplicate', 'edit', 'forget', 'gc',
+        'heartbeat', 'import', 'link', 'migrate-personal', 'note', 'priority',
+        'promote', 'q', 'reclaim', 'remember', 'rename', 'reopen', 'set-state',
+        'supersede', 'tag', 'unclaim', 'undefer', 'update'
     )
     if ($primary -in $alwaysWrite) { return $true }
     $subcommand = if ($index -lt $BdArgs.Count) { [string]$BdArgs[$index] } else { '' }
     switch ($primary) {
         'comments' { return $subcommand -eq 'add' }
+        'conflicts' { return $subcommand -eq 'resolve' }
+        'events' { return $subcommand -eq 'prune' }
+        'kv' { return $subcommand -in @('set', 'clear') }
+        'provenance' { return $subcommand -eq 'record' }
         'dep' { return $subcommand -in @('add', 'remove', 'relate', 'unrelate') }
         'label' { return $subcommand -in @('add', 'remove', 'propagate') }
         'epic' { return $subcommand -eq 'close-eligible' }
@@ -99,7 +104,7 @@ function global:bd {
             $directory = $Matches[1]
             $index++; continue
         }
-        if ($arg -in @('--db', '--actor', '--dolt-auto-commit')) {
+        if ($arg -in @('--db', '--database', '--actor', '--format', '--mem-profile', '--dolt-auto-commit')) {
             $unsupported = $true
             if ($index + 1 -ge $bdArgs.Count) { break }
             $index += 2; continue
@@ -130,6 +135,21 @@ function global:bd {
     # starting a local server, which is the split brain this arrangement exists
     # to remove.
     $clientMode = Test-BdClientMode $repoRoot
+
+    # bd 1.3's `bd sync` pulls natively; pulls here must go through beads-sync.
+    if ($index -lt $bdArgs.Count -and [string]$bdArgs[$index] -eq 'sync' -and
+        $bdArgs -notcontains '-h' -and $bdArgs -notcontains '--help') {
+        if ($clientMode) {
+            [Console]::Error.WriteLine('bd: refusing `bd sync` - this machine is a client of the WSL2 Dolt server; sync there with `./assets/beads-sync.sh pull` or `push`')
+        } elseif ($syncScript -and (Test-Path -LiteralPath $syncScript -PathType Leaf)) {
+            [Console]::Error.WriteLine("bd: refusing ``bd sync``; run ``pwsh -NoProfile -File '$syncScript' pull`` or ``push`` instead")
+        } else {
+            [Console]::Error.WriteLine('bd: refusing `bd sync`; run `bd.exe sync` to bypass this wrapper deliberately')
+        }
+        $global:LASTEXITCODE = 2
+        return
+    }
+
     if ($clientMode) {
         if ($doltSubcommand -in @('start', 'stop')) {
             [Console]::Error.WriteLine("bd: refusing ``bd dolt $doltSubcommand`` - this machine is a client of the WSL2 Dolt server, not a host")
@@ -199,8 +219,15 @@ function global:bd {
         return
     }
 
-    & $bdCommand.Source @bdArgs
-    $nativeExit = $global:LASTEXITCODE
+    # Stops bd 1.3+ adopting the public git origin as a Dolt remote; older bd ignores it.
+    $savedNoAdopt = $env:BD_NO_REMOTE_ADOPT
+    $env:BD_NO_REMOTE_ADOPT = '1'
+    try {
+        & $bdCommand.Source @bdArgs
+        $nativeExit = $global:LASTEXITCODE
+    } finally {
+        $env:BD_NO_REMOTE_ADOPT = $savedNoAdopt
+    }
     # In client mode the WSL2 wrappers already snapshot this database. Repeating
     # it here would export the whole thing over TCP on every mutation and file
     # the result under a second machine name for one database.

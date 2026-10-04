@@ -19,6 +19,13 @@
         "test_paths": ["tests/test_agent_attestation.py", "tests/test_agent_wt_merge.py", "tests/test_github_worktree_merge.py", "tests/test_pipeline_guard.py"],
         "behavior_requirements": [
           {
+            "id": "failure-beads-close-refusal",
+            "kind": "failure",
+            "description": "Name a Beads close-policy or assignee refusal after landing, keep the tracking state, exit non-zero, and never pass --force.",
+            "status": "covered",
+            "test_paths": ["tests/test_agent_wt_merge.py"]
+          },
+          {
             "id": "failure-merge-commit-wrapper",
             "kind": "failure",
             "description": "Require the selected commit wrapper before preparing a merge; leave ordinary failures pending, reject false wrapper success and abort safely on an approved main update.",
@@ -213,7 +220,9 @@
         "test_paths": ["tests/test_beads_helpers.py", "tests/test_beads_sync.py"],
         "behavior_requirements": [
           {"id": "failure-sync-command-errors", "kind": "failure", "description": "Propagate pull, push, server, and remote failures without claiming synchronization succeeded.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py", "tests/test_beads_sync.py"]},
+          {"id": "safety-bd-upgrade-guards", "kind": "safety", "description": "Refuse pull and push before any other bd call while bd's version is unreconciled with the store, reset only ignored tables present at HEAD and stop when HEAD cannot be listed, push with BD_NO_REMOTE_ADOPT set, and stop init when the reset loses wisp tables.", "status": "covered", "test_paths": ["tests/test_beads_sync.py"]},
           {"id": "safety-platform-and-remote-guards", "kind": "safety", "description": "Reject unsafe remotes and native-Windows peer operations before contacting or mutating Beads state.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py"]},
+          {"id": "safety-wrapper-bd-1-3-guards", "kind": "safety", "description": "Refuse a top-level bd sync before any native call while passing bd sync --help through, and set BD_NO_REMOTE_ADOPT on every native call the interactive wrappers make.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py"]},
           {"id": "success-helper-dispatch", "kind": "success", "description": "Dispatch supported shell and launcher operations to the intended guarded command.", "status": "covered", "test_paths": ["tests/test_beads_helpers.py"]}
         ]
       },

@@ -257,6 +257,73 @@ class BeadsShellDispatchTests(unittest.TestCase):
             ),
         )
 
+    def test_bd_1_3_global_flags_are_parsed(self) -> None:
+        for shell in SHELL_HELPERS:
+            with self.subTest(shell=shell, case="value flag before dolt pull"):
+                self.clear_log()
+                result = self.run_wrapper(shell, "--format", "json", "dolt", "pull")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("refusing redirected `bd dolt pull`", result.stderr)
+                self.assertEqual(self.read_log(), [])
+            for flags in (
+                ("--format", "json"),
+                ("--database", "dots"),
+                ("--mem-profile", "heap.out"),
+                ("--no-color",),
+                ("--ignore-schema-skew",),
+                ("--cpu-profile",),
+            ):
+                with self.subTest(shell=shell, flags=flags):
+                    self.clear_log()
+                    result = self.run_wrapper(shell, *flags, "update", "dots-1")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        self.read_log(),
+                        [f"native:{' '.join(flags)} update dots-1", "sync:snapshot --if-due"],
+                    )
+
+    def test_bd_sync_is_refused(self) -> None:
+        for shell in SHELL_HELPERS:
+            for args in (("sync",), ("--actor", "Claude", "sync", "--yes")):
+                with self.subTest(shell=shell, args=args):
+                    self.clear_log()
+                    result = self.run_wrapper(shell, *args)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("refusing `bd sync`", result.stderr)
+                    self.assertIn("assets/beads-sync.sh pull", result.stderr)
+                    self.assertEqual(self.read_log(), [])
+            with self.subTest(shell=shell, case="other repo"):
+                self.clear_log()
+                result = self.run_wrapper(shell, "sync", cwd=self.other_repo)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("command bd sync", result.stderr)
+                self.assertEqual(self.read_log(), [])
+            with self.subTest(shell=shell, case="help"):
+                self.clear_log()
+                result = self.run_wrapper(shell, "sync", "--help")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.read_log(), ["native:sync --help"])
+
+    def test_native_calls_set_no_remote_adopt(self) -> None:
+        write_executable(
+            self.bin_dir / "bd",
+            """
+            #!/bin/sh
+            printf 'adopt:%s\n' "${BD_NO_REMOTE_ADOPT-unset}" >> "$BD_TEST_LOG"
+            """,
+        )
+        self.env.pop("BD_NO_REMOTE_ADOPT", None)
+        for shell in SHELL_HELPERS:
+            with self.subTest(shell=shell):
+                self.clear_log()
+                result = self.run_wrapper(shell, "list")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.read_log(), ["adopt:1"])
+                self.clear_log()
+                result = self.run_direct(shell, "list")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.read_log(), ["adopt:unset"])
+
     def test_mutation_classifier_distinguishes_mixed_commands(self) -> None:
         writes = (
             ("update", "dots-1", "--title", "changed"),
@@ -265,6 +332,13 @@ class BeadsShellDispatchTests(unittest.TestCase):
             ("label", "remove", "dots-1", "old"),
             ("restore", "snapshot.jsonl", "--apply"),
             ("remember", "fact"),
+            ("heartbeat", "dots-1"),
+            ("unclaim", "dots-1"),
+            ("conflicts", "resolve", "dots-1"),
+            ("events", "prune"),
+            ("kv", "set", "key", "value"),
+            ("kv", "clear", "key"),
+            ("provenance", "record", "--issue", "dots-1"),
         )
         reads = (
             ("list",),
@@ -277,6 +351,10 @@ class BeadsShellDispatchTests(unittest.TestCase):
             ("merge-slot", "check", "dots-1"),
             ("todo", "list", "dots-1"),
             ("restore", "snapshot.jsonl"),
+            ("conflicts", "list"),
+            ("events", "tail"),
+            ("kv", "get", "key"),
+            ("provenance", "log", "dots-1"),
         )
         for shell in SHELL_HELPERS:
             for args in writes:
@@ -1032,6 +1110,65 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
         self.assertEqual(
             self.log.read_text(encoding="utf-8").splitlines(),
             ["native:update dots-1"],
+        )
+
+    def test_bd_1_3_flags_sync_refusal_and_new_verbs(self) -> None:
+        result = self.run_wrapper("--format", "json", "dolt", "pull")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("refusing redirected", result.stderr)
+        self.assertFalse(self.log.exists())
+
+        for args in (("sync",), ("--actor", "Claude", "sync")):
+            with self.subTest(args=args):
+                result = self.run_wrapper(*args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("refusing `bd sync`", result.stderr)
+                self.assertIn("beads-sync.ps1", result.stderr)
+                self.assertFalse(self.log.exists())
+
+        result = self.run_wrapper("sync", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.log.read_text(encoding="utf-8").splitlines(), ["native:sync --help"])
+
+        self.env["BD_TEST_SYNC_EXIT"] = "0"
+        for args in (
+            ("--no-color", "update", "dots-1"),
+            ("--format", "json", "heartbeat", "dots-1"),
+            ("kv", "set", "key", "value"),
+            ("conflicts", "resolve", "dots-1"),
+        ):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result = self.run_wrapper(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    self.log.read_text(encoding="utf-8").splitlines(),
+                    [f"native:{' '.join(args)}", "sync:snapshot"],
+                )
+
+    def test_native_call_sets_and_restores_no_remote_adopt(self) -> None:
+        (self.bin_dir / "bd.ps1").write_text(
+            "Add-Content -LiteralPath $env:BD_TEST_LOG -Value "
+            "('adopt:' + $env:BD_NO_REMOTE_ADOPT)\n",
+            encoding="utf-8",
+        )
+        self.env.pop("BD_NO_REMOTE_ADOPT", None)
+        encoded = (
+            f". '{ROOT / 'private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1'}'; "
+            "bd list; Add-Content -LiteralPath $env:BD_TEST_LOG "
+            "-Value ('after:' + [string]$env:BD_NO_REMOTE_ADOPT)"
+        )
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-Command", encoded],
+            cwd=self.repo,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.log.read_text(encoding="utf-8").splitlines(), ["adopt:1", "after:"]
         )
 
     def test_directory_selectors_and_other_repo_passthrough(self) -> None:

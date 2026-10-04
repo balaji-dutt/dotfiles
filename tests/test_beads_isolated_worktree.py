@@ -19,6 +19,7 @@ def run(argv, cwd, check=True):
         env.pop(key, None)
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["BD_JSON_ENVELOPE"] = "0"
     return subprocess.run(
         argv, cwd=cwd, env=env, text=True, capture_output=True, check=check
     )

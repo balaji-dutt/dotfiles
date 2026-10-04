@@ -267,6 +267,9 @@ command bd create "<title>" --type <type> \
   handoff.
 - Use
   `command bd update <existing_id> --status <approved-status> --actor "Claude"`.
+- If bd refuses because the issue has open children, a live blocker, or
+  another actor's assignment, return `Blocked` with bd's message and the
+  blocking IDs. Never add `--force`.
 
 #### `close`
 
@@ -276,6 +279,9 @@ command bd create "<title>" --type <type> \
   `command bd close <existing_id> --reason "<approved-reason>" --actor "Claude"`.
 - Do not use `--commit`; include commit SHAs in the reason only when the
   approved handoff already provided them. Do not invent SHAs.
+- If bd refuses because the issue has open children, a live blocker, or
+  another actor's assignment, return `Blocked` with bd's message and the
+  blocking IDs. Never add `--force`.
 
 ### Step 4 — Refresh and return
 

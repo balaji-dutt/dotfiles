@@ -126,6 +126,9 @@ fall through to `git user.name`, i.e. the human). The explicit `--assignee`
 is belt-and-suspenders against any change in `--claim` semantics. The
 assignee field is a plain string; no email is required.
 
+On bd 1.3 or newer, `--claim` refuses an issue another actor already holds
+("already claimed"); stop and ask rather than reassigning it.
+
 ### Step 4: Record the in-progress anchor
 
 Capture the current HEAD as the "started at" anchor so close-time SHA
@@ -396,6 +399,12 @@ command bd close <id> \
   --actor "OpenCode"
 ```
 
+bd 1.3 or newer refuses a close (and `bd update --status` into a closed
+status) when the issue has open children (`N open child issue(s)`), a live
+blocker (`cannot close blocked issue`), or another actor's assignment
+(`reclaim or use --force`). Report bd's message and the blocking IDs to the
+user and ask. Never add `--force` on your own.
+
 If the repo's Beads conventions (documented in `CLAUDE.md`/`AGENTS.md`)
 require refreshing or committing `.beads/issues.jsonl` after close, do so.
 Some repos disable JSONL auto-export entirely (e.g. Dolt-backed setups
@@ -441,6 +450,10 @@ OpenCode:
 ```bash
 command bd update <id> --status open --assignee "" --actor "OpenCode"
 ```
+
+On bd 1.3 or newer (check `command bd version`; 1.2.2 rejects the flag), add
+`--if-assignee "<harness name>"` so the release cannot clear a claim that has
+since changed hands. Exit 13 (`guard_mismatch`) means it did; stop and ask.
 
 Read back the release and remove **only** this issue's matching state file;
 verify removal. In note mode, append a dated cancellation note with the same

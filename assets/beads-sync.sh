@@ -318,6 +318,36 @@ remote_name() {
   dolt_sql -r csv -q "select name from dolt_remotes limit 1;" 2>/dev/null | tail -n +2
 }
 
+# Ignored tables absent from HEAD are clone-local (bd 1.3 `events`): never reset them from HEAD.
+head_tables() {
+  local tables
+  tables="$(dolt_sql -r csv -q "show tables as of 'HEAD';" 2>/dev/null | tail -n +2)" &&
+    [[ -n "${tables//[[:space:]]/}" ]] || die "could not list the tables at HEAD"
+  printf '%s\n' "$tables"
+}
+
+in_list() {
+  local needle="$1" list="$2" item
+  while read -r item; do
+    [[ "$item" == "$needle" ]] && return 0
+  done <<< "$list"
+  return 1
+}
+
+# A sync must not be bd's first open after an upgrade: that open migrates the store.
+require_reconciled_bd_version() {
+  local recorded binary
+  recorded="$(dolt_sql -r csv -q "select value from local_metadata where \`key\`='bd_version';" 2>/dev/null | tail -n +2 || true)"
+  if [[ -z "$recorded" ]]; then
+    info "no bd_version readable from local_metadata; skipping the bd version check"
+    return 0
+  fi
+  binary="$("$BD_EXE" version --json 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", ""))' 2>/dev/null || true)"
+  [[ -n "$binary" ]] || die "could not read the bd version from 'bd version --json'"
+  [[ "$binary" == "$recorded" ]] ||
+    die "bd ${binary} has not been reconciled with this store (local_metadata.bd_version is ${recorded}). Refusing to sync: a bd call here could migrate a remote-backed store. Follow docs/beads.md 'Schema migrations (bd version bumps)' first."
+}
+
 # Scheme detection only - the caller must never echo this unredacted.
 remote_url() {
   dolt_sql -r csv -q "select url from dolt_remotes limit 1;" 2>/dev/null | tail -n +2
@@ -408,16 +438,24 @@ restore_init_holds() {
   fi
 }
 
-# Echo the ignored (safe to reset) dirty tables; die if anything else is dirty.
+# Echo resettable ignored dirty tables (present at HEAD); die if anything else is dirty.
 safe_reset_list() {
-  local csv unsafe=() safe=()
+  local csv head unsafe=() safe=()
   csv="$(dirty_csv)"
   [[ -z "$csv" ]] && return 0
+  # Callers run this in $(...), where bash does not apply set -e.
+  head="$(head_tables)" || exit
 
   local table flag
   while IFS=, read -r table flag; do
     [[ -z "$table" ]] && continue
-    if [[ "$flag" == "1" ]]; then safe+=("$table"); else unsafe+=("$table"); fi
+    if [[ "$flag" != "1" ]]; then
+      unsafe+=("$table")
+    elif in_list "$table" "$head"; then
+      safe+=("$table")
+    else
+      info "leaving clone-local table '${table}' alone (ignored and not at HEAD)"
+    fi
   done <<< "$csv"
 
   if [[ ${#unsafe[@]} -gt 0 ]]; then
@@ -653,14 +691,17 @@ cmd_status() {
     return 0
   fi
   echo "Dirty tables:"
-  local table flag found_unsafe=0
+  local table flag head found_unsafe=0
+  head="$(head_tables)" || exit
   while IFS=, read -r table flag; do
     [[ -z "$table" ]] && continue
-    if [[ "$flag" == "1" ]]; then
-      echo "  $table  (ignored by dolt_ignore - safe to reset)"
-    else
+    if [[ "$flag" != "1" ]]; then
       echo "  $table  (NOT ignored - real data)"
       found_unsafe=1
+    elif in_list "$table" "$head"; then
+      echo "  $table  (ignored by dolt_ignore - safe to reset)"
+    else
+      echo "  $table  (ignored, not at HEAD - clone-local, left alone)"
     fi
   done <<< "$csv"
   if [[ "$found_unsafe" -eq 1 ]]; then
@@ -742,6 +783,7 @@ report_pull_conflicts() {
 }
 
 cmd_pull() {
+  require_reconciled_bd_version
   require_ssh_agent
   sync_boundary_snapshot forced
   restart_server
@@ -782,6 +824,7 @@ cmd_push() {
   local remote
   remote="$(remote_name)"
   [[ -n "$remote" ]] || die "no Dolt remote configured; refusing push; see docs/beads.md"
+  require_reconciled_bd_version
   require_ssh_agent
 
   if [[ "$DO_BACKUP" -eq 1 ]]; then
@@ -796,7 +839,12 @@ cmd_push() {
   fi
   # push does not merge, so the deadlock does not apply and bd is fine here.
   "$BD_EXE" dolt commit 2>&1 | redact || true
-  "$BD_EXE" dolt push 2>&1 | redact
+  # Stops bd 1.3+ adopting the public git origin as a Dolt remote; older bd ignores it.
+  BD_NO_REMOTE_ADOPT=1 "$BD_EXE" dolt push 2>&1 | redact
+}
+
+count_wisp_tables() {
+  dolt_sql -r csv -q "show tables like 'wisp%';" 2>/dev/null | tail -n +2 | grep -c . || true
 }
 
 # Rebuild this peer from the sync remote without cloning. Proven 2026-08-01:
@@ -884,6 +932,10 @@ cmd_init() {
   db_pid="$(dolt_sql -r csv -q "select value from metadata where \`key\`='_project_id';" 2>/dev/null | tail -n +2)"
   [[ -n "$db_pid" && "$db_pid" == "$meta_pid" ]] || die "project id mismatch: metadata.json has ${meta_pid}, server database has ${db_pid:-nothing}. Refusing - this looks like another checkout's server."
 
+  local wisps_before
+  wisps_before="$(count_wisp_tables)"
+  [[ "$wisps_before" -gt 0 ]] || die "bd init created no wisp tables - it took the clone path instead of a fresh local init. STOP; see docs/beads.md before retrying."
+
   # Trap 2: bd init auto-derives a Dolt remote from the git origin, and in
   # this repo the git origin is the PUBLIC dotfiles repo. Remove every remote
   # that is not the private sync remote before anything can push to it.
@@ -925,9 +977,9 @@ cmd_init() {
 
   local issues wisps
   issues="$(dolt_sql -r csv -q "select count(*) from issues;" 2>/dev/null | tail -n +2)"
-  wisps="$(dolt_sql -r csv -q "show tables like 'wisp%';" 2>/dev/null | tail -n +2 | grep -c . || true)"
+  wisps="$(count_wisp_tables)"
   [[ "${issues:-0}" -gt 0 ]] || die "issues table is empty after the reset - remote adoption failed"
-  [[ "$wisps" -eq 6 ]] || die "expected 6 wisp tables after the reset, found ${wisps}. Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
+  [[ "$wisps" -eq "$wisps_before" ]] || die "bd init created ${wisps_before} wisp tables but ${wisps} survived the reset. Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
 
   # Trap 3: the tracked `metadata` table rode in with the reset, so the DB now
   # carries the shared project identity. Point metadata.json at it or bd

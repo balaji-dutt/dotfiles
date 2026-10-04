@@ -291,6 +291,34 @@ select s.table_name,
   return @($text | ConvertFrom-Csv)
 }
 
+# Ignored tables absent from HEAD are clone-local (bd 1.3 `events`): never reset them from HEAD.
+function Get-HeadTables {
+  $raw = Invoke-DoltSql -Query "show tables as of 'HEAD';" -Csv -Quiet
+  $rc = $LASTEXITCODE
+  $tables = @(($raw | Out-String).Trim() -split "`n" | Select-Object -Skip 1 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if ($rc -ne 0 -or $tables.Count -eq 0) { Die 'could not list the tables at HEAD' }
+  return $tables
+}
+
+# A sync must not be bd's first open after an upgrade: that open migrates the store.
+function Assert-BdVersionReconciled {
+  $rows = @((Invoke-DoltSql -Query 'select value from local_metadata where `key`=''bd_version'';' -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
+  $recorded = if ($rows.Count -gt 0) { $rows[0].value } else { $null }
+  if (-not $recorded) {
+    Write-Info 'no bd_version readable from local_metadata; skipping the bd version check'
+    return
+  }
+  try {
+    $binary = ((& $BdExe version --json 2>$null | Out-String) | ConvertFrom-Json).version
+  } catch {
+    $binary = $null
+  }
+  if (-not $binary) { Die "could not read the bd version from 'bd version --json'" }
+  if ($binary -ne $recorded) {
+    Die "bd $binary has not been reconciled with this store (local_metadata.bd_version is $recorded). Refusing to sync: a bd call here could migrate a remote-backed store. Follow docs/beads.md 'Schema migrations (bd version bumps)' first."
+  }
+}
+
 function Get-RemoteName {
   $raw = Invoke-DoltSql -Query 'select name from dolt_remotes limit 1;' -Csv -Quiet
   $rows = @(($raw | Out-String).Trim() | ConvertFrom-Csv)
@@ -321,8 +349,7 @@ function Test-PortInUse([int]$Port) {
   }
 }
 
-# Return the ignored (safe to reset) dirty tables; exit non-zero if anything else
-# is dirty.
+# Return resettable ignored dirty tables (present at HEAD); exit non-zero if anything else is dirty.
 #
 # NOTE: every call to a function that can return @() MUST be wrapped in @().
 # PowerShell unrolls an empty array on return, so a bare `$x = Get-Foo` leaves
@@ -340,7 +367,16 @@ function Get-SafeResetList {
     [Console]::Error.WriteLine("ERROR: that is real data. Run 'bd dolt commit' first.")
     exit 2
   }
-  return @($rows | ForEach-Object { $_.table_name })
+  $head = @(Get-HeadTables)
+  $safe = @()
+  foreach ($row in $rows) {
+    if ($head -contains $row.table_name) {
+      $safe += $row.table_name
+    } else {
+      Write-Info "leaving clone-local table '$($row.table_name)' alone (ignored and not at HEAD)"
+    }
+  }
+  return $safe
 }
 
 function Get-CheckoutSql([string[]]$Tables) {
@@ -591,13 +627,16 @@ function Invoke-Status {
     return 0
   }
   [Console]::Out.WriteLine('Dirty tables:')
+  $head = @(Get-HeadTables)
   $anyUnsafe = $false
   foreach ($row in $rows) {
-    if ($row.is_ignored -eq '1') {
-      [Console]::Out.WriteLine("  $($row.table_name)  (ignored by dolt_ignore - safe to reset)")
-    } else {
+    if ($row.is_ignored -ne '1') {
       [Console]::Out.WriteLine("  $($row.table_name)  (NOT ignored - real data)")
       $anyUnsafe = $true
+    } elseif ($head -contains $row.table_name) {
+      [Console]::Out.WriteLine("  $($row.table_name)  (ignored by dolt_ignore - safe to reset)")
+    } else {
+      [Console]::Out.WriteLine("  $($row.table_name)  (ignored, not at HEAD - clone-local, left alone)")
     }
   }
   if ($anyUnsafe) {
@@ -627,6 +666,7 @@ function Invoke-Clean {
 }
 
 function Invoke-Pull {
+  Assert-BdVersionReconciled
   Invoke-SyncBoundarySnapshot forced | Out-Null
   Restart-DoltServer
 
@@ -663,6 +703,7 @@ function Invoke-Pull {
 function Invoke-Push {
   $remote = Get-RemoteName
   if (-not $remote) { Die 'no Dolt remote configured; refusing push; see docs/beads.md' }
+  Assert-BdVersionReconciled
 
   if ($Backup) {
     Invoke-SyncBoundarySnapshot forced | Out-Null
@@ -679,11 +720,23 @@ function Invoke-Push {
   # not - bash propagates it via pipefail + set -e, so this must match.
   [Console]::Out.WriteLine((Redact ((& $BdExe dolt commit 2>&1 | Out-String))))
 
-  $pushOut = (& $BdExe dolt push 2>&1 | Out-String)
-  $pushRc  = $LASTEXITCODE
+  # Stops bd 1.3+ adopting the public git origin as a Dolt remote; older bd ignores it.
+  $savedNoAdopt = $env:BD_NO_REMOTE_ADOPT
+  $env:BD_NO_REMOTE_ADOPT = '1'
+  try {
+    $pushOut = (& $BdExe dolt push 2>&1 | Out-String)
+    $pushRc  = $LASTEXITCODE
+  } finally {
+    $env:BD_NO_REMOTE_ADOPT = $savedNoAdopt
+  }
   [Console]::Out.WriteLine((Redact $pushOut))
   if ($pushRc -ne 0) { Die "bd dolt push failed (exit $pushRc)" }
   return 0
+}
+
+function Get-WispTableCount {
+  $wispRaw = (Invoke-DoltSql -Query "show tables like 'wisp%';" -Csv -Quiet | Out-String).Trim()
+  return @($wispRaw -split "`n" | Select-Object -Skip 1 | Where-Object { $_.Trim() }).Count
 }
 
 # Rebuild this peer from the sync remote without cloning. Proven 2026-08-01:
@@ -801,6 +854,11 @@ function Invoke-Init {
     Die "project id mismatch: metadata.json has $($newMeta.project_id), server database has $(if ($dbPid) { $dbPid } else { 'nothing' }). Refusing - this looks like another checkout's server."
   }
 
+  $wispsBefore = Get-WispTableCount
+  if ($wispsBefore -le 0) {
+    Die 'bd init created no wisp tables - it took the clone path instead of a fresh local init. STOP; see docs/beads.md before retrying.'
+  }
+
   # Trap 2: bd init auto-derives a Dolt remote from the git origin. On this
   # satellite the git remote is deliberately renamed so nothing derives, but
   # run the hygiene pass anyway: remove every remote that is not the private
@@ -846,10 +904,9 @@ function Invoke-Init {
   $issues = if ($issueRows.Count -gt 0) { [int]$issueRows[0].n } else { 0 }
   if ($issues -le 0) { Die 'issues table is empty after the reset - remote adoption failed' }
 
-  $wispRaw = (Invoke-DoltSql -Query "show tables like 'wisp%';" -Csv -Quiet | Out-String).Trim()
-  $wisps = @($wispRaw -split "`n" | Select-Object -Skip 1 | Where-Object { $_.Trim() })
-  if ($wisps.Count -ne 6) {
-    Die "expected 6 wisp tables after the reset, found $($wisps.Count). Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
+  $wisps = Get-WispTableCount
+  if ($wisps -ne $wispsBefore) {
+    Die "bd init created $wispsBefore wisp tables but $wisps survived the reset. Dolt no longer preserves dolt_ignore'd tables across reset - STOP; see docs/beads.md before retrying."
   }
 
   # Trap 3: the tracked `metadata` table rode in with the reset, so the DB now

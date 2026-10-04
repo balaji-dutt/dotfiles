@@ -71,6 +71,23 @@ case "$query" in
     ;;
   *'from dolt_conflicts;'*) printf 'table,num_conflicts\n' ;;
   *'from dolt_schema_conflicts;'*) printf 'table_name\n' ;;
+  "show tables as of 'HEAD';")
+    printf 'Tables_in_dots\n'
+    printf '%b\n' "${DOLT_HEAD_TABLES-issues\nignored_schema_migrations\nwisp_events}"
+    ;;
+  *'from local_metadata'*)
+    printf 'value\n'
+    [ -z "${DOLT_BD_VERSION-1.2.2}" ] || printf '%s\n' "${DOLT_BD_VERSION-1.2.2}"
+    ;;
+  "show tables like 'wisp%';")
+    count=${DOLT_WISPS_BEFORE:-6}
+    if grep -q 'dolt_reset(' "$BD_SYNC_TEST_LOG"; then count=${DOLT_WISPS_AFTER:-$count}; fi
+    printf 'Tables_in_dots (wisp%%)\n'
+    index=0
+    while [ "$index" -lt "$count" ]; do printf 'wisp_%s\n' "$index"; index=$((index + 1)); done
+    ;;
+  *'from issues;'*) printf 'n\n5\n' ;;
+  *"_project_id"*) printf 'value\nlocal-id\n' ;;
 esac
 exit 0
 """,
@@ -98,7 +115,15 @@ if [ "${1:-}" = export ]; then
   esac
   exit 0
 fi
-if [ "${1:-}" = init ]; then exit "${BD_INIT_RC:-0}"; fi
+if [ "${1:-}" = version ]; then
+  printf '{"version":"%s"}\n' "${BD_VERSION_STRING:-1.2.2}"
+  exit 0
+fi
+if [ "${1:-}" = init ]; then
+  [ "${BD_INIT_RC:-0}" = 0 ] || exit "$BD_INIT_RC"
+  mkdir -p .beads/dolt/dots
+  exit 0
+fi
 if [ "${1:-}" = dolt ] && [ "${2:-}" = start ]; then
   exit "${BD_START_RC:-0}"
 fi
@@ -107,6 +132,7 @@ if [ "${1:-}" = dolt ] && [ "${2:-}" = commit ]; then
   exit "${BD_COMMIT_RC:-0}"
 fi
 if [ "${1:-}" = dolt ] && [ "${2:-}" = push ]; then
+  printf '%s\n' "${BD_NO_REMOTE_ADOPT-unset}" >"$BD_SYNC_TEST_LOG.push-env"
   [ -z "${BD_PUSH_OUTPUT:-}" ] || printf '%s\n' "$BD_PUSH_OUTPUT"
   exit "${BD_PUSH_RC:-0}"
 fi
@@ -198,7 +224,87 @@ class BeadsSyncFixture:
         )
 
 
-class BeadsSyncPosixTests(BeadsSyncFixture, unittest.TestCase):
+class BeadsSyncUpgradeContract:
+    """Behavior both scripts share for the bd 1.3 upgrade."""
+
+    def test_reset_skips_ignored_tables_absent_from_head(self) -> None:
+        dirty = {
+            "DOLT_DIRTY_ROWS": "events,1\\nignored_schema_migrations,1",
+            "DOLT_HEAD_TABLES": "issues\\nignored_schema_migrations",
+        }
+        status = self.run_sync("status", env_updates=dirty)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("events  (ignored, not at HEAD - clone-local, left alone)", status.stdout)
+
+        self.clear_calls()
+        pulled = self.run_sync("pull", env_updates=dirty)
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertIn("leaving clone-local table 'events' alone", pulled.stderr)
+        pull_queries = [query for query in self.queries() if "dolt_pull(" in query]
+        self.assertEqual(len(pull_queries), 1)
+        self.assertIn("dolt_checkout('HEAD', '--', 'ignored_schema_migrations')", pull_queries[0])
+        self.assertNotIn("'events'", pull_queries[0])
+
+    def test_unlistable_head_stops_pull_before_merging(self) -> None:
+        result = self.run_sync(
+            "pull", env_updates={"DOLT_DIRTY_ROWS": "wisp_events,1", "DOLT_HEAD_TABLES": ""}
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("could not list the tables at HEAD", result.stderr)
+        self.assertFalse(any("dolt_pull(" in query for query in self.queries()))
+
+    def test_push_sets_no_remote_adopt(self) -> None:
+        result = self.run_sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        push_env = Path(f"{self.call_log}.push-env").read_text(encoding="utf-8").strip()
+        self.assertEqual(push_env, "1")
+        self.assertIn(["dolt", "push"], [arguments for _, arguments in self.calls("bd")])
+
+    def test_unreconciled_bd_version_refuses_pull_and_push(self) -> None:
+        for command in ("pull", "push"):
+            with self.subTest(command=command):
+                self.clear_calls()
+                result = self.run_sync(command, env_updates={"BD_VERSION_STRING": "1.3.1"})
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("bd 1.3.1 has not been reconciled", result.stderr)
+                self.assertIn("local_metadata.bd_version is 1.2.2", result.stderr)
+                bd_calls = [arguments for _, arguments in self.calls("bd")]
+                self.assertEqual(bd_calls, [["version", "--json"]])
+                self.assertFalse(any("dolt_pull(" in query for query in self.queries()))
+
+    def test_missing_recorded_bd_version_skips_the_check(self) -> None:
+        result = self.run_sync("pull", env_updates={"DOLT_BD_VERSION": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no bd_version readable from local_metadata", result.stderr)
+        self.assertTrue(any("dolt_pull(" in query for query in self.queries()))
+
+    def test_init_compares_wisp_tables_before_and_after_reset(self) -> None:
+        cases = (
+            ("7", "7", 0, None),
+            ("7", "5", 2, "bd init created 7 wisp tables but 5 survived the reset"),
+            ("0", "0", 2, "bd init created no wisp tables"),
+        )
+        for before, after, returncode, message in cases:
+            with self.subTest(before=before, after=after):
+                shutil.rmtree(self.repo / ".beads/dolt", ignore_errors=True)
+                self.clear_calls()
+                result = self.run_sync(
+                    "init",
+                    env_updates={
+                        "BD_SYNC_REMOTE": "https://example.invalid/sync",
+                        "BEADS_DOLT_SERVER_PORT": "",
+                        "DOLT_WISPS_AFTER": after,
+                        "DOLT_WISPS_BEFORE": before,
+                    },
+                )
+                self.assertEqual(result.returncode, returncode, result.stdout + result.stderr)
+                if message:
+                    self.assertIn(message, result.stderr)
+                else:
+                    self.assertIn("init complete: 5 issues adopted", result.stdout)
+
+
+class BeadsSyncPosixTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.TestCase):
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
@@ -287,7 +393,7 @@ class BeadsSyncPosixTests(BeadsSyncFixture, unittest.TestCase):
         self.assertNotIn("beads-init-hold", remotes.stdout.splitlines())
 
 
-class BeadsSyncPowerShellTests(BeadsSyncFixture, unittest.TestCase):
+class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if os.name == "nt":
@@ -392,6 +498,11 @@ class BeadsSyncPowerShellTests(BeadsSyncFixture, unittest.TestCase):
             ]
         )
         return subprocess.run(argv, capture_output=True, text=True, check=False)
+
+    def test_init_compares_wisp_tables_before_and_after_reset(self) -> None:
+        if not self.pwsh:
+            self.skipTest(f"{POWERSHELL_IMAGE} has no git, which init needs")
+        super().test_init_compares_wisp_tables_before_and_after_reset()
 
     def test_status_refusal_and_single_session_pull_match_posix_contract(self) -> None:
         refused = self.run_sync(
