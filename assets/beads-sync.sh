@@ -39,7 +39,7 @@ usage: ./assets/beads-sync.sh <command> [--dry-run] [--backup] [--if-due]
 
 commands:
   status   Show server, dirty tables, and whether a sync is safe (read-only)
-  clean    Restore dirty dolt_ignore'd tables from HEAD
+  clean    Restore dirty dolt_ignore'd tables from HEAD and re-link clone-local FKs
   pull     Restart server, then clean + dolt_pull in ONE dolt session
   push     Restart server, then bd dolt commit + bd dolt push
   snapshot Export a JSONL recovery snapshot to the shared snapshot root
@@ -332,6 +332,62 @@ in_list() {
     [[ "$item" == "$needle" ]] && return 0
   done <<< "$list"
   return 1
+}
+
+# Mirrors bd's doctor fix/clone_local_fks.go; dolt drops these FKs on every reset and merge.
+CLONE_LOCAL_FKS=(
+  "events|fk_events_issue|issue_id|issues|id"
+  "wisp_dependencies|fk_wisp_dep_issue|issue_id|wisps|id"
+  "wisp_dependencies|fk_wisp_dep_wisp_target|depends_on_wisp_id|wisps|id"
+  "wisp_dependencies|fk_wisp_dep_issue_target|depends_on_issue_id|issues|id"
+  "wisp_labels|fk_wisp_labels_issue|issue_id|wisps|id"
+  "wisp_comments|fk_wisp_comments_issue|issue_id|wisps|id"
+  "wisp_events|fk_wisp_events_issue|issue_id|wisps|id"
+  "wisp_child_counters|fk_wisp_child_counters_parent|parent_id|wisps|id"
+)
+
+severed_clone_local_fks() {
+  local present spec table constraint
+  present="$(dolt_sql -r csv -q "select concat('table:', table_name) as item from information_schema.tables where table_schema = database() union all select concat('fk:', table_name, '.', constraint_name) from information_schema.table_constraints where table_schema = database() and constraint_type = 'FOREIGN KEY';" 2>/dev/null </dev/null | tail -n +2)" || return 1
+  for spec in "${CLONE_LOCAL_FKS[@]}"; do
+    IFS='|' read -r table constraint _ <<< "$spec"
+    in_list "table:${table}" "$present" || continue
+    in_list "fk:${table}.${constraint}" "$present" && continue
+    printf '%s\n' "$spec"
+  done
+}
+
+# Never fails the caller: by the time this runs, the sync itself has happened.
+relink_clone_local_fks() {
+  local severed table constraint column ref_table ref_column orphans
+  if ! severed="$(severed_clone_local_fks)"; then
+    echo "WARNING: could not check clone-local FKs; run 'bd doctor' to see whether any are severed." >&2
+    return 0
+  fi
+  while IFS='|' read -r table constraint column ref_table ref_column; do
+    [[ -z "$table" ]] && continue
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      info "[dry-run] would re-link ${table}.${constraint}"
+      continue
+    fi
+    orphans="$(dolt_sql -r csv -q "select count(*) as n from ${table} t where t.${column} is not null and not exists (select 1 from ${ref_table} r where r.${ref_column} = t.${column});" 2>/dev/null </dev/null | tail -n +2)" || orphans=""
+    if [[ ! "$orphans" =~ ^[0-9]+$ ]]; then
+      echo "WARNING: could not count orphaned rows in ${table}; ${table}.${constraint} stays severed." >&2
+      continue
+    fi
+    if [[ "$orphans" -gt 0 ]]; then
+      if ! dolt_sql -q "delete from ${table} where ${column} is not null and not exists (select 1 from ${ref_table} r where r.${ref_column} = ${table}.${column});" >/dev/null 2>&1 </dev/null; then
+        echo "WARNING: could not delete orphaned rows from ${table}; ${table}.${constraint} stays severed." >&2
+        continue
+      fi
+      info "removed ${orphans} orphaned row(s) from ${table}"
+    fi
+    if dolt_sql -q "alter table ${table} add constraint ${constraint} foreign key (${column}) references ${ref_table} (${ref_column}) on delete cascade on update cascade;" >/dev/null 2>&1 </dev/null; then
+      info "re-linked ${table}.${constraint}"
+    else
+      echo "WARNING: could not re-link ${table}.${constraint}; run 'bd doctor' for details." >&2
+    fi
+  done <<< "$severed"
 }
 
 # A sync must not be bd's first open after an upgrade: that open migrates the store.
@@ -684,7 +740,11 @@ restart_server() {
 
 cmd_status() {
   echo "Dolt server: ${DB_HOST}:${PORT}  (database: ${DB})"
-  local csv
+  local csv severed_count
+  severed_count="$(severed_clone_local_fks | grep -c .)" || true
+  if [[ "$severed_count" -gt 0 ]]; then
+    echo "Clone-local FKs: ${severed_count} severed - run 'clean' to re-link"
+  fi
   csv="$(dirty_csv)"
   if [[ -z "$csv" ]]; then
     echo "Working set clean - sync is safe."
@@ -726,15 +786,16 @@ cmd_clean() {
   tables="$(safe_reset_list)"
   if [[ -z "${tables//[[:space:]]/}" ]]; then
     info "nothing to clean; working set has no dirty ignored tables"
-    return 0
+  else
+    sql="$(checkout_sql "$tables")"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      info "[dry-run] would run: $sql"
+    else
+      dolt_sql -q "$sql" >/dev/null
+      info "reset: $(echo "$tables" | tr '\n' ' ')"
+    fi
   fi
-  sql="$(checkout_sql "$tables")"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    info "[dry-run] would run: $sql"
-    return 0
-  fi
-  dolt_sql -q "$sql" >/dev/null
-  info "reset: $(echo "$tables" | tr '\n' ' ')"
+  relink_clone_local_fks
 }
 
 # Best effort: most Beads tables key on `id`, so name the rows that collided.
@@ -777,8 +838,11 @@ report_pull_conflicts() {
   done <<< "$schema_csv"
 
   echo "ERROR: aborting the merge so the working set is left clean." >&2
-  dolt_sql -q "call dolt_merge('--abort');" >/dev/null 2>&1 ||
+  if dolt_sql -q "call dolt_merge('--abort');" >/dev/null 2>&1; then
+    relink_clone_local_fks
+  else
     echo "ERROR: 'dolt_merge --abort' failed; this working set is STILL conflicted. Do not run bd against it until you resolve it." >&2
+  fi
   die "resolve the rows above by hand, then re-run. Recipe: docs/beads.md 'Merge conflicts on pull'."
 }
 
@@ -817,6 +881,7 @@ cmd_pull() {
   local rc=0
   dolt_sql -q "$sql" 2>&1 | tr -d '\r' | redact || rc=$?
   report_pull_conflicts
+  relink_clone_local_fks
   return "$rc"
 }
 
@@ -997,6 +1062,8 @@ current = json.loads(text)['project_id']
 open(path, 'w').write(text.replace(current, sys.argv[1]))
 PY
   info "patched .beads/metadata.json project_id to the adopted database identity"
+
+  relink_clone_local_fks
 
   # Trap 4: if the adopted migration cursor trails this bd version, the first
   # bd command re-runs the missing ignored migrations (idempotent on Linux;

@@ -203,6 +203,11 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
   defect in it. The scan is deliberately conservative:
   warning text needs human review, and an unreported problem can still evade
   the keyword check. The 14-day quarantine remains the independent defense.
+- The same guard fetches bd's `cmd/bd/doctor/fix/clone_local_fks.go` at the
+  proposed tag and fails when its key list differs from the lists in
+  `assets/beads-sync.sh` and `assets/beads-sync.ps1`, naming each key added or
+  removed. It fails closed when the file is missing or cannot be parsed.
+  `--clone-local-fks-file` reads a local copy instead.
 - The annotated `beads_version` and `dolt_version` pins in `.chezmoidata.yaml`
   use the `github-releases` datasource, so Renovate proposes upstream releases
   without routing installation through npm. `configs/mise_wsl2.toml` is a
@@ -296,6 +301,13 @@ ERROR: Dolt server is unavailable at 127.0.0.1:3307; run 'bd dolt start' first
 current SSH agent environment; they do not use that restart to recover a
 stopped server. `init` establishes its own server, and `snapshot` remains
 available without this preflight.
+
+Dolt drops the foreign keys on bd's clone-local tables (`events`, `wisp_*`)
+on every hard reset and merge. `pull`, `init`, and an aborted merge re-link
+them afterwards, deleting any orphaned rows first, as `bd doctor --fix` would.
+`status` reports severed keys and `clean` re-links them. A failed re-link only
+warns: the sync has already happened, and `bd doctor` names what is still
+severed. The key list mirrors bd's `cmd/bd/doctor/fix/clone_local_fks.go`.
 
 | What you're doing | Command |
 | --- | --- |
@@ -593,11 +605,14 @@ Things that caught us out:
 - A shell or agent session that started before `mise install` keeps the old
   install directory ahead of the shims on `PATH`. Restart it, or call the new
   binary by its full path.
-- After the upgrade, doctor warns **Clone-Local FKs** with 0 orphans. The
-  peers rebuilt with `init` showed 8 severed foreign keys on `events` and
-  `wisp_*`; macOS, which never ran `init`, showed 4 on `wisp_*`. Do not clear
-  the warning with a wholesale `--fix` (see **Caution: `bd doctor --fix`**
-  below).
+- After the upgrade, doctor warned **Clone-Local FKs** with 0 orphans: 8
+  severed foreign keys on `events` and `wisp_*` on the peers rebuilt with
+  `init`, and 4 on `wisp_*` on macOS. Dolt drops every foreign key on a
+  dolt-ignored table whenever it hard-resets or merges, fast-forward included,
+  so any pull that brings in commits severs them. `beads-sync` now re-links
+  them after `pull`, `init`, and an aborted merge, and `clean` repairs a store
+  that is already severed. Do not clear the warning with a wholesale `--fix`
+  (see **Caution: `bd doctor --fix`** below).
 - A note the migrator wrote and had not pushed collided with peer probes
   appended to the same issue. Push straight after every write while peers
   are being rebuilt.

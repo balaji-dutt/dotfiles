@@ -300,6 +300,71 @@ function Get-HeadTables {
   return $tables
 }
 
+# Mirrors bd's doctor fix/clone_local_fks.go; dolt drops these FKs on every reset and merge.
+$CloneLocalFks = @(
+  'events|fk_events_issue|issue_id|issues|id'
+  'wisp_dependencies|fk_wisp_dep_issue|issue_id|wisps|id'
+  'wisp_dependencies|fk_wisp_dep_wisp_target|depends_on_wisp_id|wisps|id'
+  'wisp_dependencies|fk_wisp_dep_issue_target|depends_on_issue_id|issues|id'
+  'wisp_labels|fk_wisp_labels_issue|issue_id|wisps|id'
+  'wisp_comments|fk_wisp_comments_issue|issue_id|wisps|id'
+  'wisp_events|fk_wisp_events_issue|issue_id|wisps|id'
+  'wisp_child_counters|fk_wisp_child_counters_parent|parent_id|wisps|id'
+)
+
+# Returns $null when the schema cannot be read, otherwise the severed specs.
+function Get-SeveredCloneLocalFks {
+  $query = "select concat('table:', table_name) as item from information_schema.tables where table_schema = database() union all select concat('fk:', table_name, '.', constraint_name) from information_schema.table_constraints where table_schema = database() and constraint_type = 'FOREIGN KEY';"
+  $raw = Invoke-DoltSql -Query $query -Csv -Quiet
+  if ($LASTEXITCODE -ne 0) { return $null }
+  $present = @(($raw | Out-String).Trim() -split "`n" | Select-Object -Skip 1 | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  $severed = @()
+  foreach ($spec in $CloneLocalFks) {
+    $parts = $spec -split '\|'
+    if ($present -notcontains "table:$($parts[0])") { continue }
+    if ($present -contains "fk:$($parts[0]).$($parts[1])") { continue }
+    $severed += $spec
+  }
+  return ,$severed
+}
+
+# Never fails the caller: by the time this runs, the sync itself has happened.
+function Invoke-RelinkCloneLocalFks {
+  $severed = Get-SeveredCloneLocalFks
+  if ($null -eq $severed) {
+    [Console]::Error.WriteLine("WARNING: could not check clone-local FKs; run 'bd doctor' to see whether any are severed.")
+    return
+  }
+  foreach ($spec in $severed) {
+    $table, $constraint, $column, $refTable, $refColumn = $spec -split '\|'
+    if ($DryRun) {
+      Write-Info "[dry-run] would re-link ${table}.${constraint}"
+      continue
+    }
+    $countRaw = Invoke-DoltSql -Query "select count(*) as n from $table t where t.$column is not null and not exists (select 1 from $refTable r where r.$refColumn = t.$column);" -Csv -Quiet
+    $countRc = $LASTEXITCODE
+    $orphans = "$(($countRaw | Out-String).Trim() -split "`n" | Select-Object -Skip 1 | Select-Object -First 1)".Trim()
+    if ($countRc -ne 0 -or $orphans -notmatch '^\d+$') {
+      [Console]::Error.WriteLine("WARNING: could not count orphaned rows in $table; ${table}.${constraint} stays severed.")
+      continue
+    }
+    if ([int]$orphans -gt 0) {
+      Invoke-DoltSql -Query "delete from $table where $column is not null and not exists (select 1 from $refTable r where r.$refColumn = ${table}.${column});" -Quiet | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("WARNING: could not delete orphaned rows from $table; ${table}.${constraint} stays severed.")
+        continue
+      }
+      Write-Info "removed $orphans orphaned row(s) from $table"
+    }
+    Invoke-DoltSql -Query "alter table $table add constraint $constraint foreign key ($column) references $refTable ($refColumn) on delete cascade on update cascade;" -Quiet | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Info "re-linked ${table}.${constraint}"
+    } else {
+      [Console]::Error.WriteLine("WARNING: could not re-link ${table}.${constraint}; run 'bd doctor' for details.")
+    }
+  }
+}
+
 # A sync must not be bd's first open after an upgrade: that open migrates the store.
 function Assert-BdVersionReconciled {
   $rows = @((Invoke-DoltSql -Query 'select value from local_metadata where `key`=''bd_version'';' -Csv -Quiet | Out-String).Trim() | ConvertFrom-Csv)
@@ -621,6 +686,10 @@ function Restart-DoltServer {
 # Keep the output stream carrying the exit code and nothing else.
 function Invoke-Status {
   [Console]::Out.WriteLine("Dolt server: ${DbHost}:${DbPort}  (database: ${DbName})")
+  $severed = Get-SeveredCloneLocalFks
+  if ($null -ne $severed -and $severed.Count -gt 0) {
+    [Console]::Out.WriteLine("Clone-local FKs: $($severed.Count) severed - run 'clean' to re-link")
+  }
   $rows = @(Get-DirtyTables)   # @() required - see Get-SafeResetList note
   if ($rows.Count -eq 0) {
     [Console]::Out.WriteLine('Working set clean - sync is safe.')
@@ -651,17 +720,18 @@ function Invoke-Clean {
   $tables = @(Get-SafeResetList)   # @() required - see Get-SafeResetList note
   if ($tables.Count -eq 0) {
     Write-Info 'nothing to clean; working set has no dirty ignored tables'
-    return 0
+  } else {
+    $sql = Get-CheckoutSql $tables
+    if ($DryRun) {
+      Write-Info "[dry-run] would run: $sql"
+    } else {
+      Invoke-DoltSql -Query $sql | Out-Null
+      # Consistent with pull/push: bash propagates this via set -e, so match it.
+      if ($LASTEXITCODE -ne 0) { Die "dolt checkout failed (exit $LASTEXITCODE)" }
+      Write-Info "reset: $($tables -join ' ')"
+    }
   }
-  $sql = Get-CheckoutSql $tables
-  if ($DryRun) {
-    Write-Info "[dry-run] would run: $sql"
-    return 0
-  }
-  Invoke-DoltSql -Query $sql | Out-Null
-  # Consistent with pull/push: bash propagates this via set -e, so match it.
-  if ($LASTEXITCODE -ne 0) { Die "dolt checkout failed (exit $LASTEXITCODE)" }
-  Write-Info "reset: $($tables -join ' ')"
+  Invoke-RelinkCloneLocalFks
   return 0
 }
 
@@ -695,6 +765,7 @@ function Invoke-Pull {
   $pullOut = (Invoke-DoltSql -Query $sql | Out-String)
   $pullRc  = $LASTEXITCODE
   [Console]::Out.WriteLine((Redact $pullOut))
+  Invoke-RelinkCloneLocalFks
   # bash propagates a failed pull via pipefail + set -e; match that.
   if ($pullRc -ne 0) { Die "dolt pull failed (exit $pullRc)" }
   return 0
@@ -922,6 +993,8 @@ function Invoke-Init {
   $currentId = ($metaText | ConvertFrom-Json).project_id
   Set-Content -LiteralPath '.beads/metadata.json' -Value $metaText.Replace($currentId, $dbPid) -NoNewline -Encoding utf8NoBOM
   Write-Info 'patched .beads/metadata.json project_id to the adopted database identity'
+
+  Invoke-RelinkCloneLocalFks
 
   # Trap 4: if the adopted migration cursor trails this bd version, the first
   # bd command re-runs the missing ignored migrations. Windows is where that

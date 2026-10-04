@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import unittest
@@ -11,6 +12,24 @@ from tests.support.fixtures import init_git_repository, isolated_environment, wr
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POWERSHELL_IMAGE = "local/powershell-audit:lts"
+CLONE_LOCAL_FKS = (
+    ("events", "fk_events_issue", "issue_id", "issues", "id"),
+    ("wisp_dependencies", "fk_wisp_dep_issue", "issue_id", "wisps", "id"),
+    ("wisp_dependencies", "fk_wisp_dep_wisp_target", "depends_on_wisp_id", "wisps", "id"),
+    ("wisp_dependencies", "fk_wisp_dep_issue_target", "depends_on_issue_id", "issues", "id"),
+    ("wisp_labels", "fk_wisp_labels_issue", "issue_id", "wisps", "id"),
+    ("wisp_comments", "fk_wisp_comments_issue", "issue_id", "wisps", "id"),
+    ("wisp_events", "fk_wisp_events_issue", "issue_id", "wisps", "id"),
+    ("wisp_child_counters", "fk_wisp_child_counters_parent", "parent_id", "wisps", "id"),
+)
+
+
+def relink_sql(spec: tuple[str, str, str, str, str]) -> str:
+    table, constraint, column, ref_table, ref_column = spec
+    return (
+        f"alter table {table} add constraint {constraint} foreign key ({column}) "
+        f"references {ref_table} ({ref_column}) on delete cascade on update cascade;"
+    )
 
 
 def _read_calls(path: Path) -> list[tuple[str, list[str]]]:
@@ -50,6 +69,23 @@ done
 
 case "$query" in
   'select 1;') exit "${DOLT_SERVER_RC:-0}" ;;
+  *'information_schema.table_constraints'*)
+    [ "${DOLT_FK_SCAN_RC:-0}" = 0 ] || exit "$DOLT_FK_SCAN_RC"
+    printf 'item\n'
+    for table in ${DOLT_FK_TABLES-events wisp_dependencies wisp_labels wisp_comments wisp_events wisp_child_counters}; do
+      printf 'table:%s\n' "$table"
+    done
+    for fk in ${DOLT_FKS_PRESENT-events.fk_events_issue wisp_dependencies.fk_wisp_dep_issue wisp_dependencies.fk_wisp_dep_wisp_target wisp_dependencies.fk_wisp_dep_issue_target wisp_labels.fk_wisp_labels_issue wisp_comments.fk_wisp_comments_issue wisp_events.fk_wisp_events_issue wisp_child_counters.fk_wisp_child_counters_parent}; do
+      printf 'fk:%s\n' "$fk"
+    done
+    ;;
+  'select count(*) as n from '*)
+    table=$(printf '%s' "$query" | sed -n 's/^select count(\*) as n from \([a-z_]*\) .*/\1/p')
+    count=$(printf ' %s ' "${DOLT_ORPHANS:-}" | sed -n "s/.* $table=\([0-9]*\) .*/\1/p")
+    printf 'n\n%s\n' "${count:-0}"
+    ;;
+  'alter table '*) exit "${DOLT_ALTER_RC:-0}" ;;
+  "call dolt_merge('--abort');") exit "${DOLT_ABORT_RC:-0}" ;;
   *'from dolt_status'*)
     printf 'table_name,is_ignored\n'
     [ -z "${DOLT_DIRTY_ROWS:-}" ] || printf '%b\n' "$DOLT_DIRTY_ROWS"
@@ -69,7 +105,10 @@ case "$query" in
     [ -z "${DOLT_PULL_OUTPUT:-}" ] || printf '%s\n' "$DOLT_PULL_OUTPUT"
     exit "${DOLT_PULL_RC:-0}"
     ;;
-  *'from dolt_conflicts;'*) printf 'table,num_conflicts\n' ;;
+  *'from dolt_conflicts;'*)
+    printf 'table,num_conflicts\n'
+    [ -z "${DOLT_CONFLICT_ROWS:-}" ] || printf '%b\n' "$DOLT_CONFLICT_ROWS"
+    ;;
   *'from dolt_schema_conflicts;'*) printf 'table_name\n' ;;
   "show tables as of 'HEAD';")
     printf 'Tables_in_dots\n'
@@ -303,8 +342,97 @@ class BeadsSyncUpgradeContract:
                 else:
                     self.assertIn("init complete: 5 issues adopted", result.stdout)
 
+    def alter_queries(self) -> list[str]:
+        return [query for query in self.queries() if query.startswith("alter table ")]
+
+    def test_pull_relinks_only_severed_clone_local_fks(self) -> None:
+        present = " ".join(
+            f"{table}.{constraint}"
+            for table, constraint, *_ in CLONE_LOCAL_FKS
+            if constraint not in {"fk_events_issue", "fk_wisp_labels_issue"}
+        )
+        result = self.run_sync("pull", env_updates={"DOLT_FKS_PRESENT": present})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.alter_queries(),
+            [relink_sql(CLONE_LOCAL_FKS[0]), relink_sql(CLONE_LOCAL_FKS[4])],
+        )
+        self.assertIn("re-linked events.fk_events_issue", result.stderr)
+        self.assertIn("re-linked wisp_labels.fk_wisp_labels_issue", result.stderr)
+
+    def test_intact_clone_local_fks_are_left_alone(self) -> None:
+        result = self.run_sync("pull")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.alter_queries(), [])
+
+    def test_orphans_are_deleted_before_relink(self) -> None:
+        result = self.run_sync(
+            "clean",
+            env_updates={
+                "DOLT_FKS_PRESENT": "events.fk_events_issue",
+                "DOLT_FK_TABLES": "events wisp_labels",
+                "DOLT_ORPHANS": "wisp_labels=2",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        queries = self.queries()
+        delete_index = next(
+            index for index, query in enumerate(queries) if query.startswith("delete from wisp_labels ")
+        )
+        self.assertEqual(self.alter_queries(), [relink_sql(CLONE_LOCAL_FKS[4])])
+        self.assertLess(delete_index, queries.index(relink_sql(CLONE_LOCAL_FKS[4])))
+        self.assertIn("removed 2 orphaned row(s) from wisp_labels", result.stderr)
+
+    def test_clean_dry_run_lists_without_relinking(self) -> None:
+        result = self.run_sync("clean", self.dry_run_flag, env_updates={"DOLT_FKS_PRESENT": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.alter_queries(), [])
+        self.assertEqual(result.stderr.count("[dry-run] would re-link "), len(CLONE_LOCAL_FKS))
+
+    def test_status_reports_severed_clone_local_fks(self) -> None:
+        result = self.run_sync(
+            "status", env_updates={"DOLT_FKS_PRESENT": "events.fk_events_issue wisp_labels.fk_wisp_labels_issue"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Clone-local FKs: 6 severed - run 'clean' to re-link", result.stdout)
+        self.assertEqual(self.alter_queries(), [])
+
+        intact = self.run_sync("status")
+        self.assertNotIn("Clone-local FKs", intact.stdout)
+
+    def test_init_relinks_after_the_reset(self) -> None:
+        shutil.rmtree(self.repo / ".beads/dolt", ignore_errors=True)
+        result = self.run_sync(
+            "init",
+            env_updates={
+                "BD_SYNC_REMOTE": "https://example.invalid/sync",
+                "BEADS_DOLT_SERVER_PORT": "",
+                "DOLT_FKS_PRESENT": "",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        queries = self.queries()
+        reset_index = next(index for index, query in enumerate(queries) if "dolt_reset(" in query)
+        alters = self.alter_queries()
+        self.assertEqual(alters, [relink_sql(spec) for spec in CLONE_LOCAL_FKS])
+        self.assertLess(reset_index, queries.index(alters[0]))
+
+    def test_failed_relink_warns_without_failing_pull(self) -> None:
+        result = self.run_sync(
+            "pull", env_updates={"DOLT_FKS_PRESENT": "", "DOLT_ALTER_RC": "1"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING: could not re-link events.fk_events_issue", result.stderr)
+        self.assertEqual(len(self.alter_queries()), len(CLONE_LOCAL_FKS))
+
+    def test_failed_pull_still_relinks(self) -> None:
+        result = self.run_sync("pull", env_updates={"DOLT_FKS_PRESENT": "", "DOLT_PULL_RC": "1"})
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.alter_queries()), len(CLONE_LOCAL_FKS))
+
 
 class BeadsSyncPosixTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.TestCase):
+    dry_run_flag = "--dry-run"
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
@@ -319,6 +447,33 @@ class BeadsSyncPosixTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.T
             text=True,
             check=False,
         )
+
+    def test_conflicting_pull_relinks_after_the_abort(self) -> None:
+        result = self.run_sync(
+            "pull", env_updates={"DOLT_CONFLICT_ROWS": "issues,1", "DOLT_FKS_PRESENT": ""}
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("the merge produced conflicts", result.stderr)
+        queries = self.queries()
+        abort_index = queries.index("call dolt_merge('--abort');")
+        alters = self.alter_queries()
+        self.assertEqual(len(alters), len(CLONE_LOCAL_FKS))
+        self.assertLess(abort_index, queries.index(alters[0]))
+
+    def test_failed_abort_leaves_the_conflicted_working_set_alone(self) -> None:
+        result = self.run_sync(
+            "pull",
+            env_updates={
+                "DOLT_ABORT_RC": "1",
+                "DOLT_CONFLICT_ROWS": "issues,1",
+                "DOLT_FKS_PRESENT": "",
+                "DOLT_ORPHANS": "wisp_labels=2",
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("this working set is STILL conflicted", result.stderr)
+        self.assertEqual(self.alter_queries(), [])
+        self.assertFalse(any(query.startswith("delete from ") for query in self.queries()))
 
     def test_status_and_dirty_reset_refusal(self) -> None:
         cases = (("", "Working set clean"), ("wisp_events,1", "safe to clean"))
@@ -394,6 +549,7 @@ class BeadsSyncPosixTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.T
 
 
 class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.TestCase):
+    dry_run_flag = "-DryRun"
     @classmethod
     def setUpClass(cls) -> None:
         if os.name == "nt":
@@ -504,6 +660,11 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
             self.skipTest(f"{POWERSHELL_IMAGE} has no git, which init needs")
         super().test_init_compares_wisp_tables_before_and_after_reset()
 
+    def test_init_relinks_after_the_reset(self) -> None:
+        if not self.pwsh:
+            self.skipTest(f"{POWERSHELL_IMAGE} has no git, which init needs")
+        super().test_init_relinks_after_the_reset()
+
     def test_status_refusal_and_single_session_pull_match_posix_contract(self) -> None:
         refused = self.run_sync(
             "clean", env_updates={"DOLT_DIRTY_ROWS": "issues,0\\nwisp_events,1"}
@@ -550,3 +711,16 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
         self.assertEqual(remote.stdout.strip(), "https://example.invalid/dotfiles")
         self.assertTrue((self.repo / ".beads/config.local.yaml").is_file())
         self.assertFalse((self.repo / ".beads/config.local.yaml.init-hold").exists())
+
+
+class CloneLocalFkListParityTests(unittest.TestCase):
+    def script_specs(self, name: str) -> list[tuple[str, ...]]:
+        text = (REPO_ROOT / "assets" / name).read_text(encoding="utf-8")
+        return [
+            tuple(match.split("|"))
+            for match in re.findall(r"""^\s+["']((?:[a-z_]+\|){4}[a-z_]+)["']\s*$""", text, re.MULTILINE)
+        ]
+
+    def test_both_scripts_carry_the_same_list(self) -> None:
+        self.assertEqual(self.script_specs("beads-sync.sh"), list(CLONE_LOCAL_FKS))
+        self.assertEqual(self.script_specs("beads-sync.ps1"), list(CLONE_LOCAL_FKS))

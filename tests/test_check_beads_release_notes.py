@@ -31,6 +31,25 @@ def load_helper_module() -> Any:
 
 
 HELPER = load_helper_module()
+CLONE_LOCAL_FKS = (
+    ("events", "fk_events_issue", "issue_id", "issues", "id"),
+    ("wisp_dependencies", "fk_wisp_dep_issue", "issue_id", "wisps", "id"),
+    ("wisp_labels", "fk_wisp_labels_issue", "issue_id", "wisps", "id"),
+)
+
+
+def upstream_source(specs: tuple[tuple[str, ...], ...] = CLONE_LOCAL_FKS) -> str:
+    entries = "\n".join(
+        f'\t{{Table: "{t}", Constraint: "{c}", Column: "{col}", '
+        f'RefTable: "{rt}", RefColumn: "{rc}"}},'
+        for t, c, col, rt, rc in specs
+    )
+    return f"package fix\n\nvar CloneLocalFKs = []CloneLocalFK{{\n{entries}\n}}\n"
+
+
+def sync_script(specs: tuple[tuple[str, ...], ...] = CLONE_LOCAL_FKS, quote: str = '"') -> str:
+    entries = "\n".join(f"  {quote}{'|'.join(spec)}{quote}" for spec in specs)
+    return f"CLONE_LOCAL_FKS=(\n{entries}\n)\n"
 
 
 def release(
@@ -56,6 +75,16 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
         self.repo_root = Path(self.temporary_directory.name)
         (self.repo_root / NPM_PIN_PATH).parent.mkdir(parents=True)
         self.write_pins()
+        (self.repo_root / "assets").mkdir()
+        self.write_sync_lists()
+        self.upstream_path = self.repo_root / "clone_local_fks.go"
+        self.upstream_path.write_text(upstream_source(), encoding="utf-8")
+
+    def write_sync_lists(self, specs: tuple[tuple[str, ...], ...] = CLONE_LOCAL_FKS) -> None:
+        (self.repo_root / "assets/beads-sync.sh").write_text(sync_script(specs), encoding="utf-8")
+        (self.repo_root / "assets/beads-sync.ps1").write_text(
+            sync_script(specs, quote="'"), encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
@@ -88,6 +117,8 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
                 str(self.repo_root),
                 "--releases-file",
                 str(releases_path),
+                "--clone-local-fks-file",
+                str(self.upstream_path),
             ],
             check=False,
             capture_output=True,
@@ -109,6 +140,57 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("pins agree at 1.2.2", completed.stdout)
         self.assertIn("no published Beads releases are newer", completed.stdout)
+
+    def test_matching_clone_local_fk_list_passes(self) -> None:
+        completed = self.run_helper([release("v1.2.2")])
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("clone-local FK list matches bd 1.2.2", completed.stdout)
+
+    def test_added_upstream_clone_local_fk_fails(self) -> None:
+        added = ("wisp_notes", "fk_wisp_notes_issue", "issue_id", "wisps", "id")
+        self.upstream_path.write_text(upstream_source(CLONE_LOCAL_FKS + (added,)), encoding="utf-8")
+
+        completed = self.run_helper([release("v1.2.2")])
+
+        self.assertEqual(completed.returncode, 1)
+        for path in ("assets/beads-sync.sh", "assets/beads-sync.ps1"):
+            self.assertIn(
+                f"defines clone-local FK wisp_notes.fk_wisp_notes_issue that {path} does not re-link",
+                completed.stderr,
+            )
+
+    def test_removed_upstream_clone_local_fk_fails(self) -> None:
+        self.upstream_path.write_text(upstream_source(CLONE_LOCAL_FKS[:2]), encoding="utf-8")
+
+        completed = self.run_helper([release("v1.2.2")])
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn(
+            "re-links wisp_labels.fk_wisp_labels_issue, which bd 1.2.2 does not define",
+            completed.stderr,
+        )
+
+    def test_unreadable_clone_local_fk_sources_fail_closed(self) -> None:
+        cases = (
+            ("package fix\n", None, "cannot find CloneLocalFKs"),
+            (
+                upstream_source().replace('RefColumn: "id"}', 'RefColumn: "id", OnDelete: "x"}', 1),
+                None,
+                "cannot parse every CloneLocalFKs entry",
+            ),
+            (upstream_source(), "", "no clone-local FK list found in assets/beads-sync.sh"),
+        )
+        for upstream, script, message in cases:
+            with self.subTest(message=message):
+                self.upstream_path.write_text(upstream, encoding="utf-8")
+                if script is not None:
+                    (self.repo_root / "assets/beads-sync.sh").write_text(script, encoding="utf-8")
+
+                completed = self.run_helper([release("v1.2.2")])
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn(message, completed.stderr)
 
     def test_pin_drift_fails_closed(self) -> None:
         self.write_pins(npm="@beads/bd@1.2.3")
@@ -315,6 +397,32 @@ class BeadsReleaseFetchTests(unittest.TestCase):
         handler = HELPER.RejectRedirects()
         with self.assertRaisesRegex(HELPER.GuardError, "redirected unexpectedly"):
             handler.redirect_request(None, None, 302, "Found", {}, HELPER.API_URL)
+
+    def test_clone_local_fks_source_is_fetched_from_the_pinned_tag_only(self) -> None:
+        version = HELPER.SemVer.parse("1.3.1")
+        url = f"https://api.github.com{HELPER.CONTENTS_API_PATH}?ref=v1.3.1"
+        response = FakeResponse(None, url=url)
+        response.payload = upstream_source().encode("utf-8")
+        opener = FakeOpener([response])
+
+        source = HELPER.fetch_clone_local_fks_source(version, 1.0, opener=opener)
+
+        self.assertEqual(opener.requests, [url])
+        self.assertEqual(HELPER.parse_upstream_clone_local_fks(source), set(CLONE_LOCAL_FKS))
+
+        moved = FakeResponse(None, url="https://api.github.com/repos/gastownhall/beads/contents/README.md")
+        with self.assertRaisesRegex(HELPER.GuardError, "contents URL outside the Beads GitHub API"):
+            HELPER.fetch_clone_local_fks_source(version, 1.0, opener=FakeOpener([moved]))
+
+    def test_missing_clone_local_fks_source_fails_closed(self) -> None:
+        error = urllib.error.HTTPError(HELPER.CONTENTS_API_PATH, 404, "Not Found", {}, None)
+        try:
+            with self.assertRaisesRegex(HELPER.GuardError, "HTTP 404 .* re-verify the clone-local FK list"):
+                HELPER.fetch_clone_local_fks_source(
+                    HELPER.SemVer.parse("9.9.9"), 1.0, opener=FakeOpener(error=error)
+                )
+        finally:
+            error.close()
 
     def test_fetch_reports_rate_limit_exhaustion(self) -> None:
         error = urllib.error.HTTPError(

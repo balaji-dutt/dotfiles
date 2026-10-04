@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fail closed when newer Beads releases report a possible data incident."""
+"""Fail closed when newer Beads releases report a possible data incident, or when
+beads-sync's clone-local FK list no longer matches the proposed bd release."""
 
 from __future__ import annotations
 
@@ -18,6 +19,21 @@ from typing import Any
 
 
 API_URL = "https://api.github.com/repos/gastownhall/beads/releases?per_page=100"
+RELEASES_API_PATH = "/repos/gastownhall/beads/releases"
+CLONE_LOCAL_FKS_SOURCE = "cmd/bd/doctor/fix/clone_local_fks.go"
+CONTENTS_API_PATH = f"/repos/gastownhall/beads/contents/{CLONE_LOCAL_FKS_SOURCE}"
+SYNC_SCRIPT_PATHS = (Path("assets/beads-sync.sh"), Path("assets/beads-sync.ps1"))
+UPSTREAM_FK_BLOCK = re.compile(
+    r"var CloneLocalFKs = \[\]CloneLocalFK\{\n(?P<body>.*?)\n\}", re.DOTALL
+)
+UPSTREAM_FK_ENTRY = re.compile(
+    r'\{Table:\s*"(?P<table>[a-z_]+)",\s*Constraint:\s*"(?P<constraint>[a-z_]+)",'
+    r'\s*Column:\s*"(?P<column>[a-z_]+)",\s*RefTable:\s*"(?P<ref_table>[a-z_]+)",'
+    r'\s*RefColumn:\s*"(?P<ref_column>[a-z_]+)"\}'
+)
+SYNC_FK_ENTRY = re.compile(
+    r"""^\s+["'](?P<spec>(?:[a-z_]+\|){4}[a-z_]+)["']\s*$""", re.MULTILINE
+)
 NPM_PIN_PATH = Path(
     "private_Documents/development/container-dotfiles/devcontainers/"
     "gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt"
@@ -227,34 +243,41 @@ def next_link(header: str | None) -> str | None:
     return None
 
 
-def require_github_api_url(url: str) -> str:
+def require_github_api_url(
+    url: str, *, path: str = RELEASES_API_PATH, kind: str = "pagination URL"
+) -> str:
     try:
         parts = urllib.parse.urlsplit(url)
         port = parts.port
     except ValueError as error:
-        raise GuardError("GitHub releases API returned an invalid pagination URL") from error
+        raise GuardError(f"GitHub API returned an invalid {kind}") from error
     if (
         parts.scheme != "https"
         or parts.hostname != "api.github.com"
         or port is not None
         or parts.username is not None
         or parts.password is not None
-        or parts.path != "/repos/gastownhall/beads/releases"
+        or parts.path != path
         or parts.fragment
     ):
-        raise GuardError("refusing a pagination URL outside the Beads GitHub API")
+        raise GuardError(f"refusing a {kind} outside the Beads GitHub API")
     return url
 
 
-def fetch_releases(timeout: float, *, opener: Any | None = None) -> list[Any]:
+def github_headers(accept: str) -> dict[str, str]:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     headers = {
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "User-Agent": "dotfiles-beads-release-guard/1.0",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def fetch_releases(timeout: float, *, opener: Any | None = None) -> list[Any]:
+    headers = github_headers("application/vnd.github+json")
 
     releases: list[Any] = []
     url: str | None = API_URL
@@ -285,6 +308,98 @@ def fetch_releases(timeout: float, *, opener: Any | None = None) -> list[Any]:
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise GuardError(f"GitHub releases API returned invalid JSON: {error}") from error
     return releases
+
+
+def fetch_clone_local_fks_source(
+    version: SemVer, timeout: float, *, opener: Any | None = None
+) -> str:
+    url = require_github_api_url(
+        f"https://api.github.com{CONTENTS_API_PATH}?ref=v{version}",
+        path=CONTENTS_API_PATH,
+        kind="contents URL",
+    )
+    request = urllib.request.Request(
+        url, headers=github_headers("application/vnd.github.raw+json")
+    )
+    opener = opener or urllib.request.build_opener(RejectRedirects)
+    recheck = f"; re-verify the clone-local FK list against bd v{version} by hand"
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            require_github_api_url(
+                response.geturl(), path=CONTENTS_API_PATH, kind="contents URL"
+            )
+            return response.read().decode("utf-8")
+    except GuardError:
+        raise
+    except urllib.error.HTTPError as error:
+        raise GuardError(
+            f"GitHub contents API returned HTTP {error.code} for {CLONE_LOCAL_FKS_SOURCE}{recheck}"
+        ) from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise GuardError(f"GitHub contents API request failed: {error}{recheck}") from error
+    except UnicodeDecodeError as error:
+        raise GuardError(f"{CLONE_LOCAL_FKS_SOURCE} is not UTF-8{recheck}") from error
+
+
+def parse_upstream_clone_local_fks(text: str) -> set[tuple[str, ...]]:
+    block = UPSTREAM_FK_BLOCK.search(text)
+    if not block:
+        raise GuardError(
+            f"cannot find CloneLocalFKs in {CLONE_LOCAL_FKS_SOURCE}; "
+            "re-verify the clone-local FK list by hand"
+        )
+    body = block.group("body")
+    entries = [
+        (m["table"], m["constraint"], m["column"], m["ref_table"], m["ref_column"])
+        for m in UPSTREAM_FK_ENTRY.finditer(body)
+    ]
+    if not entries or len(entries) != body.count("{Table:"):
+        raise GuardError(
+            f"cannot parse every CloneLocalFKs entry in {CLONE_LOCAL_FKS_SOURCE}; "
+            "re-verify the clone-local FK list by hand"
+        )
+    return set(entries)
+
+
+def read_sync_clone_local_fks(repo_root: Path, path: Path) -> set[tuple[str, ...]]:
+    entries = {
+        tuple(m["spec"].split("|"))
+        for m in SYNC_FK_ENTRY.finditer(read_text(repo_root / path))
+    }
+    if not entries:
+        raise GuardError(f"no clone-local FK list found in {path}")
+    return entries
+
+
+def check_clone_local_fks(
+    proposed: SemVer, upstream: set[tuple[str, ...]], repo_root: Path
+) -> int:
+    drift = False
+    for path in SYNC_SCRIPT_PATHS:
+        local = read_sync_clone_local_fks(repo_root, path)
+        for table, constraint, *_ in sorted(upstream - local):
+            drift = True
+            print(
+                f"ERROR: bd {proposed} defines clone-local FK {table}.{constraint} "
+                f"that {path} does not re-link",
+                file=sys.stderr,
+            )
+        for table, constraint, *_ in sorted(local - upstream):
+            drift = True
+            print(
+                f"ERROR: {path} re-links {table}.{constraint}, "
+                f"which bd {proposed} does not define",
+                file=sys.stderr,
+            )
+    if drift:
+        print(
+            f"ERROR: update the clone-local FK lists in beads-sync to match "
+            f"{CLONE_LOCAL_FKS_SOURCE} at v{proposed}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"OK: beads-sync's clone-local FK list matches bd {proposed}")
+    return 0
 
 
 def require_string(item: dict[str, Any], field: str, tag: str) -> str:
@@ -387,8 +502,9 @@ def evaluate(proposed: SemVer, releases: dict[SemVer, Release]) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare the two Beads pins and scan newer GitHub release notes "
-            "for incident language."
+            "Compare the two Beads pins, scan newer GitHub release notes "
+            "for incident language, and check beads-sync's clone-local FK "
+            "list against the proposed release."
         )
     )
     parser.add_argument(
@@ -403,6 +519,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="read a GitHub releases JSON array from this file instead of the API",
     )
     parser.add_argument(
+        "--clone-local-fks-file",
+        type=Path,
+        help=f"read bd's {CLONE_LOCAL_FKS_SOURCE} from this file instead of the API",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=30.0,
@@ -414,13 +535,23 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        proposed = read_pins(args.repo_root.resolve())
+        repo_root = args.repo_root.resolve()
+        proposed = read_pins(repo_root)
         items = (
             load_fixture(args.releases_file.resolve())
             if args.releases_file
             else fetch_releases(args.timeout)
         )
-        return evaluate(proposed, parse_releases(items))
+        notes_rc = evaluate(proposed, parse_releases(items))
+        source = (
+            read_text(args.clone_local_fks_file.resolve())
+            if args.clone_local_fks_file
+            else fetch_clone_local_fks_source(proposed, args.timeout)
+        )
+        fks_rc = check_clone_local_fks(
+            proposed, parse_upstream_clone_local_fks(source), repo_root
+        )
+        return max(notes_rc, fks_rc)
     except GuardError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
