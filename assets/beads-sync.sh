@@ -740,10 +740,14 @@ restart_server() {
 
 cmd_status() {
   echo "Dolt server: ${DB_HOST}:${PORT}  (database: ${DB})"
-  local csv severed_count
-  severed_count="$(severed_clone_local_fks | grep -c .)" || true
-  if [[ "$severed_count" -gt 0 ]]; then
-    echo "Clone-local FKs: ${severed_count} severed - run 'clean' to re-link"
+  local csv severed severed_count
+  if severed="$(severed_clone_local_fks)"; then
+    severed_count="$(grep -c . <<< "$severed")" || true
+    if [[ "$severed_count" -gt 0 ]]; then
+      echo "Clone-local FKs: ${severed_count} severed - run 'clean' to re-link"
+    fi
+  else
+    echo "Clone-local FKs: could not check - run 'bd doctor'"
   fi
   csv="$(dirty_csv)"
   if [[ -z "$csv" ]]; then

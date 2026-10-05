@@ -305,7 +305,8 @@ available without this preflight.
 Dolt drops the foreign keys on bd's clone-local tables (`events`, `wisp_*`)
 on every hard reset and merge. `pull`, `init`, and an aborted merge re-link
 them afterwards, deleting any orphaned rows first, as `bd doctor --fix` would.
-`status` reports severed keys and `clean` re-links them. A failed re-link only
+`status` reports severed keys, or "could not check" when the scan itself
+fails, and `clean` re-links them. A failed re-link only
 warns: the sync has already happened, and `bd doctor` names what is still
 severed. The key list mirrors bd's `cmd/bd/doctor/fix/clone_local_fks.go`.
 
@@ -592,8 +593,12 @@ The fleet moved to 1.3.1 on 2026-10-04 (dots-v9tt.8) in this order:
    `chezmoi apply` (ansible installs the new `bd`), then
    `./assets/beads-sync.sh init`.
 5. Windows: `chezmoi apply` moves the Winget pin and warns that `bd.exe` is
-   still old. `winget.exe upgrade --id GasTownHall.Beads --exact --source
-   winget` installs the new version.
+   still old. This installs the new version:
+
+   ```powershell
+   winget.exe upgrade --id GasTownHall.Beads --exact --source winget
+   ```
+
 6. hliac, inside the homelab-IaC devcontainer: `beads-sync push` and
    `bd export --all` on 1.2.2, then `bd dolt stop`. Then rebuild the
    container, which installs the npm pin, and run `bd migrate --force` and
@@ -609,17 +614,19 @@ Things that caught us out:
   severed foreign keys on `events` and `wisp_*` on the peers rebuilt with
   `init`, and 4 on `wisp_*` on macOS. Dolt drops every foreign key on a
   dolt-ignored table whenever it hard-resets or merges, fast-forward included,
-  so any pull that brings in commits severs them. `beads-sync` now re-links
-  them after `pull`, `init`, and an aborted merge, and `clean` repairs a store
-  that is already severed. Do not clear the warning with a wholesale `--fix`
+  so any pull that brings in commits severs them. `beads-sync` re-links them
+  after `pull`, `init`, and an aborted merge, and `clean` repairs a store that
+  is already severed. Do not clear the warning with a wholesale `--fix`
   (see **Caution: `bd doctor --fix`** below).
 - A note the migrator wrote and had not pushed collided with peer probes
   appended to the same issue. Push straight after every write while peers
-  are being rebuilt.
+  are being rebuilt. Resolve a collision with **Merge conflicts on pull**
+  below.
 - 1.3.x creates `.beads.gate.lock` at the repository root and
   `.beads/dolt.gate.lock`. The `*.gate.lock*` pattern ignores both.
-- `bd close --reason` on an already-closed issue still changes nothing.
-  1.3.1 even prints the new reason in its `✓ Closed` line.
+- `bd close --reason` on an already-closed issue still changes nothing. 1.3.1
+  exits 0 and prints `✓ Closed <id> — <title>: <new reason>`, but
+  `close_reason` and `closed_at` stay as they were and no Dolt commit is made.
 
 ## Recovery
 

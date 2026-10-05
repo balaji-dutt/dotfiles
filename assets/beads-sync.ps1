@@ -687,7 +687,9 @@ function Restart-DoltServer {
 function Invoke-Status {
   [Console]::Out.WriteLine("Dolt server: ${DbHost}:${DbPort}  (database: ${DbName})")
   $severed = Get-SeveredCloneLocalFks
-  if ($null -ne $severed -and $severed.Count -gt 0) {
+  if ($null -eq $severed) {
+    [Console]::Out.WriteLine("Clone-local FKs: could not check - run 'bd doctor'")
+  } elseif ($severed.Count -gt 0) {
     [Console]::Out.WriteLine("Clone-local FKs: $($severed.Count) severed - run 'clean' to re-link")
   }
   $rows = @(Get-DirtyTables)   # @() required - see Get-SafeResetList note
