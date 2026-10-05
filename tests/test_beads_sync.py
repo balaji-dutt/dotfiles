@@ -400,6 +400,13 @@ class BeadsSyncUpgradeContract:
         intact = self.run_sync("status")
         self.assertNotIn("Clone-local FKs", intact.stdout)
 
+    def test_status_reports_an_unreadable_clone_local_fk_scan(self) -> None:
+        result = self.run_sync("status", env_updates={"DOLT_FK_SCAN_RC": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Clone-local FKs: could not check - run 'bd doctor'", result.stdout)
+        self.assertNotIn("severed", result.stdout)
+        self.assertEqual(self.alter_queries(), [])
+
     def test_init_relinks_after_the_reset(self) -> None:
         shutil.rmtree(self.repo / ".beads/dolt", ignore_errors=True)
         result = self.run_sync(
