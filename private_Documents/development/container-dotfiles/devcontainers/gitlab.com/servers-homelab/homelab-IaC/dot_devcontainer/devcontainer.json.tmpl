@@ -3,7 +3,9 @@
 {{- $p := .plannotator_ports.devcontainer -}}
 {{- $uiPort := "9999" -}}
 {{- $relayPorts := printf "%s,%s,%s,%s" $p.build $uiPort $p.custom $p.claude -}}
-{{- $relayStart := printf "umask 077; mkdir -p \\\"%s/sock\\\"; if command -v python3 >/dev/null 2>&1 && [ -f \\\"%s\\\" ]; then python3 \\\"%s\\\" start --dir \\\"%s\\\" --ports %s || true; else echo 'WARN: devcontainer host relay not started; python3 or the relay script is missing.' >&2; fi" $relayDir $relayScript $relayScript $relayDir $relayPorts -}}
+{{- $relayTransport := "unix" -}}
+{{- if eq .chezmoi.os "darwin" -}}{{- $relayTransport = "tcp" -}}{{- end -}}
+{{- $relayStart := printf "umask 077; mkdir -p \\\"%s/sock\\\"; if command -v python3 >/dev/null 2>&1 && [ -f \\\"%s\\\" ]; then python3 \\\"%s\\\" start --dir \\\"%s\\\" --ports %s --transport %s || echo 'WARN: devcontainer host relay failed to start.' >&2; else echo 'WARN: devcontainer host relay not started; python3 or the relay script is missing.' >&2; fi" $relayDir $relayScript $relayScript $relayDir $relayPorts $relayTransport -}}
 {{- $wslAgent := false -}}
 {{- if ne .chezmoi.os "darwin" -}}{{- if hasKey . "homelab" -}}{{- if .homelab.windows_user -}}{{- $wslAgent = true -}}{{- end -}}{{- end -}}{{- end -}}
 {
@@ -53,6 +55,7 @@
     "PLANNOTATOR_REMOTE": "1",
     "PLANNOTATOR_PORT": "{{ $uiPort }}",
     "BROWSER": "/home/vscode/.local/bin/devcontainer-open-url",
+    "DEVCONTAINER_HOST_RELAY_TRANSPORT": "{{ $relayTransport }}",
     "PLANNOTATOR_PORTS_BUILD": "{{ $p.build }}",
     "PLANNOTATOR_PORTS_CLAUDE": "{{ $p.claude }}",
     "PLANNOTATOR_PORTS_CUSTOM": "{{ $p.custom }}",
@@ -102,7 +105,7 @@
     "source=/tmp/wsl2-ssh-agent,target=/tmp/wsl-ssh-pageant,type=bind",
     {{- end }}
     {{- end }}
-    "source=${localEnv:HOME}/.cache/devcontainer-host-relay/homelab-iac/sock,target=/tmp/host-relay,type=bind",
+    "source=${localEnv:HOME}/.cache/devcontainer-host-relay/homelab-iac/sock,target=/tmp/host-relay,type=bind{{ if eq $relayTransport "tcp" }},readonly{{ end }}",
     // --- Mount for Internal SSL Certs ---
     {
       "source": "{{ .CERTPATH }}",

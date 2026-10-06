@@ -468,6 +468,14 @@ post_start_runtime_configuration() {
   post_start_materialization_phase "$workspace_root"
 }
 
+post_start_check_host_relay() {
+  local relay_client
+  relay_client="$HOME/.local/bin/devcontainer-host-relay"
+  if [[ ! -x "$relay_client" ]] || ! "$relay_client" ping >/dev/null; then
+    echo "WARN: devcontainer host relay is unreachable; browser opening and clipboard images may fall back or fail. Check initializeCommand and the host relay connection." >&2
+  fi
+}
+
 post_start_refresh_ssh() {
   if ! "$HOME/.local/bin/sset"; then
     echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
@@ -490,6 +498,7 @@ workspace_root="${workspace_root:-$PWD}"
 log_run_header "$workspace_root"
 ensure_git_safe_directories "$workspace_root"
 post_start_runtime_configuration "$workspace_root"
+post_start_check_host_relay
 post_start_refresh_ssh
 )
 

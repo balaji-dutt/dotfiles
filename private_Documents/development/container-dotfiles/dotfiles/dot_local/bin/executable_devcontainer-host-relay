@@ -5,6 +5,7 @@ Usage:
   devcontainer-host-relay open <url>
   devcontainer-host-relay targets
   devcontainer-host-relay image <png|bmp|jpeg|gif|webp>
+  devcontainer-host-relay ping
 
 Writes the reply body to stdout and exits 0 on `ok`; exits 1 when the relay is
 unreachable or refuses the request, so callers can fall back.
@@ -13,11 +14,18 @@ unreachable or refuses the request, so callers can fall back.
 from __future__ import annotations
 
 import os
+import json
+import re
 import socket
+import stat
 import sys
+from pathlib import Path
 
 DEFAULT_SOCKET = "/tmp/host-relay/relay.sock"
+DEFAULT_CONNECTION = "/tmp/host-relay/connection.json"
 TIMEOUT_SECONDS = 15
+MAX_CONNECTION_BYTES = 4096
+MAX_REPLY_BYTES = 25 * 1024 * 1024 + 8192
 
 
 def fail(message: str) -> int:
@@ -26,13 +34,35 @@ def fail(message: str) -> int:
 
 
 def request(line: str) -> tuple[bool, bytes]:
-    path = os.environ.get("DEVCONTAINER_HOST_RELAY_SOCKET", DEFAULT_SOCKET)
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    if os.environ.get("DEVCONTAINER_HOST_RELAY_TRANSPORT", "unix") == "tcp":
+        descriptor = Path(os.environ.get("DEVCONTAINER_HOST_RELAY_CONNECTION", DEFAULT_CONNECTION))
+        st = descriptor.lstat()
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077 or st.st_size > MAX_CONNECTION_BYTES:
+            raise ValueError("insecure relay connection descriptor")
+        data = json.loads(descriptor.read_text(encoding="ascii"))
+        port, token = data["port"], data["token"]
+        if type(port) is not int or not 0 < port <= 65535 or not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise ValueError("invalid relay connection descriptor")
+        host = os.environ.get("DEVCONTAINER_HOST_RELAY_HOST", "host.docker.internal")
+        if host not in ("host.docker.internal", "127.0.0.1"):
+            raise ValueError("invalid relay host")
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        address = (host, port)
+        payload = f"auth {token}\n{line}\n".encode("ascii")
+    else:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        address = os.environ.get("DEVCONTAINER_HOST_RELAY_SOCKET", DEFAULT_SOCKET)
+        payload = line.encode("ascii") + b"\n"
+    with client:
         client.settimeout(TIMEOUT_SECONDS)
-        client.connect(path)
-        client.sendall(line.encode("ascii") + b"\n")
+        client.connect(address)
+        client.sendall(payload)
         chunks = []
+        size = 0
         while chunk := client.recv(65536):
+            size += len(chunk)
+            if size > MAX_REPLY_BYTES:
+                return False, b"relay reply too large"
             chunks.append(chunk)
         reply = b"".join(chunks)
     header, _, body = reply.partition(b"\n")
@@ -47,8 +77,8 @@ def request(line: str) -> tuple[bool, bytes]:
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] in ("open", "image"):
         line = f"{argv[0]} {argv[1]}"
-    elif argv == ["targets"]:
-        line = "targets"
+    elif argv in (["targets"], ["ping"]):
+        line = argv[0]
     else:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
@@ -56,8 +86,8 @@ def main(argv: list[str]) -> int:
         return fail("request must be single-line ASCII")
     try:
         ok, body = request(line)
-    except OSError as exc:
-        return fail(f"host relay unavailable ({exc.strerror or exc})")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return fail(f"host relay unavailable ({exc})")
     if not ok:
         return fail(body.decode("utf-8", "replace"))
     sys.stdout.buffer.write(body)

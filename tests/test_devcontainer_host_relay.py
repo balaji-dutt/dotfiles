@@ -30,6 +30,7 @@ CONTAINER_BIN = ROOT / "private_Documents/development/container-dotfiles/dotfile
 CLIENT_PATH = CONTAINER_BIN / "executable_devcontainer-host-relay"
 OPEN_URL_PATH = CONTAINER_BIN / "executable_devcontainer-open-url"
 SHIM_PATH = CONTAINER_BIN / "executable_devcontainer-clipboard-osc52"
+POST_START = RUNTIME_DIR / "postStart.sh"
 BASH = shutil.which("bash")
 RANGES = "9993-9998,9999,10004-10009,10014-10019"
 LOCAL_CALLBACK = "http%3A%2F%2Flocalhost%3A51234%2Fcallback"
@@ -244,9 +245,9 @@ class RelayEndToEndTests(unittest.TestCase):
             except ProcessLookupError:
                 pass
 
-    def start(self, ranges: str = RANGES, script: Path = RELAY_PATH) -> subprocess.CompletedProcess[str]:
+    def start(self, ranges: str = RANGES, script: Path = RELAY_PATH, transport: str = "unix") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(script), "start", "--dir", str(self.run_dir), "--ports", ranges],
+            [sys.executable, str(script), "start", "--dir", str(self.run_dir), "--ports", ranges, "--transport", transport],
             env=self.env, text=True, capture_output=True, check=False, timeout=30,
         )
 
@@ -341,6 +342,89 @@ class RelayEndToEndTests(unittest.TestCase):
         for fragment in ("http", "10004", "8080", "9999"):
             self.assertNotIn(fragment, log)
 
+    def tcp_client(self, *args: str, name: str = "devcontainer-host-relay") -> subprocess.CompletedProcess[bytes]:
+        with mock.patch.dict(self.env, {
+            "DEVCONTAINER_HOST_RELAY_TRANSPORT": "tcp",
+            "DEVCONTAINER_HOST_RELAY_CONNECTION": str(self.run_dir / "sock" / "connection.json"),
+            "DEVCONTAINER_HOST_RELAY_HOST": "127.0.0.1",
+        }):
+            return self.client(*args, name=name)
+
+    def tcp_raw_request(self, payload: bytes) -> bytes:
+        port, _ = relay.read_connection(self.run_dir)
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as client:
+            client.sendall(payload)
+            client.shutdown(socket.SHUT_WR)
+            chunks = []
+            while chunk := client.recv(4096):
+                chunks.append(chunk)
+        return b"".join(chunks)
+
+    def test_tcp_is_private_authenticated_and_reuses_its_descriptor(self) -> None:
+        self.assertEqual(self.start(transport="tcp").returncode, 0)
+        descriptor = self.run_dir / "sock" / "connection.json"
+        self.assertEqual(descriptor.stat().st_mode & 0o777, 0o600)
+        port, token = relay.read_connection(self.run_dir)
+        self.assertGreater(port, 0)
+        self.assertEqual(len(token), 64)
+        self.assertEqual(self.tcp_raw_request(b"ping\n"), b"error unauthorized\n")
+        self.assertEqual(self.tcp_raw_request(b"auth bad\nping\n"), b"error unauthorized\n")
+        self.assertEqual(self.tcp_raw_request(f"auth {token}\nping\n".encode("ascii")),
+                         f"ok {len(relay.relay_identity(RANGES, 'tcp'))}\n{relay.relay_identity(RANGES, 'tcp')}".encode("ascii"))
+        self.assertEqual(self.tcp_raw_request(f"auth {token}\nopen http://localhost:8080/\n".encode("ascii")),
+                         b"error localhost port is outside the allowed ranges\n")
+        self.assertEqual(self.tcp_raw_request(f"auth {token}\n".encode("ascii") + b"x" * 9000 + b"\n"),
+                         b"error request too long\n")
+        self.assertEqual(self.tcp_client("ping").returncode, 0)
+        self.assertEqual(self.tcp_client("http://localhost:10014/", name="devcontainer-open-url").returncode, 0)
+        self.assertEqual(self.opened.read_text().splitlines(), ["http://localhost:10014/"])
+        self.assertEqual(self.tcp_client("targets").stdout, b"image/png\n")
+        self.assertEqual(self.tcp_client("image", "png").stdout, b"PNGBYTES")
+        pid = (self.run_dir / "relay.pid").read_text()
+        self.assertEqual(self.start(transport="tcp").returncode, 0)
+        self.assertEqual((self.run_dir / "relay.pid").read_text(), pid)
+        self.assertEqual(relay.read_connection(self.run_dir), (port, token))
+        log = (self.run_dir / "relay.log").read_text()
+        self.assertNotIn(token, log)
+        self.assertNotIn("http://localhost", log)
+
+    def test_tcp_descriptor_rejects_missing_malformed_and_world_readable_credentials(self) -> None:
+        self.assertNotEqual(self.tcp_client("ping").returncode, 0)
+        self.assertEqual(self.start(transport="tcp").returncode, 0)
+        descriptor = self.run_dir / "sock" / "connection.json"
+        descriptor.chmod(0o644)
+        self.assertNotEqual(self.tcp_client("ping").returncode, 0)
+        descriptor.chmod(0o600)
+        original = descriptor.read_bytes()
+        descriptor.write_text('{"port": 0, "token": "bad"}')
+        self.assertNotEqual(self.tcp_client("ping").returncode, 0)
+        descriptor.write_bytes(original)
+        self.assertEqual(self.tcp_client("ping").returncode, 0)
+
+    def test_tcp_replaces_unix_and_rotates_credentials_on_restart(self) -> None:
+        self.assertEqual(self.start().returncode, 0)
+        first_pid = int((self.run_dir / "relay.pid").read_text())
+        self.assertEqual(self.start(transport="tcp").returncode, 0)
+        self.assert_replaced(first_pid)
+        _, token = relay.read_connection(self.run_dir)
+        first_pid = int((self.run_dir / "relay.pid").read_text())
+        self.assertEqual(self.start("9999", transport="tcp").returncode, 0)
+        self.assert_replaced(first_pid)
+        self.assertNotEqual(relay.read_connection(self.run_dir)[1], token)
+        self.assertEqual(self.tcp_client("ping").returncode, 0)
+
+    def test_post_start_warns_if_relay_ping_fails_without_blocking(self) -> None:
+        relay_client = self.fixture.home / ".local/bin/devcontainer-host-relay"
+        relay_client.parent.mkdir(parents=True)
+        for code, warning in ((1, True), (0, False)):
+            write_executable(relay_client, f"#!/bin/sh\nexit {code}\n")
+            result = subprocess.run(
+                ["bash", "-c", f'source "{POST_START}"; post_start_check_host_relay'],
+                env=self.env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual("WARN: devcontainer host relay is unreachable" in result.stderr, warning)
+
     def test_clipboard_requests_return_image_bytes(self) -> None:
         self.assertEqual(self.start().returncode, 0)
         self.assertEqual(self.client("targets").stdout, b"image/png\n")
@@ -407,11 +491,11 @@ class TemplateRenderTests(unittest.TestCase):
                 self.assertIsNotNone(ui_port)
                 self.assertIn(ui_port.group(1), published)
                 self.assertIn('"BROWSER": "/home/vscode/.local/bin/devcontainer-open-url"', text)
-                self.assertIn(
-                    "source=${localEnv:HOME}/.cache/devcontainer-host-relay/homelab-iac/sock,"
-                    "target=/tmp/host-relay,type=bind",
-                    text,
-                )
+                transport = "tcp" if platform == "macos" else "unix"
+                self.assertIn(f'"DEVCONTAINER_HOST_RELAY_TRANSPORT": "{transport}"', text)
+                mount = ("source=${localEnv:HOME}/.cache/devcontainer-host-relay/homelab-iac/sock,"
+                         "target=/tmp/host-relay,type=bind")
+                self.assertIn(mount + (",readonly" if platform == "macos" else '"'), text)
 
     def test_initialize_command_starts_the_relay_on_each_platform(self) -> None:
         for platform, has_agent in (("macos", False), ("wsl2", True)):
@@ -425,6 +509,7 @@ class TemplateRenderTests(unittest.TestCase):
                 self.assertEqual(argv[:2], ["bash", "-lc"])
                 self.assertEqual("wsl2-ssh-agent" in argv[2], has_agent)
                 self.assertIn("devcontainer_host_relay.py\" start --dir", argv[2])
+                self.assertIn("--transport " + ("tcp" if platform == "macos" else "unix"), argv[2])
                 syntax = subprocess.run(["bash", "-n", "-c", argv[2]], capture_output=True, check=False)
                 self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
