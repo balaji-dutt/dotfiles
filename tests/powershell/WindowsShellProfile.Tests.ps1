@@ -171,17 +171,69 @@ Describe 'Windows PowerShell fragments' {
 
   It 'sets non-secret OpenCode defaults without replacing explicit values' {
     $previousHome = $HOME
+    $previousPin = $env:PLANNOTATOR_PIN_VERSION
     Set-Variable HOME -Scope Global -Value $TestDrive -Force
     Remove-Item Env:ANTHROPIC_SYSTEM_PROMPT_PATH,Env:OPENCODE_DISABLE_CLAUDE_CODE_PROMPT,Env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS -ErrorAction SilentlyContinue
     $env:OPENCODE_PROFILES = 'defaults'
     try {
-      . (Join-Path $script:RenderRoot 'opencode-env.ps1')
+      $pinPath = Join-Path $TestDrive '.config/dotfiles/versions/plannotator'
+      New-Item -ItemType Directory -Path (Split-Path -Parent $pinPath) -Force | Out-Null
+      [System.IO.File]::WriteAllText($pinPath, " 0.27.22`n")
+      $warnings = @(. (Join-Path $script:RenderRoot 'opencode-env.ps1') 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+      Assert-Equal $warnings.Count 0
+      Assert-Equal $env:PLANNOTATOR_PIN_VERSION '0.27.22'
       Assert-Equal $env:ANTHROPIC_SYSTEM_PROMPT_PATH 'NUL'
       Assert-Equal $env:OPENCODE_DISABLE_CLAUDE_CODE_PROMPT '1'
       Assert-Equal $env:OPENCODE_DISABLE_CLAUDE_CODE_SKILLS '1'
       Assert-Matches $env:OPENCODE_ENV_FILE 'opencode[\\/]opencode\.env$'
     } finally {
       Set-Variable HOME -Scope Global -Value $previousHome -Force
+      if ($null -eq $previousPin) { Remove-Item Env:PLANNOTATOR_PIN_VERSION -ErrorAction SilentlyContinue }
+      else { $env:PLANNOTATOR_PIN_VERSION = $previousPin }
+    }
+  }
+
+  It 'loads LF and CRLF Plannotator pins into a fresh environment' {
+    $previousHome = $HOME
+    $previousPin = $env:PLANNOTATOR_PIN_VERSION
+    Set-Variable HOME -Scope Global -Value $TestDrive -Force
+    try {
+      $pinPath = Join-Path $TestDrive '.config/dotfiles/versions/plannotator'
+      New-Item -ItemType Directory -Path (Split-Path -Parent $pinPath) -Force | Out-Null
+      foreach ($ending in @("`n", "`r`n")) {
+        [System.IO.File]::WriteAllText($pinPath, " 0.27.22 $ending")
+        $env:PLANNOTATOR_PIN_VERSION = 'stale'
+        $warnings = @(. (Join-Path $script:RenderRoot 'opencode-env.ps1') 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        Assert-Equal $warnings.Count 0
+        Assert-Equal $env:PLANNOTATOR_PIN_VERSION '0.27.22'
+      }
+    } finally {
+      Set-Variable HOME -Scope Global -Value $previousHome -Force
+      if ($null -eq $previousPin) { Remove-Item Env:PLANNOTATOR_PIN_VERSION -ErrorAction SilentlyContinue }
+      else { $env:PLANNOTATOR_PIN_VERSION = $previousPin }
+    }
+  }
+
+  It 'warns and clears a stale Plannotator pin when the file is missing or malformed' {
+    $previousHome = $HOME
+    $previousPin = $env:PLANNOTATOR_PIN_VERSION
+    Set-Variable HOME -Scope Global -Value $TestDrive -Force
+    try {
+      $pinPath = Join-Path $TestDrive '.config/dotfiles/versions/plannotator'
+      New-Item -ItemType Directory -Path (Split-Path -Parent $pinPath) -Force | Out-Null
+      foreach ($contents in @($null, "0.27.22`n0.27.23`n")) {
+        if ($null -eq $contents) { Remove-Item -LiteralPath $pinPath -ErrorAction SilentlyContinue }
+        else { [System.IO.File]::WriteAllText($pinPath, $contents) }
+        $env:PLANNOTATOR_PIN_VERSION = 'stale'
+        $warnings = @(. (Join-Path $script:RenderRoot 'opencode-env.ps1') 3>&1 | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        Assert-Equal $warnings.Count 1
+        Assert-Matches $warnings[0].Message 'missing, unreadable or invalid Plannotator pin'
+        Assert-Equal (Test-Path Env:PLANNOTATOR_PIN_VERSION) $false
+      }
+    } finally {
+      Set-Variable HOME -Scope Global -Value $previousHome -Force
+      if ($null -eq $previousPin) { Remove-Item Env:PLANNOTATOR_PIN_VERSION -ErrorAction SilentlyContinue }
+      else { $env:PLANNOTATOR_PIN_VERSION = $previousPin }
     }
   }
 }
