@@ -501,11 +501,22 @@ and Plannotator falls back to VS Code IPC when VS Code is attached.
 `initializeCommand` starts `dot_devcontainer/devcontainer_host_relay.py` on the
 host every time the container comes up. State lives in
 `~/.cache/devcontainer-host-relay/homelab-iac/` (mode `0700`). Only its `sock/`
-subdirectory, which holds `relay.sock` (mode `0600`), is mounted into the
-container at `/tmp/host-relay`. The relay restarts when the port ranges passed
-by the template or the relay script itself change. The container client is
-`devcontainer-host-relay`. If `python3` or the script is missing on the host,
-`initializeCommand` prints a warning and the container starts without the relay.
+subdirectory is mounted into the container at `/tmp/host-relay`; the PID and
+logs stay on the host. WSL2 uses `relay.sock` (mode `0600`) on this mount.
+On macOS, OrbStack does not connect through that bind-mounted Unix socket:
+the relay listens on an ephemeral host `127.0.0.1` TCP port instead. A fresh
+random token and port are atomically written to `sock/connection.json` (mode
+`0600`), which the container mounts read-only and uses via
+`host.docker.internal`. Every TCP operation, including `ping`, requires the
+token. The relay restarts when the transport, port ranges, or relay script
+changes; a restart rotates the token. The client is `devcontainer-host-relay`.
+If `python3` or the script is missing, or the host relay fails to start,
+`initializeCommand` warns and the container still starts. `postStartCommand`
+also pings the relay and warns without blocking startup when it is unreachable.
+Run `devcontainer-host-relay ping` inside the container to check connectivity;
+it does not open a browser or access the clipboard. Do not share the descriptor
+outside the mounted container, as it grants access to the allowlisted relay
+operations. Changes to mounts and container environment require a rebuild.
 
 | Request | Host action |
 | --- | --- |

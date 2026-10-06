@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Host-side relay that lets the devcontainer open URLs and read clipboard images.
 
-The container reaches this server over a unix socket on a bind mount. Every
-request is one line, `<op> [arg]`, and every reply is `ok <nbytes>\\n<body>` or
+The container reaches this server over a unix socket or an authenticated TCP
+connection. Every request is one line, `<op> [arg]`, and every reply is `ok <nbytes>\\n<body>` or
 `error <reason>\\n`. Only allowlisted URLs are opened and only image clipboard
 content is returned; text clipboard reads are deliberately absent.
 """
@@ -14,9 +14,12 @@ import base64
 import contextlib
 import fcntl
 import hashlib
+import hmac
+import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import socket
 import socketserver
@@ -31,11 +34,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 SOCKET_DIR = "sock"
 SOCKET_NAME = "relay.sock"
+CONNECTION_NAME = "connection.json"
 KNOWN_OPS = ("open", "targets", "image", "ping")
 PID_NAME = "relay.pid"
 LOCK_NAME = "relay.lock"
 LOG_NAME = "relay.log"
 MAX_REQUEST_BYTES = 8192
+MAX_CONNECTION_BYTES = 4096
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 MAX_LOG_BYTES = 256 * 1024
 COMMAND_TIMEOUT = 10
@@ -269,14 +274,14 @@ def clipboard_image(kind: str) -> bytes:
     return data
 
 
-def relay_identity(ranges_spec: str) -> str:
+def relay_identity(ranges_spec: str, transport: str = "unix") -> str:
     digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
-    return f"{ranges_spec} {digest}"
+    return f"{transport} {ranges_spec} {digest}"
 
 
 def handle_request(line: str, ranges: list[tuple[int, int]], identity: str) -> bytes:
     op, _, arg = line.partition(" ")
-    if op == "ping":
+    if op == "ping" and not arg:
         return identity.encode("ascii")
     if op == "open" and arg:
         return open_url(arg, ranges)
@@ -296,31 +301,30 @@ def log_event(directory: Path, op: str, verdict: str) -> None:
             handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {op} {verdict}\n")
 
 
-def read_request(connection: socket.socket) -> str:
-    buffer = b""
-    while b"\n" not in buffer:
-        chunk = connection.recv(1024)
-        if not chunk:
-            break
-        buffer += chunk
-        if len(buffer) > MAX_REQUEST_BYTES:
-            raise RelayError("request too long")
-    line, newline, _ = buffer.partition(b"\n")
-    if not newline:
+def read_request(stream) -> str:
+    line = stream.readline(MAX_REQUEST_BYTES + 1)
+    if len(line) > MAX_REQUEST_BYTES:
+        raise RelayError("request too long")
+    if not line.endswith(b"\n"):
         raise RelayError("request must end with a newline")
     try:
-        return line.decode("ascii").rstrip("\r")
+        return line[:-1].decode("ascii").rstrip("\r")
     except UnicodeDecodeError as exc:
         raise RelayError("request must be ASCII") from exc
 
 
-def make_handler(directory: Path, ranges: list[tuple[int, int]], identity: str):
+def make_handler(directory: Path, ranges: list[tuple[int, int]], identity: str, token: str | None = None):
     class Handler(socketserver.BaseRequestHandler):
         def handle(self) -> None:
             self.request.settimeout(COMMAND_TIMEOUT)
             op = "?"
             try:
-                line = read_request(self.request)
+                with self.request.makefile("rb") as stream:
+                    if token is not None:
+                        auth = read_request(stream)
+                        if not hmac.compare_digest(auth, f"auth {token}"):
+                            raise RelayError("unauthorized")
+                    line = read_request(stream)
                 first = line.partition(" ")[0]
                 op = first if first in KNOWN_OPS else "?"
                 body = handle_request(line, ranges, identity)
@@ -345,6 +349,10 @@ def make_handler(directory: Path, ranges: list[tuple[int, int]], identity: str):
 
 
 class RelayServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+
+class TcpRelayServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
@@ -376,32 +384,85 @@ def socket_path(directory: Path) -> Path:
     return directory / SOCKET_DIR / SOCKET_NAME
 
 
-def serve(directory: Path, ranges_spec: str) -> int:
+def connection_path(directory: Path) -> Path:
+    return directory / SOCKET_DIR / CONNECTION_NAME
+
+
+def write_connection(directory: Path, port: int, token: str) -> None:
+    target = connection_path(directory)
+    fd, temporary = tempfile.mkstemp(prefix=".connection-", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            json.dump({"port": port, "token": token}, stream)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+
+
+def read_connection(directory: Path) -> tuple[int, str]:
+    target = connection_path(directory)
+    st = os.lstat(target)
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise RelayError("insecure relay connection descriptor")
+    if st.st_size > MAX_CONNECTION_BYTES:
+        raise RelayError("relay connection descriptor too large")
+    data = json.loads(target.read_text(encoding="ascii"))
+    port, token = data["port"], data["token"]
+    if type(port) is not int or not 0 < port <= 65535 or not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise RelayError("invalid relay connection descriptor")
+    return port, token
+
+
+def serve(directory: Path, ranges_spec: str, transport: str = "unix") -> int:
     ranges = parse_ranges(ranges_spec)
     prepare_directory(directory)
-    sock_path = socket_path(directory)
-    remove_socket(sock_path)
-    old_umask = os.umask(0o177)
-    try:
-        server = RelayServer(str(sock_path), make_handler(directory, ranges, relay_identity(ranges_spec)))
-    finally:
-        os.umask(old_umask)
+    if transport == "tcp":
+        token = secrets.token_hex(32)
+        server = TcpRelayServer(("127.0.0.1", 0), make_handler(directory, ranges, relay_identity(ranges_spec, transport), token))
+        try:
+            write_connection(directory, server.server_address[1], token)
+        except OSError:
+            server.server_close()
+            raise
+    else:
+        sock_path = socket_path(directory)
+        remove_socket(sock_path)
+        old_umask = os.umask(0o177)
+        try:
+            server = RelayServer(str(sock_path), make_handler(directory, ranges, relay_identity(ranges_spec)))
+        finally:
+            os.umask(old_umask)
     (directory / PID_NAME).write_text(f"{os.getpid()}\n", encoding="ascii")
     with server:
         server.serve_forever()
     return 0
 
 
-def ping(sock_path: Path, timeout: float = 2.0) -> str | None:
+def ping(directory: Path, transport: str = "unix", timeout: float = 2.0) -> str | None:
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        if transport == "tcp":
+            port, token = read_connection(directory)
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            address = ("127.0.0.1", port)
+            payload = f"auth {token}\nping\n".encode("ascii")
+        else:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            address = str(socket_path(directory))
+            payload = b"ping\n"
+        with client:
             client.settimeout(timeout)
-            client.connect(str(sock_path))
-            client.sendall(b"ping\n")
+            client.connect(address)
+            client.sendall(payload)
             reply = b""
             while chunk := client.recv(4096):
                 reply += chunk
-    except OSError:
+                if len(reply) > MAX_REQUEST_BYTES:
+                    return None
+    except (OSError, RelayError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return None
     header, _, body = reply.partition(b"\n")
     if not header.startswith(b"ok "):
@@ -433,22 +494,21 @@ def stop_previous(directory: Path) -> None:
             os.kill(pid, 15)
 
 
-def start(directory: Path, ranges_spec: str) -> int:
+def start(directory: Path, ranges_spec: str, transport: str = "unix") -> int:
     parse_ranges(ranges_spec)
     prepare_directory(directory)
     with (directory / LOCK_NAME).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return start_locked(directory, ranges_spec)
+        return start_locked(directory, ranges_spec, transport)
 
 
-def start_locked(directory: Path, ranges_spec: str) -> int:
-    sock_path = socket_path(directory)
-    identity = relay_identity(ranges_spec)
-    if ping(sock_path) == identity:
+def start_locked(directory: Path, ranges_spec: str, transport: str = "unix") -> int:
+    identity = relay_identity(ranges_spec, transport)
+    if ping(directory, transport) == identity:
         return 0
     stop_previous(directory)
     subprocess.Popen(
-        [sys.executable, os.path.abspath(__file__), "serve", "--dir", str(directory), "--ports", ranges_spec],
+        [sys.executable, os.path.abspath(__file__), "serve", "--dir", str(directory), "--ports", ranges_spec, "--transport", transport],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -456,10 +516,10 @@ def start_locked(directory: Path, ranges_spec: str) -> int:
         close_fds=True,
     )
     for _ in range(50):
-        if ping(sock_path) == identity:
+        if ping(directory, transport) == identity:
             return 0
         time.sleep(0.1)
-    print(f"devcontainer-host-relay: relay did not come up at {sock_path}", file=sys.stderr)
+    print(f"devcontainer-host-relay: {transport} relay did not come up in {directory}", file=sys.stderr)
     return 1
 
 
@@ -468,11 +528,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("start", "serve"))
     parser.add_argument("--dir", required=True, type=Path)
     parser.add_argument("--ports", required=True, help="comma-separated ports or ranges, e.g. 9993-9999,10004-10009")
+    parser.add_argument("--transport", choices=("unix", "tcp"), default="unix")
     args = parser.parse_args(argv)
     try:
         if args.command == "serve":
-            return serve(args.dir, args.ports)
-        return start(args.dir, args.ports)
+            return serve(args.dir, args.ports, args.transport)
+        return start(args.dir, args.ports, args.transport)
     except (RuntimeError, ValueError, OSError) as exc:
         print(f"devcontainer-host-relay: {exc}", file=sys.stderr)
         return 1
