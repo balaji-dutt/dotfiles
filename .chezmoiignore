@@ -159,6 +159,9 @@ Documents/PowerShell
 !/.local/windows-notify.ps1
 !/.config/
 /.config/*
+!/.config/dotfiles/
+!/.config/dotfiles/versions/
+!/.config/dotfiles/versions/plannotator
 !/.config/starship.toml
 !/.config/bd/
 !/.config/bd/**

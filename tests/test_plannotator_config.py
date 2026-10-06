@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.support.fixtures import write_executable
+from tests.test_chezmoi_lifecycle_render import render_template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,6 +121,64 @@ class PlannotatorConfigTests(unittest.TestCase):
             target.write_text(json.dumps({"enabledPlugins": {}}))
             with self.assertRaises(KeyError):
                 MODULE.source_check(root)
+
+
+@unittest.skipUnless(shutil.which("chezmoi"), "chezmoi is unavailable")
+class PlannotatorDeploymentTests(unittest.TestCase):
+    def test_platform_admission(self):
+        version = PlannotatorConfigTests().source_version()
+        for platform in ("windows", "linux", "wsl2", "macos"):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "source"
+                source.mkdir()
+                (source / ".chezmoiignore").write_text(
+                    render_template(".chezmoiignore", platform), encoding="utf-8"
+                )
+                versions = source / "private_dot_config/dotfiles/versions"
+                versions.mkdir(parents=True)
+                (versions / "plannotator.tmpl").write_bytes(
+                    (ROOT / "private_dot_config/dotfiles/versions/plannotator.tmpl").read_bytes()
+                )
+                (versions / "unrelated").write_text("not a pin\n", encoding="utf-8")
+                mise = source / "private_dot_config/mise"
+                mise.mkdir(parents=True)
+                (mise / "unrelated.toml").write_text("unrelated = true\n", encoding="utf-8")
+                config = root / "chezmoi.toml"
+                config.write_text("", encoding="utf-8")
+                destination = root / "home"
+                destination.mkdir()
+                command = [
+                    "chezmoi", "--config", str(config), "--source", str(source),
+                    "--destination", str(destination), "--override-data",
+                    json.dumps({"plannotator_version": version}),
+                ]
+
+                def run(*args):
+                    result = subprocess.run(
+                        [*command, *args], capture_output=True, text=True, check=False
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    return result.stdout
+
+                managed = run("managed", "--include", "files").splitlines()
+                pin = ".config/dotfiles/versions/plannotator"
+                self.assertIn(pin, managed)
+                self.assertEqual(run("cat", str(destination / pin)).strip(), version)
+                if platform == "windows":
+                    ignored = run("ignored").splitlines()
+                    self.assertIn(".config/dotfiles/versions/unrelated", ignored)
+                    self.assertIn(".config/mise", ignored)
+                    self.assertNotIn(".config/dotfiles/versions/unrelated", managed)
+                    rules = (source / ".chezmoiignore").read_text(encoding="utf-8")
+                    for exception in (
+                        "!/.config/dotfiles/",
+                        "!/.config/dotfiles/versions/",
+                        "!/.config/dotfiles/versions/plannotator",
+                    ):
+                        rules = rules.replace(exception + "\n", "")
+                    (source / ".chezmoiignore").write_text(rules, encoding="utf-8")
+                    self.assertNotIn(pin, run("managed", "--include", "files").splitlines())
 
 
 class PlannotatorWrapperTests(unittest.TestCase):
