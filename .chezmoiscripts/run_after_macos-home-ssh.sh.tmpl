@@ -1,0 +1,183 @@
+{{- if eq .chezmoi.os "darwin" -}}
+{{- $homeSsh := (get . "macos_home_ssh" | default dict) -}}
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly ENABLED={{ (get $homeSsh "enabled" | default false) | toJson }}
+readonly HOME_DHCP_DOMAIN={{ (get $homeSsh "dhcp_domain" | default "") | lower | toJson }}
+readonly HOME_ROUTER_MAC={{ (get $homeSsh "router_mac" | default "") | lower | toJson }}
+readonly SSH_USER={{ .chezmoi.username | toJson }}
+readonly HELPER_SOURCE={{ joinPath .chezmoi.sourceDir "configs/macos-home-ssh/home-ssh-toggle.sh" | toJson }}
+readonly PLIST_SOURCE={{ joinPath .chezmoi.sourceDir "configs/macos-home-ssh/com.user.home-ssh.plist" | toJson }}
+
+readonly LOCAL_ROOT="/usr/local"
+readonly HELPER_PATH="/usr/local/libexec/dotfiles-home-ssh"
+readonly CONFIG_PATH="/usr/local/etc/dotfiles-home-ssh.conf"
+readonly DROPIN_PATH="/etc/ssh/sshd_config.d/050-dotfiles-home-ssh.conf"
+readonly PLIST_PATH="/Library/LaunchDaemons/com.user.home-ssh.plist"
+readonly SSHD_CONFIG="/etc/ssh/sshd_config"
+readonly LABEL="com.user.home-ssh"
+readonly SSHD_LABEL="com.openssh.sshd"
+
+work_dir=""
+
+cleanup() {
+  if [[ -n "$work_dir" ]]; then
+    /bin/rm -rf "$work_dir"
+  fi
+}
+
+fail() {
+  /usr/bin/printf 'ERROR: %s\n' "$1" >&2
+  exit 1
+}
+
+validate_data() {
+  [[ "$HOME_DHCP_DOMAIN" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || \
+    fail "macos_home_ssh.dhcp_domain must be a DNS domain name"
+  [[ -z "$HOME_ROUTER_MAC" ]] || \
+    [[ "$HOME_ROUTER_MAC" =~ ^([0-9a-f]{1,2}:){5}[0-9a-f]{1,2}$ ]] || \
+    fail "macos_home_ssh.router_mac must be empty or a MAC address"
+  [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_.-]*$ ]] || \
+    fail "chezmoi username is not a safe sshd AllowUsers value"
+}
+
+require_regular_or_absent() {
+  if [[ -L "$1" ]] || { [[ -e "$1" ]] && [[ ! -f "$1" ]]; }; then
+    fail "$1 is not a regular file"
+  fi
+}
+
+require_root_directory() {
+  local info owner group mode
+  [[ -e "$1" ]] || return 0
+  [[ -d "$1" ]] && [[ ! -L "$1" ]] || fail "$1 is not a directory"
+  info="$(/usr/bin/stat -f '%u %g %Lp' "$1")"
+  read -r owner group mode <<< "$info"
+  if [[ "$owner" != 0 ]] || [[ "$group" != 0 ]] || \
+    [[ ! "$mode" =~ ^[0-7]{3,4}$ ]] || (( (8#$mode & 8#022) != 0 )); then
+    fail "$1 must be owned by root:wheel and not writable by others"
+  fi
+}
+
+daemon_loaded() {
+  /bin/launchctl print "system/$LABEL" >/dev/null 2>&1
+}
+
+differs() {
+  [[ ! -e "$2" ]] || ! /usr/bin/cmp -s "$1" "$2"
+}
+
+install_file() {
+  local candidate="$1" target="$2" mode="$3"
+  /usr/bin/printf 'Installing %s\n' "$target"
+  /usr/bin/sudo /usr/bin/install -o root -g wheel -m "$mode" "$candidate" "$target"
+  /usr/bin/cmp -s "$candidate" "$target" || fail "failed to verify $target after installation"
+}
+
+disable_sshd() {
+  local name
+  /usr/bin/sudo /bin/launchctl bootout "system/$SSHD_LABEL" 2>/dev/null || true
+  /usr/bin/sudo /bin/launchctl disable "system/$SSHD_LABEL"
+  for name in sshd sshd-session sshd-auth; do
+    /usr/bin/sudo /usr/bin/pkill -x "$name" || true
+  done
+}
+
+uninstall() {
+  if [[ ! -e "$PLIST_PATH" ]] && [[ ! -e "$HELPER_PATH" ]] && \
+    [[ ! -e "$CONFIG_PATH" ]] && [[ ! -e "$DROPIN_PATH" ]] && ! daemon_loaded; then
+    /usr/bin/printf 'macOS home SSH toggle is disabled.\n'
+    return 0
+  fi
+
+  /usr/bin/printf 'Removing macOS home SSH toggle and turning Remote Login off.\n'
+  /usr/bin/sudo /bin/launchctl bootout "system/$LABEL" 2>/dev/null || true
+  /usr/bin/sudo /bin/rm -f -- "$PLIST_PATH"
+  disable_sshd
+  /usr/bin/sudo /bin/rm -f -- "$HELPER_PATH" "$CONFIG_PATH" "$DROPIN_PATH"
+}
+
+main() {
+  local target dropin_text plist_changed="" other_changed=""
+
+  if [[ "$ENABLED" != true ]]; then
+    uninstall
+    return 0
+  fi
+
+  validate_data
+  for target in "$HELPER_PATH" "$CONFIG_PATH" "$DROPIN_PATH" "$PLIST_PATH"; do
+    require_regular_or_absent "$target"
+  done
+  for target in "$LOCAL_ROOT" "$LOCAL_ROOT/libexec" "$LOCAL_ROOT/etc"; do
+    require_root_directory "$target"
+  done
+  [[ -f "$HELPER_SOURCE" ]] || fail "missing $HELPER_SOURCE"
+  [[ -f "$PLIST_SOURCE" ]] || fail "missing $PLIST_SOURCE"
+
+  work_dir="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/macos-home-ssh.XXXXXX")"
+  trap cleanup EXIT
+
+  dropin_text="$(/usr/bin/printf '%s\n' \
+    '# Managed by chezmoi: macos_home_ssh' \
+    'PasswordAuthentication no' \
+    'KbdInteractiveAuthentication no' \
+    'AuthenticationMethods publickey' \
+    'PermitRootLogin no' \
+    "AllowUsers $SSH_USER")"
+  /usr/bin/printf '%s\n' "$dropin_text" > "$work_dir/dropin"
+  /usr/bin/printf 'HOME_DHCP_DOMAIN=%s\nHOME_ROUTER_MAC=%s\n' \
+    "$HOME_DHCP_DOMAIN" "$HOME_ROUTER_MAC" > "$work_dir/config"
+
+  if differs "$work_dir/dropin" "$DROPIN_PATH"; then
+    /usr/bin/printf '%s\nInclude %s\n' "$dropin_text" "$SSHD_CONFIG" > "$work_dir/sshd-test"
+    /usr/bin/sudo /usr/sbin/sshd -t -f "$work_dir/sshd-test" || \
+      fail "validating the candidate sshd drop-in failed (sshd -t also fails without host keys); nothing was installed"
+  fi
+
+  for target in "$LOCAL_ROOT/libexec" "$LOCAL_ROOT/etc"; do
+    if [[ ! -d "$target" ]]; then
+      /usr/bin/sudo /usr/bin/install -d -o root -g wheel -m 0755 "$target"
+    fi
+  done
+
+  if differs "$work_dir/dropin" "$DROPIN_PATH"; then
+    install_file "$work_dir/dropin" "$DROPIN_PATH" 0644
+    if ! /usr/bin/sudo /usr/sbin/sshd -t; then
+      /usr/bin/sudo /bin/launchctl bootout "system/$LABEL" 2>/dev/null || true
+      /usr/bin/sudo /bin/rm -f -- "$DROPIN_PATH"
+      disable_sshd
+      fail "sshd rejected the installed configuration; unloaded $LABEL, removed $DROPIN_PATH, and turned Remote Login off"
+    fi
+  fi
+  if differs "$work_dir/config" "$CONFIG_PATH"; then
+    install_file "$work_dir/config" "$CONFIG_PATH" 0644
+    other_changed=1
+  fi
+  if differs "$HELPER_SOURCE" "$HELPER_PATH"; then
+    install_file "$HELPER_SOURCE" "$HELPER_PATH" 0755
+    other_changed=1
+  fi
+  if differs "$PLIST_SOURCE" "$PLIST_PATH"; then
+    install_file "$PLIST_SOURCE" "$PLIST_PATH" 0644
+    plist_changed=1
+  fi
+
+  if [[ -n "$plist_changed" ]] || ! daemon_loaded; then
+    /usr/bin/printf 'Loading %s\n' "$LABEL"
+    /usr/bin/sudo /bin/launchctl bootout "system/$LABEL" 2>/dev/null || true
+    /usr/bin/sudo /bin/launchctl bootstrap system "$PLIST_PATH"
+  elif [[ -n "$other_changed" ]]; then
+    /usr/bin/printf 'Restarting %s\n' "$LABEL"
+    /usr/bin/sudo /bin/launchctl kickstart -k "system/$LABEL"
+  else
+    /usr/bin/printf 'macOS home SSH toggle already configured.\n'
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
+{{- end }}
