@@ -35,6 +35,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_20-git-template-hooks.ps1.tmpl` | after | Windows existing repository Git hook reconciliation |
 | `run_after_configure_git_templates.sh.tmpl` | after | git template wiring |
 | `run_after_macos-nfs-config.sh.tmpl` | after | macOS system NFSv4 client default reconciliation |
+| `run_after_macos-home-ssh.sh.tmpl` | after | opt-in macOS Remote Login toggle for the home wired network |
 | `run_after_macos-opencode-pin.sh.tmpl` | after | hold an installed stable OpenCode v1 with Homebrew |
 | `run_after_macos-ffpwa-runtime.sh.tmpl` | after | refresh the FirefoxPWA runtime and web apps when Firefox is newer |
 | `run_after_update_copyq.sh.tmpl` | after | CopyQ refresh |
@@ -87,6 +88,8 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   discovers. It never prunes mise or deletes install directories directly.
 - Citrix Workspace and Zoom VDI are handled outside Homebrew; see
   `docs/automation/macos-vdi-apps.md`.
+- The opt-in home SSH toggle installs a root LaunchDaemon and an sshd drop-in;
+  see `docs/automation/macos-home-ssh.md`.
 - Validate changed scripts with `./assets/cz-audit.sh check <repo-relative-path>`.
 - OpenCode holds freeze the installed host version, not a shared fleet version.
   Missing packages are not protected; see [OpenCode v1](opencode-v1.md) for

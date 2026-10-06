@@ -95,6 +95,7 @@ def fixture_data(platform: str, temporary_root: Path) -> dict[str, object]:
         "isWSL": is_wsl,
         "isWSL2": is_wsl,
         "lazygit_version": "0.0.0-fixture",
+        "macos_home_ssh": {"dhcp_domain": "", "enabled": False, "router_mac": ""},
         "macos_vdi": {
             "allow_downgrade": False,
             "citrix": {
@@ -267,9 +268,9 @@ def render_matrix() -> dict[tuple[str, str], bytes]:
 class LifecycleRenderMatrixTests(unittest.TestCase):
     def test_inventory_includes_every_lifecycle_template(self) -> None:
         lifecycle = tuple((REPO_ROOT / ".chezmoiscripts").glob("*.tmpl"))
-        self.assertEqual(len(lifecycle), 49)
+        self.assertEqual(len(lifecycle), 50)
         self.assertEqual(sum(path.name.endswith(".ps1.tmpl") for path in lifecycle), 19)
-        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 30)
+        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 31)
 
     def test_all_sources_render_for_each_fixture(self) -> None:
         matrix = render_matrix()
@@ -300,6 +301,11 @@ class LifecycleRenderMatrixTests(unittest.TestCase):
         for platform in ("linux", "windows", "wsl2"):
             self.assertEqual(matrix[(platform, macos_nfs)].strip(), b"")
         self.assertIn(b"NFS_CONFIG_FILE", matrix[("macos", macos_nfs)])
+
+        macos_home_ssh = ".chezmoiscripts/run_after_macos-home-ssh.sh.tmpl"
+        for platform in ("linux", "windows", "wsl2"):
+            self.assertEqual(matrix[(platform, macos_home_ssh)].strip(), b"")
+        self.assertIn(b"readonly ENABLED=false", matrix[("macos", macos_home_ssh)])
 
         wsl_gitignore = ".chezmoiscripts/run_copy_win_gitignore.sh.tmpl"
         for platform in ("linux", "macos", "windows"):

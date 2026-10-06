@@ -26,6 +26,9 @@
 {{- $macosVdiZoomPkgSHA256Ref := "" -}}
 {{- $macosVdiCitrixDmgSHA256 := "" -}}
 {{- $macosVdiCitrixDmgSHA256Ref := "" -}}
+{{- $macosHomeSshEnabled := false -}}
+{{- $macosHomeSshDhcpDomain := "" -}}
+{{- $macosHomeSshRouterMac := "" -}}
 
 {{- $os := .chezmoi.os -}}
 {{- $isLinux := eq $os "linux" -}}
@@ -80,6 +83,11 @@
 {{-   $macosVdiZoomPkgSHA256Ref = promptStringOnce . "macos_vdi.zoom.pkg_sha256_op_ref" "1Password ref for Zoom VDI .pkg SHA-256 (optional)" "" -}}
 {{-   $macosVdiCitrixDmgSHA256 = promptStringOnce . "macos_vdi.citrix.dmg_sha256" "Citrix Workspace .dmg SHA-256 (optional)" "" -}}
 {{-   $macosVdiCitrixDmgSHA256Ref = promptStringOnce . "macos_vdi.citrix.dmg_sha256_op_ref" "1Password ref for Citrix Workspace .dmg SHA-256 (optional)" "" -}}
+{{-   $macosHomeSshEnabled = promptBoolOnce . "macos_home_ssh.enabled" "Turn Remote Login on automatically while on the home wired network?" false -}}
+{{-   if $macosHomeSshEnabled -}}
+{{-     $macosHomeSshDhcpDomain = promptStringOnce . "macos_home_ssh.dhcp_domain" "Home network DHCP domain name (from: ipconfig getoption <ethernet-if> domain_name)" -}}
+{{-     $macosHomeSshRouterMac = promptStringOnce . "macos_home_ssh.router_mac" "Home router MAC address on Ethernet (optional, leave empty to skip)" "" -}}
+{{-   end -}}
 {{- end -}}
 
 {{- /* sourceDir: prompt once; default on everything except Windows */ -}}
@@ -209,4 +217,9 @@ command = "op.exe"
     dmg_path = {{ $macosVdiCitrixDmgPath | toToml }}
     dmg_sha256 = {{ $macosVdiCitrixDmgSHA256 | toToml }}
     dmg_sha256_op_ref = {{ $macosVdiCitrixDmgSHA256Ref | toToml }}
+
+[data.macos_home_ssh]
+    enabled = {{ $macosHomeSshEnabled }}
+    dhcp_domain = {{ $macosHomeSshDhcpDomain | toToml }}
+    router_mac = {{ $macosHomeSshRouterMac | toToml }}
 {{- end }}

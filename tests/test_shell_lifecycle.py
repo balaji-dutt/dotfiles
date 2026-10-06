@@ -363,6 +363,7 @@ class LifecycleHostBoundaryTests(unittest.TestCase):
         hooks = (
             RETIRE_MNEMO,
             ".chezmoiscripts/run_after_macos-nfs-config.sh.tmpl",
+            ".chezmoiscripts/run_after_macos-home-ssh.sh.tmpl",
             ".chezmoiscripts/run_onchange_after_macos-vdi-apps.sh.tmpl",
             ".chezmoiscripts/run_after_update_copyq.sh.tmpl",
             ".chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl",
@@ -373,7 +374,8 @@ class LifecycleHostBoundaryTests(unittest.TestCase):
         )
         with isolated_environment(prefix="lifecycle-host-") as fixture:
             log = fixture.root / "forbidden.jsonl"
-            for command in ("brew", "curl", "op", "sudo", "hdiutil", "mise", "npm", "launchctl", "open"):
+            for command in ("brew", "curl", "op", "sudo", "hdiutil", "mise", "npm", "launchctl", "open",
+                            "sshd", "pkill"):
                 write_fake_command(fixture.fake_bin, command, log_path=log, exit_code=89)
             env = restricted_lifecycle_env(fixture.home, fixture.fake_bin)
             sentinel = fixture.home / "sentinel"

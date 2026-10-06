@@ -35,6 +35,7 @@
 | `configs/browser-policies/**` | vendored Chrome/Firefox policy artifacts |
 | `configs/espanso/base.yml` | shared Espanso base match config |
 | `configs/espanso/*.py` | shared Espanso script helpers rendered into platform config dirs |
+| `configs/macos-home-ssh/**` | macOS home SSH toggle helper and LaunchDaemon plist, installed as root by `run_after_macos-home-ssh.sh.tmpl` |
 
 The host `tmuxp` pin in `configs/uv_tools.txt` supports the dedicated workspaces
 described in [repo-ops](tooling/repo-ops.md). Workspace layouts live in the
@@ -79,8 +80,10 @@ homelab devcontainer owns an independent manifest and lockfile under its
   formulae such as `anomalyco/tap/opencode`. Citrix Workspace is intentionally not
   listed there; see `docs/automation/macos-vdi-apps.md`.
 - `.chezmoidata.yaml`: public template data, including the Renovate-managed
-  shared `codebase_memory_mcp_version` pin, the `lazygit_version` pin, and
-  non-secret macOS VDI version policy under `macos_vdi`.
+  shared `codebase_memory_mcp_version` pin, the `lazygit_version` pin,
+  non-secret macOS VDI version policy under `macos_vdi`, and the disabled
+  `macos_home_ssh` default. The home network domain and router MAC live only in
+  the local chezmoi config; see `docs/automation/macos-home-ssh.md`.
 
 ## Validation
 

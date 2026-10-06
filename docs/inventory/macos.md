@@ -44,6 +44,7 @@ This page lists the main managed targets expected on macOS.
 | Devcontainer launcher | `~/bin/devcontainer-launch` | `bin/executable_devcontainer-launch.tmpl` |
 | Browser policy profiles | `~/.local/share/dotfiles/browser-policies/justthebrowser/*.mobileconfig` | `.chezmoiscripts/run_onchange_after_browser-policies.sh.tmpl`, `configs/browser-policies/**` |
 | NFS client defaults | `/etc/nfs.conf` | `.chezmoiscripts/run_after_macos-nfs-config.sh.tmpl` |
+| Home SSH toggle (opt-in) | `/Library/LaunchDaemons/com.user.home-ssh.plist`, `/usr/local/libexec/dotfiles-home-ssh`, `/usr/local/etc/dotfiles-home-ssh.conf`, `/etc/ssh/sshd_config.d/050-dotfiles-home-ssh.conf` | `.chezmoiscripts/run_after_macos-home-ssh.sh.tmpl`, `configs/macos-home-ssh/**` |
 | FirefoxPWA refresh | `~/bin/ffpwa-refresh` | `bin/executable_ffpwa-refresh`, `.chezmoiscripts/run_after_macos-ffpwa-runtime.sh.tmpl` |
 | OpenUsage telemetry | `~/.config/openusage/hooks/claude-hook.sh`, `~/.config/opencode/plugins/openusage-telemetry.ts` | `.chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl` |
 

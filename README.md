@@ -77,6 +77,7 @@ Authoritative per-machine list is still `chezmoi managed`.
 
 - Chezmoi hook catalog by trigger/platform: `docs/automation/chezmoi-scripts.md`
 - macOS Citrix/Zoom VDI handling: `docs/automation/macos-vdi-apps.md`
+- macOS home-network SSH toggle: `docs/automation/macos-home-ssh.md`
 - AI worktree wrapper for Claude/OpenCode sessions: `docs/automation/ai-worktrees.md`
 - Browser policy automation: `docs/automation/browser-policies.md`
 - Package-manager wrappers and docs automation details: `docs/automation/package-wrappers.md`

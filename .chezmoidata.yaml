@@ -18,6 +18,8 @@ browser_policies:
   justthebrowser:
     enabled: true
     macos_open_profiles_on_update: true
+macos_home_ssh:
+  enabled: false
 macos_vdi:
   enabled: false
   install: false

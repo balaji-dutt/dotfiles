@@ -6,6 +6,7 @@
 .chezmoiscripts/run_after_configure_git_templates.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_macos-ffpwa-runtime.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
+.chezmoiscripts/run_after_macos-home-ssh.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-nfs-config.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-opencode-pin.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_after_macos-openusage-integrations.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
@@ -137,6 +138,7 @@ bootstrap-wsl.sh	executable-mode,script-extension,shebang
 brewfile.txt	executable-mode
 configs/espanso/aoe-session-name.py	script-extension,shebang
 configs/espanso/payment-from-copyq.py	script-extension,shebang
+configs/macos-home-ssh/home-ssh-toggle.sh	script-extension,shebang
 dot_bashrc.tmpl	shell-startup
 dot_claude/executable_statusline.sh	chezmoi-executable,script-extension,shebang
 dot_claude/hooks/executable_exitplan-freshness-guard.py	chezmoi-executable,script-extension,shebang
@@ -402,6 +404,7 @@ tests/test_guarded_main_sync.py	script-extension
 tests/test_host_ai_plugin_refresh_posix.py	script-extension
 tests/test_host_ai_plugin_refresh_windows.py	script-extension
 tests/test_line_endings.py	script-extension
+tests/test_macos_home_ssh.py	script-extension
 tests/test_macos_lifecycle_boundaries.py	script-extension
 tests/test_macos_maintenance.py	script-extension
 tests/test_macos_shell_startup_smoke.py	script-extension
