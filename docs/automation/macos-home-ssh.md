@@ -59,12 +59,15 @@ so the feature does not install on such Macs.
 
 The LaunchDaemon runs the helper at load, on every
 `com.apple.system.config.network_change` notification, and every 300 seconds.
-Decisions and actions are logged under the `dotfiles-home-ssh` tag without the
-domain or MAC:
+Each change to Remote Login is logged through `logger` without the domain or
+MAC. The unified log does not include the `dotfiles-home-ssh` tag in the message
+text, so filter on the sender and message instead:
 
 ```sh
-log show --last 1h --predicate 'eventMessage CONTAINS "dotfiles-home-ssh"' --info
+/usr/bin/log show --last 1h --predicate 'process == "logger" AND eventMessage CONTAINS "Remote Login"' --info
 ```
+
+Runs that leave Remote Login unchanged log nothing.
 
 ## Setup
 
@@ -93,6 +96,10 @@ this host in the client's `~/.ssh/config`.
 
 ## Caveats
 
+- macOS registers the daemon as a background item under System Settings >
+  General > Login Items & Extensions, where it may appear as `bash`. Turning it
+  off there stops the helper, and Remote Login stays in its last state until
+  the item is turned back on or the feature is disabled.
 - Turning Remote Login on or off in System Settings lasts only until the next
   network change or 300-second run.
 - When launchd stops or restarts the helper mid-run, it exits without changing
