@@ -1,3 +1,6 @@
+[settings]
+not_found_auto_install = false
+
 [tools]
 "aqua:charmbracelet/gum" = "latest"
 bun = "latest"

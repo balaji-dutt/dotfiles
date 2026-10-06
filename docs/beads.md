@@ -64,25 +64,30 @@ client mode.
 | WSL2 | GitHub release via mise; ansible writes `~/.config/mise/conf.d/95-beads.toml` from `beads_version` | GitHub release tarball via ansible, from `dolt_version` |
 | Windows | Winget `GasTownHall.Beads` package (manual install); exact Gating pin managed by `.chezmoiscripts/run_after_windows-beads-pin.ps1.tmpl` from `beads_version` | none — client mode; see below |
 
-Installation ownership and command resolution are separate. Interactive WSL2
-Zsh uses full mise activation and direct install paths. Setting
-`not_found_auto_install = false` in the WSL2 fragment makes activation remove
-mise shims instead of exposing both a direct `bd` binary and a shim. The paired
-`not_found_system_fallback = false` setting also makes explicit shim callers
-fail instead of selecting an unrelated system or Windows binary. Ansible runs
-`mise install -y`; repair a missing configured tool through provisioning rather
-than installing it as a shell side effect.
+Installation ownership and command resolution are separate. Interactive macOS
+and WSL2 Zsh use full mise activation and direct install paths. The shared
+`configs/mise.toml` sets `not_found_auto_install = false`, so activation removes
+mise shims from `PATH` instead of exposing both a direct `bd` binary and a
+shim. This also disables first-use command-not-found installation: on macOS,
+install a missing tool explicitly with `mise install` or let the existing
+`run_onchange_after_install_packages` hook install it on the next apply after
+its inputs change (including this manifest). WSL2 still provisions tools with
+Ansible's `mise install -y`. Only the WSL2 fragment sets
+`not_found_system_fallback = false`, making explicit shim callers fail
+instead of selecting an unrelated system or Windows binary.
 
 WSL2 Bash sessions use mise shims because they do not run full activation, and
 the ansible-installed Dolt binary remains the real `~/.local/bin/dolt` file.
 On macOS, Better Beads Kanban receives the absolute mise shim path through the
 managed workspace setting, so Finder and Dock launches do not depend on shell
-activation or launch `PATH`. `assets/beads-sync.sh` likewise resolves the tools
-from `PATH` or their managed locations. The former `~/.local/bin/bd` and `dolt`
-links were retired because interactive mise activation could expose a direct
-install alongside the links and trigger a duplicate-binary warning. Native
-Windows resolves the Winget-managed `bd.exe`; delegated sync explicitly adds
-the WSL2 shim and local-bin directories before invoking the POSIX helper.
+activation or launch `PATH`. Full activation removes shims from `PATH`, not from
+disk, so explicit shim paths and Bash shim resolution remain available.
+`assets/beads-sync.sh` likewise resolves the tools from `PATH` or their managed
+locations. The former `~/.local/bin/bd` and `dolt` links were retired because
+interactive mise activation could expose a direct install alongside the links
+and trigger a duplicate-binary warning. Native Windows resolves the
+Winget-managed `bd.exe`; delegated sync explicitly adds the WSL2 shim and
+local-bin directories before invoking the POSIX helper.
 
 An arbitrary clean process is not expected to gain bare commands by sourcing
 interactive rc files. Repo-managed automation must resolve known executable
