@@ -211,7 +211,7 @@
   "plugin": [
     "@franlol/opencode-md-table-formatter@0.0.6",
     "@tarquinen/opencode-dcp@3.2.0",
-    "@mohak34/opencode-notifier@0.3.1",
+    "@mohak34/opencode-notifier@0.4.0",
     ["@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}", {
       "workflow": "plan-agent",
       "runtime": "cli",
