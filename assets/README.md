@@ -173,6 +173,31 @@ and `all`. See `docs/tooling/test-runner.md` for capability skips, reports, exit
 codes, suite registration, and fixture contracts. GitLab jobs and the guarded
 feature-push workflow are documented in `docs/tooling/continuous-integration.md`.
 
+### Peer environments
+
+Runs this repo's audit and test suites on the other machine (macOS <-> WSL2)
+against a snapshot of the current working tree, when that machine is awake.
+`all` means every reachable other environment; agents should always use it,
+and `fast` is the suite unless the changed test lives only in another one.
+
+```sh
+./assets/peer-env probe
+./assets/peer-env audit all assets/cz-audit.sh dot_bashrc.tmpl
+./assets/peer-env test all fast
+./assets/peer-env clean all
+./assets/peer-env config
+```
+
+Peers are listed in `~/.config/dotfiles/peer-envs.json`, which the private
+dotfiles repo applies. The peer side is `peer-env serve`, pinned as the forced
+command of a dedicated SSH key, so a client can only request the audit and
+test entrypoints; those run from the pushed snapshot, so the key grants code
+execution as the peer user through snapshot content, bounded by the scrubbed
+environment and the absence of a shell. Exit 3 means nothing ran; copy the `report "..."` line the
+command printed into the final response and move on. See
+`docs/tooling/peer-environments.md` for the config schema, SSH setup, the
+protocol, and what the helper never does.
+
 ### Disposable devcontainer smoke
 
 Runs the production persistence and materialization phases in a disposable

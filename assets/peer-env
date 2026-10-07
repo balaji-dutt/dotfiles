@@ -1,0 +1,1416 @@
+#!/bin/sh
+":" '''\'
+# Probe peer machines over SSH and run audits and tests against a snapshot of this tree.
+#
+# sh runs this block and never returns; Python reads lines 2-20 as the module
+# docstring. Native Windows has no python3 on PATH and ignores shebangs, so the
+# interpreter has to come from resolve-python3. Keep the closing quotes directly
+# above the __future__ import, and keep single quotes out of this block.
+set -eu
+entry_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+case $entry_dir in
+  */.opencode/bin) resolver=$entry_dir/../../assets/resolve-python3 ;;
+  *) resolver=$entry_dir/resolve-python3 ;;
+esac
+if [ ! -f "$resolver" ]; then
+  echo "${0##*/}: missing Python resolver: $resolver" >&2
+  exit 127
+fi
+exec "$resolver" -- "$0" "$@"
+'''
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import fnmatch
+import glob
+import json
+import os
+import re
+import shlex
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Callable
+
+sys.dont_write_bytecode = True
+
+SCRIPT_NAME = "peer-env"
+PROTOCOL = "peer-env/1"
+SCHEMA_VERSION = 1
+PLATFORMS = ("linux", "macos", "windows", "wsl2")
+SUITES = ("fast", "integration", "render", "provenance", "platform", "all")
+DEFAULT_TTL = 300
+DEFAULT_CONNECT_TIMEOUT = 3
+DEFAULT_RUN_TIMEOUT = 900
+CONTROL_PERSIST = 120
+MAX_CONTROL_PATH = 100
+REF_NAMESPACE = "refs/peer-env/"
+WORKTREE_PREFIX = "worktrees/peer-env-"
+IDENTITY_MARKER = "PEER-ENV-IDENTITY "
+SLUG_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+SLUG_RE = re.compile(SLUG_PATTERN)
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+WINDOWS_VIA_MESSAGE = "windows via wsl2 is not supported yet"
+PEER_KEYS = {
+    "ssh_host",
+    "platform",
+    "repo",
+    "identity_file",
+    "connect_timeout",
+    "allow_unrestricted",
+    "via",
+}
+SECRET_PATTERNS = (
+    ".env",
+    "*.env",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "id_*",
+    "*_rsa",
+    "*_ed25519",
+    "credentials*",
+    "*.tfstate",
+)
+REMOTE_TOOLS = ("git", "chezmoi", "python3", "python", "pwsh")
+PATH_PREPEND = ("/opt/homebrew/bin", "/usr/local/bin")
+SNAPSHOT_IDENTITY = {
+    "GIT_AUTHOR_NAME": "peer-env",
+    "GIT_AUTHOR_EMAIL": "peer-env@localhost",
+    "GIT_COMMITTER_NAME": "peer-env",
+    "GIT_COMMITTER_EMAIL": "peer-env@localhost",
+    "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z",
+    "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z",
+}
+AUTH_FAILURE_RE = re.compile(r"Permission denied|publickey|Too many authentication failures")
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_CONFIG = 2
+EXIT_UNREACHABLE = 3
+EXIT_BUSY = 75
+EXIT_TIMEOUT = 124
+
+
+class ConfigError(Exception):
+    """Configuration, usage, or refused request; exit 2."""
+
+
+class PeerUnavailable(Exception):
+    """No reachable peer; exit 3."""
+
+
+class PeerBusy(Exception):
+    """The peer worktree is locked by another request; exit 75."""
+
+
+class Refused(Exception):
+    """A request the peer side refuses; exit 2 on the peer."""
+
+
+@dataclass(frozen=True)
+class Peer:
+    name: str
+    ssh_host: str
+    platform: str
+    repo: str
+    identity_file: str | None
+    connect_timeout: int
+    allow_unrestricted: bool
+
+
+@dataclass(frozen=True)
+class Config:
+    path: Path
+    self_platform: str
+    peers: dict[str, Peer]
+    fingerprint: str
+
+
+@dataclass
+class ProbeResult:
+    name: str
+    ssh_host: str
+    platform: str
+    status: str
+    detail: str
+    restricted: bool | None
+    identity: dict | None
+    elapsed: float
+
+    def to_json(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_json(cls, payload: dict) -> "ProbeResult":
+        return cls(**payload)
+
+    @property
+    def usable(self) -> bool:
+        return self.status == "reachable"
+
+    def usable_for(self, peer: "Peer") -> bool:
+        if not self.usable:
+            return False
+        return self.restricted is not False or peer.allow_unrestricted
+
+
+# --------------------------------------------------------------------------
+# Platform and paths
+
+
+def current_platform(environ: dict[str, str] | os._Environ[str] = os.environ) -> str:
+    if os.name == "nt":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    if environ.get("WSL_DISTRO_NAME") or environ.get("WSL_INTEROP"):
+        return "wsl2"
+    return "linux"
+
+
+def home_dir(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
+    if os.name == "nt":
+        return Path(environ.get("USERPROFILE") or Path.home())
+    return Path(environ.get("HOME") or Path.home())
+
+
+def config_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
+    base = environ.get("XDG_CONFIG_HOME") if os.name != "nt" else None
+    root = Path(base) if base else home_dir(environ) / ".config"
+    return root / "dotfiles" / "peer-envs.json"
+
+
+def state_dir(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
+    base = environ.get("XDG_STATE_HOME") if os.name != "nt" else None
+    root = Path(base) if base else home_dir(environ) / ".local" / "state"
+    return root / "dotfiles" / "peer-env"
+
+
+def cache_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
+    return state_dir(environ) / "probe.json"
+
+
+def expand_user_path(value: str, environ: dict[str, str] | os._Environ[str]) -> str:
+    if value == "~" or value.startswith("~/"):
+        return str(home_dir(environ)) + value[1:]
+    return value
+
+
+# --------------------------------------------------------------------------
+# Configuration
+
+
+def _require_string(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"{label} must be a non-empty string")
+    return value
+
+
+def load_config(environ: dict[str, str] | os._Environ[str] = os.environ) -> Config:
+    path = config_path(environ)
+    if not path.is_file():
+        raise ConfigError(
+            f"missing peer config {path}; see docs/tooling/peer-environments.md"
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ConfigError(f"{path}: invalid JSON at line {error.lineno} column {error.colno}")
+    if not isinstance(payload, dict):
+        raise ConfigError(f"{path}: top level must be an object")
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ConfigError(f"{path}: schema_version must be {SCHEMA_VERSION}")
+    unknown_top = set(payload) - {"schema_version", "peers"}
+    if unknown_top:
+        raise ConfigError(f"{path}: unknown key(s): {', '.join(sorted(unknown_top))}")
+    raw_peers = payload.get("peers")
+    if not isinstance(raw_peers, dict) or not raw_peers:
+        raise ConfigError(f"{path}: peers must be a non-empty object")
+    peers: dict[str, Peer] = {}
+    for name, raw in raw_peers.items():
+        label = f"{path}: peers.{name}"
+        if not SLUG_RE.match(name) or name == "all":
+            raise ConfigError(f"{label}: peer name must match {SLUG_PATTERN} and not be 'all'")
+        if not isinstance(raw, dict):
+            raise ConfigError(f"{label} must be an object")
+        unknown = set(raw) - PEER_KEYS
+        if unknown:
+            raise ConfigError(f"{label}: unknown key(s): {', '.join(sorted(unknown))}")
+        platform = _require_string(raw.get("platform"), f"{label}.platform")
+        if platform not in PLATFORMS:
+            raise ConfigError(f"{label}.platform must be one of {', '.join(PLATFORMS)}")
+        if platform == "windows" or raw.get("via") is not None:
+            raise ConfigError(f"{label}: {WINDOWS_VIA_MESSAGE}")
+        ssh_host = raw.get("ssh_host", name)
+        ssh_host = _require_string(ssh_host, f"{label}.ssh_host")
+        if any(ch.isspace() for ch in ssh_host) or ssh_host.startswith("-"):
+            raise ConfigError(f"{label}.ssh_host must not contain whitespace or start with '-'")
+        repo = _require_string(raw.get("repo"), f"{label}.repo")
+        if not (repo.startswith("~/") or repo.startswith("/")):
+            raise ConfigError(f"{label}.repo must start with ~/ or /")
+        if any(ch.isspace() for ch in repo) or ":" in repo:
+            raise ConfigError(f"{label}.repo must not contain whitespace or ':'")
+        identity_file = raw.get("identity_file")
+        if identity_file is not None:
+            identity_file = _require_string(identity_file, f"{label}.identity_file")
+        connect_timeout = raw.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT)
+        if (
+            not isinstance(connect_timeout, int)
+            or isinstance(connect_timeout, bool)
+            or not 1 <= connect_timeout <= 60
+        ):
+            raise ConfigError(f"{label}.connect_timeout must be an integer from 1 to 60")
+        allow_unrestricted = raw.get("allow_unrestricted", False)
+        if not isinstance(allow_unrestricted, bool):
+            raise ConfigError(f"{label}.allow_unrestricted must be true or false")
+        peers[name] = Peer(
+            name=name,
+            ssh_host=ssh_host,
+            platform=platform,
+            repo=repo.rstrip("/"),
+            identity_file=identity_file,
+            connect_timeout=connect_timeout,
+            allow_unrestricted=allow_unrestricted,
+        )
+    info = path.stat()
+    fingerprint = f"{info.st_mtime_ns}:{info.st_size}"
+    return Config(path=path, self_platform=current_platform(environ), peers=peers, fingerprint=fingerprint)
+
+
+def remote_peers(config: Config) -> list[Peer]:
+    return [peer for peer in config.peers.values() if peer.platform != config.self_platform]
+
+
+def select_peers(config: Config, target: str) -> list[Peer]:
+    if target == "all":
+        return remote_peers(config)
+    peer = config.peers.get(target)
+    if peer is None:
+        raise ConfigError(
+            f"unknown peer {target!r}; configured: {', '.join(sorted(config.peers))}"
+        )
+    if peer.platform == config.self_platform:
+        raise ConfigError(f"peer {target!r} is this machine ({config.self_platform})")
+    return [peer]
+
+
+# --------------------------------------------------------------------------
+# SSH plumbing (client side)
+
+
+def control_path(environ: dict[str, str] | os._Environ[str]) -> str | None:
+    candidate = state_dir(environ) / "cm-%C"
+    if len(str(candidate)) - 2 + 40 > MAX_CONTROL_PATH:
+        return None
+    return str(candidate)
+
+
+def ssh_options(
+    peer: Peer,
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    connect_timeout: int | None = None,
+) -> list[str]:
+    timeout = connect_timeout or peer.connect_timeout
+    options = [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ConnectTimeout={timeout}",
+        "-o",
+        "ConnectionAttempts=1",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "LogLevel=ERROR",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "ClearAllForwardings=yes",
+    ]
+    if peer.identity_file:
+        options += ["-o", "IdentitiesOnly=yes", "-i", expand_user_path(peer.identity_file, environ)]
+    path = control_path(environ)
+    if path is not None:
+        state_dir(environ).mkdir(parents=True, exist_ok=True)
+        options += [
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            f"ControlPath={path}",
+            "-o",
+            f"ControlPersist={CONTROL_PERSIST}",
+        ]
+    return options
+
+
+def remote_helper(peer: Peer) -> str:
+    """Shell text that resolves to the peer's copy of this helper."""
+    if peer.repo.startswith("~/"):
+        return '"$HOME"/' + shlex.quote(peer.repo[2:] + "/assets/peer-env")
+    return shlex.quote(peer.repo + "/assets/peer-env")
+
+
+def request_command(peer: Peer, request: list[str]) -> str:
+    return f"{remote_helper(peer)} serve {shlex.join(request)}"
+
+
+def ssh_argv(
+    peer: Peer,
+    request: list[str],
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    connect_timeout: int | None = None,
+) -> list[str]:
+    return [
+        "ssh",
+        "-T",
+        *ssh_options(peer, environ, connect_timeout=connect_timeout),
+        "--",
+        peer.ssh_host,
+        request_command(peer, request),
+    ]
+
+
+def push_url(peer: Peer) -> str:
+    repo = peer.repo[2:] if peer.repo.startswith("~/") else peer.repo
+    return f"{peer.ssh_host}:{repo}"
+
+
+def ssh_capture(
+    peer: Peer,
+    request: list[str],
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    timeout: float,
+    connect_timeout: int | None = None,
+) -> tuple[subprocess.CompletedProcess[str] | None, bool]:
+    argv = ssh_argv(peer, request, environ, connect_timeout=connect_timeout)
+    try:
+        result = subprocess.run(
+            argv,
+            env=dict(environ),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, True
+    return result, False
+
+
+def ssh_stream(
+    peer: Peer,
+    request: list[str],
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    timeout: float,
+) -> int:
+    argv = ssh_argv(peer, request, environ)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    process = subprocess.Popen(argv, env=dict(environ), stdin=subprocess.DEVNULL)
+    try:
+        return process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        print(f"{SCRIPT_NAME}: timed out after {int(timeout)}s on {peer.name}", file=sys.stderr)
+        return EXIT_TIMEOUT
+
+
+# --------------------------------------------------------------------------
+# Probe
+
+
+def platform_from_identity(uname: str, kernel: str) -> str:
+    if uname == "Darwin":
+        return "macos"
+    if uname == "Linux":
+        return "wsl2" if "microsoft" in kernel.lower() else "linux"
+    return "unknown"
+
+
+def parse_identity(stdout: str) -> dict | None:
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(IDENTITY_MARKER):
+            try:
+                payload = json.loads(line[len(IDENTITY_MARKER):])
+            except json.JSONDecodeError:
+                return None
+            return payload if isinstance(payload, dict) else None
+    return None
+
+
+def classify(
+    peer: Peer,
+    result: subprocess.CompletedProcess[str] | None,
+    timed_out: bool,
+    elapsed: float,
+    connect_timeout: int,
+) -> ProbeResult:
+    def make(status: str, detail: str, *, restricted: bool | None = None, identity: dict | None = None):
+        return ProbeResult(
+            name=peer.name,
+            ssh_host=peer.ssh_host,
+            platform=peer.platform,
+            status=status,
+            detail=detail,
+            restricted=restricted,
+            identity=identity,
+            elapsed=round(elapsed, 3),
+        )
+
+    if timed_out or result is None:
+        return make("unreachable", f"timeout after {connect_timeout}s")
+    stderr_first = next((line for line in result.stderr.splitlines() if line.strip()), "")
+    if result.returncode == 255:
+        if AUTH_FAILURE_RE.search(result.stderr):
+            return make(
+                "auth-failed",
+                f"{stderr_first}; set IdentitiesOnly yes and IdentityFile ~/.ssh/<key>.pub for {peer.ssh_host}",
+            )
+        return make("unreachable", stderr_first or "ssh exit 255")
+    identity = parse_identity(result.stdout)
+    if identity is None:
+        if result.returncode != 0:
+            detail = stderr_first or f"remote exit {result.returncode}"
+        else:
+            detail = "no identity marker"
+        return make("serve-missing", f"{detail}; the peer checkout lacks assets/peer-env serve or is behind main")
+    if identity.get("protocol") != PROTOCOL:
+        return make("protocol-mismatch", f"peer speaks {identity.get('protocol')!r}, client speaks {PROTOCOL!r}")
+    remote_platform = identity.get("platform", "unknown")
+    if remote_platform != peer.platform:
+        return make(
+            "platform-mismatch",
+            f"configured {peer.platform}, peer reports {remote_platform}",
+            identity=identity,
+        )
+    tools = identity.get("tools") or {}
+    if not tools.get("git") or not (tools.get("python3") or tools.get("python")):
+        missing = [tool for tool in ("git", "python3") if not tools.get(tool)]
+        return make("tools-missing", f"peer lacks {', '.join(missing)}", identity=identity)
+    restricted = bool(identity.get("restricted"))
+    found = " ".join(tool for tool in REMOTE_TOOLS if tools.get(tool))
+    detail = f"{identity.get('uname', '?')} {identity.get('kernel', '?')}; {found}"
+    if not restricted:
+        detail += "; unrestricted key"
+    return make("reachable", detail, restricted=restricted, identity=identity)
+
+
+def probe_peer(
+    peer: Peer,
+    environ: dict[str, str] | os._Environ[str],
+    connect_timeout: int | None,
+) -> ProbeResult:
+    timeout = connect_timeout or peer.connect_timeout
+    started = time.monotonic()
+    result, timed_out = ssh_capture(
+        peer,
+        [PROTOCOL, "identity"],
+        environ,
+        timeout=timeout + 10,
+        connect_timeout=timeout,
+    )
+    return classify(peer, result, timed_out, time.monotonic() - started, timeout)
+
+
+def probe_all(
+    peers: list[Peer],
+    environ: dict[str, str] | os._Environ[str],
+    connect_timeout: int | None,
+) -> dict[str, ProbeResult]:
+    if not peers:
+        return {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(peers)) as pool:
+        futures = {pool.submit(probe_peer, peer, environ, connect_timeout): peer for peer in peers}
+        results = {futures[future].name: future.result() for future in futures}
+    return {name: results[name] for name in sorted(results)}
+
+
+def load_cache(
+    config: Config,
+    environ: dict[str, str] | os._Environ[str],
+    ttl: int,
+) -> tuple[dict[str, ProbeResult], float] | None:
+    path = cache_path(environ)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
+        return None
+    if payload.get("self_platform") != config.self_platform:
+        return None
+    if payload.get("config_fingerprint") != config.fingerprint:
+        return None
+    checked_at = payload.get("checked_at")
+    if not isinstance(checked_at, (int, float)) or time.time() - checked_at >= ttl:
+        return None
+    try:
+        results = {
+            name: ProbeResult.from_json(entry) for name, entry in payload.get("peers", {}).items()
+        }
+    except TypeError:
+        return None
+    return results, float(checked_at)
+
+
+def save_cache(
+    config: Config,
+    results: dict[str, ProbeResult],
+    environ: dict[str, str] | os._Environ[str],
+    checked_at: float,
+) -> None:
+    path = cache_path(environ)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "self_platform": config.self_platform,
+        "config_fingerprint": config.fingerprint,
+        "checked_at": checked_at,
+        "peers": {name: result.to_json() for name, result in results.items()},
+    }
+    handle = tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8")
+    with handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.replace(handle.name, path)
+
+
+def resolve_probe(
+    config: Config,
+    peers: list[Peer],
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    fresh: bool,
+    ttl: int,
+    connect_timeout: int | None,
+) -> tuple[dict[str, ProbeResult], bool, float]:
+    wanted = {peer.name for peer in peers}
+    if not fresh:
+        cached = load_cache(config, environ, ttl)
+        if cached is not None and wanted <= set(cached[0]):
+            return {name: cached[0][name] for name in sorted(wanted)}, True, cached[1]
+    all_remote = remote_peers(config)
+    checked_at = time.time()
+    results = probe_all(all_remote, environ, connect_timeout)
+    save_cache(config, results, environ, checked_at)
+    return {name: results[name] for name in sorted(wanted)}, False, checked_at
+
+
+def format_probe(config: Config, results: dict[str, ProbeResult], from_cache: bool) -> str:
+    lines = [f"self     {config.self_platform}"]
+    for peer in config.peers.values():
+        if peer.platform == config.self_platform:
+            continue
+        result = results.get(peer.name)
+        if result is None:
+            continue
+        status = result.status
+        if result.status == "reachable" and result.restricted is False:
+            status = "reachable (unrestricted)"
+        lines.append(f"{peer.name:<8} {status:<24} {peer.ssh_host:<16} {result.detail}")
+    reachable = sum(
+        1
+        for name, result in results.items()
+        if name in config.peers and result.usable_for(config.peers[name])
+    )
+    source = " (cached)" if from_cache else ""
+    lines.append(f"{reachable} reachable, {len(results) - reachable} not{source}")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# Snapshot and publish (client side)
+
+
+def git(
+    root: Path,
+    *args: str,
+    env: dict[str, str] | None = None,
+    check: bool = True,
+    stdin_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", "-C", str(root), *args],
+        env=env,
+        input=stdin_text,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if check and result.returncode != 0:
+        raise ConfigError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result
+
+
+def repo_root(cwd: Path, environ: dict[str, str] | os._Environ[str]) -> Path:
+    result = git(cwd, "rev-parse", "--show-toplevel", env=dict(environ), check=False)
+    if result.returncode != 0:
+        raise ConfigError("run from inside the dotfiles checkout")
+    return Path(result.stdout.strip())
+
+
+def secret_matches(paths: list[str]) -> list[str]:
+    flagged = []
+    for path in paths:
+        name = os.path.basename(path)
+        if any(fnmatch.fnmatch(name, pattern) for pattern in SECRET_PATTERNS):
+            flagged.append(path)
+    return flagged
+
+
+def snapshot_tree(root: Path, environ: dict[str, str] | os._Environ[str], *, tracked_only: bool) -> str:
+    base_env = dict(environ)
+    head = git(root, "rev-parse", "--verify", "HEAD", env=base_env, check=False)
+    if head.returncode != 0:
+        raise ConfigError("HEAD is unborn; commit something before using peer-env")
+    head_sha = head.stdout.strip()
+    if not tracked_only:
+        untracked = git(root, "ls-files", "--others", "--exclude-standard", env=base_env).stdout.splitlines()
+        flagged = secret_matches(untracked)
+        if flagged:
+            listing = "\n  ".join(flagged)
+            raise ConfigError(
+                "refusing to ship untracked files that look like secrets:\n  "
+                f"{listing}\nignore them, remove them, or pass --tracked-only"
+            )
+    with tempfile.TemporaryDirectory(prefix="peer-env-index-") as temp:
+        env = dict(base_env)
+        env["GIT_INDEX_FILE"] = str(Path(temp) / "index")
+        env.update(SNAPSHOT_IDENTITY)
+        git(root, "read-tree", "HEAD", env=env)
+        git(root, "add", "-u" if tracked_only else "-A", env=env)
+        tree = git(root, "write-tree", env=env).stdout.strip()
+        head_tree = git(root, "rev-parse", "HEAD^{tree}", env=env).stdout.strip()
+        if tree == head_tree:
+            return head_sha
+        commit = git(root, "commit-tree", tree, "-p", head_sha, "-m", "peer-env snapshot", env=env)
+        return commit.stdout.strip()
+
+
+def slug_for(root: Path, environ: dict[str, str] | os._Environ[str]) -> str:
+    branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD", env=dict(environ), check=False)
+    if branch.returncode == 0 and branch.stdout.strip():
+        raw = branch.stdout.strip()
+    else:
+        short = git(root, "rev-parse", "--short", "HEAD", env=dict(environ)).stdout.strip()
+        raw = f"detached-{short}"
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", raw)
+    cleaned = re.sub(r"\.\.+", "-", cleaned)
+    cleaned = cleaned.lstrip("-.")[:64].rstrip(".")
+    if cleaned.endswith(".lock"):
+        cleaned = cleaned[: -len(".lock")] + "-lock"
+    if not cleaned or not SLUG_RE.match(cleaned):
+        cleaned = "detached-" + git(root, "rev-parse", "--short", "HEAD", env=dict(environ)).stdout.strip()
+    return cleaned
+
+
+def publish(
+    peer: Peer,
+    root: Path,
+    sha: str,
+    slug: str,
+    environ: dict[str, str] | os._Environ[str],
+) -> None:
+    env = dict(environ)
+    env["GIT_SSH_COMMAND"] = shlex.join(["ssh", *ssh_options(peer, environ)])
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    receive_pack = f"{remote_helper(peer)} serve {PROTOCOL} receive-pack"
+    result = git(
+        root,
+        "push",
+        "--quiet",
+        f"--receive-pack={receive_pack}",
+        push_url(peer),
+        f"+{sha}:{REF_NAMESPACE}{slug}",
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        message = result.stderr.strip() or f"git push exit {result.returncode}"
+        if result.returncode == 255 or "ssh:" in message or "Connection" in message:
+            raise PeerUnavailable(f"{peer.name}: {message}")
+        raise ConfigError(f"{peer.name}: push to {REF_NAMESPACE}{slug} failed: {message}")
+
+
+def remote_request(
+    peer: Peer,
+    request: list[str],
+    environ: dict[str, str] | os._Environ[str],
+    *,
+    timeout: float,
+    action: str,
+) -> None:
+    result, timed_out = ssh_capture(peer, request, environ, timeout=timeout)
+    if timed_out or result is None:
+        raise PeerUnavailable(f"{peer.name}: {action} timed out")
+    if result.returncode == EXIT_BUSY:
+        raise PeerBusy(f"{peer.name}: {result.stderr.strip() or 'busy'}")
+    if result.returncode == 255:
+        raise PeerUnavailable(f"{peer.name}: {result.stderr.strip() or 'ssh failed'}")
+    if result.returncode != 0:
+        raise ConfigError(f"{peer.name}: {action} failed: {result.stderr.strip() or result.stdout.strip()}")
+
+
+# --------------------------------------------------------------------------
+# Client commands
+
+
+def emit(message: str) -> None:
+    print(f"{SCRIPT_NAME}: {message}", file=sys.stderr, flush=True)
+
+
+def cmd_config(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
+    config = load_config(environ)
+    if args.json:
+        payload = {
+            "path": str(config.path),
+            "self_platform": config.self_platform,
+            "peers": {
+                name: {**asdict(peer), "role": "self" if peer.platform == config.self_platform else "peer"}
+                for name, peer in config.peers.items()
+            },
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return EXIT_OK
+    print(f"config   {config.path}")
+    print(f"self     {config.self_platform}")
+    for name, peer in config.peers.items():
+        role = "self" if peer.platform == config.self_platform else "peer"
+        extra = f" identity={peer.identity_file}" if peer.identity_file else ""
+        print(f"{name:<8} {role:<5} {peer.platform:<7} {peer.ssh_host:<16} {peer.repo}{extra}")
+    return EXIT_OK
+
+
+def cmd_probe(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
+    config = load_config(environ)
+    peers = remote_peers(config)
+    results, from_cache, checked_at = resolve_probe(
+        config,
+        peers,
+        environ,
+        fresh=args.fresh,
+        ttl=args.ttl,
+        connect_timeout=args.connect_timeout,
+    )
+    if args.json:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "self_platform": config.self_platform,
+            "checked_at": checked_at,
+            "from_cache": from_cache,
+            "peers": {name: result.to_json() for name, result in results.items()},
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(format_probe(config, results, from_cache))
+    usable = any(
+        name in config.peers and result.usable_for(config.peers[name])
+        for name, result in results.items()
+    )
+    return EXIT_OK if usable else EXIT_UNREACHABLE
+
+
+def _run_on_peers(
+    args: argparse.Namespace,
+    environ: dict[str, str] | os._Environ[str],
+    build_request: Callable[[argparse.Namespace], list[str]],
+) -> int:
+    config = load_config(environ)
+    peers = select_peers(config, args.peer)
+    if not peers:
+        emit("no peer configured for another platform")
+        return EXIT_UNREACHABLE
+    results, _, _ = resolve_probe(
+        config,
+        peers,
+        environ,
+        fresh=args.fresh,
+        ttl=args.ttl,
+        connect_timeout=None,
+    )
+    targets: list[Peer] = []
+    for peer in peers:
+        result = results[peer.name]
+        if not result.usable:
+            emit(f"{peer.name} {result.status}: {result.detail}")
+            emit(f'report "not verified on {peer.platform}: peer unreachable"')
+            continue
+        if result.restricted is False and not peer.allow_unrestricted:
+            emit(f"{peer.name} reachable (unrestricted); refusing to use an unrestricted key")
+            emit(f'report "not verified on {peer.platform}: peer unreachable (unrestricted key)"')
+            emit(f"only the owner sets allow_unrestricted in {config.path}")
+            continue
+        targets.append(peer)
+    if not targets:
+        return EXIT_UNREACHABLE
+    root = repo_root(Path.cwd(), environ)
+    sha = snapshot_tree(root, environ, tracked_only=args.tracked_only)
+    slug = slug_for(root, environ)
+    command = build_request(args)
+    exit_code = EXIT_OK
+    for peer in targets:
+        emit(f"{peer.name}: publishing {sha[:12]} as {REF_NAMESPACE}{slug}")
+        publish(peer, root, sha, slug, environ)
+        remote_request(
+            peer,
+            [PROTOCOL, "prepare", slug, sha],
+            environ,
+            timeout=args.timeout,
+            action="prepare",
+        )
+        request = [PROTOCOL, "exec", slug, *command]
+        emit(f"{peer.name}: running {' '.join(command)} in {WORKTREE_PREFIX}{slug}")
+        code = ssh_stream(peer, request, environ, timeout=args.timeout)
+        if code != EXIT_OK:
+            emit(f"{peer.name}: exit {code}")
+            if exit_code == EXIT_OK:
+                exit_code = code
+        else:
+            emit(f"{peer.name}: ok")
+        if args.rm:
+            remote_request(
+                peer,
+                [PROTOCOL, "remove", slug],
+                environ,
+                timeout=args.timeout,
+                action="remove",
+            )
+    return exit_code
+
+
+def cmd_audit(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
+    for path in args.paths:
+        validate_relative_path(path)
+    return _run_on_peers(args, environ, lambda a: ["audit", *a.paths])
+
+
+def cmd_test(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
+    if args.suite not in SUITES:
+        raise ConfigError(f"suite must be one of {', '.join(SUITES)}")
+
+    def build(a: argparse.Namespace) -> list[str]:
+        request = ["test", a.suite]
+        if a.require_capabilities:
+            request.append("--require-capabilities")
+        return request
+
+    return _run_on_peers(args, environ, build)
+
+
+def cmd_clean(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
+    config = load_config(environ)
+    peers = select_peers(config, args.peer)
+    results, _, _ = resolve_probe(
+        config, peers, environ, fresh=args.fresh, ttl=args.ttl, connect_timeout=None
+    )
+    exit_code = EXIT_OK
+    for peer in peers:
+        result = results[peer.name]
+        if not result.usable:
+            emit(f"{peer.name} {result.status}: skipped")
+            continue
+        try:
+            remote_request(peer, [PROTOCOL, "clean"], environ, timeout=args.timeout, action="clean")
+            emit(f"{peer.name}: cleaned")
+        except (ConfigError, PeerUnavailable, PeerBusy) as error:
+            emit(str(error))
+            exit_code = EXIT_FAILED
+    try:
+        cache_path(environ).unlink()
+    except FileNotFoundError:
+        pass
+    return exit_code
+
+
+# --------------------------------------------------------------------------
+# Peer side: serve
+
+
+def validate_slug(value: str) -> str:
+    if not SLUG_RE.match(value) or ".." in value:
+        raise Refused(f"invalid slug {value!r}")
+    return value
+
+
+def validate_sha(value: str) -> str:
+    if not SHA_RE.match(value):
+        raise Refused(f"invalid sha {value!r}")
+    return value
+
+
+def validate_relative_path(value: str) -> str:
+    if not value or value.startswith("-") or value.startswith("/") or "\\" in value:
+        raise ConfigError(f"invalid repo-relative path {value!r}")
+    parts = value.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ConfigError(f"invalid repo-relative path {value!r}")
+    return value
+
+
+def kernel_identity(path: str) -> tuple[str, str]:
+    def run(flag: str) -> str:
+        try:
+            return subprocess.run(
+                ["uname", flag],
+                env={"PATH": path},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+            ).stdout.strip()
+        except OSError:
+            return ""
+
+    return run("-s"), run("-r")
+
+
+def serve_path(environ: dict[str, str] | os._Environ[str], home: str) -> str:
+    entries = [entry for entry in environ.get("PATH", os.defpath).split(os.pathsep) if entry]
+    data_home = environ.get("XDG_DATA_HOME") or f"{home}/.local/share"
+    for directory in reversed((*PATH_PREPEND, f"{home}/.local/bin", f"{data_home}/mise/shims")):
+        if os.path.isdir(directory) and directory not in entries:
+            entries.insert(0, directory)
+    return os.pathsep.join(entries)
+
+
+def wsl_interop_socket() -> str | None:
+    for candidate in sorted(glob.glob("/run/WSL/*_interop")):
+        try:
+            if stat.S_ISSOCK(os.stat(candidate).st_mode):
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def scrubbed_environment(environ: dict[str, str] | os._Environ[str], platform: str) -> dict[str, str]:
+    home = environ.get("HOME") or str(Path.home())
+    env = {
+        "PATH": serve_path(environ, home),
+        "HOME": home,
+        "LANG": "C.UTF-8",
+        "TERM": "dumb",
+        "PEER_ENV": "1",
+    }
+    for name in ("USER", "LOGNAME", "SHELL", "TMPDIR"):
+        if environ.get(name):
+            env[name] = environ[name]
+    if platform == "wsl2":
+        env["WSL_DISTRO_NAME"] = environ.get("WSL_DISTRO_NAME") or "wsl2"
+        interop = environ.get("WSL_INTEROP") or wsl_interop_socket()
+        if interop:
+            env["WSL_INTEROP"] = interop
+    return env
+
+
+class BusyError(Exception):
+    """Another request holds the slug lock; exit 75."""
+
+
+class Serve:
+    def __init__(self, root: Path, environ: dict[str, str] | os._Environ[str], restricted: bool) -> None:
+        self.root = root
+        self.environ = environ
+        self.restricted = restricted
+        self.state = state_dir(environ)
+        uname, kernel = kernel_identity(serve_path(environ, environ.get("HOME") or str(Path.home())))
+        self.uname = uname
+        self.kernel = kernel
+        self.platform = platform_from_identity(uname, kernel)
+        self.env = scrubbed_environment(environ, self.platform)
+
+    def log(self, verb: str, args: list[str], code: int, started: float) -> None:
+        try:
+            self.state.mkdir(parents=True, exist_ok=True)
+            with (self.state / "serve.log").open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                            "client": (self.environ.get("SSH_CLIENT") or "").split(" ")[0],
+                            "restricted": self.restricted,
+                            "verb": verb,
+                            "args": args,
+                            "exit": code,
+                            "seconds": round(time.monotonic() - started, 3),
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
+
+    def worktree(self, slug: str) -> Path:
+        return self.root / f"{WORKTREE_PREFIX}{slug}"
+
+    def git(self, *args: str, check: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["git", "-C", str(cwd or self.root), *args],
+            env=self.env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if check and result.returncode != 0:
+            raise Refused(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+        return result
+
+    def lock(self, slug: str):
+        import fcntl
+
+        self.state.mkdir(parents=True, exist_ok=True)
+        handle = open(self.state / f"lock-{slug}", "a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            raise BusyError(f"{WORKTREE_PREFIX}{slug} is busy with another request")
+        return handle
+
+    # verbs -------------------------------------------------------------
+
+    def identity(self, args: list[str]) -> int:
+        if args:
+            raise Refused("identity takes no arguments")
+        tools = {tool: shutil.which(tool, path=self.env["PATH"]) is not None for tool in REMOTE_TOOLS}
+        payload = {
+            "protocol": PROTOCOL,
+            "uname": self.uname,
+            "kernel": self.kernel,
+            "platform": self.platform,
+            "restricted": self.restricted,
+            "tools": tools,
+            "repo": str(self.root),
+        }
+        print(IDENTITY_MARKER + json.dumps(payload, sort_keys=True), flush=True)
+        return EXIT_OK
+
+    def receive_pack(self, args: list[str]) -> int:
+        with tempfile.TemporaryDirectory(prefix="peer-env-hooks-") as hooks:
+            hook = Path(hooks) / "pre-receive"
+            hook.write_text(
+                "#!/bin/sh\n"
+                "rc=0\n"
+                "while read -r old new ref; do\n"
+                "  case \"$ref\" in\n"
+                f"    {REF_NAMESPACE}*)\n"
+                f"      rest=${{ref#{REF_NAMESPACE}}}\n"
+                "      case \"$rest\" in *..*|*/*) rc=1 ;; esac\n"
+                f"      printf '%s' \"$rest\" | grep -Eq '{SLUG_PATTERN}' || rc=1\n"
+                "      ;;\n"
+                "    *) rc=1 ;;\n"
+                "  esac\n"
+                "  if [ \"$rc\" -ne 0 ]; then\n"
+                f"    echo \"{SCRIPT_NAME} serve: refused: ref $ref is outside {REF_NAMESPACE}\" >&2\n"
+                "    exit 1\n"
+                "  fi\n"
+                "done\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            hook.chmod(0o755)
+            result = subprocess.run(
+                ["git", "-c", f"core.hooksPath={hooks}", "receive-pack", str(self.root)],
+                env=self.env,
+                check=False,
+            )
+        return result.returncode
+
+    def prepare(self, args: list[str]) -> int:
+        if len(args) != 2:
+            raise Refused("prepare takes <slug> <sha>")
+        slug = validate_slug(args[0])
+        sha = validate_sha(args[1])
+        ref = self.git("rev-parse", "--verify", "--quiet", f"{REF_NAMESPACE}{slug}", check=False)
+        if ref.returncode != 0 or ref.stdout.strip() != sha:
+            raise Refused(f"{sha} is not {REF_NAMESPACE}{slug}; publish it first")
+        worktree = self.worktree(slug)
+        with self.lock(slug):
+            if (worktree / ".git").exists():
+                self.git("checkout", "--quiet", "--detach", "--force", sha, cwd=worktree)
+                self.git("clean", "-fdq", cwd=worktree)
+            else:
+                (self.root / "worktrees").mkdir(exist_ok=True)
+                self.git("worktree", "prune")
+                self.git("worktree", "add", "--quiet", "--detach", str(worktree), sha)
+        return EXIT_OK
+
+    def exec(self, args: list[str]) -> int:
+        if len(args) < 2:
+            raise Refused("exec takes <slug> audit|test ...")
+        slug = validate_slug(args[0])
+        worktree = self.worktree(slug)
+        if not (worktree / ".git").exists():
+            raise Refused(f"{WORKTREE_PREFIX}{slug} is not prepared")
+        kind, rest = args[1], args[2:]
+        if kind == "audit":
+            if not rest:
+                raise Refused("audit needs at least one repo-relative path")
+            paths = []
+            for value in rest:
+                try:
+                    validate_relative_path(value)
+                except ConfigError as error:
+                    raise Refused(str(error))
+                if not (worktree / value).exists():
+                    raise Refused(f"{value} does not exist in the snapshot")
+                paths.append(value)
+            commands = [["./assets/cz-audit.sh", "check", path] for path in paths]
+            scan_errors = True
+        elif kind == "test":
+            if not rest or rest[0] not in SUITES:
+                raise Refused(f"test needs a suite: {', '.join(SUITES)}")
+            extra = rest[1:]
+            if extra not in ([], ["--require-capabilities"]):
+                raise Refused("test accepts only --require-capabilities")
+            commands = [["./assets/run-tests.sh", rest[0], *extra]]
+            scan_errors = False
+        else:
+            raise Refused(f"unknown exec kind {kind!r}")
+        with self.lock(slug):
+            exit_code = EXIT_OK
+            for command in commands:
+                code = self.run_streamed(command, worktree, scan_errors)
+                if code != EXIT_OK and exit_code == EXIT_OK:
+                    exit_code = code
+            return exit_code
+
+    def run_streamed(self, command: list[str], cwd: Path, scan_errors: bool) -> int:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=self.env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            start_new_session=True,
+        )
+        timed_out = threading.Event()
+
+        def terminate(sig: int) -> None:
+            timed_out.set()
+            try:
+                os.killpg(process.pid, sig)
+            except OSError:
+                pass
+
+        timers = (
+            threading.Timer(DEFAULT_RUN_TIMEOUT, terminate, (signal.SIGTERM,)),
+            threading.Timer(DEFAULT_RUN_TIMEOUT + 10, terminate, (signal.SIGKILL,)),
+        )
+        for timer in timers:
+            timer.start()
+        saw_error = False
+        try:
+            assert process.stdout is not None
+            for line in process.stdout:
+                if scan_errors and line.startswith("ERROR:"):
+                    saw_error = True
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            code = process.wait()
+        finally:
+            for timer in timers:
+                timer.cancel()
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                process.wait()
+        if timed_out.is_set():
+            print(f"{SCRIPT_NAME} serve: timed out after {DEFAULT_RUN_TIMEOUT}s", file=sys.stderr)
+            return EXIT_TIMEOUT
+        if code == 0 and saw_error:
+            return EXIT_FAILED
+        return code
+
+    def remove(self, args: list[str]) -> int:
+        if len(args) != 1:
+            raise Refused("remove takes <slug>")
+        slug = validate_slug(args[0])
+        with self.lock(slug):
+            worktree = self.worktree(slug)
+            if worktree.exists():
+                self.git("worktree", "remove", "--force", str(worktree))
+            self.git("update-ref", "-d", f"{REF_NAMESPACE}{slug}", check=False)
+        return EXIT_OK
+
+    def clean(self, args: list[str]) -> int:
+        if args:
+            raise Refused("clean takes no arguments")
+        for path in sorted(self.root.glob(f"{WORKTREE_PREFIX}*")):
+            if path.is_dir():
+                self.git("worktree", "remove", "--force", str(path), check=False)
+                if path.exists():
+                    shutil.rmtree(path, ignore_errors=True)
+        self.git("worktree", "prune", check=False)
+        refs = self.git("for-each-ref", "--format=%(refname)", REF_NAMESPACE, check=False)
+        for ref in refs.stdout.split():
+            self.git("update-ref", "-d", ref, check=False)
+        return EXIT_OK
+
+
+def parse_request(argv_rest: list[str], environ: dict[str, str] | os._Environ[str]) -> tuple[list[str], bool]:
+    original = environ.get("SSH_ORIGINAL_COMMAND")
+    if original is None:
+        return list(argv_rest), False
+    try:
+        tokens = shlex.split(original)
+    except ValueError as error:
+        raise Refused(f"unparseable command: {error}")
+    if "serve" in tokens:
+        return tokens[tokens.index("serve") + 1 :], True
+    if tokens and tokens[0] == "git-receive-pack":
+        return [PROTOCOL, "receive-pack", *tokens[1:]], True
+    raise Refused("only peer-env serve requests are accepted on this key")
+
+
+def serve_main(argv_rest: list[str], environ: dict[str, str] | os._Environ[str]) -> int:
+    started = time.monotonic()
+    root = Path(__file__).resolve().parents[1]
+    server: Serve | None = None
+    verb = "?"
+    args: list[str] = []
+    try:
+        request, restricted = parse_request(argv_rest, environ)
+        server = Serve(root, environ, restricted)
+        if not request or request[0] != PROTOCOL:
+            raise Refused(f"protocol must be {PROTOCOL}")
+        if len(request) < 2:
+            raise Refused("missing verb")
+        verb, args = request[1], request[2:]
+        handlers = {
+            "identity": server.identity,
+            "receive-pack": server.receive_pack,
+            "prepare": server.prepare,
+            "exec": server.exec,
+            "remove": server.remove,
+            "clean": server.clean,
+        }
+        handler = handlers.get(verb)
+        if handler is None:
+            raise Refused(f"unknown verb {verb!r}")
+        code = handler(args)
+    except Refused as error:
+        print(f"{SCRIPT_NAME} serve: refused: {error}", file=sys.stderr)
+        code = EXIT_CONFIG
+    except BusyError as error:
+        print(f"{SCRIPT_NAME} serve: busy: {error}", file=sys.stderr)
+        code = EXIT_BUSY
+    except Exception as error:  # noqa: BLE001 - every request must be logged
+        try:
+            print(f"{SCRIPT_NAME} serve: failed: {error}", file=sys.stderr)
+        except OSError:
+            pass
+        code = EXIT_FAILED
+    if server is not None:
+        server.log(verb, args, code, started)
+    return code
+
+
+# --------------------------------------------------------------------------
+# CLI
+
+
+def add_probe_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--fresh", action="store_true", help="ignore the probe cache")
+    parser.add_argument("--ttl", type=int, default=DEFAULT_TTL, help="probe cache lifetime in seconds")
+
+
+def add_run_flags(parser: argparse.ArgumentParser) -> None:
+    add_probe_flags(parser)
+    parser.add_argument("--timeout", type=float, default=DEFAULT_RUN_TIMEOUT, help="seconds to wait for the remote run")
+    parser.add_argument("--rm", action="store_true", help="remove the peer worktree afterwards")
+    parser.add_argument("--tracked-only", action="store_true", help="snapshot tracked files only")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=SCRIPT_NAME,
+        description="Probe peer machines and run this repo's audit and test suites on them.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    probe = sub.add_parser("probe", help="report which peers are reachable")
+    add_probe_flags(probe)
+    probe.add_argument("--json", action="store_true", help="machine-readable output")
+    probe.add_argument("--connect-timeout", type=int, default=None, help="override the ssh connect timeout")
+    probe.set_defaults(func=cmd_probe)
+
+    audit = sub.add_parser("audit", help="run ./assets/cz-audit.sh check on a peer")
+    audit.add_argument("peer", help="'all' (what agents use) or one peer label")
+    audit.add_argument("paths", nargs="+", help="repo-relative paths to audit")
+    add_run_flags(audit)
+    audit.set_defaults(func=cmd_audit)
+
+    test = sub.add_parser("test", help="run ./assets/run-tests.sh on a peer")
+    test.add_argument("peer", help="'all' (what agents use) or one peer label")
+    test.add_argument("suite", nargs="?", default="fast", help="suite name (default fast)")
+    test.add_argument("--require-capabilities", action="store_true")
+    add_run_flags(test)
+    test.set_defaults(func=cmd_test)
+
+    clean = sub.add_parser("clean", help="remove peer-env worktrees and refs on a peer")
+    clean.add_argument("peer", help="'all' (what agents use) or one peer label")
+    add_probe_flags(clean)
+    clean.add_argument("--timeout", type=float, default=DEFAULT_RUN_TIMEOUT, help="seconds to wait for the peer")
+    clean.set_defaults(func=cmd_clean)
+
+    config = sub.add_parser("config", help="show the resolved peer configuration")
+    config.add_argument("--json", action="store_true", help="machine-readable output")
+    config.set_defaults(func=cmd_config)
+
+    serve = sub.add_parser("serve", help="peer side; invoked by ssh, not by hand")
+    serve.add_argument("request", nargs=argparse.REMAINDER)
+    serve.set_defaults(func=None)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    environ = os.environ
+    if argv and argv[0] == "serve":
+        return serve_main(argv[1:], environ)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args, environ)
+    except ConfigError as error:
+        emit(str(error))
+        return EXIT_CONFIG
+    except PeerUnavailable as error:
+        emit(str(error))
+        return EXIT_UNREACHABLE
+    except PeerBusy as error:
+        emit(str(error))
+        return EXIT_BUSY
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

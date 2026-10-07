@@ -512,9 +512,9 @@ Beads-Kanban is a worked example, never a hardcoded repository or matrix contrac
 | Platform | CI status | Canonical command | Requirement or gap |
 | --- | --- | --- | --- |
 | Linux | automatic fast; manual all | `./assets/run-tests.sh fast` / `all` | GitLab Debian hosted runner |
-| WSL2 | represented by Linux, not native | `./assets/run-tests.sh all` | no hosted WSL2 runner; Linux does not prove `op.exe` versus `op` selection |
+| WSL2 | represented by Linux, not native | `./assets/run-tests.sh all` | no hosted WSL2 runner; Linux does not prove `op.exe` versus `op` selection. Local native evidence: `./assets/peer-env test all <suite>` from macOS while the WSL2 peer is reachable (`docs/tooling/peer-environments.md`) |
 | Native Windows | manual all | `pwsh -NoProfile -File ./assets/run-tests.ps1 all` | current Windows hosted-runner beta or equivalent self-hosted tag |
-| macOS | local only | `./assets/run-tests.sh all` | hosted macOS is not available on the current Free plan |
+| macOS | local only | `./assets/run-tests.sh all` | hosted macOS is not available on the current Free plan. From WSL2, `./assets/peer-env test all <suite>` runs it on the MacBook while it is reachable |
 | Devcontainer | manual, non-blocking when a tagged runner exists | `DEVCONTAINER_SMOKE=1 python3 assets/devcontainer-smoke.py --run` | requires a self-hosted `devcontainer-smoke` runner with the preloaded image; otherwise the registered live step skips locally |
 
 Missing optional tools remain explicit runner skips unless a lane names them

@@ -242,6 +242,10 @@ supporting evidence and verify material findings against the current source.
 - If docs refresh changes reviewed docs (`README.md`, `AGENTS.md`,
   `dot_claude/AGENTS.md`, `docs/agents/**`), rerun `@dotfiles-reviewer`.
 
+- When a repository documents `assets/peer-env`, run it before saying a
+  change works on another platform, and never open an ssh session to another
+  machine to check for yourself.
+
 - When reviewing changes:
   - focus on correctness, safety, maintainability, and cross-platform behavior
   - call out risky diffs and edge cases

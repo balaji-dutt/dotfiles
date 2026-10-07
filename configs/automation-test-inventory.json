@@ -740,6 +740,89 @@
       "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules rather than duplicate behavioral suites."
     },
     {
+      "id": "peer-env",
+      "classification": "owned",
+      "paths": ["assets/peer-env"],
+      "owner": {"kind": "repository", "name": "cross-platform peer verification helper"},
+      "languages": ["python", "shell"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "suite_id": "peer-env",
+        "status": "covered",
+        "work_item": "dots-egir",
+        "test_paths": ["tests/test_peer_env.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-refuse-malformed-request",
+            "kind": "failure",
+            "description": "Refuse unknown verbs, other protocol versions, invalid slugs or SHAs, unpublished SHAs, unprepared worktrees, and non-serve commands on the forced key with exit 2.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "failure-unreachable-exits-3-without-retry",
+            "kind": "failure",
+            "description": "Classify timeouts, refused connections, and authentication failures within the connect timeout, exit 3 when no peer is usable, and tell the agent to report the platform as not verified.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "safety-env-scrubbed-no-login-shell",
+            "kind": "safety",
+            "description": "Run peer commands with an allowlisted environment built without a login shell so ambient secrets and client-supplied variables never reach the entrypoint.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "safety-local-head-index-stash-untouched",
+            "kind": "safety",
+            "description": "Snapshot the working tree through a temporary index so local HEAD, index, status, and stash list are unchanged.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "safety-refs-confined-to-peer-env-namespace",
+            "kind": "safety",
+            "description": "Reject every pushed ref outside refs/peer-env/<slug> through the per-push pre-receive hook and leave the peer's branches and HEAD untouched.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "safety-secret-pattern-untracked-refused",
+            "kind": "safety",
+            "description": "Refuse to ship untracked files whose names match secret patterns unless --tracked-only excludes them.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "safety-writes-confined-to-worktree-and-state",
+            "kind": "safety",
+            "description": "Confine serve's own writes to worktrees/peer-env-<slug>, the peer-env refs, and the state directory, clean strays without deleting ignored audit logs, and release everything on clean; the entrypoints run from the snapshot and are not confined.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "success-audit-and-test-run-in-peer-worktree",
+            "kind": "success",
+            "description": "Publish the snapshot, prepare or reuse the peer worktree, run cz-audit or run-tests there, stream output, and propagate the remote exit code and ERROR: lines.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
+            "id": "success-probe-bounded-and-cached",
+            "kind": "success",
+            "description": "Probe every other-platform peer concurrently with BatchMode and a connect timeout, cache results for the TTL, and honour --fresh and --ttl.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          }
+        ]
+      },
+      "rationale": "The helper lets an agent execute on a second machine, so the ADR 0002 boundary claims (forced-command verbs only, scrubbed environment, confined refs and serve's own writes, no shell) are proven by tests that drive the real client and serve code through a fake ssh against a local clone."
+    },
+    {
       "id": "provenance-policy",
       "classification": "owned",
       "paths": ["assets/check-automation-provenance.py"],

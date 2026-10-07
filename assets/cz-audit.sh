@@ -553,6 +553,51 @@ check_chezmoi_config() {
   audit_handle "CHEZMOI_DOCTOR" "$relsrc" 1
 }
 
+peer_env_hint() {
+  local kind="$1"
+  [[ "${CZ_AUDIT_PEER_ENV:-1}" != "0" ]] || return 0
+  case "$kind" in docs:*) return 0 ;; esac
+  case "$relsrc" in
+    *.md|*.ps1|*.ps1.tmpl|private_Library/*|AppData/*) return 0 ;;
+  esac
+  local helper="${CZ_AUDIT_PEER_ENV_CMD:-assets/peer-env}"
+  [[ -x "$helper" ]] || return 0
+  [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/peer-envs.json" ]] || return 0
+  have python3 || return 0
+
+  local out rc=0
+  out="$("$helper" probe --json 2>/dev/null)" || rc=$?
+  if [[ -z "$out" || ( $rc -ne 0 && $rc -ne 3 ) ]]; then
+    info "peer-env: probe failed (exit $rc); report \"not verified on other platforms: peer-env probe failed\" and leave the peer config to the owner"
+    return 0
+  fi
+
+  local line
+  while IFS= read -r line; do
+    info "$line"
+  done < <(python3 - "$out" "$relsrc" <<'PY'
+import json, shlex, sys
+payload = json.loads(sys.argv[1])
+relsrc = shlex.quote(sys.argv[2])
+peers = payload.get("peers", {})
+if not peers:
+    print('peer-env: no peer configured for another platform; report "not verified on other platforms: no peer configured"')
+reachable = [name for name, peer in sorted(peers.items()) if peer.get("status") == "reachable" and peer.get("restricted") is not False]
+if reachable:
+    names = ", ".join(reachable)
+    print(f"peer-env: {names} reachable; run ./assets/peer-env audit all {relsrc}")
+    print(f"peer-env: {names} reachable; run ./assets/peer-env test all fast")
+for name, peer in sorted(peers.items()):
+    status = peer.get("status")
+    platform = peer.get("platform")
+    if status == "reachable" and peer.get("restricted") is False:
+        print(f'peer-env: {name} reachable (unrestricted); report "not verified on {platform}: peer unreachable (unrestricted key)"; only the owner sets allow_unrestricted')
+    elif status != "reachable":
+        print(f'peer-env: {name} {status}; report "not verified on {platform}: peer unreachable"')
+PY
+)
+}
+
 check() {
   need_rel
   local kind
@@ -613,6 +658,8 @@ check() {
       fi
       ;;
   esac
+
+  peer_env_hint "$kind"
 }
 
 case "$cmd" in

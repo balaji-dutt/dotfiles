@@ -93,6 +93,14 @@ Clients must authenticate with a key. A client whose SSH agent offers more than
 six keys is disconnected with "Too many authentication failures" before it
 reaches the right key, so set `IdentitiesOnly yes` and an `IdentityFile` for
 this host in the client's `~/.ssh/config`.
+When the private key lives only in an agent (Pageant forwarded through
+`wsl2-ssh-agent`, for example), `IdentityFile` must name the public key file,
+`~/.ssh/<name>.pub`, created once from the matching `ssh-add -L` line. With
+`IdentitiesOnly yes` and no such file, ssh tries only the default identity
+paths and never offers the agent-held key. `./assets/peer-env probe` reports
+that case as `auth-failed`. Agents reach this Mac for verification through a
+dedicated key whose `authorized_keys` line forces `peer-env serve`; see
+`docs/tooling/peer-environments.md`.
 
 ## Caveats
 

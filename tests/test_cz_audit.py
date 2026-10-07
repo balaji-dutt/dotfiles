@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -447,6 +448,73 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
         self.assertIn("--dry-run", apply_calls[0])
         self.assertEqual(len([call for call in calls if "diff" in call]), 1)
         self.assertIn("INFO: Classification: managed:", result.stderr)
+
+    def test_peer_env_hint_follows_probe_results(self) -> None:
+        (self.source / "dot_managed").write_text("managed\n", encoding="utf-8")
+        write_executable(
+            self.fixture.fake_bin / "python3",
+            f'#!/bin/sh\nexec "{sys.executable}" "$@"\n',
+        )
+        probe = json.dumps(
+            {
+                "peers": {
+                    "wsl2": {"status": "reachable", "restricted": True, "platform": "wsl2"},
+                    "macos": {"status": "unreachable", "restricted": None, "platform": "macos"},
+                    "loose": {"status": "reachable", "restricted": False, "platform": "linux"},
+                }
+            }
+        )
+        write_executable(
+            self.repo / "assets" / "peer-env",
+            "#!/bin/sh\n[ \"$1\" = probe ] || exit 2\n" f"printf '%s\\n' '{probe}'\n",
+        )
+        without_config = self.run_audit("check", "dot_managed")
+        self.assertEqual(without_config.returncode, 0, without_config.stderr)
+        self.assertNotIn("peer-env:", without_config.stderr)
+
+        config = self.fixture.home / ".config" / "dotfiles" / "peer-envs.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"schema_version": 1, "peers": {}}\n', encoding="utf-8")
+        result = self.run_audit("check", "dot_managed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "INFO: peer-env: wsl2 reachable; run ./assets/peer-env audit all dot_managed",
+            result.stderr,
+        )
+        self.assertIn(
+            "INFO: peer-env: wsl2 reachable; run ./assets/peer-env test all fast",
+            result.stderr,
+        )
+        self.assertIn(
+            'INFO: peer-env: macos unreachable; report "not verified on macos: peer unreachable"',
+            result.stderr,
+        )
+        self.assertIn(
+            'INFO: peer-env: loose reachable (unrestricted); report "not verified on linux: '
+            'peer unreachable (unrestricted key)"; only the owner sets allow_unrestricted',
+            result.stderr,
+        )
+        self.assertNotIn("loose reachable; run", result.stderr)
+
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs" / "note.md").write_text("# note\n", encoding="utf-8")
+        self.assertNotIn("peer-env:", self.run_audit("check", "docs/note.md").stderr)
+        (self.repo / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+        self.assertNotIn("peer-env:", self.run_audit("check", "AGENTS.md").stderr)
+
+        disabled = self.run_audit("check", "dot_managed", env={**self.env, "CZ_AUDIT_PEER_ENV": "0"})
+        self.assertNotIn("peer-env:", disabled.stderr)
+
+        failing = write_executable(self.fixture.root / "failing-peer-env", "#!/bin/sh\nexit 2\n")
+        failed = self.run_audit(
+            "check", "dot_managed", env={**self.env, "CZ_AUDIT_PEER_ENV_CMD": str(failing)}
+        )
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        self.assertIn(
+            'INFO: peer-env: probe failed (exit 2); report "not verified on other platforms: '
+            'peer-env probe failed"',
+            failed.stderr,
+        )
 
     def test_template_config_renders_and_never_applies(self) -> None:
         (self.source / ".chezmoiignore.tmpl").write_text("{{ true }}\n", encoding="utf-8")
