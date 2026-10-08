@@ -476,6 +476,14 @@
       "platforms": ["linux", "macos", "wsl2"]
     },
     {
+      "id": "peer-env",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_peer_env"],
+      "covers": ["tests/test_peer_env.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["git", "sh"]
+    },
+    {
       "id": "plannotator-config",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_plannotator_config"],

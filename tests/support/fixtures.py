@@ -68,6 +68,7 @@ def isolated_environment(*, prefix: str = "dotfiles-test-") -> Iterator[Isolated
                 "XDG_CONFIG_HOME": str(home / ".config"),
                 "XDG_CACHE_HOME": str(home / ".cache"),
                 "XDG_DATA_HOME": str(home / ".local" / "share"),
+                "XDG_STATE_HOME": str(home / ".local" / "state"),
                 "TMPDIR": str(tmp),
                 "TMP": str(tmp),
                 "TEMP": str(tmp),

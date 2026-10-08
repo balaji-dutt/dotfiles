@@ -37,6 +37,7 @@ dot_zpreztorc text eol=lf
 assets/agent-wt-merge text eol=lf
 assets/beads-sync text eol=lf
 assets/guarded-main-sync text eol=lf
+assets/peer-env text eol=lf
 assets/resolve-python3 text eol=lf
 bin/executable_* text eol=lf
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_* text eol=lf

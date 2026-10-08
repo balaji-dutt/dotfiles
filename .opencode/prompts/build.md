@@ -19,7 +19,15 @@ Required completion flow for change tasks:
 
 1. Complete the Beads plan-handoff check when it applies.
 2. Make the requested edits.
-3. Run required verification checks.
+3. Run the required verification checks from `AGENTS.md`:
+   `./assets/cz-audit.sh check <path>` for every changed path, then
+   `chezmoi doctor`, then the cross-environment step: follow the
+   `INFO: peer-env:` lines (`./assets/peer-env audit all <paths>` and
+   `./assets/peer-env test all fast` when a peer is reachable). Carry each
+   peer's exit code, or the quoted `not verified on <platform>: ...`
+   statement copied verbatim, into the final response; when no
+   `INFO: peer-env:` line appeared and `./assets/peer-env probe` exits 2,
+   write `not verified on other platforms: no peer configured`.
 4. Always run a docs-impact assessment before concluding.
 5. If docs are stale, load the `refresh-docs` skill and apply only minimal,
    deterministic updates.

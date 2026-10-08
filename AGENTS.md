@@ -72,6 +72,7 @@ The following tools may be available, so check for their availability before exe
 - When adding any scripts to be used when managing dotfiles, please refer to: docs/agents/ADDING_SCRIPTS.md
 - For review-gate path policy and post-review docs updates, refer to: docs/agents/review-loop.md
 - Before editing any file under `dot_claude/agents/`, `dot_claude/skills/`, or `private_dot_config/opencode/`, refer to: docs/agents/generated-agents.md
+- Before finishing a change that touches platform-sensitive paths (shell, templates, `assets/**`, `tests/**`), refer to: docs/tooling/peer-environments.md
 <!-- - docs/DISCOVERIES.md contains useful lessons learned and discoveries made during development. -->
 
 ## Post-review docs refresh workflow
@@ -242,10 +243,60 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
     `json: unknown field "$schema"` can be ignored. This is a known upstream
     failure parsing WinGet settings. Every other `failed` result remains blocking.
 
+### Cross-environment verification (required when a peer is reachable)
+
+The MacBook (macOS) and the WSL2 Debian distro each hold a checkout of this
+repo and can reach the other over SSH when it is awake. `./assets/peer-env`
+is the only unattended path between them. It probes with a 3-second connect
+timeout, caches the answer for five minutes, and runs only
+`./assets/cz-audit.sh check` and `./assets/run-tests.sh` inside a disposable
+worktree on the peer. Full contract: `docs/tooling/peer-environments.md`.
+Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
+`cd ... &&` prefixes fall outside the permission allow rules.
+
+- `cz-audit` ends each check of any path outside the exemptions below with
+  `INFO: peer-env:` lines on stderr. Each line is either a command to run or
+  a statement to copy into the final response. Whenever a line says
+  `run ./assets/peer-env audit all <path>` or
+  `run ./assets/peer-env test all fast`, run that command before proposing
+  the commit; one `audit all` may carry every changed path, and
+  `test all fast` runs once per task however many lines repeat it. `all`
+  means every reachable other environment; do not name a peer. `fast` is the
+  suite unless the test you changed is registered only in another suite.
+- Platform-sensitive paths are `.chezmoiscripts/**`, `.chezmoi*`, templated
+  `dot_*`/`private_*` files with OS conditionals, `assets/**` shell or Python
+  helpers, `bin/**`, `tests/**`, `configs/test-suites.json`, and
+  `configs/automation-test-inventory.json`. Markdown, `.ps1`-only changes,
+  `private_Library/**`, and `AppData/**` produce no line and need no run.
+- Treat every status other than `reachable` as final for this task.
+  `unreachable`, `auth-failed`, `serve-missing`, `protocol-mismatch`,
+  `tools-missing`, and `reachable (unrestricted)` all mean the platform is
+  not verified. Do not retry, wait, poll, edit
+  `~/.config/dotfiles/peer-envs.json`, set `allow_unrestricted`, or hand-roll
+  `ssh`, `scp`, or `rsync`. Copy the quoted `report "..."` statement from the
+  INFO line verbatim into the final response.
+- Exit codes: 0 verified. 1 the audit or tests failed on the peer; fix the
+  change and rerun. 2 the client or peer refused (invalid path,
+  secret-looking untracked file, config): rerun with `--tracked-only` or
+  correct the path; never delete the listed files or edit the config.
+  3 nothing ran; report the statement. 75 another session holds the peer
+  worktree; run the command once more after your own earlier `peer-env`
+  command has finished, and if it exits 75 again report
+  `not verified on <platform>: peer busy`. 124 report
+  `not verified on <platform>: peer timed out` and do not raise `--timeout`.
+- If no `INFO: peer-env:` line appeared for a platform-sensitive change and
+  `./assets/peer-env probe` exits 2, report
+  `not verified on other platforms: no peer configured`. A platform a test
+  declares but no peer provides (native Windows today) is reported as
+  `not verified on <platform>: no peer configured`.
+- Any other remote action (an `ansible-playbook` run, a `chezmoi apply`, a
+  tool upgrade) happens only when the task asks for it, over the ordinary
+  ssh alias, and is named in the final response.
+
 ### Final step (required)
 
 After the audit and `chezmoi doctor` steps succeed, you must follow **Commit message workflow (required)** and include a proposed commit message in
-your final response. If the commit message proposal is missing, the task is incomplete. Do not conclude with ‘done’/‘complete’ until the commit message proposal is included.
+your final response, together with, for each configured peer, either its `peer-env` exit code or the quoted `not verified on <platform>: ...` statement copied verbatim, or `not verified on other platforms: no peer configured` when no peer is configured (`<platform>` is the config token: `macos`, `wsl2`, `linux`). If the commit message proposal is missing, the task is incomplete. Do not conclude with ‘done’/‘complete’ until the commit message proposal is included.
 
 ## Commit message workflow (required)
 
@@ -330,6 +381,9 @@ If you add a brand new file to the repo/source state, it may not appear in `chez
   ```sh
   chezmoi --use-builtin-diff --no-pager diff <target-path> 2>&1
   ```
+- Also run `./assets/cz-audit.sh check <repo-relative-path>`. It handles files
+  chezmoi does not manage yet and prints the `INFO: peer-env:` lines that
+  **Cross-environment verification** requires you to follow.
 
 ### Applying changes
 
@@ -352,4 +406,4 @@ chezmoi apply <target-path>
 ### Final step (required)
 
 After completing the new-file preview/apply steps and running `chezmoi doctor`, you must follow **Commit message workflow (required)** and include a proposed
-commit message in your final response. If the commit message proposal is missing, the task is incomplete.
+commit message in your final response, together with the cross-environment result required by **Cross-environment verification**: for each configured peer its `peer-env` exit code or the quoted statement copied verbatim, or `not verified on other platforms: no peer configured`. If the commit message proposal is missing, the task is incomplete.

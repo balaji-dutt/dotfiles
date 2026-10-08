@@ -79,6 +79,7 @@ Authoritative per-machine list is still `chezmoi managed`.
 - macOS Citrix/Zoom VDI handling: `docs/automation/macos-vdi-apps.md`
 - macOS home-network SSH toggle: `docs/automation/macos-home-ssh.md`
 - AI worktree wrapper for Claude/OpenCode sessions: `docs/automation/ai-worktrees.md`
+- Cross-platform peer verification over SSH (macOS <-> WSL2): `docs/tooling/peer-environments.md`
 - Browser policy automation: `docs/automation/browser-policies.md`
 - Package-manager wrappers and docs automation details: `docs/automation/package-wrappers.md`
 

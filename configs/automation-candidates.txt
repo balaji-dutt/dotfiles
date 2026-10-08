@@ -101,6 +101,7 @@ assets/git-template-hook-sync.py	script-extension,shebang
 assets/github_pipeline.py	script-extension
 assets/gitlab_pipeline_runtime.py	script-extension,shebang
 assets/guarded-main-sync	executable-mode,shebang
+assets/peer-env	executable-mode,shebang
 assets/pipeline_evidence.py	script-extension
 assets/pipeline_guard.py	script-extension
 assets/pipeline_policy.py	script-extension
@@ -415,6 +416,7 @@ tests/test_opencode_project_deps_guard.py	script-extension
 tests/test_opencode_v1.py	script-extension
 tests/test_opencode_workspace_overrides.py	script-extension
 tests/test_orbstack_ssh_agent_relay.py	script-extension
+tests/test_peer_env.py	script-extension
 tests/test_pipeline_evidence.py	script-extension
 tests/test_pipeline_guard.py	script-extension
 tests/test_plannotator_config.py	script-extension

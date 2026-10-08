@@ -53,6 +53,32 @@ Chezmoi scripts are classified before managed-target lookup so their source is
 always rendered and syntax-checked. PowerShell hooks are parsed but never
 executed. Runtime behavior and PSScriptAnalyzer are outside this audit.
 
+### Peer-environment reminder
+
+After the checks for a platform-sensitive path, `check` runs
+`./assets/peer-env probe --json` and prints the next cross-environment action
+as `INFO: peer-env:` lines on stderr, one per command or statement:
+
+```text
+INFO: peer-env: wsl2 reachable; run ./assets/peer-env audit all <path>
+INFO: peer-env: wsl2 reachable; run ./assets/peer-env test all fast
+INFO: peer-env: macos unreachable; report "not verified on macos: peer unreachable"
+INFO: peer-env: linux reachable (unrestricted); report "not verified on linux: peer unreachable (unrestricted key)"; only the owner sets allow_unrestricted
+INFO: peer-env: probe failed (exit 2); report "not verified on other platforms: peer-env probe failed" and leave the peer config to the owner
+```
+
+Several reachable peers share one line. The probe is cached for five minutes
+and bounded by its connect timeout, so the reminder costs at most a few
+seconds per task.
+
+The reminder is silent when `~/.config/dotfiles/peer-envs.json` does not exist,
+when `assets/peer-env` or `python3` is missing, when the path is a Markdown
+file, a `.ps1`, or under `docs/`, `private_Library/`, or `AppData/`, or when
+`CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD=<path>` substitutes another
+helper for tests. A probe failure never changes the audit's exit code. The
+PowerShell entrypoint does not print the reminder; native Windows is not a
+peer-env client. See `docs/tooling/peer-environments.md`.
+
 ### Ansible task files and playbooks
 
 Both entrypoints select task-file validation when the normalized repo-relative

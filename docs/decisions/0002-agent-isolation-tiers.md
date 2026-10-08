@@ -262,6 +262,45 @@ sandboxed sessions start from AoE.
 its inventory of which tool needs which key is what the scoped render
 (`dots-6e7.12`) consumes. T0 is unchanged.
 
+### 2026-10-07 — Peer verification over SSH
+
+**What changed.** `assets/peer-env` lets an agent on one T0 host (the MacBook
+or the WSL2 Debian distro) run `cz-audit` and the test suites on the other
+host against a snapshot of its working tree
+([`docs/tooling/peer-environments.md`](../tooling/peer-environments.md)).
+That is a cross-host execution path inside T0, which this ADR did not have.
+
+**Boundary.** The path follows the first operating principle: the limit is
+structural, not an ask. The peer side is `peer-env serve`, pinned as the
+forced command of a dedicated key with `restrict`. It implements a fixed verb
+set (identity, a namespace-confined `receive-pack`, prepare, exec of the two
+repo entrypoints, remove, clean), builds the child environment from an
+allowlist without sourcing a login shell so ambient provider keys never reach
+the entrypoint, confines its own writes to `worktrees/peer-env-*`,
+`refs/peer-env/*`, and its state directory, and logs every request. The
+client never gets a shell. What the key does grant is code execution as the
+peer user through the snapshot: the entrypoints and the test files run from
+the pushed tree, so the suite can do on the peer whatever it can do locally.
+That is accepted for T0 because the same suite already runs on each machine
+under the same user; the controls bound transport, environment, and `serve`'s
+writes, not the suite. `chezmoi apply` is not a verb and will not become one;
+the human-run `apply` rule stands.
+
+**Degraded mode.** A peer reached through an ordinary key runs the same code
+with no enforcement. The probe reports it as `unrestricted`, and the helper
+refuses to use it unless the config says `allow_unrestricted`. That opt-in is
+the same posture as `--auto` here: tolerated as a known degradation, not
+endorsed.
+
+**Two lanes.** The restricted key serves only this unattended lane. Ordinary
+keys and aliases remain for operations a task explicitly asks for, under the
+harness's normal `ssh` ask. A repeated, mechanical remote operation earns a
+new allowlisted `serve` verb, not a wider key.
+
+**Revisit trigger.** Reaching native Windows through WSL2 interop
+(`via: "wsl2"`) adds a second hop and a second checkout; reopen this
+amendment before building it.
+
 ## Sources
 
 Collected 2026-08-12: repo survey of
