@@ -564,13 +564,20 @@ class MacosLifecycleBoundaries(unittest.TestCase):
         rejected = self.run_hook(script)
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn('not a regular file', rejected.stderr)
-        dropin.unlink()
+        self.assertFalse(self.calls('sudo'))
+
+    def test_home_ssh_rejects_unowned_directory_before_installing(self) -> None:
+        script = self.home_ssh_script()
         self.env['TEST_STAT'] = '501 20 755'
         rejected = self.run_hook(script)
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn('owned by root', rejected.stderr)
-        self.env.pop('TEST_STAT')
         self.assertFalse(self.calls('sudo'))
+
+    def test_home_ssh_rejects_failed_validation_and_rolls_back(self) -> None:
+        f = self.fixture
+        script = self.home_ssh_script()
+        dropin = f.root / 'etc/ssh/sshd_config.d/050-dotfiles-home-ssh.conf'
         self.env['TEST_FAIL'] = 'sshd-candidate'
         rejected = self.run_hook(script)
         self.assertNotEqual(rejected.returncode, 0)
