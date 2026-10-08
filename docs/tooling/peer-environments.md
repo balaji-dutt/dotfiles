@@ -86,13 +86,13 @@ matches the running machine is dropped as "self".
       "ssh_host": "WSL2Debian",
       "platform": "wsl2",
       "repo": "~/Documents/development/dotfiles",
-      "identity_file": "~/.ssh/keys/peer-env-macbook"
+      "identity_file": "~/.ssh/keys/peer-env"
     },
     "macos": {
       "ssh_host": "M4MacBook",
       "platform": "macos",
       "repo": "~/Documents/development/dotfiles",
-      "identity_file": "~/.ssh/peer-env-bigrig.pub"
+      "identity_file": "~/.ssh/peer-env.pub"
     }
   }
 }
@@ -117,9 +117,12 @@ with `WSL_DISTRO_NAME` or `WSL_INTEROP` set is `wsl2`; other Linux is `linux`;
 
 ## SSH setup
 
-Each origin machine gets its own ed25519 key used for nothing else:
+One ed25519 key, `peer-env`, used for nothing else, is loaded by the agent
+on each machine and accepted by each peer's `authorized_keys`. A per-machine
+key would only add independent revocation; the forced command bounds what the
+key can do either way.
 
-1. Create the key and make the local agent load it at startup.
+1. Create the key once and make each machine's agent load it at startup.
    - macOS: the `com.ssh-add-keychain` LaunchAgent runs
      `ssh-add --apple-use-keychain ~/.ssh/keys/<name>` at login for every
      name in `SSH_ADD_KEYFILES`, which `chezmoi init` builds from the
@@ -132,28 +135,29 @@ Each origin machine gets its own ed25519 key used for nothing else:
      the keychain:
 
      ```sh
-     ssh-add --apple-use-keychain ~/.ssh/keys/peer-env-macbook
+     ssh-add --apple-use-keychain ~/.ssh/keys/peer-env
      ```
 
    - Windows and WSL2: `Start-WslSshPageant.ps1` loads every key named in
      the allowlist at `windows.pageant_keys_allowlist`, resolving relative
      names against `windows.putty_keys_dir` (both from `chezmoi init`, stored
-     in `[data.windows]`). Convert the key to `.ppk`, put it in that keys
-     directory, and add its filename as a line in the allowlist file; the
+     in `[data.windows]`). Convert the same key to `.ppk`, put it in that
+     keys directory, and add its filename as a line in the allowlist file; the
      script refuses to start while a listed file is missing. WSL2 then sees
      the key through the forwarded agent socket; export only the public half
      and manage that file through the private repo (see the `.pub` note
      below).
 
-2. On the peer, add one line to `~/.ssh/authorized_keys` (managed by the
+2. On each peer, add one line to `~/.ssh/authorized_keys` (managed by the
    private repo):
 
    ```text
-   restrict,command="/Users/<user>/Documents/development/dotfiles/assets/peer-env serve" ssh-ed25519 AAAA... peer-env-bigrig
+   restrict,command="/Users/<user>/Documents/development/dotfiles/assets/peer-env serve" ssh-ed25519 AAAA... peer-env
    ```
 
-   Use the peer's absolute checkout path; `restrict` turns off pty, agent
-   forwarding, port forwarding, X11, and `~/.ssh/rc`.
+   Use that peer's absolute checkout path (`/home/<user>/...` on WSL2);
+   `restrict` turns off pty, agent forwarding, port forwarding, X11, and
+   `~/.ssh/rc`.
 3. Point the peer's config entry at the key with `identity_file`.
 4. Accept the peer's host key once with an interactive `ssh <alias> true`.
    The helper runs with `StrictHostKeyChecking=yes` and `BatchMode=yes`, so
@@ -167,8 +171,8 @@ key and the probe reports `auth-failed`. Create the file once from
 cannot truncate a good file:
 
 ```sh
-ssh-add -L | grep ' peer-env-bigrig$' >| ~/.ssh/peer-env-bigrig.pub.new \
-  && command mv -f -- ~/.ssh/peer-env-bigrig.pub.new ~/.ssh/peer-env-bigrig.pub
+ssh-add -L | grep ' peer-env$' >| ~/.ssh/peer-env.pub.new \
+  && command mv -f -- ~/.ssh/peer-env.pub.new ~/.ssh/peer-env.pub
 ```
 
 The macOS sshd drop-in from `docs/automation/macos-home-ssh.md` already
