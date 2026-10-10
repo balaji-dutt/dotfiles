@@ -28,12 +28,14 @@ class PlannotatorConfigTests(unittest.TestCase):
 
     def test_renovate_extracts_claude_marketplace_ref(self):
         renovate = (ROOT / "renovate.json5").read_text(encoding="utf-8")
-        manager = renovate.split('"managerFilePatterns": ["/^dot_claude\\\\/settings-base\\\\.json$/"]', 1)[1]
+        manager = renovate.split('"managerFilePatterns": [\n        "/^dot_claude\\\\/settings-base\\\\.json$/",', 1)[1]
+        self.assertIn('"/^private_Documents\\\\/development\\\\/container-dotfiles\\\\/dotfiles\\\\/dot_claude\\\\/settings-base\\\\.json$/"', manager.split('"matchStrings"', 1)[0])
         expression = re.search(r'"matchStrings": \[\s*("(?:\\.|[^"\\])*")', manager).group(1)
         pattern = json.loads(expression).replace("(?<currentValue>", "(?P<currentValue>")
-        settings = (ROOT / MODULE.CLAUDE).read_text(encoding="utf-8")
-        matches = re.findall(pattern, settings)
-        self.assertEqual(matches, [self.source_version()])
+        for relative in (MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE):
+            with self.subTest(relative=relative):
+                settings = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertEqual(re.findall(pattern, settings), [self.source_version()])
 
     def test_mismatched_sentinel_fails(self):
         with tempfile.TemporaryDirectory() as temp:
