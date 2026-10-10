@@ -28,13 +28,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24.21.0'
       - name: Expose sh from Git for Windows
@@ -56,7 +56,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ci-artifacts | Out-Null
           pwsh -NoProfile -File ./assets/run-tests.ps1 fast --require-capabilities --report-file "ci-artifacts/fast-${{ matrix.os }}.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: fast-${{ matrix.os }}
