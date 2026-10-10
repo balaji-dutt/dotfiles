@@ -187,12 +187,6 @@
     },
     {
       "matchManagers": ["custom.regex"],
-      "matchDepNames": ["agent-of-empires/agent-of-empires"],
-      // Hold 1.17.0-1.17.2 until an AoE release includes upstream PRs #4140 and #4152.
-      "allowedVersions": "!/^1\\.17\\.[0-2]$/"
-    },
-    {
-      "matchManagers": ["custom.regex"],
       "matchUpdateTypes": ["minor", "major"],
       "automerge": false
     },
