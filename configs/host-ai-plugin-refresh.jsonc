@@ -39,7 +39,7 @@
       },
       {
         "package": "@mohak34/opencode-notifier",
-        "version": "0.6.0" // renovate: datasource=npm depName=@mohak34/opencode-notifier
+        "version": "0.7.0" // renovate: datasource=npm depName=@mohak34/opencode-notifier
       },
       {
         "package": "@plannotator/opencode",
