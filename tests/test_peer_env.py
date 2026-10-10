@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from importlib.machinery import SourceFileLoader
@@ -384,6 +385,31 @@ class ClassifyTests(unittest.TestCase):
         flagged = MODULE.secret_matches(["notes.txt", "deploy/.env", "secrets.env", "keys/id_ed25519", "x.tfstate"])
         self.assertEqual(flagged, ["deploy/.env", "secrets.env", "keys/id_ed25519", "x.tfstate"])
 
+    @unittest.skipIf(os.name == "nt", "control sockets are a POSIX feature")
+    def test_control_socket_path_respects_the_socket_limit_and_directory_safety(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pe-", dir="/tmp") as temp:
+            base = Path(temp)
+            short = base / "s"
+            self.assertIsNotNone(MODULE.control_path(short))
+            self.assertTrue(short.is_dir())
+            self.assertEqual(short.stat().st_mode & 0o777, 0o700)
+
+            budget = MODULE.MAX_SOCKET_PATH - MODULE.CONTROL_TEMP_SUFFIX - len("/cm-") - 40
+            longest_ok = base / ("l" * (budget - len(str(base)) - 1))
+            self.assertIsNotNone(MODULE.control_path(longest_ok), longest_ok)
+            one_over = base / ("l" * (budget - len(str(base))))
+            self.assertIsNone(MODULE.control_path(one_over))
+
+            shared = base / "shared"
+            shared.mkdir(mode=0o755)
+            os.chmod(shared, 0o755)
+            self.assertIsNone(MODULE.control_path(shared))
+
+        far_away = Path("/tmp") / ("x" * 90)
+        self.assertIsNone(MODULE.control_path(far_away))
+        self.assertFalse(far_away.exists())
+
+    @unittest.skipIf(os.name == "nt", "control sockets are a POSIX feature")
     def test_ssh_argv_contract(self) -> None:
         env = {"HOME": "/tmp/h", "PATH": "/usr/bin", "XDG_STATE_HOME": "/tmp/h/.local/state"}
         peer = MODULE.Peer("macos", "M4MacBook", "macos", "~/Documents/development/dotfiles", "~/.ssh/key.pub", 3, False)
@@ -402,6 +428,9 @@ class ClassifyTests(unittest.TestCase):
         ):
             self.assertIn(option, joined)
         self.assertIn("/tmp/h/.ssh/key.pub", argv)
+        controls = [value for value in argv if value.startswith("ControlPath=")]
+        self.assertEqual(len(controls), 1, f"/tmp/peer-env-{os.getuid()} must be a private directory owned by this user")
+        self.assertTrue(controls[0].startswith(f"ControlPath=/tmp/peer-env-{os.getuid()}/cm-"), controls[0])
         self.assertEqual(argv[-2], "M4MacBook")
         self.assertEqual(argv[-1], '"$HOME"/Documents/development/dotfiles/assets/peer-env serve peer-env/1 identity')
         self.assertEqual(MODULE.push_url(peer), "M4MacBook:Documents/development/dotfiles")

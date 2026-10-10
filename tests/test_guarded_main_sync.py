@@ -35,6 +35,9 @@ def render_windows_template(source: Path) -> str:
 class GuardedMainSyncFixture(GitFixture):
     def __init__(self) -> None:
         super().__init__(feature_commit=False)
+        for name in ("EDITOR", "VISUAL"):
+            self.env.pop(name, None)
+        self.env["GIT_EDITOR"] = "true"
         self.set_override(False)
         self.upstream = self.root / "upstream clone"
         self.git(self.root, "clone", str(self.remote), str(self.upstream))
@@ -195,6 +198,9 @@ class GuardedMainSyncCoreTests(unittest.TestCase):
         self.assertFalse(self.fixture.state_path.exists())
 
     def test_manual_rebase_continue_then_resume_verifies_ci(self) -> None:
+        self.assertEqual(self.fixture.env["GIT_EDITOR"], "true")
+        self.assertNotIn("EDITOR", self.fixture.env)
+        self.assertNotIn("VISUAL", self.fixture.env)
         _local_sha, remote_sha = self.fixture.diverge(conflict=True)
         blocked = self.fixture.run_sync("sync")
         self.assertEqual(blocked.returncode, 1)

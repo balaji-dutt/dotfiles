@@ -52,7 +52,8 @@ DEFAULT_TTL = 300
 DEFAULT_CONNECT_TIMEOUT = 3
 DEFAULT_RUN_TIMEOUT = 900
 CONTROL_PERSIST = 120
-MAX_CONTROL_PATH = 100
+MAX_SOCKET_PATH = 103
+CONTROL_TEMP_SUFFIX = 17  # OpenSSH binds ControlPath as "<path>.<16 random chars>" first
 REF_NAMESPACE = "refs/peer-env/"
 WORKTREE_PREFIX = "worktrees/peer-env-"
 IDENTITY_MARKER = "PEER-ENV-IDENTITY "
@@ -308,9 +309,26 @@ def select_peers(config: Config, target: str) -> list[Peer]:
 # SSH plumbing (client side)
 
 
-def control_path(environ: dict[str, str] | os._Environ[str]) -> str | None:
-    candidate = state_dir(environ) / "cm-%C"
-    if len(str(candidate)) - 2 + 40 > MAX_CONTROL_PATH:
+def control_dir() -> Path | None:
+    if os.name == "nt":
+        return None
+    return Path("/tmp") / f"peer-env-{os.getuid()}"
+
+
+def control_path(directory: Path | None = None) -> str | None:
+    if directory is None:
+        directory = control_dir()
+    if directory is None:
+        return None
+    candidate = directory / "cm-%C"
+    if len(str(candidate)) - 2 + 40 + CONTROL_TEMP_SUFFIX > MAX_SOCKET_PATH:
+        return None
+    try:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = directory.lstat()
+    except OSError:
+        return None
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         return None
     return str(candidate)
 
@@ -340,9 +358,8 @@ def ssh_options(
     ]
     if peer.identity_file:
         options += ["-o", "IdentitiesOnly=yes", "-i", expand_user_path(peer.identity_file, environ)]
-    path = control_path(environ)
+    path = control_path()
     if path is not None:
-        state_dir(environ).mkdir(parents=True, exist_ok=True)
         options += [
             "-o",
             "ControlMaster=auto",

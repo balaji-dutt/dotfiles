@@ -242,8 +242,11 @@ Probe results live in `${XDG_STATE_HOME:-~/.local/state}/dotfiles/peer-env/probe
 for 300 seconds, keyed on the local platform and the config file's size and
 mtime. `--fresh` bypasses the cache, `--ttl` changes the lifetime. `audit`,
 `test`, and `clean` consult the same cache, so a task pays for one live probe
-at most every five minutes. SSH connections reuse a control socket under the
-same directory for two minutes when the path is short enough for the OS.
+at most every five minutes. SSH connections reuse a control socket under
+`/tmp/peer-env-<uid>/` for two minutes; that directory is created mode 0700,
+and multiplexing is skipped when the directory is not private to the user or
+the socket path would exceed the OS limit (OpenSSH needs 17 spare characters
+for its temporary name while binding).
 
 ### Statuses
 

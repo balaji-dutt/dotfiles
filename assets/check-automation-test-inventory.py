@@ -212,6 +212,8 @@ def candidate_reasons(repo_root: Path, tracked: TrackedFile) -> tuple[str, ...]:
         reasons.add("shell-startup")
     if name in SPECIAL_NAMES:
         reasons.add("known-automation-file")
+    if pure.parts[:2] == (".github", "workflows") and suffix in {".yaml", ".yml"}:
+        reasons.add("known-automation-file")
 
     sample = _read_sample(repo_root, tracked)
     if suffix not in PROSE_OR_DATA_SUFFIXES and SHEBANG_RE.search("\n".join(sample.splitlines()[:40])):

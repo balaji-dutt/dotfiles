@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -167,6 +168,61 @@ class BashStartupTests(ShellStartupHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("pin=unset\n", result.stdout)
         self.assertIn("missing or unreadable Plannotator pin", result.stderr)
+
+
+@unittest.skipUnless(BASH and ZSH and shutil.which("chezmoi"), "Bash, Zsh, and chezmoi are required")
+class PrivateChezmoiAliasTests(ShellStartupHarness):
+    def run_private_alias(self, shell: str) -> None:
+        home = self.fixture.root / "home with spaces"
+        config = home / ".config/chezmoi-private/chezmoi.toml"
+        config.parent.mkdir(parents=True)
+        source = self.fixture.root / "private source with spaces"
+        source.mkdir()
+        config.write_text(f"sourceDir = {json.dumps(str(source))}\n", encoding="utf-8")
+        calls = self.fixture.root / "chezmoi-args.log"
+        write_executable(
+            self.fixture.fake_bin / "chezmoi",
+            '#!/bin/sh\nprintf "%s\\n" "---" "$@" >> "$CZP_ARGS_LOG"\n'
+            'case "$*" in *--probe-args*) exit 0 ;; esac\n'
+            'exec "$CZP_REAL_CHEZMOI" "$@"\n',
+        )
+        environment = {
+            "HOME": str(home),
+            "CZP_ARGS_LOG": str(calls),
+            "CZP_REAL_CHEZMOI": shutil.which("chezmoi") or "",
+            "TERM": "dumb",
+        }
+        if shell == "bash":
+            fragment = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "macos"))
+            result = self.run_bash(
+                f'source {shlex.quote(str(fragment))}\nczp source-path\nczp --probe-args "two words"',
+                env_updates=environment,
+                interactive=True,
+            )
+        else:
+            fragment = self.write_home(
+                ".local/share/zsh/70-git-custom-aliases.zsh",
+                render_template("dot_local/share/zsh/70-git-custom-aliases.zsh.tmpl", "macos"),
+            )
+            result = self.run_zsh(
+                f'alias cz=chezmoi\nsource {shlex.quote(str(fragment))}\n'
+                'eval \'czp source-path; czp --probe-args "two words"\'',
+                env_updates=environment,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(source))
+        self.assertEqual(
+            calls.read_text(encoding="utf-8").splitlines(),
+            ["---", "--config", str(config), "source-path",
+             "---", "--config", str(config), "--probe-args", "two words"],
+        )
+
+    def test_bash_uses_private_config_source(self) -> None:
+        self.run_private_alias("bash")
+
+    def test_zsh_uses_private_config_source(self) -> None:
+        self.run_private_alias("zsh")
 
 
 @unittest.skipUnless(ZSH, "zsh is required")

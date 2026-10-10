@@ -113,85 +113,85 @@ Documents/PowerShell
 **/.*
 
 # Allow chezmoi metadata
-!/.chezmoi*
+!.chezmoi*
 
 # Allow dotfiles that are shared across environments
-!/.claude/
-!/.claude/**
-!/.gitconfig
-!/.gitignore_global
-!/.markdownlint-cli2.jsonc
+!.claude/
+!.claude/**
+!.gitconfig
+!.gitignore_global
+!.markdownlint-cli2.jsonc
 
 # Keep scripts ignored by default on Windows, but allow specific PS scripts.
 # (Must unignore parent dir too)
 # Note: use target names (run_* prefix stripped) for run_once scripts.
-/.chezmoiscripts/**
-!/.chezmoiscripts/
-!/.chezmoiscripts/windows-sync.ps1
-!/.chezmoiscripts/99-cleanup-wrong-apply.ps1
-!/.chezmoiscripts/windows-bootstrap.ps1
-!/.chezmoiscripts/copy_sublime_merge_packages.ps1
-!/.chezmoiscripts/10-dotfiles-commit-template.ps1
-!/.chezmoiscripts/20-git-template-hooks.ps1
-!/.chezmoiscripts/windows-zz-register-startup-tasks.ps1
-!/.chezmoiscripts/browser-policies.ps1
-!/.chezmoiscripts/install_better_beads_kanban.ps1
-!/.chezmoiscripts/install_codebase-memory-mcp.ps1
-!/.chezmoiscripts/zz-configure-codebase-memory-mcp.ps1
-!/.chezmoiscripts/claude_mcp_servers.ps1
-!/.chezmoiscripts/host_ai_plugin_refresh.ps1
-!/.chezmoiscripts/install_plannotator.ps1
-!/.chezmoiscripts/windows-beads-client.ps1
-!/.chezmoiscripts/windows-beads-pin.ps1
-!/.chezmoiscripts/windows-opencode-pin.ps1
-!/.chezmoiscripts/windows-ffpwa-runtime.ps1
-!/.chezmoiscripts/98-migrate-opencode-quota.ps1
+.chezmoiscripts/**
+!.chezmoiscripts/
+!.chezmoiscripts/windows-sync.ps1
+!.chezmoiscripts/99-cleanup-wrong-apply.ps1
+!.chezmoiscripts/windows-bootstrap.ps1
+!.chezmoiscripts/copy_sublime_merge_packages.ps1
+!.chezmoiscripts/10-dotfiles-commit-template.ps1
+!.chezmoiscripts/20-git-template-hooks.ps1
+!.chezmoiscripts/windows-zz-register-startup-tasks.ps1
+!.chezmoiscripts/browser-policies.ps1
+!.chezmoiscripts/install_better_beads_kanban.ps1
+!.chezmoiscripts/install_codebase-memory-mcp.ps1
+!.chezmoiscripts/zz-configure-codebase-memory-mcp.ps1
+!.chezmoiscripts/claude_mcp_servers.ps1
+!.chezmoiscripts/host_ai_plugin_refresh.ps1
+!.chezmoiscripts/install_plannotator.ps1
+!.chezmoiscripts/windows-beads-client.ps1
+!.chezmoiscripts/windows-beads-pin.ps1
+!.chezmoiscripts/windows-opencode-pin.ps1
+!.chezmoiscripts/windows-ffpwa-runtime.ps1
+!.chezmoiscripts/98-migrate-opencode-quota.ps1
 
 # Windows specific paths
-!/.local/
-!/.local/ai-wt.py
-!/.local/ai-wt.cmd
-!/.local/oc-commit.ps1
-!/.local/oc-commit.cmd
-!/.local/cc-commit.ps1
-!/.local/cc-commit.cmd
-!/.local/ffpwa-refresh.ps1
-!/.local/windows-notify.ps1
-!/.config/
-/.config/*
-!/.config/dotfiles/
-!/.config/dotfiles/versions/
-!/.config/dotfiles/versions/plannotator
-!/.config/starship.toml
-!/.config/bd/
-!/.config/bd/**
-!/.config/powershell/
-!/.config/powershell/**
-!/.config/opencode/
+!.local/
+!.local/ai-wt.py
+!.local/ai-wt.cmd
+!.local/oc-commit.ps1
+!.local/oc-commit.cmd
+!.local/cc-commit.ps1
+!.local/cc-commit.cmd
+!.local/ffpwa-refresh.ps1
+!.local/windows-notify.ps1
+!.config/
+.config/*
+!.config/dotfiles/
+!.config/dotfiles/versions/
+!.config/dotfiles/versions/plannotator
+!.config/starship.toml
+!.config/bd/
+!.config/bd/**
+!.config/powershell/
+!.config/powershell/**
+!.config/opencode/
 # opencode-quota resolves its sidecar under %APPDATA% on native Windows.
-!/.config/opencode/AGENTS.md
-!/.config/opencode/agents/
-!/.config/opencode/agents/**
-!/.config/opencode/commands/
-!/.config/opencode/commands/**
-!/.config/opencode/opencode-notifier.json
-!/.config/opencode/opencode-profile.sh
-!/.config/opencode/opencode-sync-workspace-overrides.sh
-!/.config/opencode/opencode.env
-!/.config/opencode/opencode.jsonc
-!/.config/opencode/plugins/
-!/.config/opencode/plugins/**
-!/.config/opencode/attestation/
-!/.config/opencode/attestation/**
-!/.config/opencode/profiles/
-!/.config/opencode/profiles/**
-!/.config/opencode/prompts/
-!/.config/opencode/prompts/**
-!/.config/opencode/skills/
-!/.config/opencode/skills/**
-!/.config/opencode/tui.json
-!/.config/git/
-!/.config/git/**
+!.config/opencode/AGENTS.md
+!.config/opencode/agents/
+!.config/opencode/agents/**
+!.config/opencode/commands/
+!.config/opencode/commands/**
+!.config/opencode/opencode-notifier.json
+!.config/opencode/opencode-profile.sh
+!.config/opencode/opencode-sync-workspace-overrides.sh
+!.config/opencode/opencode.env
+!.config/opencode/opencode.jsonc
+!.config/opencode/plugins/
+!.config/opencode/plugins/**
+!.config/opencode/attestation/
+!.config/opencode/attestation/**
+!.config/opencode/profiles/
+!.config/opencode/profiles/**
+!.config/opencode/prompts/
+!.config/opencode/prompts/**
+!.config/opencode/skills/
+!.config/opencode/skills/**
+!.config/opencode/tui.json
+!.config/git/
+!.config/git/**
 # Keep non-Windows Linux/macOS config trees ignored.
 .config/direnv
 .config/direnv/**
@@ -204,17 +204,17 @@ Documents/PowerShell
 # !/Documents/
 # !/Documents/PowerShell/
 # !/Documents/PowerShell/**
-!/AppData/
-!/AppData/Roaming/
-!/AppData/Roaming/Sublime Merge/
-!/AppData/Roaming/Sublime Merge/**
-!/AppData/Roaming/espanso/
-!/AppData/Roaming/espanso/**
-!/AppData/Roaming/yt-dlp/
-!/AppData/Roaming/yt-dlp/**
-!/AppData/Roaming/opencode/
-!/AppData/Roaming/opencode/opencode-quota/
-!/AppData/Roaming/opencode/opencode-quota/**
+!AppData/
+!AppData/Roaming/
+!AppData/Roaming/Sublime Merge/
+!AppData/Roaming/Sublime Merge/**
+!AppData/Roaming/espanso/
+!AppData/Roaming/espanso/**
+!AppData/Roaming/yt-dlp/
+!AppData/Roaming/yt-dlp/**
+!AppData/Roaming/opencode/
+!AppData/Roaming/opencode/opencode-quota/
+!AppData/Roaming/opencode/opencode-quota/**
 {{ end }}
 
 {{/* Global Ignores (repo metadata / stuff that should not be applied anywhere) */}}

@@ -378,6 +378,40 @@ class LifecyclePowerShellSyntaxTests(unittest.TestCase):
             with self.subTest(source=relative):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_private_chezmoi_function_forwards_config_and_arguments(self) -> None:
+        relative = "private_dot_config/powershell/aliases.ps1.tmpl"
+        source = render_template(relative, "windows")
+        resolved = powershell_parser_command(REPO_ROOT, relative, provision_container=False)
+        self.assertIsNotNone(resolved)
+        command, env = resolved
+        script = (
+            "$source = [Console]::In.ReadToEnd(); "
+            "function global:Get-Command { param($Name, $CommandType); "
+            "if ($Name -eq 'chezmoi') { [pscustomobject]@{ Source = 'Capture-Args' } } }; "
+            "function global:Capture-Args { "
+            "[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($args) -Compress)) }; "
+            "$env:USERPROFILE = 'C:\\Users\\Fixture Home'; "
+            ". ([scriptblock]::Create($source)); "
+            "czp source-path 'two words'"
+        )
+        result = subprocess.run(
+            [*command[:-1], script],
+            cwd=REPO_ROOT,
+            env=env,
+            input=source,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout),
+            ["--config", r"C:\Users\Fixture Home\.config\chezmoi-private\chezmoi.toml",
+             "source-path", "two words"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

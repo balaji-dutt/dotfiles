@@ -20,8 +20,10 @@ from typing import Any
 
 API_URL = "https://api.github.com/repos/gastownhall/beads/releases?per_page=100"
 RELEASES_API_PATH = "/repos/gastownhall/beads/releases"
+RELEASES_API_PATHS = frozenset((RELEASES_API_PATH, "/repositories/1074561042/releases"))
 CLONE_LOCAL_FKS_SOURCE = "cmd/bd/doctor/fix/clone_local_fks.go"
 CONTENTS_API_PATH = f"/repos/gastownhall/beads/contents/{CLONE_LOCAL_FKS_SOURCE}"
+CONTENTS_API_PATHS = frozenset((CONTENTS_API_PATH,))
 SYNC_SCRIPT_PATHS = (Path("assets/beads-sync.sh"), Path("assets/beads-sync.ps1"))
 UPSTREAM_FK_BLOCK = re.compile(
     r"var CloneLocalFKs = \[\]CloneLocalFK\{\n(?P<body>.*?)\n\}", re.DOTALL
@@ -244,7 +246,7 @@ def next_link(header: str | None) -> str | None:
 
 
 def require_github_api_url(
-    url: str, *, path: str = RELEASES_API_PATH, kind: str = "pagination URL"
+    url: str, *, paths: frozenset[str] = RELEASES_API_PATHS, kind: str = "pagination URL"
 ) -> str:
     try:
         parts = urllib.parse.urlsplit(url)
@@ -257,7 +259,7 @@ def require_github_api_url(
         or port is not None
         or parts.username is not None
         or parts.password is not None
-        or parts.path != path
+        or parts.path not in paths
         or parts.fragment
     ):
         raise GuardError(f"refusing a {kind} outside the Beads GitHub API")
@@ -315,7 +317,7 @@ def fetch_clone_local_fks_source(
 ) -> str:
     url = require_github_api_url(
         f"https://api.github.com{CONTENTS_API_PATH}?ref=v{version}",
-        path=CONTENTS_API_PATH,
+        paths=CONTENTS_API_PATHS,
         kind="contents URL",
     )
     request = urllib.request.Request(
@@ -326,7 +328,7 @@ def fetch_clone_local_fks_source(
     try:
         with opener.open(request, timeout=timeout) as response:
             require_github_api_url(
-                response.geturl(), path=CONTENTS_API_PATH, kind="contents URL"
+                response.geturl(), paths=CONTENTS_API_PATHS, kind="contents URL"
             )
             return response.read().decode("utf-8")
     except GuardError:

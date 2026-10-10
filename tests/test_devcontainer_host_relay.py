@@ -5,9 +5,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -212,11 +214,16 @@ done
 
 @unittest.skipUnless(os.name != "nt" and BASH, "POSIX bash is required")
 class RelayEndToEndTests(unittest.TestCase):
+    def make_run_dir(self) -> Path:
+        runtime = tempfile.TemporaryDirectory(prefix="hr-", dir="/tmp")
+        self.addCleanup(runtime.cleanup)
+        return Path(runtime.name).resolve() / "run"
+
     def setUp(self) -> None:
         context = isolated_environment(prefix="host-relay-")
         self.fixture = context.__enter__()
         self.addCleanup(context.__exit__, None, None, None)
-        self.run_dir = self.fixture.root / "run"
+        self.run_dir = self.make_run_dir()
         self.opened = self.fixture.root / "opened"
         opener = write_executable(
             self.fixture.root / "opener", f'#!/bin/sh\nprintf "%s\\n" "$1" >> "{self.opened}"\n'
@@ -241,9 +248,25 @@ class RelayEndToEndTests(unittest.TestCase):
         pid_path = self.run_dir / "relay.pid"
         if pid_path.exists():
             try:
-                os.kill(int(pid_path.read_text().strip()), 15)
-            except ProcessLookupError:
-                pass
+                pid = int(pid_path.read_text().strip())
+            except ValueError:
+                self.fail("invalid relay PID")
+
+            def running() -> bool:
+                command = relay.process_command(pid)
+                return b"devcontainer_host_relay" in command and os.fsencode(self.run_dir) in command
+
+            for sig, grace in ((signal.SIGTERM, 3), (signal.SIGKILL, 2)):
+                if not running():
+                    return
+                try:
+                    os.kill(pid, sig)
+                except ProcessLookupError:
+                    return
+                deadline = time.monotonic() + grace
+                while running() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+            self.assertFalse(running(), "relay still running during fixture cleanup")
 
     def start(self, ranges: str = RANGES, script: Path = RELAY_PATH, transport: str = "unix") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -266,6 +289,21 @@ class RelayEndToEndTests(unittest.TestCase):
         self.assertEqual((self.run_dir / "sock").stat().st_mode & 0o777, 0o700)
         self.assertEqual((self.run_dir / "sock/relay.sock").stat().st_mode & 0o777, 0o600)
         self.assertEqual(sorted(path.name for path in (self.run_dir / "sock").iterdir()), ["relay.sock"])
+
+    def test_unix_socket_stays_short_with_a_long_temporary_parent(self) -> None:
+        long_parent = self.fixture.root / ("nested-" + "x" * 80) / "tmp"
+        long_parent.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"TMPDIR": str(long_parent)}), mock.patch.object(
+            tempfile, "tempdir", str(long_parent)
+        ):
+            with isolated_environment(prefix="host-relay-") as nested:
+                self.assertGreater(len(os.fsencode(nested.root / "run/sock/relay.sock")), 107)
+            self.run_dir = self.make_run_dir()
+            self.addCleanup(self.stop_relay)
+            self.env["DEVCONTAINER_HOST_RELAY_SOCKET"] = str(self.run_dir / "sock/relay.sock")
+            self.assertLess(len(os.fsencode(self.run_dir / "sock/relay.sock")), 100)
+            self.assertEqual(self.start().returncode, 0)
+            self.assertEqual(self.client("ping").returncode, 0)
 
     @unittest.skipUnless(shutil.which("pgrep"), "pgrep is required")
     def test_concurrent_starts_leave_one_relay(self) -> None:

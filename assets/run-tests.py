@@ -7,10 +7,12 @@ import argparse
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from string import Formatter
@@ -20,6 +22,8 @@ SUITES = ("fast", "integration", "render", "provenance", "platform")
 SCHEMA_REF = "./schemas/test-suites.v1.schema.json"
 PLATFORMS = ("linux", "macos", "windows", "wsl2")
 STEP_PLACEHOLDERS = {"python", "repo"}
+DEFAULT_STEP_TIMEOUT_SECONDS = 600
+STEP_STOP_GRACE_SECONDS = 1
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
     "COMSPEC",
@@ -64,6 +68,7 @@ class Step:
     covers: tuple[str, ...]
     platforms: tuple[str, ...]
     requires: tuple[str, ...]
+    timeout_seconds: int = DEFAULT_STEP_TIMEOUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -219,7 +224,10 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
                 f"{label}.requires references unknown capability(s): "
                 f"{', '.join(sorted(unknown_capabilities))}"
             )
-        steps.append(Step(step_id, suites, argv, covers, platforms, requires))
+        timeout_seconds = raw.get("timeout_seconds", DEFAULT_STEP_TIMEOUT_SECONDS)
+        if type(timeout_seconds) is not int or timeout_seconds < 1:
+            raise ConfigurationError(f"{label}.timeout_seconds must be a positive integer")
+        steps.append(Step(step_id, suites, argv, covers, platforms, requires, timeout_seconds))
 
     return Registry(capabilities, tuple(steps))
 
@@ -359,6 +367,75 @@ def _expanded_argv(step: Step, repo_root: Path) -> list[str]:
     return [item.format(**replacements) for item in step.argv]
 
 
+def _step_output(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
+
+
+def _stop_step_group(process: subprocess.Popen[str]) -> tuple[str, str, str | None]:
+    output = error_output = ""
+    errors: list[str] = []
+    for sig, grace in ((signal.SIGTERM, STEP_STOP_GRACE_SECONDS),
+                       (signal.SIGKILL, STEP_STOP_GRACE_SECONDS)):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            errors.append(f"cannot signal step group: {error}")
+        try:
+            drained_output, drained_error = process.communicate(timeout=grace)
+            output = drained_output or output
+            error_output = drained_error or error_output
+        except subprocess.TimeoutExpired as error:
+            output = _step_output(error.stdout) or output
+            error_output = _step_output(error.stderr) or error_output
+        except OSError as error:
+            errors.append(f"cannot drain step output: {error}")
+        if sig == signal.SIGKILL:
+            break
+    if process.poll() is None:
+        try:
+            process.wait(timeout=STEP_STOP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            errors.append("step parent did not exit")
+    undrained = [pipe for pipe in (process.stdout, process.stderr)
+                 if pipe is not None and not pipe.closed]
+    for pipe in undrained:
+        pipe.close()
+    if undrained:
+        errors.append("step output did not drain")
+    return output, error_output, "; ".join(errors) or None
+
+
+def _run_posix_step(
+    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
+) -> tuple[str, str, int | None, str | None]:
+    try:
+        process = subprocess.Popen(
+            command, cwd=repo_root, env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+        )
+    except OSError as error:
+        return "", "", None, f"cannot execute step: {error}"
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        stdout, stderr = process.communicate(timeout=max(0, deadline - time.monotonic()))
+        return stdout, stderr, process.returncode, None
+    except subprocess.TimeoutExpired:
+        stdout, stderr, cleanup_error = _stop_step_group(process)
+        reason = f"timeout after {timeout_seconds} seconds"
+        if cleanup_error:
+            reason += f"; cleanup failed: {cleanup_error}"
+        return stdout, stderr, None, reason
+    except BaseException:
+        _, _, cleanup_error = _stop_step_group(process)
+        if cleanup_error:
+            raise RuntimeError(f"step cleanup failed: {cleanup_error}")
+        raise
+
+
 def run_steps(
     registry: Registry,
     steps: tuple[Step, ...],
@@ -414,28 +491,32 @@ def run_steps(
             if step.step_id == "beads-isolated-worktree" and bd_path:
                 step_env = {**env, "DOTFILES_TEST_BD": bd_path}
             print(f"RUN  {step.step_id}")
-            result = subprocess.run(
-                command,
-                cwd=repo_root,
-                env=step_env,
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.stdout:
-                print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
-            if result.stderr:
-                print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
-            if result.returncode == 0:
+            if os.name == "nt":
+                result = subprocess.run(
+                    command, cwd=repo_root, env=step_env, check=False,
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                stdout, stderr, returncode, failure_reason = (
+                    result.stdout, result.stderr, result.returncode, None
+                )
+            else:
+                stdout, stderr, returncode, failure_reason = _run_posix_step(
+                    command, repo_root=repo_root, env=step_env,
+                    timeout_seconds=step.timeout_seconds,
+                )
+            if stdout:
+                print(stdout, end="" if stdout.endswith("\n") else "\n")
+            if stderr:
+                print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+            if returncode == 0 and failure_reason is None:
                 print(f"PASS {step.step_id}")
                 passed += 1
                 step_results.append(StepResult(step, "pass", None, 0))
             else:
-                reason = f"exit {result.returncode}"
+                reason = failure_reason or f"exit {returncode}"
                 print(f"FAIL {step.step_id}: {reason}")
                 failed += 1
-                step_results.append(StepResult(step, "fail", reason, result.returncode))
+                step_results.append(StepResult(step, "fail", reason, returncode))
     print(f"SUMMARY pass={passed} skip={skipped} fail={failed}")
     return RunResult(platform, tuple(step_results))
 

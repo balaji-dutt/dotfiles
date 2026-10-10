@@ -166,16 +166,18 @@ class PlannotatorDeploymentTests(unittest.TestCase):
                 self.assertIn(pin, managed)
                 self.assertEqual(run("cat", str(destination / pin)).strip(), version)
                 if platform == "windows":
+                    rules = (source / ".chezmoiignore").read_text(encoding="utf-8")
+                    self.assertFalse(any(line.startswith(("/", "!/")) for line in rules.splitlines()))
                     ignored = run("ignored").splitlines()
                     self.assertIn(".config/dotfiles/versions/unrelated", ignored)
                     self.assertIn(".config/mise", ignored)
                     self.assertNotIn(".config/dotfiles/versions/unrelated", managed)
-                    rules = (source / ".chezmoiignore").read_text(encoding="utf-8")
                     for exception in (
-                        "!/.config/dotfiles/",
-                        "!/.config/dotfiles/versions/",
-                        "!/.config/dotfiles/versions/plannotator",
+                        "!.config/dotfiles/",
+                        "!.config/dotfiles/versions/",
+                        "!.config/dotfiles/versions/plannotator",
                     ):
+                        self.assertIn(exception + "\n", rules)
                         rules = rules.replace(exception + "\n", "")
                     (source / ".chezmoiignore").write_text(rules, encoding="utf-8")
                     self.assertNotIn(pin, run("managed", "--include", "files").splitlines())
