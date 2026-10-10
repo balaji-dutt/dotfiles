@@ -244,7 +244,8 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_devcontainer_smoke_live"],
       "covers": ["tests/test_devcontainer_smoke_live.py"],
       "platforms": ["linux", "macos", "wsl2"],
-      "requires": ["devcontainer-smoke"]
+      "requires": ["devcontainer-smoke"],
+      "timeout_seconds": 1200
     },
     {
       "id": "envrc-render",

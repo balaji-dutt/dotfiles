@@ -229,6 +229,11 @@ though none was observed in the sample. Add bounded steps, owned process-tree
 cleanup on each OS, partial/incomplete-run reporting, and per-step homes unless
 sharing is intentional. Test the failure paths before considering parallelism.
 
+Current status (2026-10-10): POSIX steps now have a default 600-second limit,
+per-step overrides, process-group termination, and bounded output draining.
+Native Windows step supervision and partial reports for interrupted runs remain
+open; the paragraph above describes the original assessment baseline.
+
 Platform routing also has concrete mismatches: WSL-gated
 `WindowsShellSmokeTests` in `tests/test_windows_shell.py:87` is selected through
 Windows-only registry steps, making that WSL smoke unreachable **via the

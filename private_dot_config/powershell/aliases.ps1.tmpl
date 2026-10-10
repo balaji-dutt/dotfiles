@@ -16,7 +16,7 @@ function global:czp {
     return
   }
 
-  & $cmd.Source --config "$env:USERPROFILE\.config\chezmoi-private\chezmoi.toml" --source "F:\Balaji\Development\private-dotfiles" @Args
+  & $cmd.Source --config "$env:USERPROFILE\.config\chezmoi-private\chezmoi.toml" @Args
 }
 
 # Remove short Claude Code transcripts created around the /login flow.

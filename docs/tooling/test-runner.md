@@ -69,11 +69,11 @@ test and capability failures. This describes registered path execution; it is
 not source line or branch coverage.
 
 The runner exits `0` when every executed step passes, including permitted local
-skips; `1` for a test failure or a required missing capability; and `2` for CLI
-or registry errors. Each selected step gets a `PASS`, `SKIP`, or `FAIL` line and
-the run ends with deterministic pass/skip/fail totals. Skips produced inside a
-test framework remain visible in that framework's output and are not reclassified
-by the runner.
+skips; `1` for a test failure, timed-out step, or required missing capability;
+and `2` for CLI or registry errors. Each selected step gets a `PASS`, `SKIP`,
+or `FAIL` line and the run ends with deterministic pass/skip/fail totals. Skips
+produced inside a test framework remain visible in that framework's output and
+are not reclassified by the runner.
 
 ## Suite boundary
 
@@ -87,10 +87,11 @@ by the runner.
 
 The registry is `configs/test-suites.json`. Every step has a stable `id`, one or
 more `suites`, an argv array, and one or more `covers` paths. Optional
-`platforms` and `requires` fields declare when the step can run. Commands are
-argv arrays, not shell strings; only `{python}` and `{repo}` placeholders are
-supported. Steps are sorted by ID, duplicate IDs are rejected, and `all` runs
-the resulting unique registry entries.
+`platforms` and `requires` fields declare when the step can run. An optional
+positive integer `timeout_seconds` sets the step's POSIX time limit (default:
+600 seconds). Commands are argv arrays, not shell strings; only `{python}` and
+`{repo}` placeholders are supported. Steps are sorted by ID, duplicate IDs are
+rejected, and `all` runs the resulting unique registry entries.
 
 Every top-level `tests/test_*.py` module must appear in the union of `covers`.
 The runner contract tests enforce that registration and specifically retain the
@@ -162,6 +163,15 @@ The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are th
 only live-smoke settings passed through. The command timeout defaults to 180
 seconds and accepts values from 30 through 900. No similarly prefixed credential
 or secret variables are allowed.
+
+On POSIX, each step runs in its own process group. A timed-out step receives
+`SIGTERM`, then `SIGKILL` if needed; output draining and parent cleanup are
+bounded. The runner marks the step `FAIL` with a timeout reason and a null exit
+code in the final report, then continues to the next step. The registered live
+devcontainer step has a 1200-second step limit, distinct from the live-smoke
+command timeout above. Descendants that leave the step's process group are not
+covered by group signalling; undrained output is reported as a cleanup failure.
+Native Windows step execution does not yet enforce this limit.
 
 The runner prepends fail-closed `bd` and `dolt` commands. An accidental call
 therefore cannot reach this checkout's real Beads database. Tests that need

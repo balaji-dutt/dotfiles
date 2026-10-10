@@ -23,7 +23,7 @@ class EnvrcHarness(unittest.TestCase):
         # a throwaway checkout rather than the working tree it is testing.
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.workdir = Path(self._tmp.name)
+        self.workdir = Path(self._tmp.name).resolve()
 
     @property
     def local_config(self) -> Path:

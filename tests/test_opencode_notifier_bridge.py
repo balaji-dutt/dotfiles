@@ -12,6 +12,8 @@ import sys
 import tempfile
 import unittest
 
+from tests.support.notification_platform import WSL2_RELEASE, copy_notification_script
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "bin" / "executable_opencode-notifier-bridge"
@@ -30,11 +32,8 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self.fake_bin = self.temp_path / "bin"
         self.fake_bin.mkdir()
         self.notifier_log = self.temp_path / "terminal-notifier.log"
-
-        self._write_executable(
-            "uname",
-            "#!/bin/sh\nprintf '%s\\n' Darwin\n",
-        )
+        self.bridge = self.temp_path / "opencode-notifier-bridge"
+        self.platform = copy_notification_script(BRIDGE, self.bridge, self.temp_path, self.fake_bin)
         self._write_executable(
             "terminal-notifier",
             "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$NOTIFIER_LOG\"\n",
@@ -75,9 +74,11 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         self.notifier_log.unlink(missing_ok=True)
         env = os.environ.copy()
-        env.pop("AOE_INSTANCE_ID", None)
-        env.pop("TMUX", None)
-        env.pop("DEVCONTAINER", None)
+        for key in tuple(env):
+            if key.startswith(("AOE_", "WSL_")) or key in {
+                "TMUX", "DEVCONTAINER", "DEV_NOTIFY_BRIDGE"
+            }:
+                env.pop(key, None)
         env.update(
             {
                 "NOTIFIER_LOG": str(self.notifier_log),
@@ -109,7 +110,7 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
 
         bridge_args = [
             "bash",
-            str(BRIDGE),
+            str(self.bridge),
             "--title",
             f"OpenCode - {event}",
             "--message",
@@ -180,7 +181,6 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self._assert_delivered()
 
     def test_aoe_suppression_is_unchanged(self) -> None:
-        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Darwin\n")
         result = self._run_bridge(
             "question",
             extra_env={"AOE_INSTANCE_ID": "test-instance"},
@@ -190,7 +190,7 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self._assert_suppressed()
 
     def test_wsl2_aoe_event_reaches_banner_with_literal_arguments(self) -> None:
-        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Linux\n")
+        self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
         self._write_executable("wslpath", "#!/bin/sh\nprintf 'C:/windows-notify.ps1'\n")
         helper = self.temp_path / "home/.local/windows-notify.ps1"
         helper.parent.mkdir(parents=True)
@@ -208,7 +208,7 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         self.assertNotIn("-Command", argv)
 
     def test_wsl2_banner_failure_does_not_run_another_backend(self) -> None:
-        self._write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Linux\n")
+        self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
         marker = self.temp_path / "notify-send-called"
         self._write_executable("notify-send", f"#!/bin/sh\ntouch {str(marker)!r}\n")
         result = self._run_bridge("permission", extra_env={"AOE_INSTANCE_ID": "inside-aoe"})
@@ -222,6 +222,14 @@ class OpenCodeNotifierBridgeTests(unittest.TestCase):
         })
         self.assertEqual(result.returncode, 0, result.stderr)
         self._assert_suppressed()
+
+    def test_linux_and_wsl2_container_aoe_events_stay_suppressed(self) -> None:
+        for release, container in (("6.1.0-generic", False), (WSL2_RELEASE, True)):
+            with self.subTest(release=release, container=container):
+                self.platform.simulate("Linux", kernel_release=release, container=container)
+                result = self._run_bridge("question", extra_env={"AOE_INSTANCE_ID": "inside-aoe"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self._assert_suppressed()
 
 
 if __name__ == "__main__":

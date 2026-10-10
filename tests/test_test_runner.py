@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -97,21 +99,191 @@ class RunnerFixture:
 
     def run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [
-                sys.executable,
-                str(RUNNER),
-                "--repo-root",
-                str(self.root),
-                "--registry",
-                str(self.registry),
-                *args,
-            ],
+            self.command(*args),
             env=env,
             check=False,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+
+    def command(self, *args: str) -> list[str]:
+        return [sys.executable, str(RUNNER), "--repo-root", str(self.root),
+                "--registry", str(self.registry), *args]
+
+    def supervised(self, *args: str) -> subprocess.CompletedProcess[str]:
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            process = subprocess.Popen(self.command(*args), stdout=output, stderr=errors,
+                                       text=True, start_new_session=True)
+            try:
+                process.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=2)
+                raise AssertionError("runner exceeded its outer watchdog")
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=2)
+            output.seek(0)
+            errors.seek(0)
+            return subprocess.CompletedProcess(process.args, process.returncode,
+                                               output.read(), errors.read())
+
+
+@unittest.skipIf(os.name == "nt", "POSIX process groups")
+class RunnerSupervisionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = RunnerFixture()
+        self.addCleanup(self.fixture.cleanup)
+        self.pids: list[Path] = []
+        self.addCleanup(self.stop_fixture_groups)
+
+    def stop_fixture_groups(self) -> None:
+        for pid_file in self.pids:
+            if not pid_file.exists():
+                continue
+            pid = int(pid_file.read_text(encoding="utf-8"))
+            try:
+                group = os.getpgid(pid)
+            except ProcessLookupError:
+                continue
+            command = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                                     text=True, capture_output=True, check=False)
+            if command.returncode == 0 and str(self.fixture.root) in command.stdout:
+                os.killpg(group, signal.SIGKILL)
+
+    def fixture_pid(self, name: str) -> Path:
+        path = self.fixture.root / name
+        self.pids.append(path)
+        return path
+
+    def assert_stopped(self, pid_file: Path) -> None:
+        pid = int(pid_file.read_text(encoding="utf-8"))
+        for _ in range(30):
+            status = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
+                                    text=True, capture_output=True, check=False)
+            if status.returncode != 0 or status.stdout.lstrip().startswith("Z"):
+                return
+            time.sleep(0.05)
+        self.fail(f"fixture process {pid} survived")
+
+    def test_timeout_validation_and_live_override(self) -> None:
+        for invalid in (True, False, 0, -1, "1", 1.5, None, {}):
+            with self.subTest(value=invalid):
+                self.fixture.steps[0]["timeout_seconds"] = invalid
+                self.fixture.write_registry()
+                result = self.fixture.supervised("--list")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("timeout_seconds must be a positive integer", result.stderr)
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.write_registry()
+        self.assertEqual(self.fixture.supervised("--list").returncode, 0)
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        live = next(step for step in registry["steps"] if step["id"] == "devcontainer-smoke-live")
+        self.assertEqual(live["timeout_seconds"], 1200)
+        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v1.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(schema["$defs"]["step"]["properties"]["timeout_seconds"],
+                         {"type": "integer", "minimum": 1})
+
+    def test_hung_step_fails_then_next_step_runs_and_report_is_written(self) -> None:
+        pid_file = self.fixture_pid("hung.pid")
+        self.fixture.write_script("pass.py", "import os, pathlib, time\n"
+                                  f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                  "print('hung diagnostic', flush=True)\n"
+                                  "time.sleep(30)\n")
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
+        self.fixture.write_registry()
+        report = self.fixture.root / "result.json"
+        result = self.fixture.supervised("--report-file", str(report))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("hung diagnostic", result.stdout)
+        self.assertIn("FAIL alpha: timeout after 1 seconds", result.stdout)
+        self.assertNotIn("cleanup failed", result.stdout)
+        self.assertIn("PASS beta", result.stdout)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertEqual(payload["steps"][0]["exit_code"], None)
+        self.assertEqual(payload["steps"][0]["reason"], "timeout after 1 seconds")
+        self.assert_stopped(pid_file)
+
+    def test_parent_exits_with_pipe_holding_descendant(self) -> None:
+        child_pid = self.fixture_pid("descendant.pid")
+        self.fixture.write_script("pass.py", "import pathlib, subprocess, sys, time\n"
+                                  f"pid_path = pathlib.Path({str(child_pid)!r})\n"
+                                  "child = subprocess.Popen([sys.executable, '-c', "
+                                  "'import time; time.sleep(30)', str(pid_path)])\n"
+                                  "pid_path.write_text(str(child.pid))\n"
+                                  "print('parent diagnostic', flush=True)\n")
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.write_registry()
+        result = self.fixture.supervised()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("parent diagnostic", result.stdout)
+        self.assertIn("timeout after 1 seconds", result.stdout)
+        self.assertNotIn("cleanup failed", result.stdout)
+        self.assert_stopped(child_pid)
+
+    def test_term_resistant_descendant_is_killed(self) -> None:
+        child_pid = self.fixture_pid("resistant.pid")
+        self.fixture.write_script("pass.py", "import pathlib, subprocess, sys, time\n"
+                                  f"pid_path = pathlib.Path({str(child_pid)!r})\n"
+                                  "child = subprocess.Popen([sys.executable, '-c', "
+                                  "'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)', "
+                                  "str(pid_path)])\n"
+                                  "pid_path.write_text(str(child.pid))\n"
+                                  "time.sleep(30)\n")
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.write_registry()
+        result = self.fixture.supervised()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("timeout after 1 seconds", result.stdout)
+        self.assertNotIn("cleanup failed", result.stdout)
+        self.assert_stopped(child_pid)
+
+    def test_detached_pipe_holder_reports_cleanup_failure_without_hanging(self) -> None:
+        child_pid = self.fixture_pid("detached.pid")
+        self.fixture.write_script("pass.py", "import pathlib, subprocess, sys, time\n"
+                                  f"pid_path = pathlib.Path({str(child_pid)!r})\n"
+                                  "child = subprocess.Popen([sys.executable, '-c', "
+                                  "'import os, time; os.setsid(); time.sleep(30)', "
+                                  "str(pid_path)])\n"
+                                  "pid_path.write_text(str(child.pid))\n")
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.write_registry()
+        result = self.fixture.supervised()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("timeout after 1 seconds; cleanup failed:", result.stdout)
+        self.assertIn("step output did not drain", result.stdout)
+        self.stop_fixture_groups()
+        self.assert_stopped(child_pid)
+
+    def test_interruption_stops_the_step_group(self) -> None:
+        pid_file = self.fixture_pid("interrupt.pid")
+        self.fixture.write_script("pass.py", "import os, pathlib, time\n"
+                                  f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                  "time.sleep(30)\n")
+        self.fixture.write_registry()
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(self.fixture.command(), stdout=output, stderr=errors,
+                                      start_new_session=True)
+            try:
+                deadline = time.monotonic() + 5
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(pid_file.exists(), "step did not start")
+                os.kill(runner.pid, signal.SIGINT)
+                runner.wait(timeout=6)
+                self.assertNotEqual(runner.returncode, 0)
+                self.assert_stopped(pid_file)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
 
 
 class TestRunnerTests(unittest.TestCase):
