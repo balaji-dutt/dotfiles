@@ -356,6 +356,7 @@ tests/support/__init__.py	script-extension
 tests/support/fixtures.py	script-extension
 tests/support/github_fixtures.py	script-extension
 tests/support/node-plugin-fixture.mjs	script-extension
+tests/support/notification_platform.py	script-extension
 tests/support/powershell.py	script-extension
 tests/support/run_agent_attestation_windows.ps1	script-extension
 tests/support/test_agent_attestation.mjs	script-extension
