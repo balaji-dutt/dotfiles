@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, write_executable
+from tests.support.notification_platform import WSL2_RELEASE, copy_notification_script
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -37,11 +38,9 @@ def write_argv_logger(path: Path, log: Path, *, exit_code: int = 0) -> Path:
 
 
 class AoeNotifyTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.source = SOURCE.read_text(encoding="utf-8")
-
     def prepare(self, fixture) -> tuple[Path, dict[str, str]]:
-        script = write_executable(fixture.root / "aoe-notify", self.source)
+        script = fixture.root / "aoe-notify"
+        self.platform = copy_notification_script(SOURCE, script, fixture.root, fixture.fake_bin)
         for name in ("curl", "terminal-notifier", "osascript", "powershell.exe", "notify-send"):
             write_argv_logger(
                 fixture.fake_bin / name,
@@ -50,14 +49,16 @@ class AoeNotifyTests(unittest.TestCase):
             )
         env = fixture.env.copy()
         for key in tuple(env):
-            if key.startswith("AOE_") or key in {"DEVCONTAINER", "DEV_NOTIFY_BRIDGE"}:
+            if key.startswith(("AOE_", "WSL_")) or key in {
+                "DEVCONTAINER", "DEV_NOTIFY_BRIDGE", "TMUX"
+            }:
                 env.pop(key, None)
         env["XDG_CACHE_HOME"] = str(fixture.root / "cache with spaces")
         return script, env
 
     def read_log(self, fixture) -> str:
         return (fixture.root / "cache with spaces/aoe-notify.log").read_text(
-            encoding="utf-8"
+            encoding="utf-8", errors="surrogateescape"
         )
 
     def force_explicit_failed_bridge(self, fixture, env: dict[str, str]) -> None:
@@ -113,7 +114,6 @@ class AoeNotifyTests(unittest.TestCase):
         with isolated_environment(prefix="aoe terminal notifier ") as fixture:
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
-            write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Darwin\\n'\n")
             terminal_log = fixture.root / "terminal.json"
             write_argv_logger(fixture.fake_bin / "terminal-notifier", terminal_log)
             osascript_marker = fixture.root / "osascript-called"
@@ -140,7 +140,6 @@ class AoeNotifyTests(unittest.TestCase):
         with isolated_environment(prefix="aoe osascript ") as fixture:
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
-            write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Darwin\\n'\n")
             write_executable(fixture.fake_bin / "terminal-notifier", "#!/bin/sh\nexit 1\n")
             log = fixture.root / "osascript.json"
             write_argv_logger(fixture.fake_bin / "osascript", log)
@@ -161,7 +160,7 @@ class AoeNotifyTests(unittest.TestCase):
         with isolated_environment(prefix="aoe powershell ") as fixture:
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
-            write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
+            self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
             log = fixture.root / "powershell.json"
             write_argv_logger(fixture.fake_bin / "powershell.exe", log)
             helper = fixture.home / ".local/windows-notify.ps1"
@@ -185,6 +184,7 @@ class AoeNotifyTests(unittest.TestCase):
     def test_wsl2_opencode_hooks_are_suppressed_without_affecting_other_agents(self) -> None:
         with isolated_environment(prefix="aoe ownership ") as fixture:
             script, env = self.prepare(fixture)
+            self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
             self.force_explicit_failed_bridge(fixture, env)
             backend = fixture.root / "powershell.json"
             write_argv_logger(fixture.fake_bin / "powershell.exe", backend)
@@ -223,7 +223,7 @@ class AoeNotifyTests(unittest.TestCase):
         with isolated_environment(prefix="aoe notify send ") as fixture:
             script, env = self.prepare(fixture)
             self.force_explicit_failed_bridge(fixture, env)
-            write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
+            self.platform.simulate("Linux", kernel_release="6.1.0-generic", container=True)
             log = fixture.root / "notify-send.json"
             write_argv_logger(fixture.fake_bin / "notify-send", log)
 
@@ -239,8 +239,8 @@ class AoeNotifyTests(unittest.TestCase):
     def test_all_backend_failures_are_logged_but_do_not_fail_hook(self) -> None:
         with isolated_environment(prefix="aoe fail open ") as fixture:
             script, env = self.prepare(fixture)
+            self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
             self.force_explicit_failed_bridge(fixture, env)
-            write_executable(fixture.fake_bin / "uname", "#!/bin/sh\nprintf 'Linux\\n'\n")
             write_executable(fixture.fake_bin / "notify-send", "#!/bin/sh\nexit 8\n")
 
             result = run_notify(script, "waiting", env=env | {"AOE_NOTIFY_DEBUG": "yes"})
@@ -253,6 +253,7 @@ class AoeNotifyTests(unittest.TestCase):
     def test_wsl2_banner_failure_does_not_fallback_to_notify_send(self) -> None:
         with isolated_environment(prefix="aoe banner failure ") as fixture:
             script, env = self.prepare(fixture)
+            self.platform.simulate("Linux", kernel_release=WSL2_RELEASE)
             self.force_explicit_failed_bridge(fixture, env)
             marker = fixture.root / "notify-send.json"
             write_argv_logger(fixture.fake_bin / "notify-send", marker)
@@ -266,6 +267,25 @@ class AoeNotifyTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("backend=none rc=1", self.read_log(fixture))
+
+    def test_linux_and_wsl2_container_do_not_use_windows_banner(self) -> None:
+        for release, container in (("6.1.0-generic", False), (WSL2_RELEASE, True)):
+            with self.subTest(release=release, container=container):
+                with isolated_environment(prefix="aoe linux platform ") as fixture:
+                    script, env = self.prepare(fixture)
+                    self.platform.simulate("Linux", kernel_release=release, container=container)
+                    self.force_explicit_failed_bridge(fixture, env)
+                    banner = fixture.root / "powershell.json"
+                    write_argv_logger(fixture.fake_bin / "powershell.exe", banner)
+                    notification = fixture.root / "notify-send.json"
+                    write_argv_logger(fixture.fake_bin / "notify-send", notification)
+
+                    result = run_notify(script, "waiting", env=env | {"AOE_TOOL": "opencode"})
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(banner.exists())
+                    self.assertTrue(notification.exists())
+                    self.assertIn("backend=notify-send rc=0", self.read_log(fixture))
 
 
 if __name__ == "__main__":
