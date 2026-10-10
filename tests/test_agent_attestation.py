@@ -17,7 +17,7 @@ class AgentAttestationTests(unittest.TestCase):
                 if source.is_file():
                     self.assertEqual(source.read_bytes(), (container / source.relative_to(root)).read_bytes())
         rules = (root / '.chezmoiignore').read_text()
-        self.assertIn('!/.config/opencode/attestation/**', rules)
+        self.assertIn('!.config/opencode/attestation/**', rules)
         mirrors = (root / 'configs/devcontainer-sync.jsonc').read_text()
         self.assertLess(mirrors.index('agent-attestation-shared'), mirrors.index('opencode-user-config'))
 

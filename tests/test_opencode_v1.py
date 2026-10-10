@@ -259,10 +259,10 @@ class OpenCodeRenderTests(unittest.TestCase):
     def test_shebang_and_windows_admission(self):
         self.assertTrue(render(MAC, 'darwin').startswith('#!/usr/bin/env bash\n'))
         rules = render('.chezmoiignore', 'windows').splitlines()
-        self.assertIn('/.chezmoiscripts/**', rules)
-        admission = '!/.chezmoiscripts/windows-opencode-pin.ps1'
+        self.assertIn('.chezmoiscripts/**', rules)
+        admission = '!.chezmoiscripts/windows-opencode-pin.ps1'
         self.assertIn(admission, rules)
-        self.assertGreater(rules.index(admission), rules.index('/.chezmoiscripts/**'))
+        self.assertGreater(rules.index(admission), rules.index('.chezmoiscripts/**'))
 
 
 BREW = '''#!/bin/sh

@@ -98,7 +98,7 @@ class WindowsNotifyTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 rules = result.stdout.splitlines()
                 self.assertEqual(".local/windows-notify.ps1" in rules, expected_ignored)
-                self.assertEqual("!/.local/windows-notify.ps1" in rules, platform == "windows")
+                self.assertEqual("!.local/windows-notify.ps1" in rules, platform == "windows")
 
         result = subprocess.run(
             ["chezmoi", "--source", str(ROOT), "execute-template", "--override-data",
