@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.support.fixtures import write_executable
+from tests.support.fixtures import bash_argv, compatible_bash, write_executable
 from tests.test_chezmoi_lifecycle_render import render_template
 
 
@@ -21,7 +21,7 @@ SPEC.loader.exec_module(MODULE)
 
 class PlannotatorConfigTests(unittest.TestCase):
     def source_version(self):
-        return re.search(r'^plannotator_version: "([0-9.]+)"', (ROOT / ".chezmoidata.yaml").read_text(), re.MULTILINE).group(1)
+        return re.search(r'^plannotator_version: "([0-9.]+)"', (ROOT / ".chezmoidata.yaml").read_text(encoding="utf-8"), re.MULTILINE).group(1)
 
     def test_source_agreement(self):
         self.assertEqual(MODULE.source_check(), self.source_version())
@@ -52,10 +52,10 @@ class PlannotatorConfigTests(unittest.TestCase):
             version = self.source_version()
             self.assertEqual(MODULE.source_check(root), version)
             sentinel = root / MODULE.MANIFEST
-            original = sentinel.read_text()
+            original = sentinel.read_text(encoding="utf-8")
             changed = original.replace(f'"version": "{version}" // renovate: datasource=npm depName=@plannotator/opencode', '"version": "0.0.0" // renovate: datasource=npm depName=@plannotator/opencode')
             self.assertNotEqual(original, changed)
-            sentinel.write_text(changed)
+            sentinel.write_text(changed, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "must match"):
                 MODULE.source_check(root)
 
@@ -120,7 +120,7 @@ class PlannotatorConfigTests(unittest.TestCase):
                 target.write_bytes((ROOT / relative).read_bytes())
             target = root / MODULE.CLAUDE
             target.parent.mkdir(parents=True)
-            target.write_text(json.dumps({"enabledPlugins": {}}))
+            target.write_text(json.dumps({"enabledPlugins": {}}), encoding="utf-8")
             with self.assertRaises(KeyError):
                 MODULE.source_check(root)
 
@@ -206,11 +206,15 @@ class PlannotatorWrapperTests(unittest.TestCase):
                     rendered = rendered.replace(template, value)
                 self.assertNotIn("{{", rendered)
                 wrapper = write_executable(home / Path(relative).name.removeprefix("executable_").removesuffix(".tmpl"), rendered)
+                bash = compatible_bash(ROOT / relative, home)
+                self.assertIsNotNone(bash, "requires Bash with access to the checkout and fixture")
                 pin = home / ".config/dotfiles/versions/plannotator"
                 env = {**os.environ, "HOME": str(home), "PLANNOTATOR_PIN_VERSION": "0.0.0", "OPENCODE_PLANNOTATOR_DRY_RUN": "1"}
 
                 def run():
-                    return subprocess.run([str(wrapper)], env=env, capture_output=True, text=True, check=False)
+                    command = bash_argv(bash, wrapper) if os.name == "nt" else [str(wrapper)]
+                    return subprocess.run(command, env=env, capture_output=True,
+                                           text=True, encoding="utf-8", check=False)
 
                 self.assertNotEqual(run().returncode, 0)
                 pin.parent.mkdir(parents=True)

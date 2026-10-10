@@ -590,18 +590,26 @@ class ReviewHookWrapperTests(unittest.TestCase):
         edit = {"cwd": str(self.repo), "session_id": "s", "tool_input": {"file_path": str(self.repo / "a.txt")}}
         subagent = {"session_id": "s", "agent_id": "a1", "agent_type": "dotfiles-reviewer"}
         for shell in hook_shells():
+            expected_path = str(missing)
+            if os.name == "nt":
+                converted = subprocess.run(
+                    [shell, "-c", 'cygpath -u "$CLAUDE_PROJECT_DIR"'],
+                    capture_output=True, text=True, encoding="utf-8", check=True,
+                    cwd=self.repo, env=env,
+                )
+                expected_path = converted.stdout.strip()
             for name, payload in (("mark-needs-review.sh", edit), ("mark-needs-review-bash.sh", self.bash_payload("t1"))):
                 with self.subTest(shell=shell, hook=name):
                     result = self.run_hook(name, payload, env=env, shell=shell)
                     self.assertEqual((result.returncode, result.stdout), (2, ""), result.stderr)
                     self.assertIn("was not marked for review", result.stderr)
-                    self.assertIn(str(missing), result.stderr)
+                    self.assertIn(expected_path, result.stderr)
             with self.subTest(shell=shell, hook="enforce-review-on-stop.sh"):
                 result = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, env=env, shell=shell)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 decoded = json.loads(result.stdout)
                 self.assertEqual(decoded["decision"], "block")
-                self.assertIn(str(missing), decoded["reason"])
+                self.assertIn(expected_path, decoded["reason"])
                 self.assertIn("CLAUDE_ENFORCE_REVIEW=0", decoded["reason"])
             with self.subTest(shell=shell, hook="enforce-review-on-stop.sh", escape_hatch=True):
                 result = self.run_hook("enforce-review-on-stop.sh", {"session_id": "s"}, env={**env, "CLAUDE_ENFORCE_REVIEW": "0"}, shell=shell)

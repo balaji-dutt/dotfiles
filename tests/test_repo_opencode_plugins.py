@@ -28,11 +28,12 @@ class RepoOpenCodePluginTests(unittest.TestCase):
             }
             env["DOTFILES_TEST_REPO"] = str(REPO_ROOT)
             result = subprocess.run(
-                [node, "--test", *(str(test_path) for test_path in NODE_TESTS)],
+                [node, "--test", "--test-reporter=tap", *(str(test_path) for test_path in NODE_TESTS)],
                 cwd=REPO_ROOT,
                 env=env,
                 check=False,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=30,

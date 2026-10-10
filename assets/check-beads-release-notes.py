@@ -369,7 +369,7 @@ def read_sync_clone_local_fks(repo_root: Path, path: Path) -> set[tuple[str, ...
         for m in SYNC_FK_ENTRY.finditer(read_text(repo_root / path))
     }
     if not entries:
-        raise GuardError(f"no clone-local FK list found in {path}")
+        raise GuardError(f"no clone-local FK list found in {path.as_posix()}")
     return entries
 
 
@@ -383,13 +383,13 @@ def check_clone_local_fks(
             drift = True
             print(
                 f"ERROR: bd {proposed} defines clone-local FK {table}.{constraint} "
-                f"that {path} does not re-link",
+                f"that {path.as_posix()} does not re-link",
                 file=sys.stderr,
             )
         for table, constraint, *_ in sorted(local - upstream):
             drift = True
             print(
-                f"ERROR: {path} re-links {table}.{constraint}, "
+                f"ERROR: {path.as_posix()} re-links {table}.{constraint}, "
                 f"which bd {proposed} does not define",
                 file=sys.stderr,
             )

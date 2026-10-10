@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -88,6 +89,32 @@ def write_executable(path: Path, content: str) -> Path:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+def compatible_bash(checkout_file: Path, fixture_directory: Path) -> str | None:
+    candidates = [shutil.which("bash")]
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            candidates.insert(0, str(Path(git).parent.parent / "bin" / "bash.exe"))
+    for candidate in dict.fromkeys(candidates):
+        if not candidate or not Path(candidate).is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [candidate, "-c", 'test -f "$1" && test -d "$2"', "bash",
+                 str(checkout_file), str(fixture_directory)],
+                capture_output=True, timeout=10, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            return candidate
+    return None
+
+
+def bash_argv(bash: str, script: Path, *args: str) -> list[str]:
+    return [bash, str(script), *args]
 
 
 def write_python_command(directory: Path, name: str, body: str) -> Path:

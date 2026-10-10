@@ -104,7 +104,11 @@ class GitFixture:
         self.set_override(ci_gated)
 
         self.fake_bin.mkdir()
-        if os.name != "nt":
+        if os.name == "nt":
+            for actor in ("oc", "cc"):
+                shutil.copy2(REPO_ROOT / "dot_local" / f"executable_{actor}-commit.ps1",
+                             self.fake_bin / f"{actor}-commit.ps1")
+        else:
             for actor in ("oc", "cc"):
                 wrapper = self.fake_bin / f"{actor}-commit"
                 shutil.copy2(REPO_ROOT / "bin" / f"executable_{actor}-commit", wrapper)

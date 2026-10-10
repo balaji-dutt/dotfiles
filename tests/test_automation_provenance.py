@@ -40,6 +40,7 @@ def tree_digest(root: Path) -> str:
 
 class ProvenanceFixture:
     def __init__(self, root: Path) -> None:
+        self.executables: set[str] = set()
         self.env = {
             key: value for key, value in os.environ.items() if not key.startswith("GIT_")
         }
@@ -141,6 +142,8 @@ class ProvenanceFixture:
         )
         self.write_policy()
         self.git("add", "--all")
+        for relative in sorted(self.executables):
+            self.git("update-index", "--chmod=+x", "--", relative)
 
     def git(self, *args: str) -> subprocess.CompletedProcess[str]:
         return run_git(self.root, *args, env=self.env)
@@ -154,6 +157,7 @@ class ProvenanceFixture:
         path.write_bytes(content)
         if executable:
             path.chmod(0o755)
+            self.executables.add(relative)
         return path
 
     def policy_payload(self) -> dict[str, object]:
@@ -412,7 +416,7 @@ class AutomationProvenanceTests(unittest.TestCase):
     def test_generated_drift_requires_an_exact_nonstale_exception(self) -> None:
         generated = self.fixture.root / "generated/tool.sh"
         manifest = json.loads(
-            (self.fixture.root / ".agentic-tooling/generated-manifest.json").read_text()
+            (self.fixture.root / ".agentic-tooling/generated-manifest.json").read_text(encoding="utf-8")
         )
         source_digest = manifest["files"][0]["sourceDigest"]
         self.fixture.write(
@@ -451,9 +455,11 @@ class AutomationProvenanceTests(unittest.TestCase):
         self.fixture.write("container/tool.sh", "#!/bin/sh\necho mirror\n")
         target.chmod(0o644)
         self.fixture.git("add", "container/tool.sh")
+        self.fixture.git("update-index", "--chmod=-x", "--", "container/tool.sh")
         self.assert_failure("mirror mode drift")
         target.chmod(0o755)
         self.fixture.git("add", "container/tool.sh")
+        self.fixture.git("update-index", "--chmod=+x", "--", "container/tool.sh")
         self.fixture.write("container/tool-stale.sh", "stale\n")
         self.fixture.git("add", "container/tool-stale.sh")
         self.assert_failure("stale tracked target")

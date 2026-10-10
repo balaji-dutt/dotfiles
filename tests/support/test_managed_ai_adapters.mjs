@@ -194,6 +194,7 @@ test("cited web search falls back and deduplicates Anthropic citations", async (
 test("quota compatibility caches usage without persisting bearer tokens", async (t) => {
   const envNames = [
     "HOME",
+    "USERPROFILE",
     "OPENCODE_QUOTA_ANTHROPIC_AUTH_REFRESH",
     "OPENCODE_QUOTA_ANTHROPIC_CACHE_TTL_MS",
   ];
@@ -208,6 +209,7 @@ test("quota compatibility caches usage without persisting bearer tokens", async 
   });
   const fixture = await managedFixture(t, ["opencode-quota-anthropic-compat.js"]);
   process.env.HOME = fixture.root;
+  if (process.platform === "win32") process.env.USERPROFILE = fixture.root;
   process.env.OPENCODE_QUOTA_ANTHROPIC_AUTH_REFRESH = "0";
   process.env.OPENCODE_QUOTA_ANTHROPIC_CACHE_TTL_MS = "60000";
   const originalFetch = globalThis.fetch;

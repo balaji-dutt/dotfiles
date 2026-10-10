@@ -47,7 +47,7 @@ class OpenCodePolicyTests(unittest.TestCase):
                 self.assertNotIn('temperature', agent, name)
 
     def setUp(self):
-        text = (ROOT / 'renovate.json5').read_text()
+        text = (ROOT / 'renovate.json5').read_text(encoding='utf-8')
         self.config = json.loads(re.sub(r'^\s*//.*$', '', text, flags=re.M))
 
     def extract(self, file_name):
@@ -58,7 +58,7 @@ class OpenCodePolicyTests(unittest.TestCase):
                 continue
             for pattern in manager['matchStrings']:
                 pattern = re.sub(r'\(\?<([A-Za-z]+)>', r'(?P<\1>', pattern)
-                for match in re.finditer(pattern, (ROOT / file_name).read_text()):
+                for match in re.finditer(pattern, (ROOT / file_name).read_text(encoding='utf-8')):
                     dep = match.groupdict()
                     dep.setdefault('depName', manager.get('depNameTemplate'))
                     dependencies.append((dep, manager))
@@ -91,7 +91,7 @@ class OpenCodePolicyTests(unittest.TestCase):
         self.assertEqual(version, container[0][0]['currentValue'])
 
     def test_review_loop_matcher_is_container_pinned(self):
-        packages = (ROOT / NPM).read_text().splitlines()
+        packages = (ROOT / NPM).read_text(encoding='utf-8').splitlines()
         pins = [item for item in packages if item.startswith('picomatch@')]
         self.assertEqual(len(pins), 1)
         self.assertRegex(pins[0], r'^picomatch@\d+\.\d+\.\d+$')
@@ -146,7 +146,7 @@ class OpenCodePolicyTests(unittest.TestCase):
             'private_dot_config/opencode/opencode.jsonc',
             'private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc',
         ):
-            self.assertRegex((ROOT / file_name).read_text(), r'"autoupdate"\s*:\s*false')
+            self.assertRegex((ROOT / file_name).read_text(encoding='utf-8'), r'"autoupdate"\s*:\s*false')
 
     def test_sol_agents_have_no_temperature_setting(self):
         for file_name in (

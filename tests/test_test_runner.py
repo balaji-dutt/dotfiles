@@ -103,6 +103,7 @@ class RunnerFixture:
             env=env,
             check=False,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -321,6 +322,41 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAIL alpha: exit 19", result.stdout)
         self.assertIn("SUMMARY pass=0 skip=0 fail=1", result.stdout)
+
+    def test_utf8_child_output_preserves_results_and_report(self) -> None:
+        report = self.fixture.root / "report.json"
+        self.fixture.write_script(
+            "pass.py",
+            "import sys\n"
+            "sys.stdout.buffer.write('stdout — ü\\n'.encode('utf-8'))\n"
+            "sys.stderr.buffer.write('stderr — ü\\n'.encode('utf-8'))\n",
+        )
+        self.fixture.write_script(
+            "fail.py",
+            "import sys\n"
+            "sys.stdout.buffer.write('failed — ü\\n'.encode('utf-8'))\n"
+            "sys.stderr.buffer.write('diagnostic — ü\\n'.encode('utf-8'))\n"
+            "raise SystemExit(23)\n",
+        )
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "fail.py"))
+        self.fixture.write_registry()
+
+        result = self.fixture.run(
+            "--report-file", str(report),
+            env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        for value in ("stdout — ü", "failed — ü"):
+            self.assertIn(value, result.stdout)
+        for value in ("stderr — ü", "diagnostic — ü"):
+            self.assertIn(value, result.stderr)
+        self.assertIn("PASS alpha", result.stdout)
+        self.assertIn("FAIL beta: exit 23", result.stdout)
+        self.assertIn("SUMMARY pass=1 skip=0 fail=1", result.stdout)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["totals"], {"fail": 1, "pass": 1, "skip": 0})
+        self.assertEqual([step["status"] for step in payload["steps"]], ["pass", "fail"])
 
     def test_invalid_registry_returns_two(self) -> None:
         self.fixture.steps[0]["argv"] = ["{python}", "{unsupported}"]

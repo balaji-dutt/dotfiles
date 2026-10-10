@@ -12,6 +12,8 @@ from unittest import mock
 
 from tests.support.fixtures import (
     BROKEN_RESOLVERS,
+    bash_argv,
+    compatible_bash,
     append_json_line,
     init_git_repository,
     isolated_environment,
@@ -83,15 +85,23 @@ class TestFixtureTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 7)
             self.assertEqual(result.stdout, "hello\n")
-            self.assertEqual(
-                read_json_lines(log),
-                [
-                    {
-                        "argv": ["two words", "literal;value"],
-                        "cwd": str(fixture.root.resolve()),
-                    }
-                ],
-            )
+            calls = read_json_lines(log)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["argv"], ["two words", "literal;value"])
+            self.assertTrue(Path(calls[0]["cwd"]).samefile(fixture.root))
+
+    def test_bash_launcher_probes_paths_and_preserves_arguments(self) -> None:
+        with isolated_environment() as fixture:
+            source = fixture.root / "checkout with spaces ü.sh"
+            source.write_text('printf "%s\\n" "$1" "$2"\n', encoding="utf-8")
+            self.assertIsNone(compatible_bash(fixture.root / "absent.sh", fixture.root))
+            bash = compatible_bash(source, fixture.root)
+            if bash is None:
+                self.skipTest("no Bash can reach the fixture")
+            result = subprocess.run(bash_argv(bash, source, "two words", "ü;literal"),
+                                    capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ["two words", "ü;literal"])
 
     def test_json_helpers_are_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

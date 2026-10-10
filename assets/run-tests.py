@@ -414,7 +414,7 @@ def _run_posix_step(
 ) -> tuple[str, str, int | None, str | None]:
     try:
         process = subprocess.Popen(
-            command, cwd=repo_root, env=env, text=True,
+            command, cwd=repo_root, env=env, text=True, encoding="utf-8",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
         )
     except OSError as error:
@@ -494,7 +494,8 @@ def run_steps(
             if os.name == "nt":
                 result = subprocess.run(
                     command, cwd=repo_root, env=step_env, check=False,
-                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8",
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 )
                 stdout, stderr, returncode, failure_reason = (
                     result.stdout, result.stderr, result.returncode, None
@@ -591,6 +592,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     args = parse_args(sys.argv[1:] if argv is None else argv)
     repo_root = args.repo_root.resolve()
     registry_path = args.registry or repo_root / "configs" / "test-suites.json"

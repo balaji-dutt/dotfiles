@@ -22,8 +22,8 @@ const quiet = () => {};
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: windows ? 'NUL' : os.devNull, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
 delete gitEnv.AI_ATTESTATION_JSON;
 
-async function temporary(t) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'attestation ü '));
+async function temporary(t, prefix = 'attestation ü ') {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   return dir;
 }
@@ -600,7 +600,7 @@ test('actual commit wrappers consume invocation-local provenance and preserve fa
 });
 
 test('worktree helper commits with the real actor wrapper and collector handoff', async t => {
-  const root = await temporary(t), bin = path.join(root, 'bin');
+  const root = await temporary(t, windows ? 'attestation merge ' : 'attestation ü '), bin = path.join(root, 'bin');
   await fs.mkdir(bin);
   for (const [actor, prefix] of [['opencode', 'oc'], ['claude', 'cc']]) {
     const wrapper = path.join(bin, `${prefix}-commit${windows ? '.ps1' : ''}`);

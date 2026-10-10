@@ -16,17 +16,17 @@ class AgentAttestationTests(unittest.TestCase):
             for source in (root / relative).rglob('*'):
                 if source.is_file():
                     self.assertEqual(source.read_bytes(), (container / source.relative_to(root)).read_bytes())
-        rules = (root / '.chezmoiignore').read_text()
+        rules = (root / '.chezmoiignore').read_text(encoding='utf-8')
         self.assertIn('!.config/opencode/attestation/**', rules)
-        mirrors = (root / 'configs/devcontainer-sync.jsonc').read_text()
+        mirrors = (root / 'configs/devcontainer-sync.jsonc').read_text(encoding='utf-8')
         self.assertLess(mirrors.index('agent-attestation-shared'), mirrors.index('opencode-user-config'))
 
     @unittest.skipUnless(shutil.which("node"), "Node is required")
     def test_behavior(self):
         root = Path(__file__).resolve().parents[1]
         result = subprocess.run(
-            ["node", "--test", "tests/support/test_agent_attestation.mjs"],
-            cwd=root, capture_output=True, text=True, timeout=120,
+            ["node", "--test", "--test-reporter=tap", "tests/support/test_agent_attestation.mjs"],
+            cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

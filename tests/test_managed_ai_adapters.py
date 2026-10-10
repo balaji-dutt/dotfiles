@@ -9,14 +9,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support.fixtures import isolated_environment, write_executable
+from tests.support.fixtures import compatible_bash, isolated_environment, write_executable, write_python_command
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NODE_TEST = REPO_ROOT / "tests" / "support" / "test_managed_ai_adapters.mjs"
 BD_GATE = REPO_ROOT / "dot_claude" / "hooks" / "executable_gate-bd-destructive.sh"
 EXITPLAN_GUARD = REPO_ROOT / "dot_claude" / "hooks" / "executable_exitplan-freshness-guard.py"
-BASH = shutil.which("bash")
+BASH = compatible_bash(BD_GATE, Path(tempfile.gettempdir()))
 
 
 class ManagedNodeAdapterTests(unittest.TestCase):
@@ -32,10 +32,11 @@ class ManagedNodeAdapterTests(unittest.TestCase):
             }
             env["DOTFILES_TEST_REPO"] = str(REPO_ROOT)
             result = subprocess.run(
-                [node, "--test", str(NODE_TEST)],
+                [node, "--test", "--test-reporter=tap", str(NODE_TEST)],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
@@ -69,7 +70,7 @@ if 'agent_type' in query:
 elif 'tool_input.command' in query:
     print((payload.get('tool_input') or {{}}).get('command') or '')
 """
-        write_executable(self.isolated.fake_bin / "jq", jq)
+        write_python_command(self.isolated.fake_bin, "jq", jq)
 
     def run_gate(self, agent: str | None, command: str | None) -> subprocess.CompletedProcess[str]:
         payload: dict[str, object] = {}

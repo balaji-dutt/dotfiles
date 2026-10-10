@@ -10,7 +10,7 @@ import { createPluginFixture, wait } from "./node-plugin-fixture.mjs";
 const markerName = "review-loop-marker.js";
 const enforcerName = "review-loop-enforcer.js";
 const gateName = "review-loop-gate.js";
-process.env.GIT_CONFIG_GLOBAL = os.devNull;
+process.env.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : os.devNull;
 process.env.GIT_CONFIG_NOSYSTEM = "1";
 for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) {
   delete process.env[key];
@@ -112,6 +112,7 @@ test("Bash hooks handle creation, deletion, rename, symlink, and mode", async (t
   await rm(gate("kinds"));
   await run("mode-link", async () => {
     await chmod(fixture.path("src", "mode.sh"), 0o755);
+    if (process.platform === "win32") git(fixture.root, "update-index", "--chmod=+x", "src/mode.sh");
     await rm(fixture.path("src", "link.js"));
     await symlink("renamed.js", fixture.path("src", "link.js"));
   });
