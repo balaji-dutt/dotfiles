@@ -134,7 +134,7 @@ alias lt=" LC_COLLATE=C ls -lahtr --color=always"
 alias less="less -R"
 alias more="less -R -X"
 alias cz="chezmoi"
-alias czp="chezmoi --config $HOME/.config/chezmoi-private/chezmoi.toml --source $HOME/development/private-dotfiles"
+alias czp='chezmoi --config "$HOME/.config/chezmoi-private/chezmoi.toml"'
 
 {{- $isWSL := false -}}
 {{- if eq .chezmoi.os "linux" -}}

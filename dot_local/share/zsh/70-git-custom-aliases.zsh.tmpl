@@ -4,5 +4,5 @@ if [ -r "${HOME}/.local/share/git-helpers.zsh" ]; then
 fi
 
 # Custom aliases
-alias czp='cz --config "$HOME/.config/chezmoi-private/chezmoi.toml" --source "$HOME/Documents/development/private-dotfiles"'
+alias czp='cz --config "$HOME/.config/chezmoi-private/chezmoi.toml"'
 alias dotupdate='cz apply && czp apply && antidote update && mise upgrade'
