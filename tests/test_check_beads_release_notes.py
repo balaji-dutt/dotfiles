@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import re
 import subprocess
@@ -381,6 +382,66 @@ class BeadsReleaseFetchTests(unittest.TestCase):
         self.assertEqual(len(releases), 2)
         self.assertEqual(opener.requests, [HELPER.API_URL, page_two])
 
+    def test_fetch_follows_numeric_and_mixed_release_pages(self) -> None:
+        numeric = "https://api.github.com/repositories/1074561042/releases?per_page=100&page=2"
+        named = HELPER.API_URL + "&page=3"
+        opener = FakeOpener(
+            [
+                FakeResponse(
+                    [release("v1.2.2")],
+                    url=numeric,
+                    link=f'<{numeric}>; rel="next"',
+                ),
+                FakeResponse(
+                    [release("v1.2.3")],
+                    url=HELPER.API_URL,
+                    link=f'<{named}>; rel="next"',
+                ),
+                FakeResponse([release("v1.2.4")], url=numeric),
+            ]
+        )
+
+        releases = HELPER.fetch_releases(1.0, opener=opener)
+
+        self.assertEqual([item["tag_name"] for item in releases], ["v1.2.2", "v1.2.3", "v1.2.4"])
+        self.assertEqual(opener.requests, [HELPER.API_URL, numeric, named])
+
+    def test_fetch_rejects_untrusted_release_links_before_request(self) -> None:
+        bad_urls = (
+            "https://api.github.com/repositories/1074561043/releases?page=2",
+            "https://api.github.com/repositories/1074561042/releases/1?page=2",
+            "https://api.github.com/repositories/1074561042/releases%2F?page=2",
+            "https://api.github.com/repositories/1074561042/contents/file?page=2",
+            "https://api.github.com/repos/gastownhall/beads/releases/1?page=2",
+            "https://example.com/repositories/1074561042/releases?page=2",
+            "https://api.github.com.evil.invalid/repositories/1074561042/releases?page=2",
+            "http://api.github.com/repositories/1074561042/releases?page=2",
+            "https://api.github.com:443/repositories/1074561042/releases?page=2",
+            "https://user:pass@api.github.com/repositories/1074561042/releases?page=2",
+            "https://api.github.com/repositories/1074561042/releases?page=2#fragment",
+        )
+        for bad_url in bad_urls:
+            with self.subTest(url=bad_url):
+                opener = FakeOpener(
+                    [FakeResponse([], url=HELPER.API_URL, link=f'<{bad_url}>; rel="next"')]
+                )
+                with self.assertRaisesRegex(HELPER.GuardError, "outside the Beads GitHub API"):
+                    HELPER.fetch_releases(1.0, opener=opener)
+                self.assertEqual(opener.requests, [HELPER.API_URL])
+
+    def test_fetch_rejects_untrusted_release_response_url(self) -> None:
+        for bad_url in (
+            "https://api.github.com/repositories/1074561043/releases",
+            "https://api.github.com/repositories/1074561042/releases/1",
+            "https://api.github.com/repositories/1074561042/releases%2F",
+            "https://example.com/repositories/1074561042/releases",
+        ):
+            with self.subTest(url=bad_url):
+                opener = FakeOpener([FakeResponse([], url=bad_url)])
+                with self.assertRaisesRegex(HELPER.GuardError, "outside the Beads GitHub API"):
+                    HELPER.fetch_releases(1.0, opener=opener)
+                self.assertEqual(opener.requests, [HELPER.API_URL])
+
     def test_fetch_rejects_untrusted_pagination_and_redirects(self) -> None:
         opener = FakeOpener(
             [
@@ -414,8 +475,14 @@ class BeadsReleaseFetchTests(unittest.TestCase):
         with self.assertRaisesRegex(HELPER.GuardError, "contents URL outside the Beads GitHub API"):
             HELPER.fetch_clone_local_fks_source(version, 1.0, opener=FakeOpener([moved]))
 
+        numeric = FakeResponse(None, url="https://api.github.com/repositories/1074561042/releases")
+        numeric_opener = FakeOpener([numeric])
+        with self.assertRaisesRegex(HELPER.GuardError, "contents URL outside the Beads GitHub API"):
+            HELPER.fetch_clone_local_fks_source(version, 1.0, opener=numeric_opener)
+        self.assertEqual(numeric_opener.requests, [url])
+
     def test_missing_clone_local_fks_source_fails_closed(self) -> None:
-        error = urllib.error.HTTPError(HELPER.CONTENTS_API_PATH, 404, "Not Found", {}, None)
+        error = urllib.error.HTTPError(HELPER.CONTENTS_API_PATH, 404, "Not Found", {}, io.BytesIO())
         try:
             with self.assertRaisesRegex(HELPER.GuardError, "HTTP 404 .* re-verify the clone-local FK list"):
                 HELPER.fetch_clone_local_fks_source(
@@ -430,7 +497,7 @@ class BeadsReleaseFetchTests(unittest.TestCase):
             403,
             "Forbidden",
             {"X-RateLimit-Remaining": "0"},
-            None,
+            io.BytesIO(),
         )
         try:
             with self.assertRaisesRegex(HELPER.GuardError, "rate limit exhausted"):
