@@ -1043,10 +1043,10 @@ install_better_beads_kanban_vscode_extension() {
   local current_sha tmp_file list_output install_output
 
   repo="balajidutt/better-beads-kanban"
-  fork_version="2.2.2"
+  fork_version="2.2.3"
   tag="v${fork_version}"
   asset="better-beads-kanban-${fork_version}.vsix"
-  expected_sha="7bf8f1073d527424bcfc46dde132a79b35f013d28209f21a0efa67169d8afcfa"
+  expected_sha="a26fde048fa4b637e9759ce7f1a2eb6caa3ca79e324aa56e86068586199efc4d"
   fork_extension_id="balaji-dutt.better-beads-kanban"
   legacy_fork_extension_id="balaji-dutt.beads-kanban-bd-fixes"
   upstream_extension_id="davidcforbes.beads-kanban"
