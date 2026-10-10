@@ -12,7 +12,7 @@
 
   // Default model (agents override this).
   // OpenCode selects models as `provider_id/model_id`.
-  "model": "openai/gpt-6-sol",
+  "model": "openai/gpt-6.1-sol",
   "small_model": "openai/gpt-6-luna",
 
   // ----------------------------
@@ -500,8 +500,8 @@
   "agent": {
     "plan": {
       "mode": "primary",
-      "description": "Read-only planning with Astra/high and retained self-critique.",
-      "model": "openai/gpt-6-astra",
+      "description": "Read-only planning with Sol/high and retained self-critique.",
+      "model": "openai/gpt-6.1-sol",
       "prompt": "{file:./prompts/plan-agent.md}",
       "reasoningEffort": "high",
       "permission": {
@@ -518,7 +518,7 @@
     "plan-GPT-xhigh": {
       "mode": "primary",
       "description": "Read-only complex planning with Sol/xhigh and independent plan review.",
-      "model": "openai/gpt-6-sol",
+      "model": "openai/gpt-6.1-sol",
       "prompt": "{file:./prompts/plan-gpt-xhigh-agent.md}",
       "reasoningEffort": "xhigh",
       "permission": {
@@ -537,7 +537,7 @@
     "build": {
       "mode": "primary",
       "description": "Default editing agent",
-      "model": "openai/gpt-6-sol",
+      "model": "openai/gpt-6.1-sol",
       "reasoningEffort": "high",
       "permission": {
         "edit": {
@@ -551,7 +551,7 @@
     "special-builder": {
       "mode": "primary",
       "description": "Agent for meta-level and infrastructural work ",
-      "model": "openai/gpt-6-sol",
+      "model": "openai/gpt-6.1-sol",
       "reasoningEffort": "xhigh",
       "permission": {
         "task": {
@@ -572,7 +572,7 @@
     "agent-engineer": {
       "mode": "primary",
       "description": "meta-agent that designs, builds, evaluates, and packages AI agent systems",
-      "model": "openai/gpt-6-sol",
+      "model": "openai/gpt-6.1-sol",
       "reasoningEffort": "xhigh",
       "permission": {
         "task": {

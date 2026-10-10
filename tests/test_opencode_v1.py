@@ -36,14 +36,16 @@ def render(template: str, target_os: str) -> str:
 
 
 class OpenCodePolicyTests(unittest.TestCase):
-    def assert_sol_agent_policy(self, config):
-        expected = {'plan-GPT-xhigh', 'build', 'special-builder', 'agent-engineer'}
+    def assert_sol_agent_policy(self, config, file_name):
+        expected = {'plan', 'plan-GPT-xhigh', 'build', 'special-builder', 'agent-engineer'}
         agents = config['agent']
-        self.assertEqual(agents['plan']['model'], 'openai/gpt-6-astra', 'plan')
+        self.assertEqual(config['model'], 'openai/gpt-6.1-sol')
+        self.assertEqual(config['small_model'], 'openai/gpt-6-luna')
+        self.assertIn('model: openai/gpt-6-astra', (ROOT / file_name).parent.joinpath('agents/plan-reviewer.md').read_text())
         for name in expected:
-            self.assertEqual(agents[name]['model'], 'openai/gpt-6-sol', name)
+            self.assertEqual(agents[name]['model'], 'openai/gpt-6.1-sol', name)
         for name, agent in agents.items():
-            if agent.get('model') == 'openai/gpt-6-sol':
+            if agent.get('model') == 'openai/gpt-6.1-sol':
                 self.assertNotIn('temperature', agent, name)
 
     def setUp(self):
@@ -155,12 +157,12 @@ class OpenCodePolicyTests(unittest.TestCase):
         ):
             with self.subTest(file_name=file_name):
                 config = LOAD_JSON(ROOT / file_name, jsonc=True)
-                self.assert_sol_agent_policy(config)
+                self.assert_sol_agent_policy(config, file_name)
                 synthetic = dict(config, agent=dict(config['agent'], **{
-                    'future-sol': {'model': 'openai/gpt-6-sol', 'temperature': 0.2},
+                    'future-sol': {'model': 'openai/gpt-6.1-sol', 'temperature': 0.2},
                 }))
                 with self.assertRaises(AssertionError):
-                    self.assert_sol_agent_policy(synthetic)
+                    self.assert_sol_agent_policy(synthetic, file_name)
 
     def assert_plan_trial_policy(self, global_config, project_config):
         def merge(base, overlay):
@@ -212,7 +214,7 @@ class OpenCodePolicyTests(unittest.TestCase):
         ):
             with self.subTest(file_name=file_name):
                 global_config = LOAD_JSON(ROOT / file_name, jsonc=True)
-                self.assert_sol_agent_policy(global_config)
+                self.assert_sol_agent_policy(global_config, file_name)
                 self.assert_plan_trial_policy(global_config, project_config)
 
     def test_plan_trial_policy_rejects_drift(self):
