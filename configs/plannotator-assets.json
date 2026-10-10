@@ -19,7 +19,7 @@
     {
       "path": "dot_claude/skills/plannotator-review/SKILL.md",
       "source_path": "apps/skills/claude/plannotator-review/SKILL.md",
-      "sha256": "4bd390eca2ad8c13d1077005b5e3cb2d4f380b8a48c1eb51cbc6192430e3477d"
+      "sha256": "72b16197cea38aae044f485650f7444a6bbbc2f331e8be5a26da801268bd505c"
     },
     {
       "path": "private_dot_config/opencode/commands/plannotator-annotate.md",
@@ -34,7 +34,7 @@
     {
       "path": "private_dot_config/opencode/commands/plannotator-review.md",
       "source_path": "apps/opencode-plugin/commands/plannotator-review.md",
-      "sha256": "64d7ac18f242e26cafacc13f87ea3f19324d0b017e1bfeed1a0007c57892eec6"
+      "sha256": "4393f6523d7fd618a42106cad8fccfede30b184f08985d3ef82bbb8e2b9ca007"
     }
   ]
 }

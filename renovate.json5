@@ -130,7 +130,10 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^dot_claude\\/settings-base\\.json$/"],
+      "managerFilePatterns": [
+        "/^dot_claude\\/settings-base\\.json$/",
+        "/^private_Documents\\/development\\/container-dotfiles\\/dotfiles\\/dot_claude\\/settings-base\\.json$/"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "backnotprop/plannotator",
       "extractVersionTemplate": "^v(?<version>.*)$",
