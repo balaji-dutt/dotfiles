@@ -946,7 +946,7 @@
         "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py"],
         "behavior_requirements": []
       },
-      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, and shared fixtures."
+      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, and POSIX step timeout/process-group teardown. Native Windows retains its unsupervised execution branch."
     },
     {
       "id": "user-utilities",
