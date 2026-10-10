@@ -14,7 +14,8 @@ that OpenCode and Renovate create in this repository. GitLab
 protected branches, which today means only `main`, to
 `github.com/balaji-dutt/dotfiles` without changing SHAs or identities. The
 GitHub results described here therefore apply only to commits that land on
-`main`.
+`main`. Those mirrored commits also trigger the advisory `platform-fast`
+workflow; attribution is read from the commit objects and is unaffected.
 
 Decision record: [ADR 0004](../decisions/0004-github-attribution-coauthor-trailers.md).
 Decided 2026-09-25 under `dots-a0jr.1`. Implementation is tracked by

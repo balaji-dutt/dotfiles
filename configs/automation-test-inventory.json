@@ -479,6 +479,19 @@
       "rationale": "Synthetic gh and SSH transports exercise complete merge, push-check, and evidence lifecycle behavior without provider access or installed-hook changes. GitLab Git-ref operations and topology selection retain their existing compatibility entrypoints."
     },
     {
+      "id": "github-platform-matrix",
+      "classification": "owned",
+      "paths": [".github/workflows/platform-fast.yml"],
+      "owner": {"kind": "repository", "name": "advisory GitHub Actions platform matrix"},
+      "languages": ["yaml"],
+      "platforms": ["ci", "linux", "macos", "windows"],
+      "risk": "low",
+      "side_effects": ["network", "process"],
+      "test_layers": ["static"],
+      "coverage": {"suite_id": "github-platform-fast", "status": "covered", "work_item": "dots-4jy.10.21", "test_paths": ["tests/test_github_workflows.py"], "behavior_requirements": []},
+      "rationale": "The workflow runs the fast suite on GitHub-hosted ubuntu, macos, and windows runners from the GitLab push mirror as advisory evidence; it never gates a merge because no configs/pipeline-guard.json exists, so a static contract test over its triggers, matrix, pins, and artifact upload is the proportionate layer."
+    },
+    {
       "id": "guarded-main-sync",
       "classification": "owned",
       "paths": ["assets/gitlab_pipeline_runtime.py", "assets/guarded-main-sync"],

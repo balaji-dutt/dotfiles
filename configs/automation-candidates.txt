@@ -61,6 +61,7 @@
 .claude/hooks/remind-beads-on-plan-approval.sh	script-extension,shebang
 .claude/hooks/snapshot-before-bash.sh	script-extension,shebang
 .envrc	known-automation-file,shebang
+.github/workflows/platform-fast.yml	known-automation-file
 .gitlab-ci.yml	known-automation-file
 .opencode/plugins/editor-markdownlint-suppress.js	script-extension
 .opencode/plugins/event-tap.js	script-extension
@@ -399,6 +400,7 @@ tests/test_ffpwa_refresh.py	script-extension
 tests/test_git_template_hook_sync.py	script-extension
 tests/test_git_user_hooks.py	script-extension
 tests/test_github_pipeline.py	script-extension
+tests/test_github_workflows.py	script-extension
 tests/test_github_worktree_merge.py	script-extension
 tests/test_gitlab_ci.py	script-extension
 tests/test_gitlab_pipeline_guard.py	script-extension

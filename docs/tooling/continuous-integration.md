@@ -9,11 +9,15 @@
 # Continuous Integration
 
 GitLab CI provides a clean Linux check for short-lived feature branches and an
-opt-in native Windows lane. It is not a multi-device file-distribution system:
+opt-in native Windows lane. An advisory GitHub Actions matrix runs the `fast`
+suite on hosted Linux, macOS, and Windows for commits the push mirror carries
+(see [GitHub mirror matrix](#github-mirror-matrix-advisory)). CI is not a
+multi-device file-distribution system:
 Git remains responsible for moving commits between devices, while CI verifies a
 pushed commit independently of the development host.
 
-The policy favors useful feedback within the GitLab Free compute allowance.
+The policy favors useful feedback within the GitLab Free compute allowance;
+the GitHub matrix runs on the public-repo allowance and costs nothing here.
 Only the `fast` Linux suite is automatic. Full Linux, Windows, and disposable
 devcontainer runs are manual, and superseded automatic jobs are interruptible.
 
@@ -273,12 +277,58 @@ No CI cache is configured. `linux-fast` setup requires network access to
 nodejs.org; the tests themselves require no credentials, production Beads
 database, or live network.
 
-The Node-only trial retains the 22 registered fast steps. Further admissions
+The Node-only trial retains the 32 registered fast steps. Further admissions
 require representative hosted timing within a provisional 75-second whole-job
 target and a combined namespace forecast of at most 320 compute minutes per
 month, including the separate Renovate runner. This reserves 80 of the shared
 400 minutes. Setup and retries count toward the budget; local container timing
 does not establish hosted performance. The hard job timeout remains 10 minutes.
+
+## GitHub mirror matrix (advisory)
+
+`.github/workflows/platform-fast.yml` runs `./assets/run-tests.sh fast
+--require-capabilities` (the PowerShell entrypoint on Windows) on
+`ubuntu-latest`, `macos-latest`, and `windows-latest`, and uploads each
+platform's `--report-file` JSON as an artifact for seven days. It exists to
+answer a question GitLab Free cannot: what the `fast` suite does on hosted
+macOS and Windows. The answer feeds the decision on whether to make GitHub the
+canonical forge; it is not a merge gate.
+
+When it runs: GitLab push-mirrors protected branches, which today means only
+`main`, to `github.com/balaji-dutt/dotfiles`, so the matrix runs after each
+landing and on manual dispatch from the Actions tab. The `push` trigger ignores
+`renovate/**` so a wider mirror later would not spend macOS queue time on
+dependency bumps. Superseded runs are cancelled on every ref except `main`, so
+each landing keeps its own data point. Actions must be enabled on the mirror
+repository once.
+
+Why it cannot gate: the merge helper selects its provider from
+`configs/pipeline-guard.json`, which does not exist here, and a main-only
+mirror can never supply the feature-branch and `ci/<main>/<sha>` evidence the
+GitHub contract needs (see [GitHub Actions opt-in](#github-actions-opt-in)).
+`tests/test_github_workflows.py` asserts the policy file stays absent.
+
+Why Windows is `continue-on-error`: the `fast` suite already has known Windows
+failures (see [Why `windows-all` stays advisory](#why-windows-all-stays-advisory)),
+so a blocking Windows job would be red from the first run and drown the macOS
+and Linux signal. Linux and macOS do fail the workflow; a red run there is the
+data this matrix collects. Runtimes are pinned to the GitLab lane (Python 3.13,
+Node 24.21.0) so a difference is a platform difference. Actions are pinned by
+major tag; Renovate's `enabledManagers` allowlist excludes `github-actions`,
+so those pins only move by hand.
+
+Reading results:
+
+```sh
+gh run list -R balaji-dutt/dotfiles --workflow platform-fast.yml --limit 10
+gh run download -R balaji-dutt/dotfiles <run-id>
+```
+
+Record per run: wall time per OS, the failing step ids from each
+`fast-<os>.json`, and whether a failure is a test fixture gap or a product
+difference. The spike ends when three consecutive runs on `main` give a stable
+answer per platform; the forge decision and any Windows fixes are separate
+Beads (`dots-4jy.10.21` tracks the spike).
 
 ## Main-push guard
 
@@ -511,12 +561,13 @@ Beads-Kanban is a worked example, never a hardcoded repository or matrix contrac
 
 | Platform | CI status | Canonical command | Requirement or gap |
 | --- | --- | --- | --- |
-| Linux | automatic fast; manual all | `./assets/run-tests.sh fast` / `all` | GitLab Debian hosted runner |
+| Linux | automatic fast; manual all | `./assets/run-tests.sh fast` / `all` | GitLab Debian hosted runner; advisory `platform-fast` on the GitHub mirror |
 | WSL2 | represented by Linux, not native | `./assets/run-tests.sh all` | no hosted WSL2 runner; Linux does not prove `op.exe` versus `op` selection. Local native evidence: `./assets/peer-env test all <suite>` from macOS while the WSL2 peer is reachable (`docs/tooling/peer-environments.md`) |
-| Native Windows | manual all | `pwsh -NoProfile -File ./assets/run-tests.ps1 all` | current Windows hosted-runner beta or equivalent self-hosted tag |
-| macOS | local only | `./assets/run-tests.sh all` | hosted macOS is not available on the current Free plan. From WSL2, `./assets/peer-env test all <suite>` runs it on the MacBook while it is reachable |
+| Native Windows | manual all | `pwsh -NoProfile -File ./assets/run-tests.ps1 all` | current Windows hosted-runner beta or equivalent self-hosted tag; advisory `fast` via `platform-fast` on the GitHub mirror |
+| macOS | local only; advisory `fast` on the GitHub mirror | `./assets/run-tests.sh all` | hosted macOS is not available on the GitLab Free plan; `platform-fast` runs `fast` on GitHub-hosted macOS after each landing. From WSL2, `./assets/peer-env test all <suite>` runs it on the MacBook while it is reachable |
 | Devcontainer | manual, non-blocking when a tagged runner exists | `DEVCONTAINER_SMOKE=1 python3 assets/devcontainer-smoke.py --run` | requires a self-hosted `devcontainer-smoke` runner with the preloaded image; otherwise the registered live step skips locally |
 
 Missing optional tools remain explicit runner skips unless a lane names them
 with `--require-capability`. A platform is not reported as passing when no runner
-has executed its command.
+has executed its command, and the advisory GitHub matrix does not count as the
+canonical pass for any row.

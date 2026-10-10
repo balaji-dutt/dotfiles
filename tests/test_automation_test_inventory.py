@@ -206,6 +206,7 @@ class AutomationInventoryTests(unittest.TestCase):
     def test_candidate_listing_is_sorted_and_explains_signals(self) -> None:
         candidates = {
             ".claude/hooks/check.js": "export const hook = true;\n",
+            ".github/workflows/ci.yml": "on: push\n",
             ".chezmoiscripts/run_after_setup.ps1.tmpl": "Write-Output 'ok'\n",
             ".envrc": "#!/bin/sh\nexport FIXTURE=1\n",
             ".gitlab-ci.yml": "job:\n  script: echo ok\n",
@@ -229,6 +230,7 @@ class AutomationInventoryTests(unittest.TestCase):
             self.assertIn(path, listed)
         self.assertNotIn("data/arbitrary.yml", listed)
         self.assertIn("tool.ps1\tscript-extension", result.stdout)
+        self.assertIn(".github/workflows/ci.yml\tknown-automation-file", result.stdout)
         self.assertIn("templates/extensionless\tshebang", result.stdout)
 
     def test_executable_mode_discovers_extensionless_file(self) -> None:
