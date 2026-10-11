@@ -136,6 +136,7 @@ bin/executable_repo-ops	chezmoi-executable,shebang
 bin/executable_sync-devcontainer-all.sh.tmpl	chezmoi-executable,script-extension,shebang
 bin/executable_vnc_monitor.sh	chezmoi-executable,script-extension,shebang
 bin/executable_wsl-open	chezmoi-executable,shebang
+bin/executable_wsl2-pageant.py.tmpl	chezmoi-executable,script-extension,shebang
 bootstrap-wsl.sh	executable-mode,script-extension,shebang
 brewfile.txt	executable-mode
 configs/espanso/aoe-session-name.py	script-extension,shebang
@@ -442,4 +443,5 @@ tests/test_user_command_wrappers.py	script-extension
 tests/test_windows_lifecycle_boundaries.py	script-extension
 tests/test_windows_notify.py	script-extension
 tests/test_windows_shell.py	script-extension
+tests/test_wsl2_pageant.py	script-extension
 tests/test_wsl_lifecycle_boundaries.py	script-extension

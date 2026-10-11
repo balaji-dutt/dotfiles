@@ -23,11 +23,16 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import codecs
+import contextvars
 import fnmatch
 import glob
 import json
+import math
 import os
 import re
+import secrets
+import selectors
 import shlex
 import shutil
 import signal
@@ -35,7 +40,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -51,6 +55,16 @@ SUITES = ("fast", "integration", "render", "provenance", "platform", "all")
 DEFAULT_TTL = 300
 DEFAULT_CONNECT_TIMEOUT = 3
 DEFAULT_RUN_TIMEOUT = 900
+RUN_CAPABILITY = "run-lifecycle-v1"
+CACHE_VERSION = 2
+PUBLISH_TIMEOUT = 120
+PREPARE_TIMEOUT = 60
+CLEANUP_TIMEOUT = 60
+STOP_GRACE = 10
+TRANSPORT_MARGIN = 30
+DIAGNOSTIC_LIMIT = 20 * 1024 * 1024
+DIAGNOSTIC_RUNS = 20
+LOCAL_DEADLINE = contextvars.ContextVar("peer_env_deadline", default=None)
 CONTROL_PERSIST = 120
 MAX_SOCKET_PATH = 103
 CONTROL_TEMP_SUFFIX = 17  # OpenSSH binds ControlPath as "<path>.<16 random chars>" first
@@ -116,6 +130,64 @@ class PeerBusy(Exception):
 
 class Refused(Exception):
     """A request the peer side refuses; exit 2 on the peer."""
+
+
+class RunCancelled(Exception):
+    def __init__(self, signum: int) -> None:
+        self.code = 128 + signum
+        super().__init__(f"cancelled by signal {signum}")
+
+
+def run_timeout(value: str | float) -> float:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as error:
+        raise ConfigError("timeout must be finite and in (0, 86400] seconds") from error
+    if not math.isfinite(seconds) or not 0 < seconds <= 86400:
+        raise ConfigError("timeout must be finite and in (0, 86400] seconds")
+    return seconds
+
+
+def private_directory(directory: Path) -> None:
+    if directory.is_symlink():
+        raise Refused(f"symlinked state directory: {directory}")
+    if not directory.exists():
+        if not directory.parent.exists():
+            private_directory(directory.parent)
+        if directory.parent.is_symlink():
+            raise Refused(f"symlinked state parent: {directory.parent}")
+        directory.mkdir(mode=0o700)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise Refused(f"state directory must be owned by this user and private: {directory}")
+    directory.chmod(0o700)
+
+
+def capture(argv: list[str], *, timeout: float, input_text: str | None = None, **kwargs) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(argv, start_new_session=True, **kwargs)
+    try:
+        output, error = process.communicate(input_text, timeout=timeout)
+        return subprocess.CompletedProcess(argv, process.returncode, output, error)
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=STOP_GRACE)
+        raise
+    finally:
+        for handle in (process.stdin, process.stdout, process.stderr):
+            if handle is not None:
+                handle.close()
+
+
+def group_alive(pgid: int, env: dict[str, str]) -> bool:
+    result = capture(["ps", "-axo", "pgid=,stat="], env=env, text=True,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
+    if result.returncode:
+        raise Refused("cannot verify child process-group shutdown")
+    return any(int(fields[0]) == pgid and not fields[1].startswith("Z")
+               for line in result.stdout.splitlines() if len(fields := line.split()) == 2)
 
 
 @dataclass(frozen=True)
@@ -414,14 +486,13 @@ def ssh_capture(
 ) -> tuple[subprocess.CompletedProcess[str] | None, bool]:
     argv = ssh_argv(peer, request, environ, connect_timeout=connect_timeout)
     try:
-        result = subprocess.run(
+        result = capture(
             argv,
             env=dict(environ),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=False,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -439,14 +510,21 @@ def ssh_stream(
     argv = ssh_argv(peer, request, environ)
     sys.stdout.flush()
     sys.stderr.flush()
-    process = subprocess.Popen(argv, env=dict(environ), stdin=subprocess.DEVNULL)
+    process = subprocess.Popen(argv, env=dict(environ), stdin=subprocess.DEVNULL, start_new_session=True)
     try:
         return process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.kill()
+        os.killpg(process.pid, signal.SIGKILL)
         process.wait()
         print(f"{SCRIPT_NAME}: timed out after {int(timeout)}s on {peer.name}", file=sys.stderr)
         return EXIT_TIMEOUT
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=STOP_GRACE)
+        raise
 
 
 # --------------------------------------------------------------------------
@@ -510,6 +588,8 @@ def classify(
         return make("serve-missing", f"{detail}; the peer checkout lacks assets/peer-env serve or is behind main")
     if identity.get("protocol") != PROTOCOL:
         return make("protocol-mismatch", f"peer speaks {identity.get('protocol')!r}, client speaks {PROTOCOL!r}")
+    if RUN_CAPABILITY not in identity.get("capabilities", []):
+        return make("protocol-mismatch", f"peer lacks {RUN_CAPABILITY}; server-first rollout required")
     remote_platform = identity.get("platform", "unknown")
     if remote_platform != peer.platform:
         return make(
@@ -563,13 +643,13 @@ def load_cache(
     config: Config,
     environ: dict[str, str] | os._Environ[str],
     ttl: int,
-) -> tuple[dict[str, ProbeResult], float] | None:
+) -> tuple[dict[str, ProbeResult], float, dict] | None:
     path = cache_path(environ)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
+    if not isinstance(payload, dict) or payload.get("cache_version") != CACHE_VERSION:
         return None
     if payload.get("self_platform") != config.self_platform:
         return None
@@ -584,7 +664,7 @@ def load_cache(
         }
     except TypeError:
         return None
-    return results, float(checked_at)
+    return results, float(checked_at), payload.get("agent", {})
 
 
 def save_cache(
@@ -592,15 +672,18 @@ def save_cache(
     results: dict[str, ProbeResult],
     environ: dict[str, str] | os._Environ[str],
     checked_at: float,
+    agent: dict | None = None,
 ) -> None:
     path = cache_path(environ)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    private_directory(path.parent)
     payload = {
         "schema_version": SCHEMA_VERSION,
+        "cache_version": CACHE_VERSION,
         "self_platform": config.self_platform,
         "config_fingerprint": config.fingerprint,
         "checked_at": checked_at,
         "peers": {name: result.to_json() for name, result in results.items()},
+        "agent": agent or {},
     }
     handle = tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8")
     with handle:
@@ -617,16 +700,26 @@ def resolve_probe(
     fresh: bool,
     ttl: int,
     connect_timeout: int | None,
+    agent: dict | None = None,
 ) -> tuple[dict[str, ProbeResult], bool, float]:
     wanted = {peer.name for peer in peers}
     if not fresh:
         cached = load_cache(config, environ, ttl)
         if cached is not None and wanted <= set(cached[0]):
+            if agent and agent.get("healthy") and agent.get("generation") and (
+                agent.get("repaired") or cached[2].get("generation") != agent.get("generation")
+            ):
+                auth_peers = [peer for peer in remote_peers(config)
+                              if peer.name in cached[0] and cached[0][peer.name].status == "auth-failed"]
+                if auth_peers:
+                    cached[0].update(probe_all(auth_peers, environ, connect_timeout))
+                    save_cache(config, cached[0], environ, cached[1], agent)
+                    return {name: cached[0][name] for name in sorted(wanted)}, False, cached[1]
             return {name: cached[0][name] for name in sorted(wanted)}, True, cached[1]
     all_remote = remote_peers(config)
     checked_at = time.time()
     results = probe_all(all_remote, environ, connect_timeout)
-    save_cache(config, results, environ, checked_at)
+    save_cache(config, results, environ, checked_at, agent)
     return {name: results[name] for name in sorted(wanted)}, False, checked_at
 
 
@@ -662,15 +755,20 @@ def git(
     env: dict[str, str] | None = None,
     check: bool = True,
     stdin_text: str | None = None,
+    timeout: float = PREPARE_TIMEOUT,
 ) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
+    deadline = LOCAL_DEADLINE.get()
+    if deadline is not None:
+        timeout = min(timeout, max(0.001, deadline - time.monotonic()))
+    result = capture(
         ["git", "-C", str(root), *args],
         env=env,
-        input=stdin_text,
+        stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+        input_text=stdin_text,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        check=False,
+        timeout=timeout,
     )
     if check and result.returncode != 0:
         raise ConfigError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
@@ -759,6 +857,7 @@ def publish(
         f"+{sha}:{REF_NAMESPACE}{slug}",
         env=env,
         check=False,
+        timeout=PUBLISH_TIMEOUT,
     )
     if result.returncode != 0:
         message = result.stderr.strip() or f"git push exit {result.returncode}"
@@ -794,6 +893,44 @@ def emit(message: str) -> None:
     print(f"{SCRIPT_NAME}: {message}", file=sys.stderr, flush=True)
 
 
+def agent_preflight(args: argparse.Namespace, environ) -> tuple[dict[str, str], dict]:
+    env = dict(environ)
+    if current_platform(env) != "wsl2":
+        return env, {"skipped": True}
+    helper = home_dir(env) / "bin/wsl2-pageant.py"
+    if helper.is_symlink() or helper.parent.is_symlink() or not helper.is_file() or not os.access(helper, os.X_OK):
+        detail = "managed Pageant helper unavailable; no automatic relay repair"
+        emit(detail)
+        return env, {"detail": detail}
+    info = helper.stat()
+    if info.st_uid != os.getuid() or info.st_mode & 0o022:
+        emit("unsafe Pageant helper ownership or permissions; no automatic repair")
+        return env, {"detail": "unsafe helper"}
+
+    def invoke(operation: str) -> dict:
+        result = capture([str(helper), operation, "--json"], env=env,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, timeout=16)
+        payload = json.loads(result.stdout)
+        return {key: payload[key] for key in ("socket", "healthy", "repaired", "generation", "skipped", "detail")
+                if key in payload}
+
+    try:
+        result = invoke("--check")
+        if result.get("skipped"):
+            return env, result
+        if not env.get("SSH_AUTH_SOCK") and result.get("socket"):
+            env["SSH_AUTH_SOCK"] = result["socket"]
+        if not result.get("healthy") and not args.no_agent_repair:
+            result = invoke("--ensure")
+        if not result.get("healthy"):
+            emit("Pageant preflight: " + result.get("detail", "agent is not reachable"))
+        return env, result
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        emit(f"Pageant preflight failed: {error}")
+        return env, {"detail": str(error)}
+
+
 def cmd_config(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
     config = load_config(environ)
     if args.json:
@@ -818,6 +955,7 @@ def cmd_config(args: argparse.Namespace, environ: dict[str, str] | os._Environ[s
 
 def cmd_probe(args: argparse.Namespace, environ: dict[str, str] | os._Environ[str]) -> int:
     config = load_config(environ)
+    environ, agent = agent_preflight(args, environ)
     peers = remote_peers(config)
     results, from_cache, checked_at = resolve_probe(
         config,
@@ -826,6 +964,7 @@ def cmd_probe(args: argparse.Namespace, environ: dict[str, str] | os._Environ[st
         fresh=args.fresh,
         ttl=args.ttl,
         connect_timeout=args.connect_timeout,
+        agent=agent,
     )
     if args.json:
         payload = {
@@ -833,6 +972,7 @@ def cmd_probe(args: argparse.Namespace, environ: dict[str, str] | os._Environ[st
             "self_platform": config.self_platform,
             "checked_at": checked_at,
             "from_cache": from_cache,
+            "agent": agent,
             "peers": {name: result.to_json() for name, result in results.items()},
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -851,6 +991,7 @@ def _run_on_peers(
     build_request: Callable[[argparse.Namespace], list[str]],
 ) -> int:
     config = load_config(environ)
+    environ, agent = agent_preflight(args, environ)
     peers = select_peers(config, args.peer)
     if not peers:
         emit("no peer configured for another platform")
@@ -862,6 +1003,7 @@ def _run_on_peers(
         fresh=args.fresh,
         ttl=args.ttl,
         connect_timeout=None,
+        agent=agent,
     )
     targets: list[Peer] = []
     for peer in peers:
@@ -878,38 +1020,42 @@ def _run_on_peers(
         targets.append(peer)
     if not targets:
         return EXIT_UNREACHABLE
-    root = repo_root(Path.cwd(), environ)
-    sha = snapshot_tree(root, environ, tracked_only=args.tracked_only)
-    slug = slug_for(root, environ)
+    token = LOCAL_DEADLINE.set(time.monotonic() + PREPARE_TIMEOUT)
+    try:
+        root = repo_root(Path.cwd(), environ)
+        sha = snapshot_tree(root, environ, tracked_only=args.tracked_only)
+        slug = slug_for(root, environ)[:43].rstrip(".") + "-" + secrets.token_hex(10)
+    finally:
+        LOCAL_DEADLINE.reset(token)
     command = build_request(args)
     exit_code = EXIT_OK
     for peer in targets:
         emit(f"{peer.name}: publishing {sha[:12]} as {REF_NAMESPACE}{slug}")
-        publish(peer, root, sha, slug, environ)
-        remote_request(
-            peer,
-            [PROTOCOL, "prepare", slug, sha],
-            environ,
-            timeout=args.timeout,
-            action="prepare",
-        )
-        request = [PROTOCOL, "exec", slug, *command]
-        emit(f"{peer.name}: running {' '.join(command)} in {WORKTREE_PREFIX}{slug}")
-        code = ssh_stream(peer, request, environ, timeout=args.timeout)
+        code = EXIT_FAILED
+        owned = False
+        try:
+            publish(peer, root, sha, slug, environ)
+            request = [PROTOCOL, "run", slug, sha, str(args.timeout),
+                       "keep" if args.keep_worktree else "cleanup", *command]
+            emit(f"{peer.name}: running {' '.join(command)} in {WORKTREE_PREFIX}{slug}")
+            code = ssh_stream(peer, request, environ,
+                              timeout=PREPARE_TIMEOUT + args.timeout + STOP_GRACE + CLEANUP_TIMEOUT + TRANSPORT_MARGIN)
+            owned = code not in (255, EXIT_TIMEOUT, EXIT_BUSY, EXIT_CONFIG, EXIT_FAILED)
+        finally:
+            if not owned and not args.keep_worktree:
+                try:
+                    remote_request(peer, [PROTOCOL, "remove", slug, sha], environ,
+                                   timeout=CLEANUP_TIMEOUT, action="cleanup")
+                except (ConfigError, PeerUnavailable, PeerBusy) as error:
+                    emit(f"{peer.name}: cleanup incomplete for {slug}: {error}")
+                    if code == EXIT_OK:
+                        code = EXIT_FAILED
         if code != EXIT_OK:
             emit(f"{peer.name}: exit {code}")
             if exit_code == EXIT_OK:
                 exit_code = code
         else:
             emit(f"{peer.name}: ok")
-        if args.rm:
-            remote_request(
-                peer,
-                [PROTOCOL, "remove", slug],
-                environ,
-                timeout=args.timeout,
-                action="remove",
-            )
     return exit_code
 
 
@@ -1042,9 +1188,91 @@ class BusyError(Exception):
     """Another request holds the slug lock; exit 75."""
 
 
+class Diagnostics:
+    def __init__(self, state: Path, slug: str, sha: str, keep: bool) -> None:
+        private_directory(state / "runs")
+        self.directory = state / "runs" / slug
+        self.directory.mkdir(mode=0o700)
+        self.remaining = DIAGNOSTIC_LIMIT
+        self.manifest = {"run": slug, "sha": sha, "keep": keep, "completed": False,
+                         "started": time.time(), "truncated": False}
+        self.output = self.open_file("output.log")
+        self.save()
+
+    def open_file(self, name: str):
+        descriptor = os.open(self.directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        return os.fdopen(descriptor, "wb")
+
+    def save(self) -> None:
+        temporary = self.directory / "result.tmp"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(self.manifest, handle, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, self.directory / "result.json")
+
+    def write(self, data: bytes, handle=None) -> None:
+        retained = data[:self.remaining]
+        (handle or self.output).write(retained)
+        self.remaining -= len(retained)
+        if len(retained) != len(data):
+            self.manifest["truncated"] = True
+
+    def archive(self, worktree: Path, deadline: float) -> None:
+        source = worktree / ".cz-audit"
+        if not source.exists() or source.is_symlink():
+            return
+        for index, entry in enumerate(source.iterdir()):
+            if time.monotonic() >= deadline:
+                raise Refused("diagnostic archival deadline exceeded")
+            if index >= 1024:
+                self.manifest["truncated"] = True
+                break
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            descriptor = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as handle:
+                if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                    continue
+                with self.open_file("audit-" + entry.name) as destination:
+                    while self.remaining:
+                        if time.monotonic() >= deadline:
+                            raise Refused("diagnostic archival deadline exceeded")
+                        data = handle.read(min(65536, self.remaining))
+                        if not data:
+                            break
+                        self.write(data, destination)
+                    if handle.read(1):
+                        self.manifest["truncated"] = True
+
+    def finish(self, code: int, cleanup: str, deadline: float | None = None) -> None:
+        self.output.close()
+        self.manifest.update(completed=True, finished=time.time(), exit=code, cleanup=cleanup)
+        self.save()
+        completed = []
+        for entry in self.directory.parent.iterdir():
+            if deadline is not None and time.monotonic() >= deadline:
+                raise Refused("diagnostic retention deadline exceeded")
+            if entry.is_symlink() or not SLUG_RE.fullmatch(entry.name):
+                continue
+            try:
+                result = entry / "result.json"
+                if result.is_symlink():
+                    continue
+                payload = json.loads(result.read_text(encoding="utf-8"))
+                if payload.get("completed") is True and not payload.get("children_unverified"):
+                    completed.append((payload["finished"], entry))
+            except (OSError, ValueError, KeyError):
+                continue
+        for _, entry in sorted(completed, reverse=True)[DIAGNOSTIC_RUNS:]:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise Refused("diagnostic retention deadline exceeded")
+            shutil.rmtree(entry)
+
+
 class Serve:
     def __init__(self, root: Path, environ: dict[str, str] | os._Environ[str], restricted: bool) -> None:
-        self.root = root
+        self.root = root.resolve()
         self.environ = environ
         self.restricted = restricted
         self.state = state_dir(environ)
@@ -1053,6 +1281,9 @@ class Serve:
         self.kernel = kernel
         self.platform = platform_from_identity(uname, kernel)
         self.env = scrubbed_environment(environ, self.platform)
+        self.deadline: float | None = None
+        self.diagnostics: Diagnostics | None = None
+        self.children_stopped = True
 
     def log(self, verb: str, args: list[str], code: int, started: float) -> None:
         try:
@@ -1077,17 +1308,21 @@ class Serve:
             pass
 
     def worktree(self, slug: str) -> Path:
-        return self.root / f"{WORKTREE_PREFIX}{slug}"
+        worktree = self.root / f"{WORKTREE_PREFIX}{validate_slug(slug)}"
+        if worktree.is_symlink() or worktree.parent.is_symlink():
+            raise Refused(f"symlinked worktree path: {worktree}")
+        return worktree
 
     def git(self, *args: str, check: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
+        timeout = PREPARE_TIMEOUT if self.deadline is None else max(0.001, self.deadline - time.monotonic())
+        result = capture(
             ["git", "-C", str(cwd or self.root), *args],
             env=self.env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=False,
+            timeout=timeout,
         )
         if check and result.returncode != 0:
             raise Refused(f"git {' '.join(args)} failed: {result.stderr.strip()}")
@@ -1096,8 +1331,9 @@ class Serve:
     def lock(self, slug: str):
         import fcntl
 
-        self.state.mkdir(parents=True, exist_ok=True)
-        handle = open(self.state / f"lock-{slug}", "a+", encoding="utf-8")
+        private_directory(self.state)
+        descriptor = os.open(self.state / f"lock-{validate_slug(slug)}", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        handle = os.fdopen(descriptor, "a+", encoding="utf-8")
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -1113,6 +1349,7 @@ class Serve:
         tools = {tool: shutil.which(tool, path=self.env["PATH"]) is not None for tool in REMOTE_TOOLS}
         payload = {
             "protocol": PROTOCOL,
+            "capabilities": [RUN_CAPABILITY],
             "uname": self.uname,
             "kernel": self.kernel,
             "platform": self.platform,
@@ -1159,19 +1396,149 @@ class Serve:
             raise Refused("prepare takes <slug> <sha>")
         slug = validate_slug(args[0])
         sha = validate_sha(args[1])
+        with self.lock(slug):
+            self.prepare_unlocked(slug, sha)
+        return EXIT_OK
+
+    def published_sha(self, slug: str) -> str | None:
         ref = self.git("rev-parse", "--verify", "--quiet", f"{REF_NAMESPACE}{slug}", check=False)
-        if ref.returncode != 0 or ref.stdout.strip() != sha:
+        return ref.stdout.strip() if ref.returncode == 0 else None
+
+    def prepare_unlocked(self, slug: str, sha: str) -> None:
+        if self.published_sha(slug) != sha:
             raise Refused(f"{sha} is not {REF_NAMESPACE}{slug}; publish it first")
         worktree = self.worktree(slug)
-        with self.lock(slug):
-            if (worktree / ".git").exists():
-                self.git("checkout", "--quiet", "--detach", "--force", sha, cwd=worktree)
-                self.git("clean", "-fdq", cwd=worktree)
+        if worktree.exists():
+            self.owned_worktree(slug)
+            self.git("checkout", "--quiet", "--detach", "--force", sha, cwd=worktree)
+            self.git("clean", "-fdq", cwd=worktree)
+        else:
+            worktree.parent.mkdir(exist_ok=True)
+            self.git("worktree", "add", "--quiet", "--detach", str(worktree), sha)
+
+    def worktree_records(self) -> dict[str, dict[str, str]]:
+        records: dict[str, dict[str, str]] = {}
+        record: dict[str, str] = {}
+        for field in self.git("worktree", "list", "--porcelain", "-z").stdout.split("\0"):
+            if not field:
+                if "worktree" in record:
+                    records[record["worktree"]] = record
+                record = {}
             else:
-                (self.root / "worktrees").mkdir(exist_ok=True)
-                self.git("worktree", "prune")
-                self.git("worktree", "add", "--quiet", "--detach", str(worktree), sha)
-        return EXIT_OK
+                key, _, value = field.partition(" ")
+                record[key] = value
+        return records
+
+    def owned_worktree(self, slug: str, sha: str | None = None) -> dict[str, str] | None:
+        worktree = self.worktree(slug)
+        record = self.worktree_records().get(str(worktree))
+        if record is None:
+            if worktree.exists():
+                raise Refused(f"unregistered worktree: {worktree}")
+            return None
+        if "detached" not in record or "locked" in record or (sha and record.get("HEAD") != sha):
+            raise Refused(f"worktree ownership mismatch: {worktree}")
+        if worktree.exists():
+            metadata = worktree / ".git"
+            if metadata.is_symlink() or not metadata.is_file():
+                raise Refused(f"unsafe worktree metadata: {worktree}")
+            common = self.git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=worktree).stdout.strip()
+            expected = self.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+            if Path(common).resolve() != Path(expected).resolve():
+                raise Refused(f"foreign repository: {worktree}")
+        return record
+
+    def run(self, args: list[str]) -> int:
+        if len(args) < 6:
+            raise Refused("run takes <slug> <sha> <timeout> cleanup|keep audit|test ...")
+        slug, sha = validate_slug(args[0]), validate_sha(args[1])
+        try:
+            seconds = run_timeout(args[2])
+        except ConfigError as error:
+            raise Refused(str(error)) from error
+        if args[3] not in ("cleanup", "keep"):
+            raise Refused("run retention must be cleanup or keep")
+        keep = args[3] == "keep"
+        code, cleanup = EXIT_FAILED, "not attempted"
+        with self.lock(slug):
+            if self.published_sha(slug) != sha:
+                raise Refused(f"{sha} is not {REF_NAMESPACE}{slug}; publish it first")
+            self.diagnostics = Diagnostics(self.state, slug, sha, keep)
+            emit(f"diagnostics: {self.diagnostics.directory}")
+            previous = {}
+
+            def cancelled(signum, frame):
+                for sig in previous:
+                    signal.signal(sig, signal.SIG_IGN)
+                raise RunCancelled(signum)
+
+            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+                previous[sig] = signal.signal(sig, cancelled)
+            try:
+                self.deadline = time.monotonic() + PREPARE_TIMEOUT
+                self.prepare_unlocked(slug, sha)
+                self.deadline = time.monotonic() + seconds
+                commands, scan_errors = self.exec_commands(slug, args[4:])
+                code = EXIT_OK
+                for command in commands:
+                    if time.monotonic() >= self.deadline:
+                        code = EXIT_TIMEOUT
+                        break
+                    result = self.run_streamed(command, self.worktree(slug), scan_errors)
+                    if code == EXIT_OK:
+                        code = result
+                    if result == EXIT_TIMEOUT:
+                        code = result
+                        break
+            except RunCancelled as error:
+                code = error.code
+            except subprocess.TimeoutExpired:
+                code = EXIT_TIMEOUT
+            except Refused as error:
+                emit(f"run refused: {error}")
+                code = EXIT_CONFIG
+            except (OSError, BrokenPipeError) as error:
+                emit(f"run failed: {error}")
+                code = EXIT_FAILED
+            finally:
+                for sig in previous:
+                    signal.signal(sig, signal.SIG_IGN)
+                self.deadline = time.monotonic() + CLEANUP_TIMEOUT
+                if not self.children_stopped:
+                    self.diagnostics.manifest["children_unverified"] = True
+                try:
+                    try:
+                        self.diagnostics.archive(self.worktree(slug), self.deadline)
+                    except (OSError, Refused) as error:
+                        emit(f"diagnostic archival failed: {error}")
+                        self.diagnostics.manifest["archive_error"] = str(error)
+                        if code == EXIT_OK:
+                            code = EXIT_FAILED
+                    if not self.children_stopped:
+                        raise Refused("child shutdown is unverified; retaining worktree and ref")
+                    if keep:
+                        cleanup = "retained"
+                        emit(f"retained {self.worktree(slug)} and {REF_NAMESPACE}{slug}")
+                    else:
+                        self.remove_unlocked(slug, sha)
+                        cleanup = "removed"
+                except (Refused, OSError, subprocess.TimeoutExpired) as error:
+                    cleanup = f"incomplete: {error}"
+                    emit(f"cleanup {cleanup}")
+                    if code == EXIT_OK:
+                        code = EXIT_FAILED
+                try:
+                    self.diagnostics.finish(code, cleanup, self.deadline)
+                except (OSError, Refused) as error:
+                    emit(f"diagnostic finalization failed: {error}")
+                    if code == EXIT_OK:
+                        code = EXIT_FAILED
+                finally:
+                    self.deadline = None
+                    self.diagnostics = None
+                    for sig, handler in previous.items():
+                        signal.signal(sig, handler)
+        return code
 
     def exec(self, args: list[str]) -> int:
         if len(args) < 2:
@@ -1180,7 +1547,24 @@ class Serve:
         worktree = self.worktree(slug)
         if not (worktree / ".git").exists():
             raise Refused(f"{WORKTREE_PREFIX}{slug} is not prepared")
-        kind, rest = args[1], args[2:]
+        commands, scan_errors = self.exec_commands(slug, args[1:])
+        with self.lock(slug):
+            self.deadline = time.monotonic() + DEFAULT_RUN_TIMEOUT
+            try:
+                exit_code = EXIT_OK
+                for command in commands:
+                    code = self.run_streamed(command, worktree, scan_errors)
+                    if code != EXIT_OK and exit_code == EXIT_OK:
+                        exit_code = code
+                    if code == EXIT_TIMEOUT:
+                        break
+                return exit_code
+            finally:
+                self.deadline = None
+
+    def exec_commands(self, slug: str, args: list[str]) -> tuple[list[list[str]], bool]:
+        worktree = self.worktree(slug)
+        kind, rest = args[0], args[1:]
         if kind == "audit":
             if not rest:
                 raise Refused("audit needs at least one repo-relative path")
@@ -1205,13 +1589,7 @@ class Serve:
             scan_errors = False
         else:
             raise Refused(f"unknown exec kind {kind!r}")
-        with self.lock(slug):
-            exit_code = EXIT_OK
-            for command in commands:
-                code = self.run_streamed(command, worktree, scan_errors)
-                if code != EXIT_OK and exit_code == EXIT_OK:
-                    exit_code = code
-            return exit_code
+        return commands, scan_errors
 
     def run_streamed(self, command: list[str], cwd: Path, scan_errors: bool) -> int:
         process = subprocess.Popen(
@@ -1221,74 +1599,149 @@ class Serve:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
             start_new_session=True,
         )
-        timed_out = threading.Event()
-
-        def terminate(sig: int) -> None:
-            timed_out.set()
-            try:
-                os.killpg(process.pid, sig)
-            except OSError:
-                pass
-
-        timers = (
-            threading.Timer(DEFAULT_RUN_TIMEOUT, terminate, (signal.SIGTERM,)),
-            threading.Timer(DEFAULT_RUN_TIMEOUT + 10, terminate, (signal.SIGKILL,)),
-        )
-        for timer in timers:
-            timer.start()
+        self.children_stopped = False
         saw_error = False
+        timed_out = False
+        prefix = ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        forced_kill = False
         try:
             assert process.stdout is not None
-            for line in process.stdout:
-                if scan_errors and line.startswith("ERROR:"):
-                    saw_error = True
-                sys.stdout.write(line)
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while selector.get_map():
+                    remaining = (self.deadline or time.monotonic()) - time.monotonic()
+                    if remaining <= 0:
+                        timed_out = True
+                        break
+                    for key, _ in selector.select(min(0.2, remaining)):
+                        data = os.read(key.fd, 65536)
+                        if not data:
+                            selector.unregister(key.fileobj)
+                            break
+                        if self.diagnostics:
+                            self.diagnostics.write(data)
+                        text = decoder.decode(data)
+                        if scan_errors:
+                            for fragment in text.splitlines(keepends=True):
+                                prefix = (prefix + fragment)[:6]
+                                if prefix == "ERROR:":
+                                    saw_error = True
+                                if fragment.endswith(("\n", "\r")):
+                                    prefix = ""
+                        sys.stdout.write(text)
+                        sys.stdout.flush()
+            tail = decoder.decode(b"", final=True)
+            if tail:
+                sys.stdout.write(tail)
                 sys.stdout.flush()
-            code = process.wait()
+            if timed_out:
+                return EXIT_TIMEOUT
+            code = process.wait(timeout=max(0.001, (self.deadline or time.monotonic()) - time.monotonic()))
+            return EXIT_FAILED if code == 0 and saw_error else code
         finally:
-            for timer in timers:
-                timer.cancel()
-            if process.poll() is None:
+            process.stdout.close()
+            for sig, grace in ((signal.SIGTERM, STOP_GRACE), (signal.SIGKILL, 1)):
+                if sig == signal.SIGKILL:
+                    forced_kill = True
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-                process.wait()
-        if timed_out.is_set():
-            print(f"{SCRIPT_NAME} serve: timed out after {DEFAULT_RUN_TIMEOUT}s", file=sys.stderr)
-            return EXIT_TIMEOUT
-        if code == 0 and saw_error:
-            return EXIT_FAILED
-        return code
+                    os.killpg(process.pid, sig)
+                except ProcessLookupError:
+                    self.children_stopped = True
+                    break
+                until = time.monotonic() + grace
+                while time.monotonic() < until:
+                    process.poll()
+                    if not group_alive(process.pid, self.env):
+                        self.children_stopped = True
+                        break
+                    time.sleep(0.05)
+                if self.children_stopped:
+                    break
+            process.wait(timeout=1)
+            if forced_kill and Path(command[0]).name == "run-tests.sh":
+                self.children_stopped = False
+            if timed_out:
+                emit("peer execution deadline exceeded")
 
     def remove(self, args: list[str]) -> int:
-        if len(args) != 1:
-            raise Refused("remove takes <slug>")
+        if len(args) not in (1, 2):
+            raise Refused("remove takes <slug> [expected-sha]")
         slug = validate_slug(args[0])
         with self.lock(slug):
-            worktree = self.worktree(slug)
-            if worktree.exists():
-                self.git("worktree", "remove", "--force", str(worktree))
-            self.git("update-ref", "-d", f"{REF_NAMESPACE}{slug}", check=False)
+            self.deadline = time.monotonic() + CLEANUP_TIMEOUT
+            try:
+                self.verify_shutdown(slug)
+                self.remove_unlocked(slug, validate_sha(args[1]) if len(args) == 2 else self.published_sha(slug))
+            finally:
+                self.deadline = None
         return EXIT_OK
+
+    def verify_shutdown(self, slug: str) -> None:
+        directory = self.state / "runs" / slug
+        result = directory / "result.json"
+        if any(parent.is_symlink() for parent in (directory, *directory.parents)):
+            raise Refused("unsafe diagnostic state during cleanup")
+        try:
+            descriptor = os.open(result, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            if directory.exists():
+                raise Refused("missing lifecycle result; child shutdown is unverified")
+            return
+        with os.fdopen(descriptor, "r") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > 16384:
+                raise Refused("unsafe lifecycle result during cleanup")
+            try:
+                manifest = json.load(handle)
+            except ValueError as error:
+                raise Refused("invalid lifecycle result during cleanup") from error
+        if not isinstance(manifest, dict) or manifest.get("completed") is not True or manifest.get("children_unverified"):
+            raise Refused("child shutdown is unverified; retaining worktree and ref for operator inspection")
+
+    def remove_unlocked(self, slug: str, sha: str | None) -> None:
+        actual = self.published_sha(slug)
+        if actual is not None and actual != sha:
+            raise Refused(f"ref ownership mismatch: {REF_NAMESPACE}{slug}")
+        record = self.owned_worktree(slug, sha)
+        if record is not None:
+            if sha is None:
+                raise Refused(f"no ownership ref for {self.worktree(slug)}")
+            self.git("worktree", "remove", "--force", str(self.worktree(slug)))
+        if actual is not None:
+            self.git("update-ref", "-d", f"{REF_NAMESPACE}{slug}", sha)
+        if str(self.worktree(slug)) in self.worktree_records() or self.worktree(slug).exists() or self.published_sha(slug):
+            raise Refused(f"cleanup verification failed: {slug}")
 
     def clean(self, args: list[str]) -> int:
         if args:
             raise Refused("clean takes no arguments")
-        for path in sorted(self.root.glob(f"{WORKTREE_PREFIX}*")):
-            if path.is_dir():
-                self.git("worktree", "remove", "--force", str(path), check=False)
-                if path.exists():
-                    shutil.rmtree(path, ignore_errors=True)
-        self.git("worktree", "prune", check=False)
-        refs = self.git("for-each-ref", "--format=%(refname)", REF_NAMESPACE, check=False)
-        for ref in refs.stdout.split():
-            self.git("update-ref", "-d", ref, check=False)
-        return EXIT_OK
+        self.deadline = time.monotonic() + CLEANUP_TIMEOUT
+        code = EXIT_OK
+        try:
+            refs = self.git("for-each-ref", "--format=%(refname)", REF_NAMESPACE)
+            slugs = {validate_slug(ref[len(REF_NAMESPACE):]) for ref in refs.stdout.splitlines()}
+            for path in self.worktree_records():
+                candidate = Path(path)
+                if candidate.parent == self.root / "worktrees" and candidate.name.startswith("peer-env-"):
+                    slugs.add(validate_slug(candidate.name[len("peer-env-"):]))
+            for slug in sorted(slugs):
+                try:
+                    with self.lock(slug):
+                        self.verify_shutdown(slug)
+                        self.remove_unlocked(slug, self.published_sha(slug))
+                except BusyError as error:
+                    emit(str(error))
+                    if code == EXIT_OK:
+                        code = EXIT_BUSY
+                except Refused as error:
+                    emit(str(error))
+                    code = EXIT_FAILED
+            return code
+        finally:
+            self.deadline = None
 
 
 def parse_request(argv_rest: list[str], environ: dict[str, str] | os._Environ[str]) -> tuple[list[str], bool]:
@@ -1325,6 +1778,7 @@ def serve_main(argv_rest: list[str], environ: dict[str, str] | os._Environ[str])
             "receive-pack": server.receive_pack,
             "prepare": server.prepare,
             "exec": server.exec,
+            "run": server.run,
             "remove": server.remove,
             "clean": server.clean,
         }
@@ -1356,12 +1810,15 @@ def serve_main(argv_rest: list[str], environ: dict[str, str] | os._Environ[str])
 def add_probe_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fresh", action="store_true", help="ignore the probe cache")
     parser.add_argument("--ttl", type=int, default=DEFAULT_TTL, help="probe cache lifetime in seconds")
+    parser.add_argument("--no-agent-repair", action="store_true", help="do not start or reset the local Pageant relay")
 
 
 def add_run_flags(parser: argparse.ArgumentParser) -> None:
     add_probe_flags(parser)
-    parser.add_argument("--timeout", type=float, default=DEFAULT_RUN_TIMEOUT, help="seconds to wait for the remote run")
-    parser.add_argument("--rm", action="store_true", help="remove the peer worktree afterwards")
+    parser.add_argument("--timeout", type=run_timeout, default=DEFAULT_RUN_TIMEOUT, help="execution budget in seconds (default: 900)")
+    retention = parser.add_mutually_exclusive_group()
+    retention.add_argument("--rm", action="store_true", help="compatibility alias for default cleanup")
+    retention.add_argument("--keep-worktree", action="store_true", help="retain the worktree and ref for debugging")
     parser.add_argument("--tracked-only", action="store_true", help="snapshot tracked files only")
 
 
@@ -1427,6 +1884,9 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_BUSY
     except KeyboardInterrupt:
         return 130
+    except subprocess.TimeoutExpired:
+        emit("setup or transport deadline exceeded")
+        return EXIT_TIMEOUT
 
 
 if __name__ == "__main__":

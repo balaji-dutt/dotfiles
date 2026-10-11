@@ -77,9 +77,24 @@ class ShellStartupHarness(unittest.TestCase):
         env["PATH"] = self.fixture.env["PATH"]
         return render_template(relative, platform, environment=env)
 
+    def pageant_stub(self) -> Path:
+        calls = self.fixture.root / "pageant-calls"
+        write_executable(self.fixture.home / "bin/wsl2-pageant.py",
+                         f"#!/bin/sh\nprintf '%s|%s\\n' \"$*\" \"$SSH_AUTH_SOCK\" >> {shlex.quote(str(calls))}\n")
+        return calls
+
 
 @unittest.skipUnless(BASH, "bash is required")
 class BashStartupTests(ShellStartupHarness):
+    def test_pageant_startup_and_sset_use_shared_helper(self) -> None:
+        calls = self.pageant_stub()
+        bashrc = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "wsl2"))
+        socket_path = str(self.fixture.root / "selected.sock")
+        result = self.run_bash(f'source "{bashrc}"; sset; eval sunset; printf "sock=%s\\n" "${{SSH_AUTH_SOCK-unset}}"',
+                               interactive=True, env_updates={"WSL2_PAGEANT_SSH_AUTH_SOCK": socket_path, "TERM": "dumb"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text().splitlines(), [f"--ensure|{socket_path}", f"--reset|{socket_path}"])
+        self.assertIn("sock=unset", result.stdout)
     def test_noninteractive_startup_loads_only_beads_helper(self) -> None:
         self.write_home(
             ".local/share/beads-helpers.bash",
@@ -514,6 +529,16 @@ class ModernCliHintTests(ShellStartupHarness):
 
 @unittest.skipUnless(ZSH, "zsh is required")
 class ZshFragmentContractTests(ShellStartupHarness):
+    def test_pageant_sset_and_healthcheck_use_shared_helper(self) -> None:
+        calls = self.pageant_stub()
+        fragment = self.write_home("60-wsl-native-commands.zsh", render_template("dot_local/share/zsh/60-wsl-native-commands.zsh.tmpl", "wsl2"))
+        socket_path = str(self.fixture.root / "selected.sock")
+        result = self.run_zsh(f'source "{fragment}"; sset; _wsl2_pageant_agent_ok; eval sunset; print -r -- "sock=${{SSH_AUTH_SOCK-unset}}"',
+                              env_updates={"WSL2_PAGEANT_SSH_AUTH_SOCK": socket_path})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls.read_text().splitlines(), [f"--reset|{socket_path}", f"--check|{socket_path}"])
+        self.assertIn("sock=unset", result.stdout)
+
     def test_git_helper_exposes_function_and_rejects_bad_arguments(self) -> None:
         helper = REPO_ROOT / "dot_local/share/git-helpers.zsh"
         result = self.run_zsh(

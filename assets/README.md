@@ -179,6 +179,11 @@ Runs this repo's audit and test suites on the other machine (macOS <-> WSL2)
 against a snapshot of the current working tree, when that machine is awake.
 `all` means every reachable other environment; agents should always use it,
 and `fast` is the suite unless the changed test lives only in another one.
+Runs remove their detached worktree and namespace ref by default, retaining
+private diagnostics separately; `--keep-worktree` retains a run for debugging.
+Update the peer's installed server to advertise `run-lifecycle-v1` before
+using this client. The default execution budget is 900 seconds; the terminal
+tool needs a longer budget (at least 25 minutes for one peer).
 
 ```sh
 ./assets/peer-env probe

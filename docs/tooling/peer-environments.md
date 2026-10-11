@@ -45,14 +45,15 @@ key grants is stated plainly here:
   sends becomes an environment variable.
 - `serve`'s own writes are confined to `worktrees/peer-env-<slug>/`,
   `refs/peer-env/*` plus worktree metadata under `.git/`, and
-  `~/.local/state/dotfiles/peer-env/` (log and locks). A `pre-receive` hook
+  `~/.local/state/dotfiles/peer-env/` (diagnostics, log, and locks). A
+  `pre-receive` hook
   installed per push through `core.hooksPath` rejects every ref outside
   `refs/peer-env/`. The peer's branches, HEAD, index, and stash are never
   touched by `serve`. The test runner writes to its own temp sandbox.
 - The only reads outside the worktree are the ones `cz-audit` performs
   locally too: `chezmoi diff` and `chezmoi apply --dry-run` against the peer's
-  `$HOME`. Diff content stays in the peer's `.cz-audit/*.log` because the
-  client cannot set `CZ_AUDIT_SHOW`.
+  `$HOME`. Diff content stays in the peer's private diagnostic archive of
+  `.cz-audit/*.log` because the client cannot set `CZ_AUDIT_SHOW`.
 - Every request is appended to `~/.local/state/dotfiles/peer-env/serve.log` on
   the peer as one JSON line (time, client address, verb, arguments, exit code,
   duration).
@@ -178,16 +179,40 @@ ssh-add -L | grep ' peer-env$' >| ~/.ssh/peer-env.pub.new \
 The macOS sshd drop-in from `docs/automation/macos-home-ssh.md` already
 limits logins to the chezmoi user with key-only authentication.
 
+### Local WSL2 relay recovery
+
+`~/bin/wsl2-pageant.py` is a managed helper for WSL2 hosts with configured
+`homelab.windows_user` and `homelab.npiperelay_path`, outside containers. It
+provides `--check`, `--ensure`, and `--reset`, with optional `--json` health
+metadata. Bash startup, zsh startup and its 30-second health hook delegate to
+it; `sset` selects the configured socket and calls `--reset`, while `sunset`
+unsets `SSH_AUTH_SOCK`. Missing helper/dependencies leave shell startup usable.
+
+Before the client's `probe`, `audit`, or `test`, a selected unhealthy Pageant
+socket gets at most one `--ensure` restart within a 15-second operation budget.
+An unset `SSH_AUTH_SOCK` selects the configured socket only in peer-env's
+child environment. A different selected agent, another OS, a container, or a
+healthy agent with no loaded keys is not reset (`ssh-add -l` exits 0 or 1 for
+a healthy agent). `--no-agent-repair` disables the restart. Neither client nor
+server sources shell rc files; incoming `serve` and `config` do not repair.
+
+Repair is serialized with a private lock and rechecks health after acquiring
+it. Only a same-user socat listener with the exact socket/relay arguments is
+stopped, using a verified PID/start time and Linux pidfd. Prior-boot PID records
+are ignored; same-boot PID reuse, foreign ownership, symlinks, or ambiguous
+listeners are refused without broad `pkill`. The helper does not start Windows
+Pageant, load keys, change trust/configuration, or retry remote validation.
+
 ## Commands
 
 Run everything from inside the checkout.
 
 | Command | What it does | Exit |
 | :--- | :--- | :--- |
-| `./assets/peer-env probe [--json] [--fresh] [--ttl S] [--connect-timeout S]` | Probe every other-platform peer concurrently and print one line per peer plus a summary. | 0 when a peer is usable (reachable, and restricted unless `allow_unrestricted`), 3 when none is, 2 on a config error |
-| `./assets/peer-env audit all <path>... [--timeout S] [--rm] [--tracked-only] [--fresh] [--ttl S]` | Snapshot, publish, prepare the peer worktree, run `./assets/cz-audit.sh check <path>` for each path there. | the first non-zero check exit, or 1 when a check exits 0 but prints an `ERROR:` line |
-| `./assets/peer-env test all [suite] [--require-capabilities] [--timeout S] [--rm] [--tracked-only] [--fresh] [--ttl S]` | Same pipeline with `./assets/run-tests.sh <suite>`; `suite` defaults to `fast`. | the runner's exit code |
-| `./assets/peer-env clean all [--timeout S] [--fresh] [--ttl S]` | Remove `worktrees/peer-env-*` and `refs/peer-env/*` on each reachable peer; delete the local probe cache. | 0, or 1 when a peer's clean failed |
+| `./assets/peer-env probe [--json] [--fresh] [--ttl S] [--connect-timeout S] [--no-agent-repair]` | Perform local relay preflight, then probe every other-platform peer concurrently. | 0 when a peer is usable (reachable, and restricted unless `allow_unrestricted`), 3 when none is, 2 on a config error |
+| `./assets/peer-env audit all <path>... [--timeout S] [--keep-worktree\|--rm] [--tracked-only] [--fresh] [--ttl S] [--no-agent-repair]` | Snapshot, publish, run all path audits within one budget, archive diagnostics, then remove the owned worktree/ref. | the first non-zero check exit, 1 for an `ERROR:` line or cleanup failure after success, or 124 on deadline exhaustion |
+| `./assets/peer-env test all [suite] [--require-capabilities] [--timeout S] [--keep-worktree\|--rm] [--tracked-only] [--fresh] [--ttl S] [--no-agent-repair]` | Same lifecycle with `./assets/run-tests.sh <suite>`; `suite` defaults to `fast`. | the runner's exit code, 1 for cleanup failure after success, or 124 on deadline exhaustion |
+| `./assets/peer-env clean all [--timeout S] [--fresh] [--ttl S]` | Remove proven owned, quiescent helper worktrees and namespace refs under per-slug locks; delete the local probe cache. | 0, or 1 when a peer's clean failed or was busy (peer `serve clean` returns 75 for busy slugs, 1 for a mixture of refused and busy slugs) |
 | `./assets/peer-env config [--json]` | Show the resolved configuration and which entry is "self". | 0, or 2 with the validation error |
 
 `all` targets every reachable other environment, which is what agents should
@@ -208,9 +233,10 @@ wsl2     reachable                WSL2Debian       Linux 6.18.33.2-microsoft-sta
 
 Exit codes: `0` ok; `1` or the remote entrypoint's own code; `2` configuration,
 usage, refused request, or secret-pattern refusal; `3` no reachable peer; `75`
-the peer worktree is busy with another request; `124` the remote run hit the
-timeout (900 seconds by default on both sides). A remote entrypoint's own exit
-code is passed through and announced as `peer-env: <peer>: exit N`; a
+the per-run slug is busy with another request; `124` a bounded helper phase or
+the whole execution hit its deadline (900 seconds by default for execution).
+A remote entrypoint's own exit code is passed through and announced as
+`peer-env: <peer>: exit N`; a
 client-side refusal or unreachable result prints its reason instead.
 
 ### What a run does
@@ -227,22 +253,49 @@ client-side refusal or unreachable result prints its reason instead.
    `*.tfstate`) stop the run with exit 2 and a list; add them to
    `.gitignore`, pass `--tracked-only`, or leave their removal to the owner.
 3. The commit is pushed to `refs/peer-env/<slug>` on the peer, where `<slug>`
-   is the local branch name with unsafe characters replaced by `-`, or
-   `detached-<short sha>`. The push uses `--receive-pack` so the peer's
+   combines a shortened safe branch name (or detached SHA) with a random
+   per-invocation suffix. Same-branch sessions have independent worktrees and
+   locks. The push uses `--receive-pack` so the peer's
    `serve` handles it and installs the namespace hook.
-4. The peer checks the SHA out in `worktrees/peer-env-<slug>` (created on the
-   first run, reused afterwards with `git checkout --detach --force` and
-   `git clean -fd`, which keeps ignored `.cz-audit/` logs).
-5. The entrypoint runs with the scrubbed environment; output streams back;
-   the exit code is propagated. `--rm` removes the worktree and ref afterwards.
+4. One peer-owned `run` request holds the slug lock across SHA validation,
+   detached checkout in `worktrees/peer-env-<slug>`, execution, archival, and
+   cleanup. The installed server, not the snapshot, owns this lifecycle.
+5. The entrypoint runs with the scrubbed environment and streams output back.
+   Diagnostics are saved separately, then the worktree/ref are removed on
+   success or failure. `--keep-worktree` retains them for debugging; `--rm`
+   is a compatibility alias for default cleanup, mutually exclusive with keep.
+   Cleanup failure preserves a primary failure code, or turns success into 1.
+
+### Deadlines and terminal budget
+
+`--timeout S` is a finite number in `(0, 86400]`, default 900 seconds, shared
+by the entire audit batch or test suite, not restarted for each audit path.
+Publication has 120 seconds, preparation 60, shutdown a 10-second TERM grace
+followed by KILL, and archival/cleanup 60. The client streaming deadline adds
+preparation, shutdown, cleanup, and a 30-second transport margin. Silent output
+does not suspend the peer's monotonic deadline. A silent SSH disconnect remains
+bounded by that independent peer deadline; cooperative interrupts and broken
+streams enter shutdown and cleanup. Validation is never automatically retried.
+
+The terminal tool must outlive these helper phases. Allow at least 1500000 ms
+(25 minutes) for one peer with the default execution budget, or
+`(180 + n * (T + 420)) * 1000` ms for `n` peers and execution budget `T` seconds.
+Use the harness's supported background mechanism if it cannot supply that
+budget, or report the limitation before starting. A terminal's 120-second cap
+is neither the helper's 900-second deadline nor SSH's 120-second idle
+`ControlPersist`; extending the terminal budget does not authorize raising
+`--timeout` or rerunning timed-out validation.
 
 ### Probe cache
 
 Probe results live in `${XDG_STATE_HOME:-~/.local/state}/dotfiles/peer-env/probe.json`
 for 300 seconds, keyed on the local platform and the config file's size and
 mtime. `--fresh` bypasses the cache, `--ttl` changes the lifetime. `audit`,
-`test`, and `clean` consult the same cache, so a task pays for one live probe
-at most every five minutes. SSH connections reuse a control socket under
+`test`, and `clean` consult the same versioned cache. A verified local relay
+repair or healthy socket generation change refreshes cached `auth-failed`
+peers once before publication, without reprobes of unrelated unreachable
+peers or retries of validation. Older cache formats are ignored. SSH
+connections reuse a control socket under
 `/tmp/peer-env-<uid>/` for two minutes; that directory is created mode 0700,
 and multiplexing is skipped when the directory is not private to the user or
 the socket path would exceed the OS limit (OpenSSH needs 17 spare characters
@@ -262,13 +315,13 @@ owns both machines.
 | `unreachable` | Connect timeout, refused, no route, or host-key failure. | `not verified on <platform>: peer unreachable` | Wake the machine or accept its host key. |
 | `auth-failed` | ssh exited 255 with `Permission denied`. | `not verified on <platform>: peer unreachable` | Fix `identity_file` or the `authorized_keys` line; see [SSH setup](#ssh-setup). |
 | `serve-missing` | The connection worked but no identity line came back. | `not verified on <platform>: peer unreachable` | The peer checkout lacks `assets/peer-env` or is behind `main`; pull it there. |
-| `protocol-mismatch` | The peer speaks a different `peer-env/N`. | `not verified on <platform>: peer unreachable` | Land the protocol change and update the peer's `main`. |
+| `protocol-mismatch` | The peer speaks a different `peer-env/N` or lacks `run-lifecycle-v1`. | `not verified on <platform>: peer unreachable` | Land the change and update the peer's installed `main` server first. |
 | `platform-mismatch` | The peer reports a different platform than configured. | `not verified on <platform>: peer unreachable` | Fix the config entry. |
 | `tools-missing` | git or a Python interpreter is missing on the peer's scrubbed PATH. | `not verified on <platform>: peer unreachable` | Install them, or extend the PATH list in `serve`. |
 | no config file | `~/.config/dotfiles/peer-envs.json` is absent; the audit prints no line and `probe` exits 2. | `not verified on other platforms: no peer configured` | Apply the file from the private repo. |
 | probe exit 2 with a config file | The config is invalid or the helper failed; the audit prints the `probe failed` line. | `not verified on other platforms: peer-env probe failed` | Fix the file from the private repo. |
 | exit 75 | Another request holds the peer worktree lock. | `not verified on <platform>: peer busy`, after one retry once your own earlier command has finished | none |
-| exit 124 | The remote run hit the 900-second bound. | `not verified on <platform>: peer timed out` | Investigate the slow step; agents do not raise `--timeout`. |
+| exit 124 | A helper phase or the whole execution exhausted its budget. | `not verified on <platform>: peer timed out` | Investigate the slow step; agents do not raise `--timeout`. |
 
 ## Protocol
 
@@ -280,22 +333,28 @@ the `git-receive-pack` form git emits) is refused.
 
 | Request | Peer action |
 | :--- | :--- |
-| `identity` | Print `PEER-ENV-IDENTITY {json}` with `uname -s`, `uname -r`, platform, `restricted`, tool availability, and the protocol version. |
+| `identity` | Print `PEER-ENV-IDENTITY {json}` with `uname -s`, `uname -r`, platform, `restricted`, tool availability, protocol version, and capabilities. |
 | `receive-pack [path]` | `git receive-pack` on the peer's own checkout with a per-push `pre-receive` hook that rejects any ref outside `refs/peer-env/<slug>`. The path argument is ignored. |
+| `run <slug> <sha> <timeout> cleanup\|keep audit\|test ...` | Hold the slug lock across preparation, one bounded execution, diagnostics, and cleanup or explicit retention. |
 | `prepare <slug> <sha>` | Under a per-slug lock, create or re-check-out `worktrees/peer-env-<slug>` at `<sha>`, which must equal `refs/peer-env/<slug>`. |
 | `exec <slug> audit <path>...` | Validate each path (relative, normalised, present in the snapshot) and run `./assets/cz-audit.sh check` for each. |
 | `exec <slug> test <suite> [--require-capabilities]` | Run `./assets/run-tests.sh` for a known suite. |
-| `remove <slug>` | Remove the worktree and its ref. |
-| `clean` | Remove every `worktrees/peer-env-*` and `refs/peer-env/*`. |
+| `remove <slug> [expected-sha]` | Remove a proven owned worktree/ref after verifying shutdown and expected SHA; the single-argument legacy form remains available. |
+| `clean` | Lock and verify each canonical helper worktree/ref; skip busy slugs and refuse unverified child shutdown. No global prune or ordinary branch deletion. |
 
 Slugs match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; SHAs are 40 hex digits; a
-second request on a busy slug exits 75 instead of waiting; an entrypoint that
-runs longer than 900 seconds is killed and exits 124. Refusals exit 2 with
+second request on a busy slug exits 75 instead of waiting; execution past its
+aggregate budget is stopped and exits 124. Refusals exit 2 with
 `peer-env serve: refused: <reason>`.
 
 The peer runs the copy of `serve` in its `main` checkout, so a protocol change
 must land on `main` and be pulled on the peer before a feature branch can rely
-on it. The probe surfaces skew as `serve-missing` or `protocol-mismatch`.
+on it. Protocol `peer-env/1` remains, with `run-lifecycle-v1` advertised by
+new servers. New clients require that capability before publishing and never
+fall back to the non-atomic lifecycle. New servers retain legacy
+`prepare`/`exec`/`remove` verbs for older clients. The probe surfaces skew as
+`serve-missing` or `protocol-mismatch`; uploading a snapshot cannot upgrade the
+installed server. Deployment is a separate owner-authorized operation.
 
 ## Agent policy
 
@@ -318,12 +377,34 @@ a `.ps1`, under `docs/`, `private_Library/`, or `AppData/`, or when
 `CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD` points the audit at another
 helper path for tests. Probe failures never change the audit's exit code.
 
-## Cleanup
+## Cleanup and diagnostics
 
-Peer worktrees are kept between runs so a second run is cheap. Remove them
-with `./assets/peer-env clean all`, or add `--rm` to a single run. The
-directory `worktrees/` is gitignored on every checkout; the refs live only
-under `refs/peer-env/`.
+Default runs remove only their registered detached worktree and matching
+`refs/peer-env/<slug>` ref. `--keep-worktree` preserves a debugging run, and
+`./assets/peer-env clean all` removes proven owned leftovers under per-slug
+locks. Ordinary branches and worktrees, symlink escapes, ambiguous legacy
+worktrees outside the canonical helper directory, and active locked slugs
+are not deleted. There are no helper-created branch refs. `worktrees/` is
+gitignored; namespace refs remain local to each peer.
+
+Private `${XDG_STATE_HOME:-~/.local/state}/dotfiles/peer-env/runs/<slug>/`
+contains `output.log`, `result.json` (SHA, exit, timing, cleanup, truncation),
+and archived regular top-level `.cz-audit` files. Directories are 0700 and
+files 0600; no symlinks or snapshot contents are copied. Each run has a shared
+20 MiB log cap and archival scans at most 1024 entries, with truncation recorded.
+The 20 most recent completed runs with verified child shutdown are retained;
+active, incomplete, and unverified-child records are not pruned.
+
+SIGKILL, host failure, or a forced-killed runner with independent step groups
+cannot guarantee immediate cleanup. When shutdown is unverified, the peer
+retains the worktree/ref and records `children_unverified`; both `remove` and
+`clean` refuse deletion. The client reports incomplete cleanup without hiding
+the primary failure. There is no unattended override: the owner must inspect
+the exact result, worktree registration, expected SHA, and owned processes,
+establish that all descendants are stopped, then separately authorize manual
+state/worktree reconciliation. Incomplete diagnostics need the same inspection;
+their retention is not a claim that the crashed run is still active. Agents
+must not clear markers or infer ownership from a leftover's basename.
 
 ## Not yet: native Windows
 
@@ -360,3 +441,12 @@ record their arguments and environment inside the peer worktree. The suite is
 registered as `peer-env` in `configs/test-suites.json` for `fast` and
 `integration` on linux, macos, and wsl2; Windows cannot shadow `ssh.exe` with
 a PATH shim.
+
+Lifecycle tests also cover aggregate deadlines, cooperative signals, cleanup
+failure, legacy compatibility, capability refusal, retained unverified
+shutdown, and diagnostic limits. `tests/test_wsl2_pageant.py` renders the
+managed helper and uses disposable sockets and mocked process records;
+`tests/test_shell_startup.py` checks shared shell dispatch and
+`tests/test_test_runner.py` verifies independent step-group signal shutdown.
+Live WSL2/Pageant named-pipe IPC is unverified, tracked as planned coverage
+under `dots-acum`; synthetic fixtures do not substitute for that runtime test.

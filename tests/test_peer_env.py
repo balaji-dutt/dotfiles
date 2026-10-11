@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import os
+import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
@@ -107,6 +113,8 @@ mkdir -p .cz-audit
 mode=ok
 [ -f stub-mode.txt ] && mode=$(cat stub-mode.txt)
 case "$mode" in
+  slow) echo $$ > .cz-audit/child.pid; sleep 30 ;;
+  delay) sleep 0.4 ;;
   error) echo "ERROR: stub failure for $2" >&2; exit 0 ;;
   exit7) exit 7 ;;
 esac
@@ -225,7 +233,13 @@ class PeerFixture:
     def peer_repo(self, name: str) -> Path:
         return self.peer_homes[name] / REPO_REL
 
-    def peer_worktree(self, name: str, slug: str = "main") -> Path:
+    def last_slug(self, name: str) -> str:
+        calls = [shlex.split(call["command"]) for call in self.ssh_calls()
+                 if call["host"] == f"{name}-host" and " run " in call["command"]]
+        return calls[-1][calls[-1].index("run") + 1] if calls else "main"
+
+    def peer_worktree(self, name: str, slug: str | None = None) -> Path:
+        slug = slug or self.last_slug(name)
         return self.peer_repo(name) / "worktrees" / f"peer-env-{slug}"
 
     def peer_state(self, name: str) -> Path:
@@ -251,8 +265,10 @@ class PeerFixture:
     def peer_git(self, name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return run_git(self.peer_repo(name), *args, env=self.env, check=check)
 
-    def audit_record(self, name: str, slug: str = "main") -> str:
+    def audit_record(self, name: str, slug: str | None = None) -> str:
         path = self.peer_worktree(name, slug) / ".cz-audit" / "audit-record.txt"
+        if not path.exists():
+            path = self.peer_state(name) / "runs" / (slug or self.last_slug(name)) / "audit-audit-record.txt"
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
@@ -263,6 +279,7 @@ def completed(returncode: int, stdout: str = "", stderr: str = "") -> subprocess
 def identity_line(**overrides) -> str:
     payload = {
         "protocol": MODULE.PROTOCOL,
+        "capabilities": [MODULE.RUN_CAPABILITY],
         "uname": "Linux",
         "kernel": "5.15.0-microsoft-standard-WSL2",
         "platform": "wsl2",
@@ -271,6 +288,281 @@ def identity_line(**overrides) -> str:
     }
     payload.update(overrides)
     return MODULE.IDENTITY_MARKER + json.dumps(payload)
+
+
+@POSIX_ONLY
+class LifecycleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = PeerFixture(self, {"peer": {}})
+
+    def assert_removed(self, slug: str | None = None) -> None:
+        self.assertFalse(self.fixture.peer_worktree("peer", slug).exists())
+        self.assertEqual(self.fixture.peer_git("peer", "for-each-ref", "--format=%(refname)", MODULE.REF_NAMESPACE).stdout, "")
+        self.assertEqual(self.fixture.peer_git("peer", "worktree", "list", "--porcelain").stdout.count("worktree "), 1)
+
+    def server(self):
+        env = {key: value for key, value in self.fixture.env.items() if not key.startswith("XDG_")}
+        env["HOME"] = str(self.fixture.peer_homes["peer"])
+        return MODULE.Serve(self.fixture.peer_repo("peer"), env, True)
+
+    def publish(self, slug: str = "manual") -> str:
+        self.fixture.peer_git("peer", "update-ref", MODULE.REF_NAMESPACE + slug, self.fixture.head)
+        return self.fixture.head
+
+    def test_default_cleanup_success_failure_and_error_preserves_diagnostics(self) -> None:
+        for mode, code in (("ok", 0), ("exit7", 7), ("error", 1)):
+            with self.subTest(mode=mode):
+                (self.fixture.local / "stub-mode.txt").write_text(mode)
+                result = self.fixture.run("audit", "all", "tracked.txt")
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assert_removed()
+                directory = self.fixture.peer_state("peer") / "runs" / self.fixture.last_slug("peer")
+                manifest = json.loads((directory / "result.json").read_text())
+                self.assertTrue(manifest["completed"])
+                self.assertEqual(manifest["exit"], code)
+                self.assertEqual(manifest["cleanup"], "removed")
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+                self.assertEqual((directory / "output.log").stat().st_mode & 0o777, 0o600)
+                self.assertIn("argv=check tracked.txt", self.fixture.audit_record("peer"))
+
+    def test_aggregate_deadline_is_not_per_path_and_does_not_retry(self) -> None:
+        (self.fixture.local / "stub-mode.txt").write_text("delay")
+        result = self.fixture.run("audit", "all", "tracked.txt", "gone.txt", "--timeout", "0.65")
+        self.assertEqual(result.returncode, 124, result.stderr)
+        self.assert_removed()
+        calls = [call for call in self.fixture.ssh_calls() if " run " in call["command"]]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.fixture.audit_record("peer").count("END\n"), 2)
+
+    def test_keep_and_rm_are_mutually_exclusive(self) -> None:
+        result = self.fixture.run("test", "all", "fast", "--rm", "--keep-worktree")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.fixture.ssh_calls(), [])
+
+    def test_invalid_execution_deadlines_are_refused(self) -> None:
+        for value in ("nan", "inf", "0", "-1", "86401"):
+            with self.subTest(value=value), self.assertRaises(MODULE.ConfigError):
+                MODULE.run_timeout(value)
+
+    def test_preparation_failure_still_removes_published_ref(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        with mock.patch.object(server, "prepare_unlocked", side_effect=MODULE.Refused("synthetic prepare failure")), \
+             contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "cleanup", "audit", "tracked.txt"]), 2)
+        self.assert_removed("manual")
+
+    def test_cleanup_failure_preserves_primary_exit_and_records_incomplete(self) -> None:
+        for result in (0, 7):
+            server = self.server()
+            slug = f"failure-{result}"
+            sha = self.publish(slug)
+            with mock.patch.object(server, "run_streamed", return_value=result), \
+                 mock.patch.object(server, "remove_unlocked", side_effect=MODULE.Refused("synthetic cleanup failure")), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(server.run([slug, sha, "1", "cleanup", "audit", "tracked.txt"]), result or 1)
+            manifest = json.loads((server.state / "runs" / slug / "result.json").read_text())
+            self.assertIn("incomplete", manifest["cleanup"])
+            self.assertTrue(self.fixture.peer_worktree("peer", slug).exists())
+
+    def test_expected_sha_and_unrelated_worktrees_are_preserved(self) -> None:
+        result = self.fixture.run("test", "all", "fast", "--keep-worktree")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        slug = self.fixture.last_slug("peer")
+        server = self.server()
+        with self.assertRaisesRegex(MODULE.Refused, "ownership mismatch"):
+            server.remove([slug, "0" * 40])
+        unrelated = self.fixture.root / "ordinary"
+        self.fixture.peer_git("peer", "worktree", "add", "-b", "ordinary", str(unrelated))
+        self.assertEqual(server.clean([]), 0)
+        self.assertTrue(unrelated.exists())
+        self.assertTrue(self.fixture.peer_git("peer", "rev-parse", "refs/heads/ordinary").stdout)
+
+    def test_missing_directory_registration_is_removed_without_global_prune(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        server.prepare(["manual", sha])
+        shutil.rmtree(self.fixture.peer_worktree("peer", "manual"))
+        self.assertEqual(server.remove(["manual", sha]), 0)
+        self.assert_removed("manual")
+
+    def test_old_client_verbs_remain_available(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(server.prepare(["manual", sha]), 0)
+            self.assertEqual(server.exec(["manual", "test", "fast"]), 0)
+            self.assertEqual(server.remove(["manual"]), 0)
+        self.assert_removed("manual")
+
+    def test_old_server_is_refused_before_publish(self) -> None:
+        helper = self.fixture.peer_repo("peer") / "assets" / "peer-env"
+        helper.write_text(helper.read_text().replace('"capabilities": [RUN_CAPABILITY]', '"capabilities": []'))
+        result = self.fixture.run("test", "all", "fast")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("server-first rollout", result.stderr)
+        self.assertFalse(any("receive-pack" in call["command"] for call in self.fixture.ssh_calls()))
+
+    def test_server_signal_stops_owned_child_then_cleans(self) -> None:
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signum):
+                slug = f"signal-{signum}"
+                sha = self.publish(slug)
+                server = self.server()
+                command = server.root / "assets" / "cz-audit.sh"
+                write_executable(command, f"#!/bin/sh\nmkdir -p .cz-audit\necho {signum} > .cz-audit/signal\necho $$ > .cz-audit/child.pid\nsleep 30\n")
+                env = {**server.environ, "PATH": str(Path(self.fixture.ssh_state["peer-host"]["bin"])) + os.pathsep + server.env["PATH"]}
+                child_pid = self.fixture.peer_worktree("peer", slug) / ".cz-audit" / "child.pid"
+                self.fixture.peer_git("peer", "config", "user.name", "Test")
+                self.fixture.peer_git("peer", "config", "user.email", "test@example.com")
+                self.fixture.peer_git("peer", "add", "assets/cz-audit.sh")
+                self.fixture.peer_git("peer", "commit", "-qm", "fixture signal")
+                sha = self.fixture.peer_git("peer", "rev-parse", "HEAD").stdout.strip()
+                self.fixture.peer_git("peer", "update-ref", MODULE.REF_NAMESPACE + slug, sha)
+                process = subprocess.Popen([str(server.root / "assets" / "peer-env"), "serve", MODULE.PROTOCOL,
+                                            "run", slug, sha, "30", "cleanup", "audit", "tracked.txt"],
+                                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    until = time.monotonic() + 5
+                    while not child_pid.exists() and time.monotonic() < until:
+                        time.sleep(0.05)
+                    self.assertTrue(child_pid.exists(), "owned audit child did not start")
+                    pid = int(child_pid.read_text())
+                    process.send_signal(signum)
+                    _, errors = process.communicate(timeout=15)
+                    self.assertEqual(process.returncode, 128 + signum, errors)
+                    self.assert_removed(slug)
+                    state = subprocess.run(["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True)
+                    self.assertTrue(state.returncode or state.stdout.lstrip().startswith("Z"))
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.communicate(timeout=15)
+
+    def test_forced_runner_shutdown_retains_unverified_worktree(self) -> None:
+        server = self.server()
+        command = write_executable(self.fixture.root / "run-tests.sh", "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 1; done\n")
+        server.deadline = time.monotonic() + 0.15
+        with mock.patch.object(MODULE, "STOP_GRACE", 0.05), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run_streamed([str(command)], self.fixture.local, False), 124)
+        self.assertFalse(server.children_stopped)
+        server.deadline = None
+        sha = self.publish()
+        with mock.patch.object(server, "run_streamed", return_value=124), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "cleanup", "test", "fast"]), 124)
+        self.assertTrue(self.fixture.peer_worktree("peer", "manual").exists())
+        manifest = json.loads((server.state / "runs/manual/result.json").read_text())
+        self.assertIn("child shutdown is unverified", manifest["cleanup"])
+
+    def test_client_cleanup_cannot_remove_unverified_children(self) -> None:
+        helper = self.fixture.peer_repo("peer") / "assets/peer-env"
+        header = "    def run_streamed(self, command: list[str], cwd: Path, scan_errors: bool) -> int:\n"
+        helper.write_text(helper.read_text().replace(header, header + "        self.children_stopped = False\n        return EXIT_TIMEOUT\n"))
+        result = self.fixture.run("test", "all", "fast")
+        self.assertEqual(result.returncode, 124, result.stderr)
+        self.assertIn("child shutdown is unverified", result.stderr)
+        slug = self.fixture.last_slug("peer")
+        self.assertTrue(self.fixture.peer_worktree("peer", slug).exists())
+        self.assertEqual(self.fixture.peer_git("peer", "rev-parse", MODULE.REF_NAMESPACE + slug).stdout.strip(), self.fixture.head)
+        server = self.server()
+        with self.assertRaisesRegex(MODULE.Refused, "child shutdown is unverified"):
+            server.remove([slug, self.fixture.head])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.clean([]), 1)
+        self.assertTrue(self.fixture.peer_worktree("peer", slug).exists())
+
+    def test_diagnostic_limits_symlinks_and_active_retention(self) -> None:
+        state = self.fixture.root / "diagnostics"
+        worktree = self.fixture.root / "log-source"
+        (worktree / ".cz-audit").mkdir(parents=True)
+        (worktree / ".cz-audit" / "regular").write_bytes(b"a" * 30)
+        (worktree / ".cz-audit" / "symlink").symlink_to(self.fixture.local / "tracked.txt")
+        with mock.patch.object(MODULE, "DIAGNOSTIC_LIMIT", 12), mock.patch.object(MODULE, "DIAGNOSTIC_RUNS", 2):
+            active = MODULE.Diagnostics(state, "active", self.fixture.head, False)
+            self.addCleanup(active.output.close)
+            for index in range(3):
+                item = MODULE.Diagnostics(state, f"complete-{index}", self.fixture.head, False)
+                item.write(b"stream")
+                item.archive(worktree, time.monotonic() + 1)
+                item.finish(0, "removed")
+                self.assertTrue(item.manifest["truncated"])
+                self.assertFalse((item.directory / "audit-symlink").exists())
+                self.assertEqual(sum(log.stat().st_size for log in item.directory.iterdir() if log.name != "result.json"), 12)
+            self.assertTrue(active.directory.exists())
+            self.assertEqual(len(list((state / "runs").iterdir())), 3)
+
+
+@POSIX_ONLY
+class AgentPreflightTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = PeerFixture(self, {"auth": {}, "offline": {}})
+        self.log = self.fixture.root / "relay-calls"
+        self.helper = self.fixture.home / "bin/wsl2-pageant.py"
+        self.args = SimpleNamespace(no_agent_repair=False)
+
+    def stub(self, *, healthy: bool = False, skipped: bool = False) -> None:
+        write_executable(self.helper, f"#!{sys.executable}\n"
+                         "import json, pathlib, sys\n"
+                         f"with pathlib.Path({str(self.log)!r}).open('a') as handle: handle.write(sys.argv[1] + '\\n')\n"
+                         f"payload = {{'socket': '/fixture/pageant.sock', 'healthy': {healthy!r} or sys.argv[1] == '--ensure', 'skipped': {skipped!r}, 'repaired': sys.argv[1] == '--ensure', 'generation': 'fresh', 'identities': 'must-not-leak'}}\n"
+                         "print(json.dumps(payload))\n")
+
+    def preflight(self, **updates):
+        env = {**self.fixture.env, "WSL_DISTRO_NAME": "fixture", **updates}
+        env.pop("SSH_AUTH_SOCK", None)
+        if "SSH_AUTH_SOCK" in updates:
+            env["SSH_AUTH_SOCK"] = updates["SSH_AUTH_SOCK"]
+        return MODULE.agent_preflight(self.args, env)
+
+    def test_unhealthy_agent_repaired_once_before_ssh_without_rc(self) -> None:
+        self.stub()
+        (self.fixture.home / ".zshrc").write_text("exit 99\n")
+        env, result = self.preflight()
+        self.assertEqual(self.log.read_text().splitlines(), ["--check", "--ensure"])
+        self.assertEqual(env["SSH_AUTH_SOCK"], "/fixture/pageant.sock")
+        self.assertTrue(result["repaired"])
+        self.assertNotIn("identities", result)
+        self.assertEqual(self.fixture.ssh_calls(), [])
+
+    def test_healthy_no_repair_and_other_agent_are_not_reset(self) -> None:
+        for healthy, skipped, no_repair in ((True, False, False), (False, False, True), (False, True, False)):
+            with self.subTest(healthy=healthy, skipped=skipped, no_repair=no_repair):
+                self.log.unlink(missing_ok=True)
+                self.stub(healthy=healthy, skipped=skipped)
+                self.args.no_agent_repair = no_repair
+                with contextlib.redirect_stderr(io.StringIO()):
+                    env, _ = self.preflight(SSH_AUTH_SOCK="/another/agent" if skipped else "")
+                self.assertEqual(self.log.read_text().splitlines(), ["--check"])
+                if skipped:
+                    self.assertEqual(env["SSH_AUTH_SOCK"], "/another/agent")
+
+    def test_config_and_non_wsl_preflight_do_not_invoke_helper(self) -> None:
+        self.stub()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(MODULE.cmd_config(SimpleNamespace(json=True), self.fixture.env), 0)
+        with mock.patch.object(MODULE, "current_platform", return_value="macos"):
+            MODULE.agent_preflight(self.args, self.fixture.env)
+        self.assertFalse(self.log.exists())
+
+    def test_repair_refreshes_only_cached_auth_failures_once(self) -> None:
+        config = MODULE.load_config(self.fixture.env)
+        peers = MODULE.remote_peers(config)
+        def result(peer, status):
+            return MODULE.ProbeResult(peer.name, peer.ssh_host, peer.platform, status, status, True, None, 0)
+        cached = {peer.name: result(peer, "auth-failed" if peer.name == "auth" else "unreachable") for peer in peers}
+        checked = time.time()
+        MODULE.save_cache(config, cached, self.fixture.env, checked, {"healthy": False, "generation": "old"})
+        agent = {"healthy": True, "generation": "fresh", "repaired": True}
+        refreshed = {"auth": result(config.peers["auth"], "reachable")}
+        with mock.patch.object(MODULE, "probe_all", return_value=refreshed) as probe:
+            values, from_cache, when = MODULE.resolve_probe(config, peers, self.fixture.env, fresh=False, ttl=300, connect_timeout=None, agent=agent)
+            self.assertFalse(from_cache)
+            self.assertEqual(when, checked)
+            self.assertEqual(values["offline"].status, "unreachable")
+            self.assertEqual([peer.name for peer in probe.call_args.args[0]], ["auth"])
+            agent["repaired"] = False
+            MODULE.resolve_probe(config, peers, self.fixture.env, fresh=False, ttl=300, connect_timeout=None, agent=agent)
+            self.assertEqual(probe.call_count, 1)
 
 
 class ConfigTests(unittest.TestCase):
@@ -534,7 +826,7 @@ class RunTests(unittest.TestCase):
             "stash": fixture.local_git("stash", "list"),
             "index": fixture.local_git("diff", "--cached", "--stat"),
         }
-        result = fixture.run("audit", "alpha", "tracked.txt", "untracked.txt")
+        result = fixture.run("audit", "alpha", "tracked.txt", "untracked.txt", "--keep-worktree")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("alpha: ok", result.stderr)
         self.assertIn("INFO: stub audit ok check tracked.txt", result.stdout)
@@ -550,7 +842,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual((worktree / "untracked.txt").read_text(encoding="utf-8"), "new\n")
         self.assertFalse((worktree / "ignored.txt").exists())
         self.assertFalse((worktree / "gone.txt").exists())
-        ref = fixture.peer_git("alpha", "rev-parse", "refs/peer-env/main").stdout.strip()
+        ref = fixture.peer_git("alpha", "rev-parse", "refs/peer-env/" + fixture.last_slug("alpha")).stdout.strip()
         self.assertNotEqual(ref, fixture.head)
         author = fixture.peer_git("alpha", "log", "-1", "--format=%an <%ae>", ref).stdout.strip()
         self.assertEqual(author, "peer-env <peer-env@localhost>")
@@ -565,25 +857,26 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("SSH_ORIGINAL_COMMAND", record)
         self.assertIn("HOME=" + str(fixture.peer_homes["alpha"]), record)
         verbs = [entry["verb"] for entry in read_json_lines(fixture.peer_state("alpha") / "serve.log")]
-        self.assertEqual(verbs, ["identity", "receive-pack", "prepare", "exec"])
+        self.assertEqual(verbs, ["identity", "receive-pack", "run"])
 
-    def test_unchanged_tree_publishes_head_and_rerun_reuses_worktree(self) -> None:
+    def test_unchanged_tree_publishes_head_and_runs_have_unique_worktrees(self) -> None:
         fixture = self.fixture()
-        first = fixture.run("audit", "alpha", "tracked.txt")
+        first = fixture.run("audit", "alpha", "tracked.txt", "--keep-worktree")
         self.assertEqual(first.returncode, 0, first.stderr)
-        ref = fixture.peer_git("alpha", "rev-parse", "refs/peer-env/main").stdout.strip()
+        ref = fixture.peer_git("alpha", "rev-parse", "refs/peer-env/" + fixture.last_slug("alpha")).stdout.strip()
         self.assertEqual(ref, fixture.head)
         worktree = fixture.peer_worktree("alpha")
         (worktree / "stray.txt").write_text("stray\n", encoding="utf-8")
         (worktree / ".cz-audit" / "keep.log").write_text("keep\n", encoding="utf-8")
         (fixture.local / "tracked.txt").write_text("v3\n", encoding="utf-8")
-        second = fixture.run("audit", "alpha", "tracked.txt")
+        second = fixture.run("audit", "alpha", "tracked.txt", "--keep-worktree")
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertEqual((worktree / "tracked.txt").read_text(encoding="utf-8"), "v3\n")
-        self.assertFalse((worktree / "stray.txt").exists())
+        self.assertNotEqual(worktree, fixture.peer_worktree("alpha"))
+        self.assertEqual((fixture.peer_worktree("alpha") / "tracked.txt").read_text(encoding="utf-8"), "v3\n")
+        self.assertTrue((worktree / "stray.txt").exists())
         self.assertTrue((worktree / ".cz-audit" / "keep.log").exists())
         worktrees = fixture.peer_git("alpha", "worktree", "list", "--porcelain").stdout
-        self.assertEqual(worktrees.count("worktree "), 2)
+        self.assertEqual(worktrees.count("worktree "), 3)
 
     def test_secret_looking_untracked_files_are_refused(self) -> None:
         fixture = self.fixture()
@@ -665,7 +958,7 @@ class RunTests(unittest.TestCase):
 
     def test_clean_removes_refs_worktrees_and_cache(self) -> None:
         fixture = self.fixture()
-        self.assertEqual(fixture.run("audit", "alpha", "tracked.txt").returncode, 0)
+        self.assertEqual(fixture.run("audit", "alpha", "tracked.txt", "--keep-worktree").returncode, 0)
         cache = fixture.home / ".local" / "state" / "dotfiles" / "peer-env" / "probe.json"
         self.assertTrue(cache.exists())
         result = fixture.run("clean", "alpha")
@@ -779,16 +1072,19 @@ class ServeTests(unittest.TestCase):
     def test_busy_lock_exits_75(self) -> None:
         import fcntl
 
-        self.assertEqual(self.fixture.run("audit", "alpha", "tracked.txt").returncode, 0)
-        lock_path = self.fixture.peer_state("alpha") / "lock-main"
+        self.assertEqual(self.fixture.run("audit", "alpha", "tracked.txt", "--keep-worktree").returncode, 0)
+        slug = self.fixture.last_slug("alpha")
+        lock_path = self.fixture.peer_state("alpha") / ("lock-" + slug)
         with lock_path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            result = self.serve(f"x serve peer-env/1 prepare main {self.fixture.head}")
+            result = self.serve(f"x serve peer-env/1 prepare {slug} {self.fixture.head}")
             self.assertEqual(result.returncode, 75, result.stderr)
             self.assertIn("busy", result.stderr)
-            via_client = self.fixture.run("audit", "alpha", "tracked.txt")
-            self.assertEqual(via_client.returncode, 75, via_client.stderr)
-            self.assertIn("busy", via_client.stderr)
+            result = self.serve("x serve peer-env/1 clean")
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertTrue(self.fixture.peer_worktree("alpha", slug).exists())
+            independent = self.fixture.run("audit", "alpha", "tracked.txt")
+            self.assertEqual(independent.returncode, 0, independent.stderr)
 
 
 class HeaderTests(unittest.TestCase):

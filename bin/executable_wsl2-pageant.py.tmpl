@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Check or repair one positively identified WSL2 Pageant relay."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import shlex
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+RELAY = {{ printf "/mnt/c/Users/%s/%s" (get (get . "homelab" | default dict) "windows_user" | default "") (get (get . "homelab" | default dict) "npiperelay_path" | default "") | toJson }}
+SOCKET = "/tmp/wsl2-ssh-agent/ssh-agent.sock"
+PIPE = "//./pipe/ssh-pageant"
+BUDGET = 15
+
+
+class Refused(Exception):
+    pass
+
+
+def eligible(env: dict[str, str]) -> bool:
+    kernel = os.uname().release.lower()
+    return ("microsoft" in kernel and "wsl2" in kernel and env.get("DEVCONTAINER") != "1"
+            and not Path("/.dockerenv").exists() and not Path("/run/.containerenv").exists())
+
+
+def secure_directory(directory: Path) -> None:
+    for parent in (directory, *directory.parents):
+        if parent.is_symlink():
+            raise Refused(f"symlinked directory: {parent}")
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    info = directory.stat()
+    if info.st_uid != os.getuid() or info.st_mode & 0o022:
+        raise Refused(f"unsafe directory ownership or permissions: {directory}")
+    directory.chmod(0o700)
+
+
+class Relay:
+    def __init__(self, socket: Path, executable: Path, env: dict[str, str]) -> None:
+        self.socket, self.executable, self.env = socket, executable, dict(env)
+        self.deadline = time.monotonic() + BUDGET
+        self.state = Path(env["HOME"]) / ".local/state/dotfiles/wsl2-pageant"
+        self.record_path = self.state / "relay.json"
+        self.socat = shutil.which("socat", path=env.get("PATH"))
+        self.repaired = False
+        try:
+            self.boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        except OSError:
+            self.boot = ""
+
+    def remaining(self) -> float:
+        seconds = self.deadline - time.monotonic()
+        if seconds <= 0:
+            raise Refused("Pageant relay operation exceeded its 15-second budget")
+        return seconds
+
+    def socket_info(self):
+        try:
+            info = self.socket.lstat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+            raise Refused(f"unsafe socket ownership or type: {self.socket}")
+        for parent in self.socket.parents:
+            if parent.is_symlink():
+                raise Refused(f"symlinked socket parent: {parent}")
+        parent_info = self.socket.parent.stat()
+        if parent_info.st_uid != os.getuid() or parent_info.st_mode & 0o022:
+            raise Refused(f"unsafe socket directory: {self.socket.parent}")
+        return info
+
+    def healthy(self) -> bool:
+        ssh_add = shutil.which("ssh-add", path=self.env.get("PATH"))
+        if not ssh_add:
+            raise Refused("ssh-add is missing; install OpenSSH before using the relay")
+        if self.socket_info() is None:
+            return False
+        env = {**self.env, "SSH_AUTH_SOCK": str(self.socket)}
+        process = subprocess.Popen([ssh_add, "-l"], env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   start_new_session=True)
+        try:
+            return process.wait(timeout=min(2, self.remaining())) in (0, 1)
+        except subprocess.TimeoutExpired:
+            return False
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=min(1, self.remaining()))
+
+    def command(self, legacy: bool = False) -> list[str]:
+        assert self.socat
+        executable = str(self.executable) if legacy else shlex.quote(str(self.executable))
+        return [self.socat, f"EXEC:{executable} -ei -s {PIPE}",
+                f"UNIX-LISTEN:{self.socket},unlink-close,fork"]
+
+    def identity(self, pid: int) -> dict | None:
+        self.remaining()
+        proc = Path("/proc") / str(pid)
+        try:
+            info = proc.stat()
+            fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+            if fields[0] == "Z":
+                return None
+            argv = (proc / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
+            binary = (proc / "exe").resolve()
+        except FileNotFoundError:
+            return None
+        if info.st_uid != os.getuid() or not self.socat or binary != Path(self.socat).resolve():
+            raise Refused(f"relay PID {pid} is not the configured same-user socat")
+        expected = self.command()
+        legacy = self.command(legacy=True)
+        if len(argv) != 3 or argv[0] not in (self.socat, "socat") or argv[1:] not in (expected[1:], legacy[1:]):
+            raise Refused(f"relay PID {pid} has different socket/relay arguments")
+        return {"pid": pid, "start": fields[19], "socket": str(self.socket), "argv": argv, "boot": self.boot}
+
+    def listener(self) -> dict | None:
+        self.remaining()
+        matches = [fields for line in Path("/proc/net/unix").read_text().splitlines()
+                   if len(fields := line.split()) == 8 and fields[7] == str(self.socket)
+                   and fields[3] == "00010000"]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise Refused("ambiguous socket listeners")
+        inode = f"socket:[{matches[0][6]}]"
+        owners = []
+        for proc in Path("/proc").iterdir():
+            self.remaining()
+            if not proc.name.isdigit():
+                continue
+            try:
+                if proc.stat().st_uid != os.getuid():
+                    continue
+                if any(os.readlink(fd) == inode for fd in (proc / "fd").iterdir()):
+                    owners.append(int(proc.name))
+            except FileNotFoundError:
+                continue
+            except PermissionError as error:
+                raise Refused("cannot establish socket listener ownership") from error
+        if len(owners) != 1:
+            raise Refused("cannot establish a unique socket listener")
+        return self.identity(owners[0])
+
+    def recorded(self) -> dict | None:
+        if not self.record_path.exists() and not self.record_path.is_symlink():
+            return None
+        descriptor = os.open(self.record_path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "r") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise Refused("unsafe relay PID record")
+            record = json.load(handle)
+        if type(record.get("pid")) is not int or record.get("socket") != str(self.socket):
+            raise Refused("relay PID record has different ownership")
+        if record.get("boot") != self.boot:
+            return None
+        identity = self.identity(record["pid"])
+        if identity is not None and identity != record:
+            raise Refused("relay PID/start identity changed; refusing PID reuse")
+        return identity
+
+    def write_record(self, record: dict) -> None:
+        descriptor = os.open(self.state / "relay.tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump(record, handle)
+            handle.write("\n")
+        os.replace(self.state / "relay.tmp", self.record_path)
+
+    def stop(self, record: dict) -> None:
+        if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+            raise Refused("PID-safe relay shutdown requires Linux pidfd support")
+        descriptor = os.pidfd_open(record["pid"])
+        try:
+            self.stop_verified(record, descriptor)
+        finally:
+            os.close(descriptor)
+
+    def stop_verified(self, record: dict, descriptor: int) -> None:
+        if self.identity(record["pid"]) != record:
+            raise Refused("relay ownership changed before shutdown")
+        signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+        until = time.monotonic() + min(2, self.remaining())
+        while time.monotonic() < until:
+            if self.identity(record["pid"]) is None:
+                return
+            time.sleep(0.05)
+        if self.identity(record["pid"]) != record:
+            raise Refused("relay ownership changed during shutdown")
+        signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+        while self.remaining() > 0:
+            if self.identity(record["pid"]) is None:
+                return
+            time.sleep(0.05)
+
+    def ensure(self, reset: bool) -> bool:
+        if not reset and self.healthy():
+            return True
+        if not self.socat or not os.access(self.executable, os.X_OK):
+            raise Refused("socat or the configured npiperelay executable is missing")
+        if not self.socket.is_absolute() or any(character in str(self.socket) for character in ",\n\r\t "):
+            raise Refused("relay socket must be an absolute path without whitespace or commas")
+        secure_directory(self.state)
+        secure_directory(self.socket.parent)
+        descriptor = os.open(self.state / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as lock:
+            while True:
+                self.remaining()
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(0.05)
+            if not reset and self.healthy():
+                return True
+            original = self.socket_info()
+            recorded = self.recorded()
+            listener = self.listener()
+            if recorded and listener != recorded:
+                raise Refused("PID record does not own the listening socket")
+            if listener:
+                self.stop(listener)
+            if self.listener() is not None:
+                raise Refused("socket listener shutdown is unverified")
+            if original:
+                current = self.socket_info()
+                if current and (current.st_ino, current.st_dev) != (original.st_ino, original.st_dev):
+                    raise Refused("socket generation changed during recovery")
+                if current:
+                    self.socket.unlink()
+            self.record_path.unlink(missing_ok=True)
+            if self.remaining() <= 5:
+                raise Refused("insufficient recovery budget to start and supervise the relay")
+            process = subprocess.Popen(self.command(), env=self.env, stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
+            try:
+                identity = self.identity(process.pid)
+                if identity is None:
+                    raise Refused("socat exited before relay ownership was recorded")
+                self.write_record(identity)
+                while self.remaining() > 3:
+                    if process.poll() is not None:
+                        raise Refused("socat exited before the relay became healthy")
+                    if self.healthy():
+                        self.repaired = True
+                        return True
+                    time.sleep(min(0.1, self.remaining()))
+                raise Refused("relay did not become healthy within the recovery budget")
+            except BaseException:
+                if process.poll() is None:
+                    identity = self.identity(process.pid)
+                    if identity:
+                        self.stop(identity)
+                process.wait(timeout=1)
+                raise
+        return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    operation = parser.add_mutually_exclusive_group(required=True)
+    for name in ("check", "ensure", "reset"):
+        operation.add_argument("--" + name, action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    env = dict(os.environ)
+    socket = Path(env.get("WSL2_PAGEANT_SSH_AUTH_SOCK", SOCKET))
+    result = {"socket": str(socket), "healthy": False, "repaired": False, "generation": None}
+    code = 1
+    try:
+        if not eligible(env) or env.get("SSH_AUTH_SOCK", str(socket)) != str(socket):
+            result["detail"] = "not a local WSL2 Pageant socket; no action"
+            result["skipped"] = True
+            code = 0
+        else:
+            relay = Relay(socket, Path(RELAY), env)
+            healthy = relay.healthy() if args.check else relay.ensure(args.reset)
+            info = relay.socket_info()
+            result.update(healthy=healthy, repaired=relay.repaired,
+                          generation=f"{info.st_dev}:{info.st_ino}:{info.st_ctime_ns}" if healthy and info else None)
+            code = 0 if healthy else 1
+    except (Refused, OSError, ValueError) as error:
+        result["detail"] = str(error)
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    elif code:
+        print(f"wsl2-pageant: {result.get('detail', 'agent is not reachable')}", file=sys.stderr)
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
