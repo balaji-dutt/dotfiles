@@ -24,6 +24,14 @@ from typing import NoReturn, Sequence
 
 MANIFEST_NAME = ".dotfiles-managed-hooks.json"
 MANIFEST_VERSION = 1
+LEGACY_HOOK_DIGESTS = {
+    "prepare-commit-msg": frozenset(
+        {
+            "1657db92d4cce73ce39d2b0d4634b68099858f6e98a0b2fd9951e67776ca288e",
+            "9ca6ec19cb5d7e442d26fd13ce628d9833e24b5a88bb4081d98f55ab16c2eeb1",
+        }
+    ),
+}
 
 
 class SyncError(RuntimeError):
@@ -276,7 +284,10 @@ def sync_hooks(
                 adopted += 1
                 info(f"adopted existing managed hook {destination}")
             continue
-        if previous.get(name) == destination_digest:
+        if (
+            previous.get(name) == destination_digest
+            or destination_digest in LEGACY_HOOK_DIGESTS.get(name, ())
+        ):
             copy_hook(source, destination)
             current[name] = source_digest
             updated += 1
