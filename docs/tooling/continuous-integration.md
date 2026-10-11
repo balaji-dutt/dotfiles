@@ -236,19 +236,30 @@ can reuse the same command and capability contract.
 ### Why `windows-all` stays advisory
 
 `windows-all` keeps `allow_failure: true`, and `tests/test_gitlab_ci.py` pins
-that. Fixing the merge helper for native Windows (`dots-iwon`) was a reason to
-revisit it, and the answer is still no: measured on Windows at `51ad959a`, the
-`fast` suite alone has 13 failing steps unrelated to any one change — among them
+that. The historical Windows measurement at `51ad959a` recorded 13 failing
+`fast` steps unrelated to any one change — among them
 `agent-attestation-windows`, `automation-provenance`, `test-runner`, and
-`remind-beads-hook`. Making the job blocking would stop merges for those, not
-for the change under review.
+`remind-beads-hook` — which made a blocking job unsuitable then.
 
-So per-module Windows coverage is made visible where it can block, rather than by
-flipping this job. `configs/automation-test-inventory.json` now records the real
+After the portability fixes in `672aa7a1` (`dots-4jy.10.22`), GitHub-hosted
+Windows `fast` reports recorded 27 passed, 5 platform-excluded skips, and 0
+failed on consecutive `main` landings:
+[run 38046378227](https://github.com/balaji-dutt/dotfiles/actions/runs/38046378227)
+at `672aa7a1` and
+[run 38047582104](https://github.com/balaji-dutt/dotfiles/actions/runs/38047582104)
+at `105c2051`. Runs `38111656161` and `38111980723` confirmed the same totals
+on 2026-10-11. Each Windows report had exit code 0, and its fast-suite step
+succeeded; workflow success alone is insufficient under `continue-on-error`.
+These hosted `fast` results do not verify the broader GitLab `windows-all`
+suite or local MacBook/native-Windows runs.
+
+Per-module Windows coverage remains visible where it can block.
+`configs/automation-test-inventory.json` records the real
 platform set for each covered entry, and `tests/test_automation_test_inventory.py`
 asserts the merge-helper suite does not run on a platform its entry omits. That
-check lives in the `fast` suite, which does block. Flipping `allow_failure` is
-worth revisiting once those 13 steps are green, not before.
+check lives in the `fast` suite, which does block. Changing `allow_failure`
+requires a separate enforcement decision; `dots-4jy.10.21` tracks the CI spike
+and follow-up decisions.
 
 `devcontainer-smoke` is a manual, non-blocking job that requires a self-hosted
 runner carrying the `devcontainer-smoke` tag, Docker, the Dev Container CLI,
@@ -308,11 +319,13 @@ mirror can never supply the feature-branch and `ci/<main>/<sha>` evidence the
 GitHub contract needs (see [GitHub Actions opt-in](#github-actions-opt-in)).
 `tests/test_github_workflows.py` asserts the policy file stays absent.
 
-Why Windows is `continue-on-error`: the `fast` suite already has known Windows
-failures (see [Why `windows-all` stays advisory](#why-windows-all-stays-advisory)),
-so a blocking Windows job would be red from the first run and drown the macOS
-and Linux signal. Linux and macOS do fail the workflow; a red run there is the
-data this matrix collects. Runtimes are pinned to the GitLab lane (Python 3.13,
+Why Windows is `continue-on-error`: the initial rollout had known Windows
+`fast` failures, so an advisory Windows job preserved the macOS and Linux
+signal. The hosted Windows lane now has verified zero-failure runs (see
+[Why `windows-all` stays advisory](#why-windows-all-stays-advisory)); removing
+`continue-on-error` remains a separate decision under `dots-4jy.10.21`.
+Linux and macOS do fail the workflow; a red run there is the data this matrix
+collects. Runtimes are pinned to the GitLab lane (Python 3.13,
 Node 24.21.0) so a difference is a platform difference. Actions are pinned by
 major tag; Renovate's `enabledManagers` allowlist excludes `github-actions`,
 so those pins only move by hand.
