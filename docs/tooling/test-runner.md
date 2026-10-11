@@ -97,6 +97,34 @@ Every top-level `tests/test_*.py` module must appear in the union of `covers`.
 The runner contract tests enforce that registration and specifically retain the
 existing `agent-worktree-merge` suite.
 
+`assets/check-test-selection.py` checks selection at class level, and the fast
+`test-selection` step runs it. It reads test sources with `ast` and never
+imports them, so no module-level runtime probe runs. Every step must be
+`{python} -m unittest` followed by optional `-v` and `tests.test_<module>` or
+`tests.test_<module>.<Class>` selectors, and its `covers` must equal the modules
+its selectors name. A concrete class is a `unittest.TestCase` subclass with at
+least one `test*` attribute, defined on the class or inherited from its bases,
+including mixins from `tests/support/`. The check fails when:
+
+- no step selects a concrete class;
+- two steps select the same class on overlapping `platforms`;
+- a selector names nothing, or only classes without tests;
+- a module defines, assigns or imports `load_tests`, defines a class or
+  function inside a module-level block, has a base the check cannot resolve,
+  or imports a concrete class that unittest would collect a second time;
+- a module has no concrete class.
+
+Repetition across disjoint platforms is allowed. The check does not evaluate
+`skipUnless` conditions, so a selected class can still skip at run time. Reviewed
+exceptions live in `REVIEWED_EXCEPTIONS` in the script, each with a reason and
+work item. An exception that no longer excuses anything is an error. The only
+current exception is the manual-only macOS shell-startup smoke module. Run the
+check locally with:
+
+```sh
+python3 assets/check-test-selection.py
+```
+
 Capabilities name one executable with `command`, or ordered alternatives with
 `commands`, and may include a non-interactive probe. The first executable found
 on the runner's inherited `PATH` runs the probe by absolute path with a
@@ -167,7 +195,10 @@ with a bare `pwsh` anywhere else. `resolve_powershell_runtime` tries `pwsh` on
 `probe-runtime --native` and `probe-runtime --interop` expose the `forbid` and
 `require` modes to capability probes. The `pwsh` capability uses `--native`, so
 a WSL2 host with only `pwsh.exe` skips `pwsh` steps while `pester` steps still
-run through interop. A failed probe reports
+run through interop. The `pwsh-interop` capability uses `--interop`. Only the
+WSL2 `windows-shell-interop-smoke` step requires it, and that step is evidence
+of Windows PowerShell reached through interop, not of a native Windows checkout.
+A failed probe reports
 `capability probe failed for pwsh (exit 1)`; run
 `python3 tests/support/powershell.py probe-runtime --native` to print each
 candidate's diagnostic.

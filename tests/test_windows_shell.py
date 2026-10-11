@@ -8,7 +8,6 @@ import tempfile
 import unittest
 
 from tests.support.powershell import (
-    is_wsl,
     pester_version,
     powershell_path,
     resolve_powershell_runtime,
@@ -20,6 +19,7 @@ from tests.support.chezmoi_render import render_template
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PWSH = resolve_powershell_runtime()
 PESTER = pester_version(PWSH) if PWSH else None
+INTEROP_PWSH = resolve_powershell_runtime(interop="require")
 PESTER_TEST_NAMES = {
     "WindowsDriveMapping.Tests.ps1",
     "WindowsShellProfile.Tests.ps1",
@@ -84,10 +84,7 @@ class WindowsShellPesterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
-@unittest.skipUnless(
-    PWSH and PWSH.lower().endswith(".exe") and is_wsl(),
-    "WSL-accessible native Windows PowerShell is required",
-)
+@unittest.skipUnless(INTEROP_PWSH, "WSL-accessible native Windows PowerShell is required")
 class NativeWindowsShellSmokeTests(unittest.TestCase):
     def test_dot_sources_shell_helpers_over_wsl_unc_paths(self) -> None:
         with tempfile.TemporaryDirectory(prefix="windows-shell-smoke-") as temporary:
@@ -106,18 +103,18 @@ class NativeWindowsShellSmokeTests(unittest.TestCase):
             )
             result = subprocess.run(
                 [
-                    PWSH,
+                    INTEROP_PWSH,
                     "-NoLogo",
                     "-NoProfile",
                     "-NonInteractive",
                     "-ExecutionPolicy",
                     "Bypass",
                     "-File",
-                    powershell_path(smoke, PWSH),
+                    powershell_path(smoke, INTEROP_PWSH),
                     "-RenderDir",
-                    powershell_path(render_dir, PWSH),
+                    powershell_path(render_dir, INTEROP_PWSH),
                     "-Marker",
-                    powershell_path(marker, PWSH),
+                    powershell_path(marker, INTEROP_PWSH),
                 ],
                 cwd=REPO_ROOT,
                 check=False,

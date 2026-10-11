@@ -908,11 +908,11 @@
       "coverage": {
         "status": "partial",
         "work_item": "dots-4jy.10.5.3",
-        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_macos_shell_startup_smoke.py", "tests/test_shell_startup.py"],
+        "test_paths": ["tests/test_beads_helpers.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_envrc.py", "tests/test_guarded_main_sync.py", "tests/test_shell_startup.py"],
         "platform_smoke_waiver": {"reason": "An isolated WSL2 runner is unavailable; synthetic-home subprocesses do not validate disposable WSL2 interactive startup. At review, evaluate a throwaway WSL2 account for shell-startup-only smoke with an isolated home and disabled or stubbed credential, Windows-mount, socket, and network integrations; an account alone does not isolate provisioning.", "risk_owner": "Balaji Dutt", "review_due": "2027-03-28", "review_trigger": "isolated-wsl2-runner-available", "requirement_ids": []},
         "behavior_requirements": []
       },
-      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). Ordinary runs skip this suite without explicit opt-in and that account. WSL2 interactive smoke remains unverified under a reviewable waiver and tracked under dots-4jy.10.17."
+      "rationale": "Fixture-based interactive Bash and Zsh subprocesses discover rendered startup files from synthetic homes without explicit sourcing, covering startup ordering, optional-tool absence, and synthetic environment loading; other subprocess tests cover Beads parity, modern CLI hints, PATH and WSL command resolution, package failures, and editor selection. Real-repository gpls tests retain authority for guarded pull behavior. On 2026-09-28 the dedicated smoketest account ran all four native macOS interactive Bash/Zsh smoke cases without skips from the verified allowlisted bundle (fingerprint cf67f23eae2d1da12db6dfa747699ab25fd5360fd3b8d079b9af3797b94911c3, working snapshot from HEAD 12c79f944e965761420a5c2c4083ff09722c7318). That smoke is not registered with the test runner, which never passes the opt-in; it runs only through the manual procedure in docs/tooling/automation-coverage-policy.md. WSL2 interactive smoke remains unverified under a reviewable waiver and tracked under dots-4jy.10.17."
     },
     {
       "id": "sync-tooling",
@@ -939,7 +939,7 @@
     {
       "id": "test-foundation",
       "classification": "owned",
-      "paths": ["assets/run-tests.ps1", "assets/run-tests.py", "assets/run-tests.sh"],
+      "paths": ["assets/check-test-selection.py", "assets/run-tests.ps1", "assets/run-tests.py", "assets/run-tests.sh"],
       "owner": {"kind": "repository", "name": "test-foundation"},
       "languages": ["bash", "powershell", "python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -949,10 +949,10 @@
       "coverage": {
         "status": "covered",
         "work_item": "test-foundation",
-        "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py"],
+        "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
         "behavior_requirements": []
       },
-      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, and POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP. Native Windows retains its unsupervised execution branch."
+      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, source-only selection completeness (every concrete unittest class selected once per platform or listed as a reviewed exception), and POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP. Native Windows retains its unsupervised execution branch."
     },
     {
       "id": "user-utilities",

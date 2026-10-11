@@ -74,7 +74,8 @@ Adding, renaming, or removing production automation also requires an update to
 3. Register behavioral evidence in `configs/test-suites.json`, or record a
    truthful planned/partial gap with a durable work item and rationale. Build
    new tests from the shared fixtures and recipe in
-   `docs/tooling/test-runner.md` ("Shared fixtures").
+   `docs/tooling/test-runner.md` ("Shared fixtures"), and confirm
+   `python3 assets/check-test-selection.py` accounts for every new test class.
 4. For critical automation, list success, failure, and safety requirements. A
    covered requirement is backed by the entry's tracked tests in a behavioral
    suite.

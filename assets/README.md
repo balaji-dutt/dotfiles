@@ -130,6 +130,21 @@ py -3 assets/check-automation-test-inventory.py
 
 Use `--list-candidates` to review the tracked census and `--update-candidates`
 to record it in `configs/automation-candidates.txt`.
+
+### Test selection completeness
+
+Checks, from source alone, that the steps in `configs/test-suites.json` select
+every concrete unittest class once per platform:
+
+```sh
+python3 assets/check-test-selection.py
+```
+
+```powershell
+py -3 assets/check-test-selection.py
+```
+
+See `docs/tooling/test-runner.md` for the rules and the reviewed exceptions.
 See `docs/inventory/automation-testing.md` for discovery rules, classifications,
 and the update workflow. Risk tiers, critical branch matrices, and new-script
 review criteria are documented in `docs/tooling/automation-coverage-policy.md`.

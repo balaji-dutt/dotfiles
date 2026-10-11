@@ -140,7 +140,9 @@ reported as skips unless a CI lane explicitly requires that capability.
 
 ### Native macOS shell-startup smoke
 
-The `shell-startup-macos-smoke` suite normally skips. To exercise real
+`tests/test_macos_shell_startup_smoke.py` is not registered with the test
+runner, because the runner never passes its opt-in; it is listed as a reviewed
+manual-only exception in `assets/check-test-selection.py`. To exercise real
 interactive Bash and Zsh startup without reading the operator's dotfiles,
 stage the allowlisted working snapshot from the repository worktree:
 
@@ -161,8 +163,8 @@ Staging refreshes only a verified bundle owned by the staging user; if it
 refuses an existing destination, inspect the files and manifest there before
 removing anything. The test verifies file hashes and the account before
 creating synthetic homes and command stubs. Confirm that all four tests ran
-without skips before recording native runtime coverage. A normal suite pass
-with these tests skipped is not native smoke evidence.
+without skips before recording native runtime coverage. A run with these tests
+skipped is not native smoke evidence.
 
 ## Optional language metrics
 

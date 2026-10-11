@@ -94,6 +94,7 @@ assets/check-beads-release-notes.py	script-extension,shebang
 assets/check-gitlab-pipeline.py	script-extension,shebang
 assets/check-pipeline.py	script-extension,shebang
 assets/check-plannotator-config.py	script-extension,shebang
+assets/check-test-selection.py	script-extension,shebang
 assets/claude-mcp-apply.py	script-extension,shebang
 assets/cz-audit.ps1	executable-mode,script-extension
 assets/cz-audit.sh	executable-mode,script-extension,shebang

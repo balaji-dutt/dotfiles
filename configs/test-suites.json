@@ -22,6 +22,10 @@
       "command": "{python}",
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--native", "--repo-root", "{repo}"]
     },
+    "pwsh-interop": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--interop", "--repo-root", "{repo}"]
+    },
     "sh": {"command": "sh"},
     "zsh": {"command": "zsh"}
   },
@@ -114,14 +118,14 @@
     {
       "id": "beads-helpers-posix",
       "suites": ["integration", "platform"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers.BeadsShellDispatchTests", "tests.test_beads_helpers.BeadsLauncherTests", "tests.test_beads_helpers.BeadsSnapshotTests", "tests.test_beads_helpers.BeadsSyncRemoteGuardTests"],
       "covers": ["tests/test_beads_helpers.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash", "git"]
     },
     {
       "id": "beads-helpers-powershell",
-      "suites": ["platform"],
+      "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers.PowerShellBeadsDispatchTests"],
       "covers": ["tests/test_beads_helpers.py"],
       "requires": ["git", "pwsh"]
@@ -147,6 +151,12 @@
       "covers": ["tests/test_beads_sync.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash", "git"]
+    },
+    {
+      "id": "beads-sync-contract",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.CloneLocalFkListParityTests"],
+      "covers": ["tests/test_beads_sync.py"]
     },
     {
       "id": "beads-sync-powershell",
@@ -580,14 +590,6 @@
       "requires": ["bash", "chezmoi", "zsh"]
     },
     {
-      "id": "shell-startup-macos-smoke",
-      "suites": ["platform"],
-      "argv": ["{python}", "-m", "unittest", "-v", "tests.test_macos_shell_startup_smoke"],
-      "covers": ["tests/test_macos_shell_startup_smoke.py"],
-      "platforms": ["macos"],
-      "requires": ["bash", "chezmoi", "zsh"]
-    },
-    {
       "id": "statusline-sync-provenance",
       "suites": ["provenance"],
       "argv": ["{python}", "-m", "unittest", "tests.test_automation_provenance.StatuslineSyncProvenanceTests"],
@@ -617,6 +619,12 @@
       "requires": ["git"]
     },
     {
+      "id": "test-selection",
+      "suites": ["fast"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_test_selection"],
+      "covers": ["tests/test_test_selection.py"]
+    },
+    {
       "id": "user-command-wrappers",
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_user_command_wrappers"],
@@ -634,10 +642,18 @@
     {
       "id": "windows-shell",
       "suites": ["integration", "platform", "render"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell.WindowsShellPesterTests"],
       "covers": ["tests/test_windows_shell.py"],
       "platforms": ["windows"],
       "requires": ["chezmoi", "pester"]
+    },
+    {
+      "id": "windows-shell-interop-smoke",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell.NativeWindowsShellSmokeTests"],
+      "covers": ["tests/test_windows_shell.py"],
+      "platforms": ["wsl2"],
+      "requires": ["chezmoi", "pwsh-interop"]
     },
     {
       "id": "wsl-bootstrap",

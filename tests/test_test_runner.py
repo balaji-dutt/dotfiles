@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.support import powershell
+from tests.support.fixtures import load_script_module
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,7 @@ RUNNER = REPO_ROOT / "assets" / "run-tests.py"
 POSIX_WRAPPER = REPO_ROOT / "assets" / "run-tests.sh"
 POWERSHELL_WRAPPER = REPO_ROOT / "assets" / "run-tests.ps1"
 REGISTRY = REPO_ROOT / "configs" / "test-suites.json"
+SELECTION_CHECK = load_script_module(REPO_ROOT / "assets" / "check-test-selection.py", "check_test_selection")
 
 
 PWSH_NAMES = {"pwsh", "pwsh.exe"}
@@ -784,7 +786,13 @@ class TestRunnerTests(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
         ).stdout.splitlines()
-        self.assertEqual(covered, set(tracked))
+        manual_only = {
+            exception.selector.replace(".", "/") + ".py"
+            for exception in SELECTION_CHECK.REVIEWED_EXCEPTIONS
+            if exception.kind == "unselected" and exception.selector.count(".") == 1
+        }
+        self.assertEqual(manual_only, {"tests/test_macos_shell_startup_smoke.py"})
+        self.assertEqual(covered, set(tracked) - manual_only)
         agent = next(step for step in payload["steps"] if step["id"] == "agent-worktree-merge")
         self.assertEqual(agent["argv"][-1], "tests.test_agent_wt_merge")
         self.assertEqual(agent["covers"], ["tests/test_agent_wt_merge.py"])
