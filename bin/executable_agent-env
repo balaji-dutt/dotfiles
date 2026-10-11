@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" = 0 ]; then
+  printf '%s\n' 'usage: agent-env command [args...]' >&2
+  exit 1
+fi
+agent_env_file="$HOME/.local/share/dotfiles/agent-env.sh"
+if [ ! -f "$agent_env_file" ] || [ ! -r "$agent_env_file" ]; then
+  printf '%s\n' 'agent-env: missing or unreadable host environment helper' >&2
+  exit 1
+fi
+source "$agent_env_file"
+dotfiles_agent_env
+exec "$@"

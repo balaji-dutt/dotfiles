@@ -118,6 +118,7 @@ assets/sync-devcontainer-all.sh	executable-mode,script-extension,shebang
 assets/sync-devcontainer-assets.sh	executable-mode,script-extension,shebang
 assets/sync-plannotator-assets.py	script-extension,shebang
 assets/sync-statusline.sh	executable-mode,script-extension,shebang
+bin/executable_agent-env	chezmoi-executable,shebang
 bin/executable_ai-wt.tmpl	chezmoi-executable,shebang
 bin/executable_aoe-notify.tmpl	chezmoi-executable,shebang
 bin/executable_cc-commit	chezmoi-executable,shebang
@@ -185,6 +186,7 @@ dot_local/executable_oc-commit.cmd	chezmoi-executable,script-extension
 dot_local/executable_oc-commit.ps1	chezmoi-executable,script-extension
 dot_local/share/beads-helpers.bash	script-extension
 dot_local/share/beads-helpers.zsh	script-extension
+dot_local/share/dotfiles/agent-env.sh	script-extension
 dot_local/share/git-helpers.zsh	script-extension
 dot_local/share/zsh-modern-cli-hints.zsh	script-extension
 dot_local/share/zsh/01-history-and-aliases.zsh.tmpl	script-extension

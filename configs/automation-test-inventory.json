@@ -3,6 +3,25 @@
   "schema_version": 3,
   "entries": [
     {
+      "id": "agent-environment",
+      "classification": "owned",
+      "paths": ["bin/executable_agent-env", "dot_local/share/dotfiles/agent-env.sh"],
+      "owner": {"kind": "repository", "name": "host agent tool environment"},
+      "languages": ["bash"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "high",
+      "side_effects": ["process"],
+      "test_layers": ["integration", "unit"],
+      "coverage": {
+        "suite_id": "user-command-wrappers",
+        "status": "covered",
+        "work_item": "dots-pm9k",
+        "test_paths": ["tests/test_user_command_wrappers.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "Isolated fake tools cover idempotent PATH normalization, virtualenv and shim-location precedence, shell and env-shebang dispatch, argv/cwd/status preservation, missing-helper/shim refusals and scoped missing-tool safeguards. Startup sentinels cover no mise/profile invocation; containers and dry-run retain their host-helper-independent behavior. Live mise dispatch and AoE rollout require separate verification."
+    },
+    {
       "id": "agent-worktree-merge",
       "classification": "owned",
       "paths": ["assets/agent-wt-merge"],

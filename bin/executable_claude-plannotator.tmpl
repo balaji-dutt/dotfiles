@@ -41,6 +41,13 @@ if [ "${CLAUDE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
   exit 0
 fi
 
+if ! is_devcontainer; then
+  agent_env_file="$HOME/.local/share/dotfiles/agent-env.sh"
+  [ -f "$agent_env_file" ] && [ -r "$agent_env_file" ] || die "missing or unreadable host environment helper"
+  source "$agent_env_file"
+  dotfiles_agent_env
+fi
+
 CLAUDE_BIN="${CLAUDE_BIN:-}"
 if [ -z "$CLAUDE_BIN" ]; then
   CLAUDE_BIN="$(command -v claude || true)"

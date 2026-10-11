@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,20 @@ from tests.support.fixtures import isolated_environment, write_executable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BIN = REPO_ROOT / "bin"
+AGENT_ENV = REPO_ROOT / "dot_local/share/dotfiles/agent-env.sh"
+
+
+def deploy_agent_env(fixture) -> tuple[Path, Path]:
+    helper = fixture.home / ".local/share/dotfiles/agent-env.sh"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_text(AGENT_ENV.read_text(encoding="utf-8"), encoding="utf-8")
+    shims = fixture.home / ".local/share/mise/shims"
+    write_executable(
+        shims / "python3", f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n'
+    )
+    fixture.env["MISE_SHIMS_DIR"] = str(shims)
+    fixture.env.pop("VIRTUAL_ENV", None)
+    return helper, shims
 
 
 def run_script(
@@ -47,6 +62,8 @@ def write_env_logger(path: Path, log_path: Path) -> Path:
         "    'ANTHROPIC_SYSTEM_PROMPT_PATH',\n"
         "    'OPENCODE_DISABLE_CLAUDE_CODE_PROMPT',\n"
         "    'OPENCODE_DISABLE_CLAUDE_CODE_SKILLS',\n"
+        "    'PATH', 'MISE_AUTO_INSTALL', 'MISE_NOT_FOUND_AUTO_INSTALL',\n"
+        "    'MISE_NOT_FOUND_SYSTEM_FALLBACK',\n"
         "]\n"
         "payload = {'argv': sys.argv[1:], 'env': {key: os.environ.get(key) for key in keys}}\n"
         "path.write_text(json.dumps(payload), encoding='utf-8')\n"
@@ -566,6 +583,8 @@ class PlannotatorWrapperTests(unittest.TestCase):
         cleaned = env.copy()
         for key in (
             "DEVCONTAINER",
+            "REMOTE_CONTAINERS",
+            "CODESPACES",
             "PLANNOTATOR_PORTS_BUILD",
             "PLANNOTATOR_PORTS_CLAUDE",
             "PLANNOTATOR_PORTS_CUSTOM",
@@ -574,6 +593,7 @@ class PlannotatorWrapperTests(unittest.TestCase):
         return cleaned
 
     def render(self, fixture, source_name: str, target_name: str) -> Path:
+        deploy_agent_env(fixture)
         replacements = {
             "{{ .plannotator_ports.host.claude }}": "4100-4109",
             "{{ .plannotator_ports.devcontainer.claude }}": "5100-5109",
@@ -655,7 +675,7 @@ class PlannotatorWrapperTests(unittest.TestCase):
             wrapper = self.render(
                 fixture, "executable_opencode-plannotator.tmpl", "opencode-plannotator"
             )
-            env = fixture.env | {"PATH": "/usr/bin:/bin"}
+            env = fixture.env | {"PATH": "/usr/bin:/bin", "OSTYPE": "linux-gnu"}
             missing = run_script(wrapper, "synthetic-secret", env=env)
             self.assertEqual(missing.returncode, 1)
             self.assertIn("opencode not found", missing.stderr)
@@ -666,6 +686,194 @@ class PlannotatorWrapperTests(unittest.TestCase):
             refused = run_script(wrapper, env=env | {"OPENCODE_BIN": str(nonexec)})
             self.assertEqual(refused.returncode, 1)
             self.assertIn("is not executable", refused.stderr)
+
+
+class AgentEnvironmentTests(unittest.TestCase):
+    WRAPPERS = (
+        ("executable_opencode-plannotator.tmpl", "opencode-plannotator", "OPENCODE_BIN", "opencode"),
+        ("executable_opencode-plannotator-custom.tmpl", "opencode-plannotator-custom", "OPENCODE_BIN", "opencode"),
+        ("executable_claude-plannotator.tmpl", "claude-plannotator", "CLAUDE_BIN", "claude"),
+    )
+    PROBE = (
+        "import json, os, sys; print(json.dumps({"
+        "'path': os.environ['PATH'], 'cwd': os.getcwd(), 'argv': sys.argv[1:],"
+        "'marker': os.environ.get('KEEP_MARKER'),"
+        "'flags': [os.environ.get(k) for k in "
+        "['MISE_AUTO_INSTALL', 'MISE_NOT_FOUND_AUTO_INSTALL', 'MISE_NOT_FOUND_SYSTEM_FALLBACK']]}))"
+    )
+
+    def prepare(self, fixture):
+        helper, shims = deploy_agent_env(fixture)
+        env = PlannotatorWrapperTests.clean_port_environment(fixture.env)
+        for key in ("MISE_DATA_DIR", "OPENCODE_BIN", "CLAUDE_BIN"):
+            env.pop(key, None)
+        env.update(PATH=f"/usr/bin:/bin:{shims}:{fixture.fake_bin}:{shims}", KEEP_MARKER="keep me")
+        wrapper = write_executable(
+            fixture.root / "agent-env", (BIN / "executable_agent-env").read_text(encoding="utf-8")
+        )
+        return wrapper, helper, shims, env
+
+    def probe(self, wrapper, env, cwd=None):
+        result = run_script(wrapper, "python3", "-c", self.PROBE, "literal $* spaces", env=env, cwd=cwd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_order_idempotence_and_no_startup_commands_or_profiles(self):
+        with isolated_environment(prefix="agent env [literal] ") as fixture:
+            wrapper, helper, shims, env = self.prepare(fixture)
+            home_bin = fixture.home / "bin"
+            local_bin = fixture.home / ".local/bin"
+            bun_bin = fixture.home / ".bun/bin"
+            for directory in (home_bin, local_bin, bun_bin):
+                directory.mkdir(parents=True, exist_ok=True)
+            sentinel = fixture.root / "unexpected"
+            for name in ("mise", "brew"):
+                write_executable(shims / name, f"#!/bin/sh\ntouch {shlex.quote(str(sentinel))}\nexit 97\n")
+            for name in (".bashrc", ".bash_profile", ".zshrc", ".zprofile"):
+                (fixture.home / name).write_text(f"touch {shlex.quote(str(sentinel))}\n", encoding="utf-8")
+            env["PATH"] += f":{home_bin}:{local_bin}:{bun_bin}::"
+            env.update(MISE_AUTO_INSTALL="true", MISE_NOT_FOUND_AUTO_INSTALL="true", MISE_NOT_FOUND_SYSTEM_FALLBACK="true")
+            first = self.probe(wrapper, env, fixture.root)
+            components = first["path"].split(":")
+            self.assertEqual(components[:4], list(map(str, (home_bin, shims, local_bin, bun_bin))))
+            self.assertEqual(components[-3:], ["/usr/bin", "/bin", str(fixture.fake_bin)])
+            self.assertNotIn("", components)
+            for directory in (home_bin, shims, local_bin, bun_bin):
+                self.assertEqual(components.count(str(directory)), 1)
+            second = self.probe(wrapper, env | {"PATH": first["path"]}, fixture.root)
+            self.assertEqual(second, first)
+            self.assertEqual(first["flags"], ["false"] * 3)
+            self.assertEqual(first["marker"], "keep me")
+            self.assertEqual(first["cwd"], str(fixture.root.resolve()))
+            self.assertEqual(first["argv"], ["literal $* spaces"])
+            self.assertFalse(sentinel.exists())
+
+    def test_shell_commands_and_env_python_shebang_use_shims(self):
+        with isolated_environment() as fixture:
+            wrapper, _, shims, env = self.prepare(fixture)
+            script = write_executable(fixture.root / "python-script", "#!/usr/bin/env python3\n" + self.PROBE + "\n")
+            result = run_script(wrapper, str(script), "arg with spaces", env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["argv"], ["arg with spaces"])
+            shells = ["/bin/bash"]
+            if shutil.which("zsh"):
+                shells.append(shutil.which("zsh"))
+            for shell in shells:
+                with self.subTest(shell=shell):
+                    result = run_script(wrapper, shell, "-c", 'command -v python3; python3 -c "$1"', "probe", self.PROBE, env=env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines()[0], str(shims / "python3"))
+                    self.assertEqual(json.loads(result.stdout.splitlines()[1])["flags"], ["false"] * 3)
+
+    def test_shim_location_precedence(self):
+        with isolated_environment(prefix="agent shim $[] ") as fixture:
+            wrapper, _, _, env = self.prepare(fixture)
+            for extra, expected in (
+                ({"MISE_SHIMS_DIR": str(fixture.root / "explicit shims"), "MISE_DATA_DIR": "relative"}, fixture.root / "explicit shims"),
+                ({"MISE_DATA_DIR": str(fixture.root / "data")}, fixture.root / "data/shims"),
+                ({"XDG_DATA_HOME": str(fixture.root / "xdg")}, fixture.root / "xdg/mise/shims"),
+                ({"XDG_DATA_HOME": ""}, fixture.home / ".local/share/mise/shims"),
+            ):
+                with self.subTest(extra=extra):
+                    write_executable(expected / "python3", f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+                    child_env = env.copy()
+                    child_env.pop("MISE_SHIMS_DIR", None)
+                    child_env.update(extra)
+                    self.assertEqual(self.probe(wrapper, child_env)["path"].split(":")[0], str(expected))
+
+    def test_unset_empty_path_and_virtualenv_precedence(self):
+        with isolated_environment() as fixture:
+            wrapper, _, shims, env = self.prepare(fixture)
+            for value in (None, ""):
+                child_env = env.copy()
+                child_env.pop("PATH", None)
+                if value is not None:
+                    child_env["PATH"] = value
+                result = self.probe(wrapper, child_env)
+                self.assertEqual(result["path"].split(":")[0], str(shims))
+                self.assertNotIn("", result["path"].split(":"))
+                self.assertIn("/usr/bin", result["path"].split(":"))
+            venv = fixture.root / "virtual env"
+            write_executable(venv / "bin/python3", "#!/bin/sh\nprintf '%s\\n' virtualenv\n")
+            result = run_script(wrapper, "python3", env=env | {"VIRTUAL_ENV": str(venv)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "virtualenv\n")
+            self.assertEqual(self.probe(wrapper, env | {"VIRTUAL_ENV": str(fixture.root / "absent")})["path"].split(":")[0], str(shims))
+
+    def test_failures_are_closed_and_do_not_leak_arguments(self):
+        with isolated_environment() as fixture:
+            wrapper, helper, shims, env = self.prepare(fixture)
+            for extra, expected in (
+                ({"MISE_SHIMS_DIR": "relative"}, "must be absolute"),
+                ({"MISE_SHIMS_DIR": str(fixture.root / "absent")}, "missing or inaccessible"),
+            ):
+                result = run_script(wrapper, "/bin/echo", "synthetic-secret", env=env | extra)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn("synthetic-secret", result.stderr)
+            (shims / "python3").chmod(0o644)
+            result = run_script(wrapper, "/bin/echo", "synthetic-secret", env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("python3 shim", result.stderr)
+            self.assertNotIn("synthetic-secret", result.stderr)
+            helper.unlink()
+            result = run_script(wrapper, "/bin/echo", "synthetic-secret", env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("helper", result.stderr)
+            self.assertNotIn("synthetic-secret", result.stderr)
+            deploy_agent_env(fixture)
+            if os.geteuid() != 0:
+                helper.chmod(0)
+                result = run_script(wrapper, "/bin/echo", "synthetic-secret", env=env)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("unreadable", result.stderr)
+                helper.chmod(0o644)
+            result = run_script(wrapper, env=env)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("usage:", result.stderr)
+            result = run_script(wrapper, "/bin/bash", "-c", "exit 23", env=env)
+            self.assertEqual(result.returncode, 23)
+
+    def test_all_launchers_share_environment_for_lookup_and_overrides(self):
+        with isolated_environment() as fixture:
+            reproduction, _, shims, env = self.prepare(fixture)
+            PlannotatorWrapperTests.write_pin(env)
+            expected = self.probe(reproduction, env)["path"]
+            for source, target, override, command in self.WRAPPERS:
+                with self.subTest(target=target):
+                    wrapper = PlannotatorWrapperTests().render(fixture, source, target)
+                    log = fixture.root / "agent.json"
+                    agent = write_env_logger(shims / command, log)
+                    for extra in ({}, {override: str(agent)}):
+                        result = run_script(wrapper, "arg $* with spaces", env=env | extra)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        payload = json.loads(log.read_text(encoding="utf-8"))
+                        self.assertEqual(payload["argv"], ["arg $* with spaces"])
+                        self.assertEqual(payload["env"]["PATH"], expected)
+                        for key in ("MISE_AUTO_INSTALL", "MISE_NOT_FOUND_AUTO_INSTALL", "MISE_NOT_FOUND_SYSTEM_FALLBACK"):
+                            self.assertEqual(payload["env"][key], "false")
+
+    def test_container_and_dry_run_need_no_host_helper(self):
+        with isolated_environment() as fixture:
+            _, _, _, env = self.prepare(fixture)
+            PlannotatorWrapperTests.write_pin(env)
+            for source, target, override, command in self.WRAPPERS:
+                with self.subTest(target=target):
+                    wrapper = PlannotatorWrapperTests().render(fixture, source, target)
+                    (fixture.home / ".local/share/dotfiles/agent-env.sh").unlink()
+                    log = fixture.root / "agent.json"
+                    agent = write_env_logger(fixture.fake_bin / command, log)
+                    missing = run_script(wrapper, "synthetic-secret", env=env | {override: str(agent)})
+                    self.assertEqual(missing.returncode, 1)
+                    self.assertIn("helper", missing.stderr)
+                    self.assertNotIn("synthetic-secret", missing.stderr)
+                    dry_key = "CLAUDE_PLANNOTATOR_DRY_RUN" if command == "claude" else "OPENCODE_PLANNOTATOR_DRY_RUN"
+                    result = run_script(wrapper, env=env | {dry_key: "1"})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    for marker in ("DEVCONTAINER", "REMOTE_CONTAINERS", "CODESPACES"):
+                        result = run_script(wrapper, env=env | {override: str(agent), marker: "1"})
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(json.loads(log.read_text(encoding="utf-8"))["env"]["PATH"], env["PATH"])
 
 
 if __name__ == "__main__":
