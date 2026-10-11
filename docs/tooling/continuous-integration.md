@@ -195,10 +195,14 @@ existing MR/push behavior, including on their Renovate branches.
 `linux-fast` and `linux-all` use the pinned full Debian image
 `python:3.13.7-bookworm`. Before running tests, `linux-fast` downloads Node
 24.21.0 for Linux x64 from nodejs.org, verifies the SHA-256 pinned in
-`.gitlab-ci.yml`, and extracts only the Node executable. It requires every
-declared capability of the selected Linux steps, including Node; a missing tool
-fails rather than skipping its steps. `linux-all` installs no additional tools
-and requires only the capabilities named below:
+`.gitlab-ci.yml`, and extracts only the Node executable. It also downloads
+chezmoi 2.69.3 from the upstream GitHub release and verifies its pinned SHA-256
+before installation. The `wsl2-pageant` tests need chezmoi to render their
+fixture. Every declared capability of the selected Linux steps is required;
+a missing tool fails rather than skipping its steps. When updating either
+runtime pin, update its digest from the same release's upstream checksum file
+(Node `SHASUMS256.txt`, chezmoi `checksums.txt`). `linux-all` installs no
+additional tools and requires only the capabilities named below:
 
 ```sh
 ./assets/run-tests.sh fast \
@@ -274,10 +278,10 @@ classification, risk, and critical-behavior declarations; see
 `docs/tooling/automation-coverage-policy.md`.
 
 No CI cache is configured. `linux-fast` setup requires network access to
-nodejs.org; the tests themselves require no credentials, production Beads
-database, or live network.
+nodejs.org and GitHub release assets (including download redirects); the tests
+themselves require no credentials, production Beads database, or live network.
 
-The Node-only trial retains the 32 registered fast steps. Further admissions
+The fast lane has 33 registered steps. Further admissions
 require representative hosted timing within a provisional 75-second whole-job
 target and a combined namespace forecast of at most 320 compute minutes per
 month, including the separate Renovate runner. This reserves 80 of the shared
@@ -312,8 +316,8 @@ Why Windows is `continue-on-error`: the `fast` suite already has known Windows
 failures (see [Why `windows-all` stays advisory](#why-windows-all-stays-advisory)),
 so a blocking Windows job would be red from the first run and drown the macOS
 and Linux signal. Linux and macOS do fail the workflow; a red run there is the
-data this matrix collects. Runtimes are pinned to the GitLab lane (Python 3.13,
-Node 24.21.0) so a difference is a platform difference. Actions are pinned by
+data this matrix collects. Python 3.13 and Node 24.21.0 match the GitLab lane;
+other tools depend on the hosted platform. Actions are pinned by
 major tag; Renovate's `enabledManagers` allowlist excludes `github-actions`,
 so those pins only move by hand.
 

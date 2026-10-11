@@ -253,6 +253,10 @@ linux-fast:
       printf '%s\n' 'fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6  /tmp/node.tar.xz' | sha256sum --check --strict
       tar -xJf /tmp/node.tar.xz --strip-components=2 -C /usr/local/bin node-v24.21.0-linux-x64/bin/node
       node --version
+      curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 60 https://github.com/twpayne/chezmoi/releases/download/v2.69.3/chezmoi-linux-amd64 -o /tmp/chezmoi
+      printf '%s\n' '7f9070adda3fda72c7c326e0013fd9da5f7c5234d2de59e20ab3c166d42b93ef  /tmp/chezmoi' | sha256sum --check --strict
+      install -m 0755 /tmp/chezmoi /usr/local/bin/chezmoi
+      chezmoi --version
   script:
     - mkdir -p ci-artifacts
     - ./assets/run-tests.sh fast --require-capabilities --report-file ci-artifacts/linux-fast.json
