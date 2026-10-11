@@ -119,6 +119,7 @@ assets/sync-devcontainer-all.sh	executable-mode,script-extension,shebang
 assets/sync-devcontainer-assets.sh	executable-mode,script-extension,shebang
 assets/sync-plannotator-assets.py	script-extension,shebang
 assets/sync-statusline.sh	executable-mode,script-extension,shebang
+assets/unittest-case-report.py	script-extension,shebang
 bin/executable_agent-env	chezmoi-executable,shebang
 bin/executable_ai-wt.tmpl	chezmoi-executable,shebang
 bin/executable_aoe-notify.tmpl	chezmoi-executable,shebang

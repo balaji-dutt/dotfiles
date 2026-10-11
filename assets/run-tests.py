@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform as python_platform
 import re
 import signal
 import shutil
@@ -26,6 +27,7 @@ STEP_PLACEHOLDERS = {"python", "repo"}
 DEFAULT_STEP_TIMEOUT_SECONDS = 600
 SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
 STEP_STOP_GRACE_SECONDS = 1
+CASE_REPORT_ADAPTER = Path(__file__).resolve().parent / "unittest-case-report.py"
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
     "COMSPEC",
@@ -85,6 +87,10 @@ class StepResult:
     status: str
     reason: str | None
     exit_code: int | None
+    outcome: str = ""
+    duration_seconds: float | None = None
+    termination: dict[str, object] | None = None
+    case_report: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -414,7 +420,7 @@ def _stop_step_group(process: subprocess.Popen[str]) -> tuple[str, str, str | No
 
 def _run_posix_step(
     command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
-) -> tuple[str, str, int | None, str | None]:
+) -> tuple[str, str, int | None, str | None, str, str | None]:
     previous = {}
     process = None
     pending_signal = None
@@ -438,18 +444,18 @@ def _run_posix_step(
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
             )
         except OSError as error:
-            return "", "", None, f"cannot execute step: {error}"
+            return "", "", None, f"cannot execute step: {error}", "launch_error", None
         if pending_signal is not None:
             raise SystemExit(128 + pending_signal)
         deadline = time.monotonic() + timeout_seconds
         stdout, stderr = process.communicate(timeout=max(0, deadline - time.monotonic()))
-        return stdout, stderr, process.returncode, None
+        return stdout, stderr, process.returncode, None, "exited", None
     except subprocess.TimeoutExpired:
         stdout, stderr, cleanup_error = _stop_step_group(process)
         reason = f"timeout after {timeout_seconds} seconds"
         if cleanup_error:
             reason += f"; cleanup failed: {cleanup_error}"
-        return stdout, stderr, None, reason
+        return stdout, stderr, None, reason, "timeout", cleanup_error
     except BaseException:
         if process is not None:
             _, _, cleanup_error = _stop_step_group(process)
@@ -461,6 +467,38 @@ def _run_posix_step(
             signal.signal(sig, handler)
 
 
+def case_report_command(command: list[str], sidecar: Path) -> list[str] | None:
+    """Swap `python -m unittest` for the case-report adapter, or return None for other argv."""
+    if command[1:3] != ["-m", "unittest"]:
+        return None
+    selectors = command[3:]
+    if not selectors or any(item.startswith("-") and item != "-v" for item in selectors):
+        return None
+    return [command[0], str(CASE_REPORT_ADAPTER), "--case-report", str(sidecar), *selectors]
+
+
+def read_case_report(sidecar: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        cases = payload["cases"]
+        complete = payload["complete"]
+        if not isinstance(cases, list) or not isinstance(complete, bool):
+            raise TypeError("cases must be a list and complete a boolean")
+        outcomes = [str(case["outcome"]) for case in cases]
+    except FileNotFoundError:
+        return {"status": "missing"}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {"status": "invalid", "error": str(error)}
+    tests = [outcome for outcome in outcomes if outcome != "fixture_error"]
+    return {
+        "status": "complete" if complete else "incomplete",
+        "zero_tests": not tests,
+        "all_skipped": bool(tests) and all(outcome == "skipped" for outcome in tests),
+        "totals": {outcome: outcomes.count(outcome) for outcome in sorted(set(outcomes))},
+        "cases": cases,
+    }
+
+
 def run_steps(
     registry: Registry,
     steps: tuple[Step, ...],
@@ -468,6 +506,7 @@ def run_steps(
     repo_root: Path,
     require_capabilities: bool,
     required_capabilities: frozenset[str],
+    case_report: bool = False,
 ) -> RunResult:
     passed = skipped = failed = 0
     platform = current_platform()
@@ -481,7 +520,7 @@ def run_steps(
                 reason = f"requires platform {', '.join(step.platforms)}"
                 print(f"SKIP {step.step_id}: {reason}")
                 skipped += 1
-                step_results.append(StepResult(step, "skip", reason, None))
+                step_results.append(StepResult(step, "skip", reason, None, "skipped_platform"))
                 continue
             missing: list[tuple[str, str]] = []
             for name in step.requires:
@@ -504,10 +543,10 @@ def run_steps(
                 print(f"{status} {step.step_id}: {reason}")
                 if should_fail:
                     failed += 1
-                    step_results.append(StepResult(step, "fail", reason, None))
+                    step_results.append(StepResult(step, "fail", reason, None, "missing_capability"))
                 else:
                     skipped += 1
-                    step_results.append(StepResult(step, "skip", reason, None))
+                    step_results.append(StepResult(step, "skip", reason, None, "skipped_capability"))
                 continue
 
             command = _expanded_argv(step, repo_root)
@@ -515,21 +554,37 @@ def run_steps(
             bd_path = capability_cache["bd"][1] if "bd" in step.requires else None
             if step.step_id == "beads-isolated-worktree" and bd_path:
                 step_env = {**env, "DOTFILES_TEST_BD": bd_path}
+            sidecar = Path(temp_dir) / "case-reports" / f"{step.step_id}.json" if case_report else None
+            adapted = case_report_command(command, sidecar) if sidecar else None
+            if adapted is not None:
+                command = adapted
             print(f"RUN  {step.step_id}")
+            started = time.perf_counter()
             if os.name == "nt":
                 result = subprocess.run(
                     command, cwd=repo_root, env=step_env, check=False,
                     text=True, encoding="utf-8",
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 )
-                stdout, stderr, returncode, failure_reason = (
-                    result.stdout, result.stderr, result.returncode, None
+                stdout, stderr, returncode, failure_reason, kind, cleanup_error = (
+                    result.stdout, result.stderr, result.returncode, None, "exited", None
                 )
             else:
-                stdout, stderr, returncode, failure_reason = _run_posix_step(
+                stdout, stderr, returncode, failure_reason, kind, cleanup_error = _run_posix_step(
                     command, repo_root=repo_root, env=step_env,
                     timeout_seconds=step.timeout_seconds,
                 )
+            duration = round(time.perf_counter() - started, 3)
+            signal_number = -returncode if returncode is not None and returncode < 0 else None
+            termination = {
+                "kind": "signal" if signal_number else kind,
+                "exit_code": returncode,
+                "signal": signal_number,
+                "cleanup_error": cleanup_error,
+            }
+            cases = None
+            if sidecar:
+                cases = read_case_report(sidecar) if adapted else {"status": "unsupported-argv"}
             if stdout:
                 print(stdout, end="" if stdout.endswith("\n") else "\n")
             if stderr:
@@ -537,17 +592,53 @@ def run_steps(
             if returncode == 0 and failure_reason is None:
                 print(f"PASS {step.step_id}")
                 passed += 1
-                step_results.append(StepResult(step, "pass", None, 0))
+                step_results.append(StepResult(step, "pass", None, 0, "passed", duration, termination, cases))
             else:
                 reason = failure_reason or f"exit {returncode}"
+                outcome = {"launch_error": "launch_error", "timeout": "timeout"}.get(kind, "failed")
+                if signal_number:
+                    outcome = "crash"
                 print(f"FAIL {step.step_id}: {reason}")
                 failed += 1
-                step_results.append(StepResult(step, "fail", reason, returncode))
+                step_results.append(
+                    StepResult(step, "fail", reason, returncode, outcome, duration, termination, cases)
+                )
     print(f"SUMMARY pass={passed} skip={skipped} fail={failed}")
     return RunResult(platform, tuple(step_results))
 
 
-def write_report(destination: Path, suite: str, result: RunResult) -> None:
+def run_context(repo_root: Path, suite: str) -> dict[str, object]:
+    def git(*args: str) -> str | None:
+        try:
+            completed = subprocess.run(
+                ["git", "-C", str(repo_root), *args], check=False, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return completed.stdout if completed.returncode == 0 else None
+
+    revision = git("rev-parse", "HEAD")
+    status = git("--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+    return {
+        "revision": revision.strip() if revision else None,
+        "dirty": None if status is None else bool(status.strip()),
+        "platform": current_platform(),
+        "python": {
+            "implementation": python_platform.python_implementation(),
+            "version": python_platform.python_version(),
+        },
+        "suite": suite,
+    }
+
+
+def write_report(
+    destination: Path,
+    suite: str,
+    result: RunResult,
+    *,
+    context: dict[str, object] | None = None,
+) -> None:
     payload = {
         "schema_version": 1,
         "platform": result.platform,
@@ -569,6 +660,17 @@ def write_report(destination: Path, suite: str, result: RunResult) -> None:
         },
         "exit_code": result.exit_code,
     }
+    if context is not None:
+        payload["schema_version"] = 2
+        payload["state"] = "complete"
+        payload["context"] = context
+        for entry, step_result in zip(payload["steps"], result.steps):
+            entry.update({
+                "outcome": step_result.outcome,
+                "duration_seconds": step_result.duration_seconds,
+                "termination": step_result.termination,
+                "case_report": step_result.case_report,
+            })
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.", dir=destination.parent
@@ -607,6 +709,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="write a deterministic JSON suite-registration report",
     )
     parser.add_argument(
+        "--case-report",
+        action="store_true",
+        help="pilot: run unittest steps through the case-report adapter and write report v2",
+    )
+    parser.add_argument(
         "--repo-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
@@ -635,6 +742,8 @@ def main(argv: list[str] | None = None) -> int:
         steps = select_steps(registry, args.suite)
         if not steps:
             raise ConfigurationError(f"suite {args.suite!r} has no registered steps")
+        if args.case_report and not args.report_file:
+            raise ConfigurationError("--case-report requires --report-file")
     except ConfigurationError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
@@ -649,13 +758,19 @@ def main(argv: list[str] | None = None) -> int:
         repo_root=repo_root,
         require_capabilities=args.require_capabilities,
         required_capabilities=frozenset(args.require_capability),
+        case_report=args.case_report,
     )
     if args.report_file:
         report_path = args.report_file
         if not report_path.is_absolute():
             report_path = repo_root / report_path
         try:
-            write_report(report_path, args.suite, result)
+            write_report(
+                report_path,
+                args.suite,
+                result,
+                context=run_context(repo_root, args.suite) if args.case_report else None,
+            )
         except OSError as error:
             print(f"ERROR: cannot write report {report_path}: {error}", file=sys.stderr)
             return 2

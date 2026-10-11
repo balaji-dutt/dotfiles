@@ -939,7 +939,7 @@
     {
       "id": "test-foundation",
       "classification": "owned",
-      "paths": ["assets/check-test-selection.py", "assets/run-tests.ps1", "assets/run-tests.py", "assets/run-tests.sh"],
+      "paths": ["assets/check-test-selection.py", "assets/run-tests.ps1", "assets/run-tests.py", "assets/run-tests.sh", "assets/unittest-case-report.py"],
       "owner": {"kind": "repository", "name": "test-foundation"},
       "languages": ["bash", "powershell", "python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -949,10 +949,10 @@
       "coverage": {
         "status": "covered",
         "work_item": "test-foundation",
-        "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
+        "test_paths": ["tests/test_case_report.py", "tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
         "behavior_requirements": []
       },
-      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, source-only selection completeness (every concrete unittest class selected once per platform or listed as a reviewed exception), and POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP. Native Windows retains its unsupervised execution branch."
+      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, source-only selection completeness (every concrete unittest class selected once per platform or listed as a reviewed exception), the opt-in --case-report pilot (adapter exit codes matching python -m unittest, per-case outcomes, report v2 without changing v1), and POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP. Native Windows retains its unsupervised execution branch."
     },
     {
       "id": "user-utilities",

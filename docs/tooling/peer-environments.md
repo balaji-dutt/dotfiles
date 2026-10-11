@@ -463,8 +463,8 @@ incoming terminal type is dumb or absent.
 The `repo-ops` and `test-runner` steps use verbose unittest output, including
 individual-test skip reasons. `--report-file` remains a registered-step
 report: a passing step may contain skipped tests, and their reasons appear in
-the output rather than JSON. Individual-test JSON reporting is deferred in
-`dots-4jy.10.19.12`.
+the output rather than JSON. Per-test JSON is available through the opt-in
+`--case-report` pilot described in `docs/tooling/test-runner.md`.
 
 `tests/test_peer_env.py` drives the real client and `serve` code without a
 network. A fake `ssh` on `PATH` logs its arguments and, per configured host,

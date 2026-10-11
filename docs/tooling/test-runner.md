@@ -75,6 +75,53 @@ or `FAIL` line and the run ends with deterministic pass/skip/fail totals. Skips
 produced inside a test framework remain visible in that framework's output and
 are not reclassified by the runner.
 
+### Case-report pilot
+
+`--case-report` is an opt-in pilot and requires `--report-file`. Without it the
+report stays at `schema_version` 1, unchanged. With it, each step whose argv is
+`{python} -m unittest` plus optional `-v` and selectors runs through
+`assets/unittest-case-report.py` instead. That adapter calls `unittest.main`
+with a recording result class, so verbosity and exit codes are unittest's own,
+including `5` when no tests ran. It writes a per-step JSON sidecar in the
+runner's sandbox. The step's exit code still decides `PASS`/`FAIL`; a missing or
+unreadable sidecar is recorded but never changes a step's status.
+
+The report becomes `schema_version` 2. It keeps every version 1 field and adds:
+
+- `state`: `complete` (the runner writes the report once, after the last step).
+- `context`: Git `revision` and `dirty` (tracked files only), `platform`,
+  Python `implementation` and `version`, and the `suite`.
+- per step, `outcome`, one of `passed`, `failed`, `skipped_platform`,
+  `skipped_capability`, `missing_capability`, `timeout`, `launch_error`,
+  `crash`, `interrupted` or `not_run`. The last two are reserved for
+  incomplete runs and are not produced yet.
+- per step, `duration_seconds` and `termination` (`kind`, `exit_code`,
+  `signal`, `cleanup_error`); `kind` is `exited`, `timeout`, `launch_error` or
+  `signal`. Steps that never started (platform or capability skips and
+  `missing_capability` failures) have no termination, duration or case report.
+- per step, `case_report` with `status`: `complete`, `incomplete` (the adapter
+  stopped before unittest finished), `missing` (no sidecar, for example after
+  a crash), `invalid`, or `unsupported-argv` for steps that are not plain
+  unittest selectors. A readable sidecar adds `cases`, outcome `totals`,
+  `zero_tests` (no test ran) and `all_skipped` (every test skipped).
+
+Each case has a stable `id` (`module.Class.method`), an `outcome` (`passed`,
+`failed`, `error`, `skipped`, `expected_failure`, `unexpected_success`,
+`fixture_error`, or `incomplete`), a skip `reason`, and `duration_seconds`.
+Subtests are listed under their parent and do not count as cases. A parent
+whose subtests fail is `failed`, or `error` if any subtest raised; a parent
+whose subtests only passed or skipped is `passed`, or `skipped` if every
+subtest skipped. A `setUpClass` or `setUpModule` error is its own
+`fixture_error` case named the way unittest names it, and a class-level
+`SkipTest` is a `skipped` case. Cases cover Python assertions only: a test that
+drives Node or Pester appears as one case, and the assertions inside that
+subprocess are not broken out.
+
+The pilot's maintenance footprint is the adapter, the `--case-report` branches
+in `assets/run-tests.py` (`case_report_command`, `read_case_report`,
+`run_context` and the version 2 fields in `write_report`), and
+`tests/test_case_report.py`. Making it the default is a separate decision.
+
 ## Suite boundary
 
 - `fast`: deterministic inventory and drift policy, guard, runner, fixture, and
