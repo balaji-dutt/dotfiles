@@ -332,10 +332,13 @@ Reaching native Windows means a second hop: ssh into WSL2, then run
 Two constraints apply:
 
 - sshd sessions on WSL2 carry neither `WSL_DISTRO_NAME` nor `WSL_INTEROP`.
-  `serve` already restores both (it exports the first live socket under
-  `/run/WSL/*_interop`), which is what makes `pwsh.exe` callable from a
-  forced command. Whether that is dependable on the home machine is confirmed
-  live before the hop is built.
+  `serve` restores both (it exports the first live socket under
+  `/run/WSL/*_interop`), but finding a socket does not prove that the sshd
+  process tree can launch Windows executables. The test PowerShell resolver
+  execution-probes candidates, preferring usable local `pwsh` before
+  `pwsh.exe` and the standard Windows installation path. If none can execute,
+  the wrapper test skips with its probe reason; a wrapper failure after a
+  successful probe still fails. A Windows hop needs live execution evidence.
 - The config schema reserves `via` for this: a Windows entry would say
   `"platform": "windows", "via": "wsl2"` and name the Windows clone path.
   Until the hop exists, both are rejected with `windows via wsl2 is not
@@ -347,6 +350,18 @@ OpenSSH server on Windows itself, reached directly with the same forced
 command shape.
 
 ## Testing
+
+`serve` supplies `TERM=dumb` for its noninteractive entrypoint. Tests that
+allocate a PTY supply the terminal capabilities they emulate: the live tmuxp
+test uses `TERM=xterm-256color` and a nonzero window size, verifies an actual
+attach, and retains detached-load and repeat-attach coverage even when the
+incoming terminal type is dumb or absent.
+
+The `repo-ops` and `test-runner` steps use verbose unittest output, including
+individual-test skip reasons. `--report-file` remains a registered-step
+report: a passing step may contain skipped tests, and their reasons appear in
+the output rather than JSON. Individual-test JSON reporting is deferred in
+`dots-4jy.10.19.12`.
 
 `tests/test_peer_env.py` drives the real client and `serve` code without a
 network. A fake `ssh` on `PATH` logs its arguments and, per configured host,

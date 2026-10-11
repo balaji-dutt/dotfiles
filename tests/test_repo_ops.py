@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -549,6 +550,15 @@ class RepoOpsTests(unittest.TestCase):
                          "requires tmux, tmuxp, and a POSIX PTY")
     def test_real_tmuxp_detached_load_and_repeat_attach(self):
         self.require_theme_compatible_tmux()
+        for incoming_term in ("dumb", None):
+            with self.subTest(incoming_term=incoming_term), mock.patch.dict(os.environ):
+                if incoming_term is None:
+                    os.environ.pop("TERM", None)
+                else:
+                    os.environ["TERM"] = incoming_term
+                self.run_real_tmuxp_detached_load_and_repeat_attach()
+
+    def run_real_tmuxp_detached_load_and_repeat_attach(self):
         with isolated_environment(prefix="repo-ops-live-") as fixture, tmux_environment(fixture) as env:
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)
@@ -564,6 +574,7 @@ class RepoOpsTests(unittest.TestCase):
                 )
             launcher = write_executable(fixture.fake_bin / "repo-ops", SOURCE.read_text())
             env.pop("TMUX_PANE", None)
+            env["TERM"] = "xterm-256color"
             tmux = ["tmux", "-L", "repo-ops", "-f", str(theme)]
 
             def run_tmux(*args):
@@ -571,19 +582,28 @@ class RepoOpsTests(unittest.TestCase):
 
             def attach(layout):
                 master, slave = pty.openpty()
-                process = subprocess.Popen([str(launcher), layout], env=env, stdin=slave,
-                                           stdout=slave, stderr=slave)
-                os.close(slave)
+                process = None
                 output = b""
+                attached = None
                 try:
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 100, 0, 0))
+                    process = subprocess.Popen([str(launcher), layout], env=env, stdin=slave,
+                                               stdout=slave, stderr=slave)
+                    os.close(slave)
+                    slave = None
                     deadline = time.monotonic() + 20
                     while time.monotonic() < deadline:
                         readable, _, _ = select.select([master], [], [], 0.1)
                         if readable:
                             try:
-                                output += os.read(master, 65536)
-                            except OSError:
-                                pass
+                                chunk = os.read(master, 65536)
+                            except OSError as error:
+                                if error.errno != errno.EIO:
+                                    raise
+                                break
+                            if not chunk:
+                                break
+                            output += chunk
                         if process.poll() is not None:
                             break
                         sessions = run_tmux("list-sessions", "-F", "#{session_name}|#{session_id}|#{session_attached}")
@@ -594,13 +614,31 @@ class RepoOpsTests(unittest.TestCase):
                             self.assertEqual(detached.returncode, 0, detached.stderr)
                             break
                     process.wait(timeout=5)
+                    deadline = time.monotonic() + 1
+                    while time.monotonic() < deadline:
+                        readable, _, _ = select.select([master], [], [], 0.1)
+                        if not readable:
+                            break
+                        try:
+                            chunk = os.read(master, 65536)
+                        except OSError as error:
+                            if error.errno != errno.EIO:
+                                raise
+                            break
+                        if not chunk:
+                            break
+                        output += chunk
                     sessions = run_tmux("list-sessions", "-F", "#{session_name} #{session_attached}")
+                    details = f"{output.decode(errors='replace')}\nsessions: {sessions.stdout!r} {sessions.stderr!r}"
                     self.assertEqual(process.returncode, 0,
-                                     f"{output.decode(errors='replace')}\nsessions: {sessions.stdout!r} {sessions.stderr!r}")
+                                     details)
+                    self.assertIsNotNone(attached, f"launcher never attached: {details}")
                 finally:
-                    if process.poll() is None:
+                    if process is not None and process.poll() is None:
                         process.kill()
-                        process.wait()
+                        process.wait(timeout=5)
+                    if slave is not None:
+                        os.close(slave)
                     os.close(master)
 
             attach("alpha")

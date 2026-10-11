@@ -22,19 +22,48 @@ def is_wsl(environ: dict[str, str] | os._Environ[str] = os.environ) -> bool:
 def resolve_powershell_runtime(
     *,
     environ: dict[str, str] | os._Environ[str] = os.environ,
+    diagnostics: list[str] | None = None,
 ) -> str | None:
     search_path = environ.get("PATH")
-    local = shutil.which("pwsh", path=search_path)
-    if local:
-        return local
-    if is_wsl(environ) or os.name == "nt":
-        native = shutil.which("pwsh.exe", path=search_path)
-        if native:
-            return native
-    if is_wsl(environ):
-        standard = Path("/mnt/c/Program Files/PowerShell/7/pwsh.exe")
-        if standard.is_file():
-            return str(standard)
+    wsl = is_wsl(environ)
+
+    def candidates():
+        yield shutil.which("pwsh", path=search_path)
+        if wsl or os.name == "nt":
+            yield shutil.which("pwsh.exe", path=search_path)
+        if wsl:
+            standard = Path("/mnt/c/Program Files/PowerShell/7/pwsh.exe")
+            if standard.is_file():
+                yield str(standard)
+
+    seen: set[str] = set()
+    for candidate in candidates():
+        if not candidate or os.path.normcase(candidate) in seen:
+            continue
+        seen.add(os.path.normcase(candidate))
+        label = ("Windows PowerShell/WSL interop candidate"
+                 if wsl and candidate.lower().endswith(".exe") else "PowerShell candidate")
+        try:
+            result = subprocess.run(
+                [candidate, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
+                env=dict(environ),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+        except OSError as error:
+            reason = f"cannot execute (errno {error.errno}: {error.strerror})"
+        except subprocess.TimeoutExpired:
+            reason = "probe timed out after 5 seconds"
+        else:
+            if result.returncode == 0:
+                return candidate
+            reason = f"probe exited {result.returncode}"
+        if diagnostics is not None:
+            diagnostics.append(f"{label} {candidate!r}: {reason}")
+    if not seen and diagnostics is not None:
+        diagnostics.append("PowerShell not found: no pwsh or eligible pwsh.exe candidate")
     return None
 
 
