@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import signal
@@ -607,6 +608,27 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(failed_payload["steps"][0]["status"], "fail")
         self.assertEqual(failed_payload["steps"][0]["exit_code"], 23)
 
+    def test_verbose_unittest_skip_remains_a_passing_report_step(self) -> None:
+        self.fixture.write_script(
+            "skip.py",
+            "import unittest\n"
+            "class Example(unittest.TestCase):\n"
+            "    @unittest.skip('fixture runtime unavailable')\n"
+            "    def test_optional_runtime(self): pass\n"
+            "unittest.main()\n",
+        )
+        self.fixture.steps[0]["argv"] = ["{python}", "{repo}/tests/skip.py", "-v"]
+        self.fixture.write_registry()
+        report = self.fixture.root / "report.json"
+        result = self.fixture.run("--require-capabilities", "--report-file", str(report))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipped 'fixture runtime unavailable'", result.stdout + result.stderr)
+        step = json.loads(report.read_text())["steps"][0]
+        self.assertEqual(set(step), {"id", "suites", "covers", "status", "reason", "exit_code"})
+        self.assertEqual(step["status"], "pass")
+        self.assertIsNone(step["reason"])
+        self.assertEqual(step["exit_code"], 0)
+
     def test_platform_mismatch_is_a_skip_even_when_capabilities_are_required(self) -> None:
         other = "windows" if os.name != "nt" else "linux"
         self.fixture.steps[0]["platforms"] = [other]
@@ -795,9 +817,10 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn("Selected steps:", result.stdout)
 
     def test_powershell_wrapper_delegates_to_runner(self) -> None:
-        executable = powershell.resolve_powershell_runtime()
+        diagnostics: list[str] = []
+        executable = powershell.resolve_powershell_runtime(diagnostics=diagnostics)
         if executable is None:
-            self.skipTest("PowerShell is not installed")
+            self.skipTest("PowerShell runtime unavailable: " + "; ".join(diagnostics))
         wrapper = powershell.powershell_path(POWERSHELL_WRAPPER, executable)
         result = subprocess.run(
             [executable, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper, "--list", "fast"],
@@ -821,19 +844,147 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(invalid.returncode, 2, invalid.stderr)
         self.assertIn("invalid choice", invalid.stderr)
 
+    def test_powershell_wrapper_skip_reports_probe_diagnostics(self) -> None:
+        reason = "Windows PowerShell/WSL interop candidate '/mnt/c/pwsh.exe': probe exited 1"
+
+        def unavailable(*, diagnostics):
+            diagnostics.append(reason)
+            return None
+
+        with mock.patch.object(powershell, "resolve_powershell_runtime", side_effect=unavailable):
+            with self.assertRaisesRegex(unittest.SkipTest, "WSL interop candidate.*probe exited 1"):
+                self.test_powershell_wrapper_delegates_to_runner()
+
+    def test_powershell_wrapper_failure_after_probe_is_not_skipped(self) -> None:
+        with (
+            mock.patch.object(powershell, "resolve_powershell_runtime", return_value="/fixture/pwsh"),
+            mock.patch.object(powershell, "powershell_path", return_value="wrapper.ps1"),
+            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "wrapper failed")),
+        ):
+            with self.assertRaisesRegex(AssertionError, "wrapper failed"):
+                self.test_powershell_wrapper_delegates_to_runner()
+
+    def test_peer_sensitive_steps_are_verbose_without_broad_runtime_gates(self) -> None:
+        steps = {step["id"]: step for step in json.loads(REGISTRY.read_text())["steps"]}
+        for step_id, required in (("repo-ops", "bash"), ("test-runner", "git")):
+            with self.subTest(step=step_id):
+                self.assertEqual(steps[step_id]["argv"],
+                                 ["{python}", "-m", "unittest", "-v", f"tests.test_{step_id.replace('-', '_')}"])
+                self.assertEqual(steps[step_id]["requires"], [required])
+
 
 class PowerShellSupportTests(unittest.TestCase):
-    def test_runtime_prefers_local_pwsh_then_wsl_executable(self) -> None:
-        def choose(command: str, *, path: str | None = None) -> str | None:
-            del path
-            return {"pwsh": None, "pwsh.exe": "/mnt/c/pwsh.exe"}.get(command)
+    def test_runtime_prefers_local_pwsh_and_probes_supplied_environment(self) -> None:
+        env = {"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}
+        with (
+            mock.patch.object(powershell.shutil, "which", return_value="/fixture/pwsh") as which,
+            mock.patch.object(Path, "is_file") as is_file,
+            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run,
+        ):
+            actual = powershell.resolve_powershell_runtime(environ=env)
+        self.assertEqual(actual, "/fixture/pwsh")
+        which.assert_called_once_with("pwsh", path="/fixture")
+        is_file.assert_not_called()
+        run.assert_called_once_with(
+            ["/fixture/pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=5,
+        )
 
-        with mock.patch.object(powershell.shutil, "which", side_effect=choose):
-            actual = powershell.resolve_powershell_runtime(
-                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}
-            )
+    def test_runtime_windows_fallbacks(self) -> None:
+        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        for native, expected in (("/mnt/c/pwsh.exe", "/mnt/c/pwsh.exe"), (None, standard)):
+            with (
+                self.subTest(native=native),
+                mock.patch.object(powershell.shutil, "which", side_effect=[None, native]),
+                mock.patch.object(Path, "is_file", return_value=True),
+                mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run,
+            ):
+                self.assertEqual(powershell.resolve_powershell_runtime(
+                    environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}), expected)
+                self.assertEqual(run.call_args.args[0][0], expected)
 
-        self.assertEqual(actual, "/mnt/c/pwsh.exe")
+    def test_runtime_not_found_does_not_probe(self) -> None:
+        with (
+            mock.patch.object(powershell.shutil, "which", return_value=None),
+            mock.patch.object(Path, "is_file", return_value=False),
+            mock.patch.object(subprocess, "run") as run,
+        ):
+            diagnostics: list[str] = []
+            self.assertIsNone(powershell.resolve_powershell_runtime(
+                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}, diagnostics=diagnostics))
+            self.assertIn("not found", diagnostics[0])
+            run.assert_not_called()
+
+    def test_runtime_rejects_execution_failure_exit_and_timeout(self) -> None:
+        failures = (
+            (OSError(errno.EINVAL, "Invalid argument"), "cannot execute (errno 22"),
+            (subprocess.CompletedProcess([], 7, b"private output", b"private error"), "probe exited 7"),
+            (subprocess.TimeoutExpired("pwsh.exe", 5), "timed out after 5 seconds"),
+        )
+        for failure, reason in failures:
+            with (
+                self.subTest(reason=reason),
+                mock.patch.object(powershell.shutil, "which", side_effect=[None, "/mnt/c/pwsh.exe"]),
+                mock.patch.object(Path, "is_file", return_value=False),
+                mock.patch.object(subprocess, "run", side_effect=[failure]) as run,
+            ):
+                diagnostics: list[str] = []
+                self.assertIsNone(powershell.resolve_powershell_runtime(
+                    environ={"PATH": "/fixture", "WSL_INTEROP": "/fixture/socket"}, diagnostics=diagnostics))
+                self.assertEqual(run.call_count, 1)
+                self.assertIn("Windows PowerShell/WSL interop candidate", diagnostics[0])
+                self.assertIn(reason, diagnostics[0])
+                self.assertNotIn("private", diagnostics[0])
+
+    def test_runtime_tries_later_candidate_after_failure(self) -> None:
+        with (
+            mock.patch.object(powershell.shutil, "which", side_effect=["/fixture/pwsh", "/mnt/c/pwsh.exe"]),
+            mock.patch.object(Path, "is_file", return_value=False),
+            mock.patch.object(subprocess, "run", side_effect=[OSError(errno.EINVAL, "Invalid argument"),
+                                                            subprocess.CompletedProcess([], 0)]) as run,
+        ):
+            diagnostics: list[str] = []
+            self.assertEqual(powershell.resolve_powershell_runtime(
+                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}, diagnostics=diagnostics),
+                "/mnt/c/pwsh.exe")
+            self.assertEqual(run.call_count, 2)
+            self.assertIn("cannot execute", diagnostics[0])
+
+    def test_runtime_tries_standard_path_after_path_candidate_failure(self) -> None:
+        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        with (
+            mock.patch.object(powershell.shutil, "which", side_effect=[None, "/mnt/c/pwsh.exe"]),
+            mock.patch.object(Path, "is_file", return_value=True),
+            mock.patch.object(subprocess, "run", side_effect=[subprocess.CompletedProcess([], 1),
+                                                            subprocess.CompletedProcess([], 0)]) as run,
+        ):
+            self.assertEqual(powershell.resolve_powershell_runtime(
+                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}), standard)
+            self.assertEqual([call.args[0][0] for call in run.call_args_list],
+                             ["/mnt/c/pwsh.exe", standard])
+
+    def test_runtime_non_wsl_posix_does_not_consider_windows_executable(self) -> None:
+        with (
+            mock.patch.object(powershell.os, "name", "posix"),
+            mock.patch.object(powershell.shutil, "which", return_value=None) as which,
+            mock.patch.object(Path, "is_file") as is_file,
+            mock.patch.object(subprocess, "run") as run,
+        ):
+            self.assertIsNone(powershell.resolve_powershell_runtime(environ={"PATH": "/fixture"}))
+            which.assert_called_once_with("pwsh", path="/fixture")
+            is_file.assert_not_called()
+            run.assert_not_called()
+
+    def test_runtime_deduplicates_candidates(self) -> None:
+        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        with (
+            mock.patch.object(powershell.shutil, "which", return_value=standard),
+            mock.patch.object(Path, "is_file", return_value=True),
+            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1)) as run,
+        ):
+            self.assertIsNone(powershell.resolve_powershell_runtime(
+                environ={"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}))
+            self.assertEqual(run.call_count, 1)
 
     def test_parser_prefers_runtime_without_container(self) -> None:
         with (

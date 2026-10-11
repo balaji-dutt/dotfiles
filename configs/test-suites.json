@@ -532,7 +532,7 @@
     {
       "id": "repo-ops",
       "suites": ["fast", "integration"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_repo_ops"],
+      "argv": ["{python}", "-m", "unittest", "-v", "tests.test_repo_ops"],
       "covers": ["tests/test_repo_ops.py"],
       "platforms": ["macos", "wsl2"],
       "requires": ["bash"]
@@ -601,7 +601,7 @@
     {
       "id": "test-runner",
       "suites": ["fast"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_test_runner"],
+      "argv": ["{python}", "-m", "unittest", "-v", "tests.test_test_runner"],
       "covers": ["tests/test_test_runner.py"],
       "requires": ["git"]
     },
