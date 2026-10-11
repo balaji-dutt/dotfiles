@@ -1127,11 +1127,19 @@ dolt --host 127.0.0.1 --port "$PORT" --user root --password '' --no-tls \
     set autocommit=0;
     call dolt_pull('origin','main');
     call dolt_conflicts_resolve('--ours','issues');
-    update issues set notes = '...', priority = 2 where id = 'dots-0lg';
+    update issues set notes = '...', priority = 2,
+      updated_at = 'YYYY-MM-DD hh:mm:ss' where id = 'dots-0lg';
     call dolt_commit('-A','-m','Merge origin/main; resolve dots-0lg');
     commit;
   "
 ```
+
+Always set `updated_at` in the graft. The column is
+`on update CURRENT_TIMESTAMP`, and the server evaluates that in its system time
+zone, while bd writes UTC. Left out, the update stamps the row with local time,
+hours away from every other value in the column (8 hours ahead on a +08 host).
+Use the later of `our_updated_at` and `their_updated_at` from the probe; an
+explicit value suppresses the automatic one.
 
 Take a snapshot first (`./assets/beads-sync.sh snapshot`), and verify afterwards
 that `dolt_status` and `dolt_conflicts` are empty and
