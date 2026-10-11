@@ -125,7 +125,8 @@ class GitTemplateHookSyncTests(unittest.TestCase):
         self.assertIn("installed managed hook", output)
         self.assertEqual(errors, "")
         self.assertEqual(installed.read_text(encoding="utf-8"), "#!/bin/sh\nexit 0\n")
-        self.assertTrue(installed.stat().st_mode & stat.S_IXUSR)
+        if os.name != "nt":
+            self.assertTrue(installed.stat().st_mode & stat.S_IXUSR)
         self.assertEqual(unrelated.read_text(encoding="utf-8"), "custom\n")
         self.assertIn("pre-commit", self.manifest(repo))
 
@@ -142,7 +143,8 @@ class GitTemplateHookSyncTests(unittest.TestCase):
 
         self.assertEqual(first_code, 0)
         self.assertIn("adopted existing managed hook", first_output)
-        self.assertTrue(destination.stat().st_mode & stat.S_IXUSR)
+        if os.name != "nt":
+            self.assertTrue(destination.stat().st_mode & stat.S_IXUSR)
         self.assertEqual(second_code, 0)
         self.assertNotIn("installed managed hook", second_output)
         self.assertNotIn("adopted existing managed hook", second_output)
@@ -218,7 +220,8 @@ class GitTemplateHookSyncTests(unittest.TestCase):
                 self.assertIn("updated managed hook", first_output)
                 self.assertIn("conflicts=0", first_output)
                 self.assertEqual(destination.read_bytes(), source.read_bytes())
-                self.assertTrue(destination.stat().st_mode & stat.S_IXUSR)
+                if os.name != "nt":
+                    self.assertTrue(destination.stat().st_mode & stat.S_IXUSR)
                 self.assertEqual(self.manifest(repo)[source.name], hook_sync.sha256(source))
                 self.assertEqual(second_code, 0)
                 self.assertEqual(second_errors, "")
