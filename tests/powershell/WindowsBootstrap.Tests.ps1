@@ -68,8 +68,8 @@ Describe 'Windows bootstrap lifecycle' {
 
     Add-ToEnvPath -Scope User -Entries $entries
 
-    Assert-MockCalled Set-EnvironmentPath -Times 1 -Exactly -ParameterFilter { $Scope -eq 'User' }
-    Assert-MockCalled Set-EnvironmentPath -Times 1 -Exactly -ParameterFilter { $Scope -eq 'Process' }
+    Assert-MockCalled Set-EnvironmentPath -Scope It -Times 1 -Exactly -ParameterFilter { $Scope -eq 'User' }
+    Assert-MockCalled Set-EnvironmentPath -Scope It -Times 1 -Exactly -ParameterFilter { $Scope -eq 'Process' }
   }
 
   It 'creates the profile and inserts its snippet once' {

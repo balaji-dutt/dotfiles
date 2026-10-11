@@ -15,8 +15,8 @@ Describe 'Windows startup task lifecycle' {
 
     Invoke-StartupTaskRegistration -ScriptPath $missing -StartupDir $TestDrive -CurrentUser 'fixture\user' -WarningAction SilentlyContinue
 
-    Assert-MockCalled New-StartupTaskDefinition -Times 0 -Exactly
-    Assert-MockCalled Register-StartupTask -Times 0 -Exactly
+    Assert-MockCalled New-StartupTaskDefinition -Scope It -Times 0 -Exactly
+    Assert-MockCalled Register-StartupTask -Scope It -Times 0 -Exactly
   }
 
   It 'registers a missing task and removes stale fallback files' {
@@ -27,7 +27,7 @@ Describe 'Windows startup task lifecycle' {
 
     Invoke-StartupTaskRegistration -ScriptPath $scriptPath -StartupDir $TestDrive -CurrentUser 'fixture\user'
 
-    Assert-MockCalled Register-StartupTask -Times 1 -Exactly
+    Assert-MockCalled Register-StartupTask -Scope It -Times 1 -Exactly
     Assert-Equal (Test-Path -LiteralPath (Join-Path $TestDrive 'Start-WslSshPageant.cmd')) $false
     Assert-Equal (Test-Path -LiteralPath (Join-Path $TestDrive 'Start-WslSshPageant.vbs')) $false
   }
@@ -39,7 +39,7 @@ Describe 'Windows startup task lifecycle' {
 
     Invoke-StartupTaskRegistration -ScriptPath $scriptPath -StartupDir $TestDrive -CurrentUser 'fixture\user'
 
-    Assert-MockCalled Register-StartupTask -Times 1 -Exactly -ParameterFilter { $Force }
+    Assert-MockCalled Register-StartupTask -Scope It -Times 1 -Exactly -ParameterFilter { $Force }
   }
 
   It 'writes a quoted VBS fallback on access denied' {
@@ -86,6 +86,6 @@ Describe 'Windows startup task lifecycle' {
 
     Invoke-WindowsStartupTaskEntrypoint
 
-    Assert-MockCalled Invoke-StartupTaskRegistration -Times 1 -Exactly -ParameterFilter { $ScriptPath -eq $script:scriptPath }
+    Assert-MockCalled Invoke-StartupTaskRegistration -Scope It -Times 1 -Exactly -ParameterFilter { $ScriptPath -eq $script:scriptPath }
   }
 }

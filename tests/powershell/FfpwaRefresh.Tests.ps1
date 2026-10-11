@@ -47,7 +47,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'does nothing when the runtime is newer than Firefox' {
@@ -56,7 +56,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'reinstalls the runtime and updates every web app when stale' {
@@ -65,9 +65,9 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 1 -Exactly -ParameterFilter { $Arguments[0] -eq 'runtime' -and $Arguments[1] -eq 'install' }
-    Assert-MockCalled Invoke-Firefoxpwa -Times 3 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' -and $Arguments[1] -eq 'update' }
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly -ParameterFilter { $Arguments -contains '00000000000000000000000000' }
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 1 -Exactly -ParameterFilter { $Arguments[0] -eq 'runtime' -and $Arguments[1] -eq 'install' }
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 3 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' -and $Arguments[1] -eq 'update' }
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly -ParameterFilter { $Arguments -contains '00000000000000000000000000' }
   }
 
   It 'skips the refresh while web apps run' {
@@ -77,7 +77,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto 3>$null) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'skips the refresh when 7-Zip is missing' {
@@ -87,7 +87,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto 3>$null) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'skips when the runtime is not installed' {
@@ -95,7 +95,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto) 0
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'fails without updating web apps when the runtime install fails' {
@@ -105,7 +105,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Auto) 1
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' }
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' }
   }
 
   It 'keeps updating web apps past a failure and returns 1' {
@@ -113,7 +113,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Sites 3>$null) 1
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 3 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' }
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 3 -Exactly -ParameterFilter { $Arguments[0] -eq 'site' }
   }
 
   It 'refuses a runtime reinstall while web apps run' {
@@ -121,7 +121,7 @@ Describe 'ffpwa-refresh.ps1' {
 
     Assert-Equal (Invoke-Runtime) 2
 
-    Assert-MockCalled Invoke-Firefoxpwa -Times 0 -Exactly
+    Assert-MockCalled Invoke-Firefoxpwa -Scope It -Times 0 -Exactly
   }
 
   It 'detects only firefox processes under the runtime directory' {
