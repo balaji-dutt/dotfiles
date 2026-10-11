@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
@@ -57,9 +58,9 @@ def job_script(name: str) -> str:
 
 
 class AmendmentFixture:
-    def __init__(self, name: str, *, legacy: bool = False) -> None:
+    def __init__(self, name: str, *, legacy: bool = False, job=None) -> None:
         self.name = name
-        self.branch, self.paths, self.sync_script = JOBS[name]
+        self.branch, self.paths, self.sync_script = JOBS[name] if job is None else job
         self.target = self.paths[0]
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -90,8 +91,14 @@ class AmendmentFixture:
                 '  printf "%s\\n" "${2:-run}" >> "$SYNC_LOG"\n'
                 '  if [ "${SYNC_CHANGE:-0}" = 1 ] && [ "${2:-}" != --check ]; then\n'
                 '    printf "synced\\n" >> "$SYNC_TARGET"\n'
+                '    if [ -n "${SYNC_EXTRA_TARGET:-}" ]; then printf "synced\\n" >> "$SYNC_EXTRA_TARGET"; fi\n'
+                '    if [ "${SYNC_UNRELATED:-0}" = 1 ]; then printf "unexpected\\n" >> unrelated.txt; fi\n'
                 "  fi\n"
-                "  exit 0\n"
+                '  exit "${SYNC_FAILURE:-0}"\n'
+                "fi\n"
+                'if [ "$1" = "assets/check-plannotator-config.py" ]; then\n'
+                '  printf "config\\n" >> "$SYNC_LOG"\n'
+                '  exit "${CONFIG_FAILURE:-0}"\n'
                 "fi\n"
                 f'exec "{executable}" "$@"\n',
                 encoding="utf-8",
@@ -107,6 +114,11 @@ class AmendmentFixture:
             "SYNC_SCRIPT": self.sync_script,
             "SYNC_TARGET": self.target,
             "SYNC_CHANGE": "1",
+            "SYNC_FAILURE": "0",
+            "CONFIG_FAILURE": "0",
+            "SYNC_UNRELATED": "0",
+            "SYNC_EXTRA_TARGET": "",
+            "CI_PIPELINE_SOURCE": "push",
             "CI_COMMIT_REF_NAME": self.branch,
             "CI_PROJECT_PATH": "fixture/dotfiles",
             "VENDOREDFILE_SYNC_TOKEN": TOKEN,
@@ -153,6 +165,88 @@ class AmendmentFixture:
 
     def close(self) -> None:
         self.temp.cleanup()
+
+
+class PlannotatorAmendTests(unittest.TestCase):
+    def fixture(self, *, legacy=False):
+        manifest = json.loads((REPO_ROOT / "configs/plannotator-assets.json").read_text(encoding="utf-8"))
+        canonical = tuple(artifact["path"] for artifact in manifest["artifacts"])
+        prefix = "private_Documents/development/container-dotfiles/dotfiles/"
+        paths = ("configs/plannotator-assets.json", *canonical,
+                 *(prefix + path for path in canonical), prefix + "dot_claude/settings-base.json")
+        fixture = AmendmentFixture("plannotator-sync", legacy=legacy,
+                                   job=("renovate/plannotator-fixture", paths, "assets/sync-plannotator-assets.py"))
+        self.addCleanup(fixture.close)
+        fixture.env["SYNC_EXTRA_TARGET"] = prefix + canonical[-1]
+        return fixture
+
+    def assert_not_published(self, fixture):
+        self.assertEqual(fixture.git("rev-parse", "HEAD").stdout.strip(), fixture.sha)
+        self.assertFalse(fixture.remote_log.exists())
+        self.assertEqual(fixture.git("diff", "--cached", "--name-only").stdout, "")
+
+    def test_matching_push_amends_only_allowlisted_outputs_with_exact_lease(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                fixture = self.fixture(legacy=legacy)
+                result = fixture.run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(fixture.git("rev-parse", "HEAD").stdout.strip(), fixture.sha)
+                self.assertEqual(fixture.git("show", "-s", "--format=%B", "HEAD").stdout, fixture.message)
+                for identity in ("%an <%ae>", "%cn <%ce>"):
+                    expected = "Legacy User <legacy@example.test>" if legacy and identity.startswith("%an") else f"{SERVICE_NAME} <{SERVICE_EMAIL}>"
+                    self.assertEqual(fixture.git("show", "-s", f"--format={identity}", "HEAD").stdout.strip(),
+                                     expected)
+                self.assertCountEqual(fixture.git("diff", "--name-only", fixture.sha, "HEAD").stdout.splitlines(),
+                                      [fixture.target, fixture.env["SYNC_EXTRA_TARGET"]])
+                self.assertEqual(fixture.git("status", "--short").stdout, "")
+                self.assertEqual(fixture.sync_log.read_text(encoding="utf-8"), "--write\nconfig\n")
+                self.assertEqual(fixture.remote_log.read_text(encoding="utf-8").splitlines(), [
+                    f"remote|origin|https://oauth2:{TOKEN}@gitlab.com/fixture/dotfiles.git",
+                    f"push|--force-with-lease=refs/heads/{fixture.branch}:{fixture.sha}|origin|HEAD:{fixture.branch}",
+                ])
+
+    def test_mr_and_nonmatching_push_are_read_only_even_with_token(self):
+        for source, branch in (("merge_request_event", "renovate/plannotator-fixture"),
+                               ("push", "renovate/backnotprop-plannotator-0.x")):
+            with self.subTest(source=source, branch=branch):
+                fixture = self.fixture()
+                fixture.env.update(CI_PIPELINE_SOURCE=source, CI_COMMIT_REF_NAME=branch)
+                result = fixture.run()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(fixture.sync_log.read_text(encoding="utf-8"), "config\n--check\n")
+                self.assertEqual(fixture.git("status", "--short").stdout, "")
+                self.assert_not_published(fixture)
+
+    def test_no_diff_needs_no_token(self):
+        fixture = self.fixture()
+        fixture.env.update(SYNC_CHANGE="0", VENDOREDFILE_SYNC_TOKEN="")
+        self.assertEqual(fixture.run().returncode, 0)
+        self.assert_not_published(fixture)
+
+    def test_write_failures_and_unrelated_changes_stop_publication(self):
+        for updates, expected in (({"VENDOREDFILE_SYNC_TOKEN": ""}, "variable is not set"),
+                                  ({"SYNC_FAILURE": "1"}, ""),
+                                  ({"CONFIG_FAILURE": "1"}, ""),
+                                  ({"SYNC_UNRELATED": "1"}, "sync modified unrelated path: unrelated.txt")):
+            with self.subTest(updates=updates):
+                fixture = self.fixture()
+                fixture.env.update(updates)
+                result = fixture.run()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(expected, result.stderr)
+                self.assert_not_published(fixture)
+
+    def test_read_only_check_failures_stop_without_publication(self):
+        for updates, log in (({"SYNC_FAILURE": "1"}, "config\n--check\n"),
+                             ({"CONFIG_FAILURE": "1"}, "config\n")):
+            with self.subTest(updates=updates):
+                fixture = self.fixture()
+                fixture.env.update(CI_PIPELINE_SOURCE="merge_request_event", **updates)
+                self.assertEqual(fixture.run().returncode, 1)
+                self.assertEqual(fixture.sync_log.read_text(encoding="utf-8"), log)
+                self.assertEqual(fixture.git("status", "--short").stdout, "")
+                self.assert_not_published(fixture)
 
 
 class RenovateAmendTests(unittest.TestCase):

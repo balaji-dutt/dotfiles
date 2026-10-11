@@ -409,7 +409,7 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": ["backnotprop/plannotator", "@plannotator/opencode"],
-      "matchFileNames": [".chezmoidata.yaml", "configs/host-ai-plugin-refresh.jsonc", "dot_claude/settings-base.json"],
+      "matchFileNames": [".chezmoidata.yaml", "configs/host-ai-plugin-refresh.jsonc", "dot_claude/settings-base.json", "private_Documents/development/container-dotfiles/dotfiles/dot_claude/settings-base.json"],
       "groupName": "plannotator aligned",
       "additionalBranchPrefix": "plannotator-",
       "minimumReleaseAge": "7 days"

@@ -278,6 +278,21 @@ class GitLabCiContractTests(unittest.TestCase):
                 self.assertEqual(job_rules(block), expected_rules)
                 self.assertIn(sentinel, block)
 
+    def test_plannotator_sync_and_policy_contract(self) -> None:
+        expected_rules = [(ANY_MR, "on_success"), ('$CI_PIPELINE_SOURCE == "push"', "on_success")]
+        for name in ("plannotator-sync", "plannotator-policy"):
+            block = top_level_block(self.text, name)
+            self.assertEqual(job_rules(block), expected_rules)
+            self.assertNotIn("allow_failure", block)
+        sync = top_level_block(self.text, "plannotator-sync")
+        self.assertIn("push:renovate/plannotator-*)", sync)
+        self.assertIn("python3 assets/sync-plannotator-assets.py --write", sync)
+        self.assertIn("python3 assets/sync-plannotator-assets.py --check", sync)
+        self.assertNotIn("sync-devcontainer-assets.sh", sync)
+        policy = top_level_block(self.text, "plannotator-policy")
+        self.assertIn("python3 -m unittest tests.test_plannotator_config tests.test_plannotator_sync "
+                      "tests.test_gitlab_ci tests.test_renovate_ci_amend", policy)
+
 
 if __name__ == "__main__":
     unittest.main()
