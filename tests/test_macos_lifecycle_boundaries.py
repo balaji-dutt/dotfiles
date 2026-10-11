@@ -370,17 +370,20 @@ class MacosLifecycleBoundaries(unittest.TestCase):
         self.assertEqual(self.run_hook(script).returncode, 0)
         self.assertEqual(len(self.calls('sudo')), 1)
         self.assertFalse(list((f.root / 'tmp').glob('nfs.conf.*')))
-        config.unlink()
-        config.mkdir()
-        rejected = self.run_hook(script)
+
+    def test_nfs_rejects_nonregular_config_before_installing(self) -> None:
+        (self.fixture.root / 'etc/nfs.conf').mkdir()
+        rejected = self.run_hook(self.render(NFS))
         self.assertNotEqual(rejected.returncode, 0)
         if sys.platform.startswith('linux'):
             self.assertIn('not a regular file', rejected.stderr)
-        self.assertEqual(len(self.calls('sudo')), 1)
-        config.rmdir()
+        self.assertFalse(self.calls('sudo'))
+
+    def test_nfs_install_failure_leaves_config_untouched(self) -> None:
+        config = self.fixture.root / 'etc/nfs.conf'
         config.write_text('other = keep\n')
         self.env['TEST_FAIL'] = 'sudo'
-        failed = self.run_hook(script)
+        failed = self.run_hook(self.render(NFS))
         self.assertEqual(failed.returncode, 42)
         self.assertEqual(config.read_text(), 'other = keep\n')
 
