@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from tests.test_gitlab_ci import CI_PATH, top_level_block
+from tests.support.gitlab_ci import CI_PATH, top_level_block
 
 
 REPO_ROOT = CI_PATH.parent

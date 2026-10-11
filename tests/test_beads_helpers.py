@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
-import stat
 import subprocess
 import tempfile
-import textwrap
 import time
 import unittest
+from pathlib import Path
+
+from tests.support.fixtures import write_executable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,11 +18,6 @@ SHELL_HELPERS = {
     "bash": ROOT / "dot_local/share/beads-helpers.bash",
     "zsh": ROOT / "dot_local/share/beads-helpers.zsh",
 }
-
-
-def write_executable(path: Path, content: str) -> None:
-    path.write_text(textwrap.dedent(content).lstrip("\n"), encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 class BeadsShellDispatchTests(unittest.TestCase):
@@ -56,7 +51,7 @@ class BeadsShellDispatchTests(unittest.TestCase):
             printf 'native:%s\n' "$*" >> "$BD_TEST_LOG"
             printf 'native:%s\n' "$*"
             exit "${BD_TEST_NATIVE_EXIT:-0}"
-            """,
+            """, dedent=True,
         )
         assets = self.repo / "assets"
         assets.mkdir()
@@ -70,7 +65,7 @@ class BeadsShellDispatchTests(unittest.TestCase):
             #!/bin/sh
             printf 'sync:%s\n' "$*" >> "$BD_TEST_LOG"
             exit "${BD_TEST_SYNC_EXIT:-0}"
-            """,
+            """, dedent=True,
         )
         self.env = os.environ.copy()
         self.env.update(
@@ -310,7 +305,7 @@ class BeadsShellDispatchTests(unittest.TestCase):
             """
             #!/bin/sh
             printf 'adopt:%s\n' "${BD_NO_REMOTE_ADOPT-unset}" >> "$BD_TEST_LOG"
-            """,
+            """, dedent=True,
         )
         self.env.pop("BD_NO_REMOTE_ADOPT", None)
         for shell in SHELL_HELPERS:
@@ -447,7 +442,7 @@ class BeadsLauncherTests(unittest.TestCase):
                 printf 'delegated stdout\n'
                 printf 'delegated stderr\n' >&2
                 exit 23
-                """,
+                """, dedent=True,
             )
             env = os.environ.copy()
             env.update(
@@ -508,7 +503,7 @@ class BeadsSnapshotTests(unittest.TestCase):
               invalid) printf '%s\n' '{not-json}' > "$output" ;;
               empty) : > "$output" ;;
             esac
-            """,
+            """, dedent=True,
         )
         self.root = self.temp / "share"
         self.root.mkdir()
@@ -715,7 +710,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             #!/bin/sh
             printf 'bd:%s\n' "$*" >> "$BD_TEST_LOG"
             exit 0
-            """,
+            """, dedent=True,
         )
         write_executable(
             self.bin_dir / "dolt",
@@ -723,7 +718,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             #!/bin/sh
             printf 'dolt:%s\n' "$*" >> "$BD_TEST_LOG"
             exit 19
-            """,
+            """, dedent=True,
         )
 
     def read_calls(self) -> list[str]:
@@ -785,7 +780,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             #!/bin/sh
             printf 'bd:%s\n' "$*" >> "$BD_TEST_LOG"
             exit 0
-            """,
+            """, dedent=True,
         )
         write_executable(
             self.bin_dir / "dolt",
@@ -794,7 +789,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             printf 'dolt:%s\n' "$*" >> "$BD_TEST_LOG"
             printf 'name\n'
             exit 0
-            """,
+            """, dedent=True,
         )
 
         result = subprocess.run(
@@ -830,7 +825,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
               done
             fi
             exit 0
-            """,
+            """, dedent=True,
         )
         write_executable(
             self.bin_dir / "dolt",
@@ -843,7 +838,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
               *dolt_status*) printf 'table_name,is_ignored\n' ;;
             esac
             exit 0
-            """,
+            """, dedent=True,
         )
         share = self.temp / "share"
         share.mkdir()
@@ -889,7 +884,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             #!/bin/sh
             printf 'bd:%s\n' "$*" >> "$BD_TEST_LOG"
             exit 0
-            """,
+            """, dedent=True,
         )
         write_executable(
             self.bin_dir / "dolt",
@@ -898,7 +893,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
             printf 'dolt:%s\n' "$*" >> "$BD_TEST_LOG"
             printf 'name\n'
             exit 0
-            """,
+            """, dedent=True,
         )
 
         result = subprocess.run(

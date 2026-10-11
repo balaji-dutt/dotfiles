@@ -5,8 +5,6 @@ import contextlib
 import csv
 import dataclasses
 import errno
-import importlib.machinery
-import importlib.util
 import io
 import json
 import os
@@ -19,6 +17,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+from tests.support.fixtures import load_script_module
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,14 +36,7 @@ WINDOWS_COMMIT_STUBS = {
 
 
 def load_ai_wt():
-    loader = importlib.machinery.SourceFileLoader("ai_wt_under_test", str(SOURCE_WRAPPER))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    if spec is None:
-        raise RuntimeError("could not create ai-wt import spec")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[loader.name] = module
-    loader.exec_module(module)
-    return module
+    return load_script_module(SOURCE_WRAPPER, "ai_wt_under_test")
 
 
 ai_wt = load_ai_wt()

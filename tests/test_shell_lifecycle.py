@@ -12,11 +12,12 @@ from tests.support.fixtures import (
     init_git_repository,
     isolated_environment,
     read_json_lines,
+    restricted_lifecycle_env,
     run_git,
     write_executable,
     write_fake_command,
 )
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_matrix, render_template
+from tests.support.chezmoi_render import CHEZMOI, render_matrix, render_template
 
 
 COMMIT_TEMPLATE = ".chezmoiscripts/run_after_10-dotfiles-commit-template.sh.tmpl"
@@ -46,16 +47,6 @@ def run_script(content: str, root: Path, env: dict[str, str]) -> subprocess.Comp
         stderr=subprocess.PIPE,
         timeout=30,
     )
-
-
-def restricted_lifecycle_env(home: Path, fake_bin: Path) -> dict[str, str]:
-    return {
-        "HOME": str(home),
-        "PATH": f"{fake_bin}:/usr/bin:/bin",
-        "TMPDIR": str(home),
-        "LC_ALL": "C",
-        "CHEZMOI_NO_TTY": "1",
-    }
 
 
 @unittest.skipUnless(CHEZMOI, "chezmoi is required")

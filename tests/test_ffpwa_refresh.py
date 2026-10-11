@@ -9,7 +9,7 @@ from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, write_executable
 from tests.support.powershell import pester_version, resolve_powershell_runtime, run_pester
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_template
+from tests.support.chezmoi_render import CHEZMOI, render_template
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

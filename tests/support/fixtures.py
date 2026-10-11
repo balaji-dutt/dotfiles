@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 from contextlib import contextmanager
 from dataclasses import dataclass
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
+from types import ModuleType
 from typing import Iterator
 
 
@@ -84,9 +87,39 @@ def isolated_environment(*, prefix: str = "dotfiles-test-") -> Iterator[Isolated
         yield IsolatedEnvironment(root, home, fake_bin, env)
 
 
-def write_executable(path: Path, content: str) -> Path:
+def load_script_module(path: Path, name: str, *, add_parent_to_path: bool = False) -> ModuleType:
+    """Import a script without a .py suffix and register it in sys.modules as name."""
+    loader = SourceFileLoader(name, str(path))
+    spec = spec_from_loader(name, loader)
+    if spec is None:
+        raise RuntimeError(f"could not create an import spec for {path}")
+    module = module_from_spec(spec)
+    sys.modules[name] = module
+    if add_parent_to_path:
+        sys.path.insert(0, str(path.parent))
+    try:
+        loader.exec_module(module)
+    finally:
+        if add_parent_to_path:
+            sys.path.pop(0)
+    return module
+
+
+def restricted_lifecycle_env(home: Path, fake_bin: Path) -> dict[str, str]:
+    """Return the minimal environment a rendered POSIX lifecycle hook needs."""
+    return {
+        "HOME": str(home),
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "TMPDIR": str(home),
+        "LC_ALL": "C",
+        "CHEZMOI_NO_TTY": "1",
+    }
+
+
+def write_executable(path: Path, content: str, *, dedent: bool = False) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    text = textwrap.dedent(content).lstrip("\n") if dedent else content
+    path.write_text(text, encoding="utf-8")
     path.chmod(0o755)
     return path
 
@@ -136,12 +169,6 @@ def write_json(path: Path, payload: object) -> Path:
 
 def read_json(path: Path) -> object:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def append_json_line(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def read_json_lines(path: Path) -> list[object]:
@@ -221,15 +248,3 @@ def init_git_repository(
         run_git(path, "config", "user.name", "Test User", env=env)
         run_git(path, "config", "user.email", "test@example.com", env=env)
     return path
-
-
-@contextmanager
-def loopback_listener() -> Iterator[socket.socket]:
-    """Yield a TCP listener bound only to loopback on an ephemeral port."""
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-        yield listener
-    finally:
-        listener.close()

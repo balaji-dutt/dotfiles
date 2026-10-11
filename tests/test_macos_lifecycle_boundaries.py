@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, read_json_lines, write_executable
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, REPO_ROOT, render_template
+from tests.support.chezmoi_render import CHEZMOI, REPO_ROOT, render_template
 
 
 VDI = ".chezmoiscripts/run_onchange_after_macos-vdi-apps.sh.tmpl"

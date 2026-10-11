@@ -17,7 +17,7 @@ from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from tests.support.fixtures import isolated_environment, write_executable
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_template
+from tests.support.chezmoi_render import CHEZMOI, render_template
 
 
 ROOT = Path(__file__).resolve().parents[1]

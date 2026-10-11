@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests.support.fixtures import isolated_environment, write_executable
-from tests.test_chezmoi_lifecycle_render import render_template
+from tests.support.chezmoi_render import render_template
 
 
 @unittest.skipIf(os.name == "nt" or not shutil.which("chezmoi"), "POSIX and chezmoi required")

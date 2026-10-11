@@ -11,7 +11,7 @@ from tests.support.powershell import (
     resolve_powershell_runtime,
     run_pester,
 )
-from tests.test_chezmoi_lifecycle_render import render_template
+from tests.support.chezmoi_render import render_template
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

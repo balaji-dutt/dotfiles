@@ -187,19 +187,46 @@ The registered live devcontainer step is the exception only when
 `DEVCONTAINER_SMOKE=1`; its capability probe otherwise leaves the step as a
 runner-level skip.
 
+## Direct runs
+
+Run a module directly from the repository root as
+`python3 -m unittest tests.test_name` (`py -3 -m unittest ...` on native
+Windows). Importing the `tests` package applies the runner's own
+`isolated_environment` to that process: the same environment allowlist,
+synthetic home, empty Git config, and `bd`/`dolt` guards. The sandbox directory
+is removed at exit. Inside the runner, `DOTFILES_TEST_SANDBOX=1` is already set
+and the package leaves the environment alone. Running a test file as a script
+(`python3 tests/test_name.py`) is not supported.
+
 ## Shared fixtures
 
-`tests/support/fixtures.py` contains standard-library primitives for:
+Test modules import reusable helpers from `tests/support/`; support modules and
+test modules never import a test module. `tests.test_test_fixtures` checks that
+boundary from source without importing the suites.
 
-- temporary homes and child environments;
-- executable and fake-PATH commands with JSON-lines call logs;
-- isolated Git repositories with a local test identity;
-- deterministic JSON and JSON-lines I/O; and
-- TCP listeners bound to `127.0.0.1` on ephemeral ports.
+| Module | Use it for |
+| --- | --- |
+| `fixtures.py` | `isolated_environment`, `write_executable` (`dedent=True` for indented script text), `write_fake_command` with JSON-lines call logs, `write_python_command`, `load_script_module` for scripts without a `.py` suffix, `restricted_lifecycle_env`, Git repository setup, and JSON I/O |
+| `chezmoi_render.py` | `render_template` and the cached `render_matrix` against synthetic per-platform data |
+| `git_worktree.py` | `GitFixture`: a disposable main/feature worktree pair with a bare remote and fake `bd` |
+| `gitlab_ci.py` | `CI_PATH` and `top_level_block` for `.gitlab-ci.yml` assertions |
+| `powershell.py` | PowerShell runtime resolution, path translation, parsing, and Pester |
 
-Use these primitives instead of a real home, global Git identity, production
-command, fixed port, or Beads state. Domain-specific setup should remain in the
-test module rather than growing the shared file into a second test framework.
+A new test should follow this recipe:
+
+1. Start from `isolated_environment()` (or `GitFixture`) instead of the real
+   home, global Git identity, or Beads state.
+2. Render templates with `render_template`, adjusting synthetic data through
+   its `configure` callback.
+3. Write fakes with `write_fake_command` or `write_executable`, put them first
+   on `PATH`, and assert on their call logs, including that forbidden commands
+   were never called.
+4. Assert a reachable failure: make a fake fail and check the exit code,
+   message, and that nothing was written outside the fixture.
+
+Keep scenario-specific fixtures in the test module. When a helper is needed
+by a second module, move it into `tests/support/`; if it stays local, say
+why in the review.
 
 ## Adding a step
 

@@ -212,7 +212,7 @@ aoe
 ps -eo pid,ppid,pgid,tpgid,tty,comm | grep -E 'claude|codebase-memory'
 
 # 5. ai-wt helpers.
-python3 tests/test_ai_wt.py
+python3 -m unittest tests.test_ai_wt
 
 # 6. No tmux config, and AoE owns the status bar. Run on a server started
 #    after the config change; a running server does not reload.

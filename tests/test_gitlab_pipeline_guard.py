@@ -447,7 +447,7 @@ class PipelineGuardTests(unittest.TestCase):
 
     @unittest.skipUnless(HOOK_SHELL, "merge helper requires sh that can access this checkout")
     def test_independent_branches_land_before_push_and_batch_needs_prepared_main(self) -> None:
-        from tests.test_agent_wt_merge import GitFixture
+        from tests.support.git_worktree import GitFixture
 
         for ci_gated in (False, True):
             with self.subTest(ci_gated=ci_gated):

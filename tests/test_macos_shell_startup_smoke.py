@@ -12,7 +12,7 @@ import sys
 import tempfile
 import unittest
 
-from tests.test_chezmoi_lifecycle_render import render_template
+from tests.support.chezmoi_render import render_template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,8 +23,7 @@ CHEZMOI_SOURCE = Path("/opt/homebrew/bin/chezmoi")
 CHEZMOI_BUNDLE = "bin/chezmoi"
 BUNDLE_FILES = (
     "tests/support/__init__.py",
-    "tests/support/powershell.py",
-    "tests/test_chezmoi_lifecycle_render.py",
+    "tests/support/chezmoi_render.py",
     "tests/test_macos_shell_startup_smoke.py",
     "dot_bashrc.tmpl",
     "dot_zshrc.tmpl",

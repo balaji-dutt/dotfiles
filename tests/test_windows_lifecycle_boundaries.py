@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from tests.support.powershell import resolve_powershell_runtime
-from tests.test_chezmoi_lifecycle_render import render_template
+from tests.support.chezmoi_render import render_template
 
 
 ROOT = Path(__file__).resolve().parents[1]

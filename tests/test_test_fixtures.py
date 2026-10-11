@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
+import re
 import shutil
-import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,10 +16,9 @@ from tests.support.fixtures import (
     BROKEN_RESOLVERS,
     bash_argv,
     compatible_bash,
-    append_json_line,
     init_git_repository,
     isolated_environment,
-    loopback_listener,
+    load_script_module,
     read_json,
     read_json_lines,
     run_git,
@@ -109,8 +110,7 @@ class TestFixtureTests(unittest.TestCase):
             document = root / "nested" / "document.json"
             log = root / "calls.jsonl"
             write_json(document, {"z": 1, "a": [2]})
-            append_json_line(log, {"second": 2})
-            append_json_line(log, {"first": 1})
+            log.write_text('{"second": 2}\n\n{"first": 1}\n', encoding="utf-8")
             self.assertEqual(read_json(document), {"a": [2], "z": 1})
             self.assertEqual(
                 read_json_lines(log),
@@ -130,19 +130,115 @@ class TestFixtureTests(unittest.TestCase):
     def test_broken_resolvers_include_one_that_defines_no_function(self) -> None:
         self.assertIn(":\n", BROKEN_RESOLVERS.values())
 
-    def test_loopback_listener_uses_ephemeral_local_port_and_closes(self) -> None:
-        with loopback_listener() as listener:
-            address, port = listener.getsockname()
-            self.assertEqual(address, "127.0.0.1")
-            self.assertGreater(port, 0)
-            listener.settimeout(1)
-            client = socket.create_connection((address, port), timeout=1)
-            connection, _ = listener.accept()
-            connection.close()
-            client.close()
-            descriptor = listener.fileno()
-            self.assertGreaterEqual(descriptor, 0)
-        self.assertEqual(listener.fileno(), -1)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_MODULE = re.compile(r"^tests\.test_\w+")
+
+
+def imported_test_modules(source: str) -> list[str]:
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                targets = [module] if module else [alias.name for alias in node.names]
+                found.extend(f"relative:{target}" for target in targets
+                             if target.split(".")[0].startswith("test_"))
+                continue
+            names = [module, *(f"{module}.{alias.name}" for alias in node.names)]
+        else:
+            continue
+        found.extend(name for name in names if TEST_MODULE.match(name))
+    return found
+
+
+class TestPackageBoundaryTests(unittest.TestCase):
+    def test_no_module_imports_a_test_module(self) -> None:
+        sources = [REPO_ROOT / "tests" / "__init__.py",
+                   *sorted((REPO_ROOT / "tests").glob("test_*.py")),
+                   *sorted((REPO_ROOT / "tests" / "support").glob("*.py"))]
+        offenders = {
+            path.relative_to(REPO_ROOT).as_posix(): imported
+            for path in sources
+            if (imported := imported_test_modules(path.read_text(encoding="utf-8")))
+        }
+        self.assertEqual(offenders, {}, "move shared helpers into tests/support/")
+
+    def test_boundary_check_sees_every_import_form(self) -> None:
+        source = (
+            "from tests.test_alpha import helper\n"
+            "import tests.test_beta\n"
+            "from tests import test_gamma\n"
+            "from .test_delta import other\n"
+            "def lazy():\n"
+            "    from tests.test_epsilon import late\n"
+            "from tests.support.fixtures import write_json\n"
+        )
+        self.assertEqual(
+            imported_test_modules(source),
+            ["tests.test_alpha", "tests.test_alpha.helper", "tests.test_beta",
+             "tests.test_gamma", "relative:test_delta",
+             "tests.test_epsilon", "tests.test_epsilon.late"],
+        )
+
+
+class DirectRunSandboxTests(unittest.TestCase):
+    PROBE = (
+        "import json, os, tempfile, tests\n"
+        "print(json.dumps({'home': os.environ.get('HOME'),"
+        " 'secret': os.environ.get('FIXTURE_SECRET_TOKEN'),"
+        " 'git_global': os.environ.get('GIT_CONFIG_GLOBAL'),"
+        " 'marker': os.environ.get('DOTFILES_TEST_SANDBOX'),"
+        " 'guard': os.environ['PATH'].split(os.pathsep)[0],"
+        " 'tmp': tempfile.gettempdir()}))\n"
+    )
+
+    def run_probe(self, hostile: Path, *, marker: bool) -> dict[str, str | None]:
+        env = {key: value for key, value in os.environ.items() if key != "DOTFILES_TEST_SANDBOX"}
+        env.update({
+            "HOME": str(hostile / "home"),
+            "USERPROFILE": str(hostile / "home"),
+            "GIT_CONFIG_GLOBAL": str(hostile / "gitconfig"),
+            "FIXTURE_SECRET_TOKEN": "hostile-secret",
+        })
+        if marker:
+            env["DOTFILES_TEST_SANDBOX"] = "1"
+        result = subprocess.run([sys.executable, "-c", self.PROBE], cwd=REPO_ROOT, env=env,
+                                capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_direct_run_replaces_a_hostile_parent_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hostile = Path(temp_dir)
+            observed = self.run_probe(hostile, marker=False)
+
+        sandbox = Path(observed["guard"]).parent
+        self.assertEqual(Path(observed["guard"]).name, "guard-bin")
+        self.assertEqual(observed["marker"], "1")
+        self.assertIsNone(observed["secret"])
+        self.assertEqual(Path(observed["home"]), sandbox / "home")
+        self.assertEqual(Path(observed["git_global"]), sandbox / "empty-gitconfig")
+        self.assertEqual(Path(observed["tmp"]), sandbox / "tmp")
+        self.assertFalse(sandbox.exists())
+
+    def test_runner_marker_leaves_the_environment_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hostile = Path(temp_dir)
+            observed = self.run_probe(hostile, marker=True)
+
+            self.assertEqual(observed["home"], str(hostile / "home"))
+            self.assertEqual(observed["secret"], "hostile-secret")
+            self.assertEqual(observed["git_global"], str(hostile / "gitconfig"))
+
+    def test_runner_and_package_agree_on_the_marker(self) -> None:
+        import tests
+
+        runner = load_script_module(REPO_ROOT / "assets" / "run-tests.py", "_marker_runner")
+        self.assertEqual(runner.SANDBOX_MARKER, tests.SANDBOX_MARKER)
 
 
 if __name__ == "__main__":

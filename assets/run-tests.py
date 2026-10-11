@@ -24,6 +24,7 @@ SCHEMA_REF = "./schemas/test-suites.v1.schema.json"
 PLATFORMS = ("linux", "macos", "windows", "wsl2")
 STEP_PLACEHOLDERS = {"python", "repo"}
 DEFAULT_STEP_TIMEOUT_SECONDS = 600
+SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
 STEP_STOP_GRACE_SECONDS = 1
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
@@ -314,6 +315,7 @@ def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONIOENCODING": "utf-8",
             "PYTHONPATH": str(repo_root),
+            SANDBOX_MARKER: "1",
         }
     )
     return env

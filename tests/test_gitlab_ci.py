@@ -5,22 +5,10 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.support.gitlab_ci import CI_PATH, top_level_block
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CI_PATH = REPO_ROOT / ".gitlab-ci.yml"
-
-
-def top_level_block(text: str, name: str) -> str:
-    lines = text.splitlines()
-    start = next(
-        index for index, line in enumerate(lines) if line == f"{name}:"
-    )
-    end = len(lines)
-    for index in range(start + 1, len(lines)):
-        if re.fullmatch(r"[A-Za-z0-9_.-]+:", lines[index]):
-            end = index
-            break
-    return "\n".join(lines[start:end]) + "\n"
 
 
 def job_rules(block: str) -> list[tuple[str, str]]:

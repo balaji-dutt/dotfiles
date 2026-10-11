@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import run_git, write_executable
-from tests.test_agent_wt_merge import GitFixture, HELPER_LAUNCH_PREFIX
+from tests.support.git_worktree import GitFixture, HELPER_LAUNCH_PREFIX
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

@@ -14,13 +14,12 @@ import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
-from importlib.machinery import SourceFileLoader
-from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
 from tests.support.fixtures import (
     init_git_repository,
     isolated_environment,
+    load_script_module,
     read_json_lines,
     run_git,
     write_executable,
@@ -136,19 +135,7 @@ echo "stub tests ran: $*"
 
 
 def load_helper_module():
-    name = "peer_env_test_module"
-    loader = SourceFileLoader(name, str(SOURCE_HELPER))
-    spec = spec_from_loader(name, loader)
-    if spec is None:
-        raise RuntimeError("could not create helper module spec")
-    module = module_from_spec(spec)
-    sys.modules[name] = module
-    sys.path.insert(0, str(SOURCE_HELPER.parent))
-    try:
-        loader.exec_module(module)
-    finally:
-        sys.path.pop(0)
-    return module
+    return load_script_module(SOURCE_HELPER, "peer_env_test_module", add_parent_to_path=True)
 
 
 MODULE = load_helper_module()

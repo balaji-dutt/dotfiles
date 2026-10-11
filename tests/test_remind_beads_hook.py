@@ -19,14 +19,12 @@ import json
 import os
 from pathlib import Path
 import shutil
-import stat
 import subprocess
 import tempfile
-import textwrap
 import time
 import unittest
 
-from tests.support.fixtures import BROKEN_RESOLVERS
+from tests.support.fixtures import BROKEN_RESOLVERS, write_executable
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".claude/hooks/remind-beads-on-plan-approval.sh"
@@ -47,11 +45,6 @@ ISSUE = "dots-test1"
 NOT_FOUND_BODY = json.dumps(
     {"error": 'no issues found matching the provided IDs', "schema_version": 1}
 )
-
-
-def write_executable(path: Path, content: str) -> None:
-    path.write_text(textwrap.dedent(content).lstrip("\n"), encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 def issue_body(status: str, issue_id: str = ISSUE) -> str:
@@ -110,7 +103,7 @@ class GateTestCase(unittest.TestCase):
         if stderr:
             body += "cat >&2 <<'BD_STDERR'\n%s\nBD_STDERR\n" % stderr
         body += "exit %d\n" % code
-        write_executable(self.bin_dir / "bd", body)
+        write_executable(self.bin_dir / "bd", body, dedent=True)
 
     def env(self, *, with_bd: bool = True, timeout: str | None = None,
             project_dir: Path | None = None) -> dict:

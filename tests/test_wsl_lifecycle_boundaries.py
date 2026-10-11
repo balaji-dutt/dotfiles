@@ -10,12 +10,12 @@ from tests.support.fixtures import (
     init_git_repository,
     isolated_environment,
     read_json_lines,
+    restricted_lifecycle_env,
     run_git,
     write_executable,
     write_fake_command,
 )
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_template
-from tests.test_shell_lifecycle import restricted_lifecycle_env
+from tests.support.chezmoi_render import CHEZMOI, render_template
 
 
 GITIGNORE = ".chezmoiscripts/run_copy_win_gitignore.sh.tmpl"

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.test_agent_wt_merge import GitFixture
+from tests.support.git_worktree import GitFixture
 from tests.support.fixtures import read_json, write_json
 from tests.support.github_fixtures import REPO_ROOT, configure_github_fixture, responses_for, run_data, runs_endpoint, write_state
 

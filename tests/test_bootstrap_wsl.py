@@ -8,7 +8,7 @@ from pathlib import Path
 from textwrap import dedent, indent
 
 from tests.support.fixtures import isolated_environment, read_json_lines, write_executable
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, render_matrix
+from tests.support.chezmoi_render import CHEZMOI, render_matrix
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

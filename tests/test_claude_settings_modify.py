@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from tests.test_chezmoi_lifecycle_render import CHEZMOI, PLATFORMS, render_template
+from tests.support.chezmoi_render import CHEZMOI, PLATFORMS, render_template
 
 
 TEMPLATE = "dot_claude/modify_private_settings.json"

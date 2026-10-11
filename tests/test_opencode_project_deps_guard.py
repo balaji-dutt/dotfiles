@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support.fixtures import write_python_command
+from tests.support.fixtures import write_executable, write_python_command
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,11 +22,6 @@ WRAPPERS = (
     CONTAINER_BIN / "executable_opencode-plannotator-custom.tmpl",
 )
 PLUGIN = "@opencode-ai/plugin"
-
-
-def write_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
 class GuardFixture:
