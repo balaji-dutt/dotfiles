@@ -808,9 +808,13 @@ The default action is `shell`, which runs `devcontainer up` and then execs the
 configured login shell in the running container. Ordinary `exec` also ensures the
 container is up. Every launcher `devcontainer up` passes `--skip-post-attach`;
 postCreate and postStart still run, but VS Code-specific attach hooks do not run
-in a headless CLI session. The `devcontainer up` step writes its log,
-lifecycle-command output, and result to stderr, so a failed start shows the
-CLI's error and the launcher exits nonzero before any shell or command runs.
+in a headless CLI session. For `shell` and ordinary `exec`, the `devcontainer up`
+step writes its log, lifecycle-command output, and result to stderr, so a failed
+start shows the CLI's error and the launcher exits nonzero before any shell or
+command runs. Standalone `up`, `rebuild`, and `rebuild-no-cache` retain the CLI's
+stdout and stderr. Successful rebuild actions add guidance on stderr about
+VS Code's configuration baseline; failed rebuilds retain the CLI's exit status
+and do not print that guidance.
 Rebuild actions are explicit so terminal profiles do not
 recreate containers accidentally. `stop` stops the unique matching container
 only when its state is `running`; other states are reported without a stop
@@ -872,6 +876,35 @@ HOMELAB_IAC_WORKSPACE=/path/to/workspace devcontainer-launch homelab-IaC
 HOMELAB_IAC_CONFIG=/path/to/devcontainer.json devcontainer-launch homelab-IaC
 HOMELAB_IAC_SHELL='zsh -l' devcontainer-launch homelab-IaC
 ```
+
+### VS Code rebuild prompts after a terminal rebuild
+
+VS Code's Dev Containers extension saves a per-workspace configuration baseline
+separately from the Docker labels used to identify a container. A successful
+`devcontainer-launch <name> rebuild` or `rebuild-no-cache` can recreate the correct
+container without updating that baseline. VS Code may therefore still report
+"Configuration file(s) changed" when it reopens the rebuilt container. This
+baseline behavior was checked in Dev Containers 0.469.0.
+
+Choose **Ignore** only when VS Code reopened the successfully rebuilt container
+and its configuration/build inputs have not changed since that rebuild. Ignore
+refreshes VS Code's saved baseline without rebuilding the container; it does not
+permanently disable warnings about later changes. The launcher's success notice
+explains this distinction, but does not synchronize or dismiss the warning.
+
+To help check container identity, run:
+
+```sh
+devcontainer-launch homelab-IaC status --json
+```
+
+Compare the unique matching container's ID with the ID in the VS Code Dev
+Containers startup log. Matching IDs confirm identity, not that every current
+configuration/build input was applied. If inputs changed after the rebuild,
+the rebuild failed, VS Code used a different container/configuration, or you
+are unsure, investigate or rebuild using the intended configuration rather than
+blindly ignoring the warning. Stopping the container does not refresh VS Code's
+saved baseline, and is not required to acknowledge this warning.
 
 ### Workspace picker
 

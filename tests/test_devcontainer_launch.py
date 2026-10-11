@@ -6,6 +6,7 @@ import os
 import pty
 import select
 import shlex
+import signal
 import struct
 import subprocess
 import sys
@@ -23,6 +24,7 @@ CONTAINER_ID = "a" * 64
 SECOND_ID = "b" * 64
 FOLDER = "devcontainer.local_folder"
 CONFIG = "devcontainer.config_file"
+REBUILD_NOTICE = "devcontainer-launch: Rebuild succeeded."
 
 
 def container(workspace, config, *, identifier=CONTAINER_ID, state="running", extra=None):
@@ -50,12 +52,17 @@ def write_append_logger(path: Path, log: Path) -> Path:
     return write_executable(
         path,
         f"#!{sys.executable}\n"
-        "import json, os, pathlib, sys\n"
+        "import json, os, pathlib, sys, time\n"
         f"log = pathlib.Path({str(log)!r})\n"
         "with log.open('a', encoding='utf-8') as stream:\n"
         "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
         "if sys.argv[1] == 'up' and 'FAKE_UP_STDOUT' in os.environ:\n"
         "    print(os.environ['FAKE_UP_STDOUT'])\n"
+        "if sys.argv[1] == 'up' and 'FAKE_UP_STDERR' in os.environ:\n"
+        "    print(os.environ['FAKE_UP_STDERR'], file=sys.stderr)\n"
+        "if sys.argv[1] == 'up' and 'FAKE_UP_READY' in os.environ:\n"
+        "    pathlib.Path(os.environ['FAKE_UP_READY']).write_text(str(os.getpid()))\n"
+        "    while True: time.sleep(0.1)\n"
         "if sys.argv[1] == 'up' and 'FAKE_AFTER_UP' in os.environ:\n"
         "    pathlib.Path(os.environ['FAKE_CONTAINERS']).write_text(os.environ['FAKE_AFTER_UP'])\n"
         "code = os.environ.get('FAKE_' + sys.argv[1].upper() + '_EXIT', os.environ.get('FAKE_CLI_EXIT', '0'))\n"
@@ -271,6 +278,133 @@ elif args[0] not in ('stop', 'rm'):
                     ["up", *base, "--skip-post-attach", "--remove-existing-container", "--build-no-cache"],
                 ],
             )
+
+    def test_successful_rebuild_notice_preserves_streams_and_platform_arguments(self):
+        for platform in ("darwin", "wsl2-debian"):
+            for action in ("rebuild", "rebuild-no-cache"):
+                with self.subTest(platform=platform, action=action), isolated_environment() as fixture:
+                    script, workspace, config, env = self.prepare(fixture)
+                    labels = {FOLDER: str(workspace), CONFIG: str(config)}
+                    if platform == "wsl2-debian":
+                        script.write_text(script.read_text().replace('platform="$(detect_platform)"',
+                                                                    'platform="wsl2-debian"'))
+                        self.configure_identity(env, {FOLDER: "\\\\wsl.localhost\\Debian{workspace_backslashes}",
+                                                      CONFIG: "{config}"}, platform)
+                        labels[FOLDER] = "\\\\wsl.localhost\\Debian" + str(workspace).replace("/", "\\")
+                        self.set_containers(env, [container(labels[FOLDER], config)])
+                    output = 'lifecycle output\n{"outcome":"success"}'
+                    result = run_launcher(script, "sample", action,
+                                          env=env | {"FAKE_UP_STDOUT": output, "FAKE_UP_STDERR": "CLI diagnostic"})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, output + "\n")
+                    self.assertTrue(result.stderr.startswith("CLI diagnostic\n"), result.stderr)
+                    self.assertEqual(result.stderr.count(REBUILD_NOTICE), 1)
+                    for text in ("does not refresh VS Code's configuration baseline",
+                                 "If VS Code reopens this rebuilt container",
+                                 "choose Ignore only if its configuration/build inputs have not changed since this rebuild",
+                                 "baseline without rebuilding; later changes can still prompt"):
+                        self.assertIn(text, result.stderr)
+                    flags = ["--skip-post-attach", "--remove-existing-container"]
+                    if action == "rebuild-no-cache":
+                        flags.append("--build-no-cache")
+                    self.assertEqual(read_json_lines(fixture.root / "devcontainer.jsonl"),
+                                     [["up", *self.base_args(workspace, config, env, labels), *flags]])
+
+    def test_failed_rebuild_preserves_status_and_streams_without_notice(self):
+        for action in ("rebuild", "rebuild-no-cache"):
+            for code in (1, 29, 130):
+                with self.subTest(action=action, code=code), isolated_environment() as fixture:
+                    script, _, _, env = self.prepare(fixture)
+                    output = 'lifecycle output\n{"outcome":"error"}'
+                    result = run_launcher(script, "sample", action,
+                                          env=env | {"FAKE_UP_EXIT": str(code), "FAKE_UP_STDOUT": output,
+                                                     "FAKE_UP_STDERR": "CLI failure"})
+                    self.assertEqual(result.returncode, code)
+                    self.assertEqual(result.stdout, output + "\n")
+                    self.assertEqual(result.stderr, "CLI failure\n")
+                    self.assertEqual(len(read_json_lines(fixture.root / "devcontainer.jsonl")), 1)
+
+    def test_rebuild_process_group_interrupt_exits_without_notice_or_surviving_cli(self):
+        for action in ("rebuild", "rebuild-no-cache"):
+            with self.subTest(action=action), isolated_environment() as fixture:
+                script, _, _, env = self.prepare(fixture)
+                ready = fixture.root / "cli-ready"
+                process = subprocess.Popen(["/bin/bash", str(script), "sample", action],
+                                           env=env | {"FAKE_UP_READY": str(ready)},
+                                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True, start_new_session=True)
+                try:
+                    deadline = time.monotonic() + 10
+                    cli_pid = None
+                    while time.monotonic() < deadline and process.poll() is None:
+                        if ready.exists():
+                            value = ready.read_text()
+                            if value:
+                                cli_pid = int(value)
+                                break
+                        time.sleep(0.02)
+                    self.assertIsNotNone(cli_pid, "fake CLI did not become ready")
+                    os.killpg(process.pid, signal.SIGINT)
+                    stdout, stderr = process.communicate(timeout=5)
+                    self.assertNotEqual(process.returncode, 0)
+                    self.assertEqual(stdout, "")
+                    self.assertNotIn(REBUILD_NOTICE, stderr)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(cli_pid, 0)
+                    with self.assertRaises(ProcessLookupError):
+                        os.killpg(process.pid, 0)
+                finally:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate(timeout=5)
+
+    def test_successful_rebuild_with_closed_stderr_keeps_success(self):
+        for action in ("rebuild", "rebuild-no-cache"):
+            with self.subTest(action=action), isolated_environment() as fixture:
+                script, _, _, env = self.prepare(fixture)
+                result = subprocess.run(["/bin/bash", "-c", 'exec 2>&-; exec /bin/bash "$@"',
+                                         "closed-stderr", str(script), "sample", action],
+                                        env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, text=True, check=False, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(len(read_json_lines(fixture.root / "devcontainer.jsonl")), 1)
+
+    def test_refused_rebuild_does_not_emit_notice_or_mutate(self):
+        for action in ("rebuild", "rebuild-no-cache"):
+            for failure in ("missing-cli", "ambiguous", "conflict"):
+                with self.subTest(action=action, failure=failure), isolated_environment() as fixture:
+                    script, workspace, config, env = self.prepare(fixture)
+                    if failure == "missing-cli":
+                        env["DEVCONTAINER_CLI"] = "/not-installed/devcontainer"
+                    elif failure == "ambiguous":
+                        self.set_containers(env, [container(workspace, config),
+                                                 container(workspace, config, identifier=SECOND_ID, state="exited")])
+                    else:
+                        self.configure_identity(env, {FOLDER: "{workspace}", CONFIG: "{config}",
+                                                      "custom.owner": "terminal"})
+                    result = run_launcher(script, "sample", action, env=env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn(REBUILD_NOTICE, result.stderr)
+                    self.assert_no_mutation(fixture)
+
+    def test_non_rebuild_actions_do_not_emit_rebuild_notice(self):
+        for args, code in ((["sample", "up"], 0), (["sample", "shell"], 0),
+                           (["sample", "exec", "--", "true"], 0),
+                           (["sample", "exec", "--existing", "--", "true"], 0),
+                           (["sample", "status", "--json"], 0), (["sample", "stop"], 0),
+                           (["sample", "down"], 0), (["sample", "help"], 0),
+                           (["--list"], 0), (["--help"], 2)):
+            with self.subTest(args=args), isolated_environment() as fixture:
+                script, _, _, env = self.prepare(fixture)
+                result = run_launcher(script, *args, env=env)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertNotIn(REBUILD_NOTICE, result.stderr + result.stdout)
+                if "status" in args:
+                    self.assertEqual(json.loads(result.stdout)["selection"], "unique")
+                    self.assertEqual(result.stderr, "")
 
     def test_stop_and_down_target_only_manifest_matching_containers(self) -> None:
         with isolated_environment(prefix="devcontainer docker ") as fixture:
