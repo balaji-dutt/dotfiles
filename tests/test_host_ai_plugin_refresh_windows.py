@@ -3,12 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.support.powershell import resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ TEMPLATE = (
     REPO_ROOT
     / ".chezmoiscripts/run_onchange_after_host_ai_plugin_refresh.ps1.tmpl"
 )
-PWSH = shutil.which("pwsh")
+PWSH = resolve_powershell_runtime(interop="forbid")
 
 
 def ps_quote(value: str | Path) -> str:
@@ -27,7 +28,7 @@ def ps_encoded(script: str) -> str:
     return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not installed")
+@unittest.skipUnless(PWSH, "native pwsh is not available")
 class WindowsHostAiPluginRefreshTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

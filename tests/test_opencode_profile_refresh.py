@@ -10,6 +10,8 @@ import time
 import unittest
 from pathlib import Path
 
+from tests.support.powershell import resolve_powershell_runtime
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOST_HELPER = REPO_ROOT / "private_dot_config/opencode/opencode-profile.sh"
@@ -28,7 +30,7 @@ POWERSHELL_ENV_TEMPLATE = (
 POWERSHELL_PROMPT_TEMPLATE = (
     REPO_ROOT / "private_dot_config/powershell/prompt.ps1.tmpl"
 )
-PWSH = shutil.which("pwsh")
+PWSH = resolve_powershell_runtime(interop="forbid")
 ZSH = shutil.which("zsh")
 
 
@@ -402,7 +404,7 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not installed")
+@unittest.skipUnless(PWSH, "native pwsh is not available")
 class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
     def setUp(self) -> None:
         super().setUp()

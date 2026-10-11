@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import unittest
 
+from tests.support.powershell import powershell_path, resolve_powershell_runtime
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "dot_local/windows-notify.ps1"
@@ -26,15 +28,11 @@ class WindowsNotifyTests(unittest.TestCase):
         self.assertNotIn("Popup(", text)
 
     def test_powershell_parser_accepts_helper_without_displaying_a_banner(self) -> None:
-        powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+        # The notifier runs this helper under Windows PowerShell 5.1 for its WinRT toast types.
+        powershell = shutil.which("powershell.exe") or resolve_powershell_runtime()
         if powershell is None:
             self.skipTest("PowerShell is unavailable")
-        script = str(HELPER)
-        if powershell.lower().endswith("powershell.exe"):
-            wslpath = shutil.which("wslpath")
-            if wslpath:
-                script = subprocess.check_output([wslpath, "-w", script], text=True).strip()
-        quoted = script.replace("'", "''")
+        quoted = powershell_path(HELPER, powershell).replace("'", "''")
         result = subprocess.run(
             [powershell, "-NoProfile", "-NonInteractive", "-Command",
              f"$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile('{quoted}',[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count) {{ $errors | Out-String | Write-Error; exit 1 }}"],

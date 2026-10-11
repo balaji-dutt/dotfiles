@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tests.support.fixtures import load_script_module
+from tests.support.powershell import resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1252,7 +1253,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_powershell_wrappers_preserve_multiline_args_and_scope_environment(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
         expected = {
@@ -1330,7 +1331,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_attestation_environment_and_state_transports(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
         for identity, wrapper in WINDOWS_COMMIT_WRAPPERS.items():
@@ -1416,7 +1417,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_attestation_failed_commit_consumes_state_before_retry(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
         for identity, wrapper in WINDOWS_COMMIT_WRAPPERS.items():
@@ -1478,7 +1479,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_attestation_native_parser_when_jq_is_unavailable(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         jq = shutil.which("jq")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
@@ -1540,7 +1541,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_opencode_amend_keeps_original_author_and_single_bot_coauthor(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1587,7 +1588,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
 
     def test_opencode_message_file_resists_local_trailer_overrides(self) -> None:
         git = shutil.which("git")
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not git or not pwsh:
             self.skipTest("git and pwsh are required")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1622,7 +1623,7 @@ class WindowsCommitWrapperTests(unittest.TestCase):
             )
 
     def test_bare_commands_resolve_to_powershell_wrappers(self) -> None:
-        pwsh = shutil.which("pwsh")
+        pwsh = resolve_powershell_runtime(interop="forbid")
         if not pwsh:
             self.skipTest("pwsh is required")
         with tempfile.TemporaryDirectory() as temp_dir:

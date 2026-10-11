@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import init_git_repository, isolated_environment, write_executable
+from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-POWERSHELL_IMAGE = "local/powershell-audit:lts"
 CLONE_LOCAL_FKS = (
     ("events", "fk_events_issue", "issue_id", "issues", "id"),
     ("wisp_dependencies", "fk_wisp_dep_issue", "issue_id", "wisps", "id"),
@@ -561,20 +561,20 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
     def setUpClass(cls) -> None:
         if os.name == "nt":
             raise unittest.SkipTest("native Windows execution is opportunistic for this suite")
-        cls.pwsh = shutil.which("pwsh")
+        cls.pwsh = resolve_powershell_runtime(interop="forbid")
         cls.docker = shutil.which("docker")
         if cls.pwsh:
             return
         if not cls.docker:
             raise unittest.SkipTest("pwsh and docker are unavailable")
         inspected = subprocess.run(
-            [cls.docker, "image", "inspect", POWERSHELL_IMAGE],
+            [cls.docker, "image", "inspect", POWERSHELL_AUDIT_IMAGE],
             capture_output=True,
             text=True,
             check=False,
         )
         if inspected.returncode != 0:
-            raise unittest.SkipTest(f"local image {POWERSHELL_IMAGE} is unavailable")
+            raise unittest.SkipTest(f"local image {POWERSHELL_AUDIT_IMAGE} is unavailable")
 
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None
@@ -653,7 +653,7 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
             [
                 "--entrypoint",
                 "pwsh",
-                POWERSHELL_IMAGE,
+                POWERSHELL_AUDIT_IMAGE,
                 "-NoProfile",
                 "-File",
                 container_path(str(script)),
@@ -664,12 +664,12 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
 
     def test_init_compares_wisp_tables_before_and_after_reset(self) -> None:
         if not self.pwsh:
-            self.skipTest(f"{POWERSHELL_IMAGE} has no git, which init needs")
+            self.skipTest(f"{POWERSHELL_AUDIT_IMAGE} has no git, which init needs")
         super().test_init_compares_wisp_tables_before_and_after_reset()
 
     def test_init_relinks_after_the_reset(self) -> None:
         if not self.pwsh:
-            self.skipTest(f"{POWERSHELL_IMAGE} has no git, which init needs")
+            self.skipTest(f"{POWERSHELL_AUDIT_IMAGE} has no git, which init needs")
         super().test_init_relinks_after_the_reset()
 
     def test_status_refusal_and_single_session_pull_match_posix_contract(self) -> None:

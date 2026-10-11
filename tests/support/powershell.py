@@ -19,11 +19,22 @@ def is_wsl(environ: dict[str, str] | os._Environ[str] = os.environ) -> bool:
     return bool(environ.get("WSL_DISTRO_NAME") or environ.get("WSL_INTEROP"))
 
 
+INTEROP_MODES = ("allow", "forbid", "require")
+_PROBED_RUNTIMES: set[str] = set()
+
+
+def is_interop_executable(executable: str) -> bool:
+    return os.name != "nt" and executable.lower().endswith(".exe")
+
+
 def resolve_powershell_runtime(
     *,
     environ: dict[str, str] | os._Environ[str] = os.environ,
     diagnostics: list[str] | None = None,
+    interop: str = "allow",
 ) -> str | None:
+    if interop not in INTEROP_MODES:
+        raise ValueError(f"interop must be one of {', '.join(INTEROP_MODES)}: {interop!r}")
     search_path = environ.get("PATH")
     wsl = is_wsl(environ)
 
@@ -36,13 +47,29 @@ def resolve_powershell_runtime(
             if standard.is_file():
                 yield str(standard)
 
+    def note(message: str) -> None:
+        if diagnostics is not None:
+            diagnostics.append(message)
+
     seen: set[str] = set()
     for candidate in candidates():
-        if not candidate or os.path.normcase(candidate) in seen:
+        if not candidate:
             continue
-        seen.add(os.path.normcase(candidate))
+        key = os.path.normcase(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        crosses = is_interop_executable(candidate)
         label = ("Windows PowerShell/WSL interop candidate"
-                 if wsl and candidate.lower().endswith(".exe") else "PowerShell candidate")
+                 if crosses else "PowerShell candidate")
+        if interop == "forbid" and crosses:
+            note(f"{label} {candidate!r}: skipped, caller passes POSIX paths")
+            continue
+        if interop == "require" and not crosses:
+            note(f"{label} {candidate!r}: skipped, caller needs WSL interop")
+            continue
+        if key in _PROBED_RUNTIMES:
+            return candidate
         try:
             result = subprocess.run(
                 [candidate, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
@@ -50,36 +77,45 @@ def resolve_powershell_runtime(
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
-                timeout=5,
+                timeout=10,
             )
         except OSError as error:
             reason = f"cannot execute (errno {error.errno}: {error.strerror})"
         except subprocess.TimeoutExpired:
-            reason = "probe timed out after 5 seconds"
+            reason = "probe timed out after 10 seconds"
         else:
             if result.returncode == 0:
+                _PROBED_RUNTIMES.add(key)
                 return candidate
             reason = f"probe exited {result.returncode}"
-        if diagnostics is not None:
-            diagnostics.append(f"{label} {candidate!r}: {reason}")
-    if not seen and diagnostics is not None:
-        diagnostics.append("PowerShell not found: no pwsh or eligible pwsh.exe candidate")
+        note(f"{label} {candidate!r}: {reason}")
+    if not seen:
+        note("PowerShell not found: no pwsh or eligible pwsh.exe candidate")
     return None
 
 
 def powershell_path(value: str | Path, executable: str | None) -> str:
     text = str(value)
-    if os.name != "nt" and executable and executable.lower().endswith(".exe"):
+    if not executable or not is_interop_executable(executable):
+        return text
+    try:
         result = subprocess.run(
             ["wslpath", "-w", "-a", text],
             check=False,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=10,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    return text
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"wslpath cannot translate {text!r} for {executable!r}: {error}") from error
+    converted = result.stdout.strip()
+    if result.returncode != 0 or not converted:
+        raise RuntimeError(
+            f"wslpath cannot translate {text!r} for {executable!r}: "
+            f"exit {result.returncode}: {result.stderr.strip()}"
+        )
+    return converted
 
 
 def powershell_quote(value: str | Path, executable: str | None = None) -> str:
@@ -275,10 +311,19 @@ def run_pester(
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("probe-parser", "probe-pester", "run-pester"))
+    parser.add_argument(
+        "action", choices=("probe-parser", "probe-pester", "probe-runtime", "run-pester")
+    )
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
-    return parser.parse_args(argv)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--native", dest="interop", action="store_const", const="forbid")
+    mode.add_argument("--interop", dest="interop", action="store_const", const="require")
+    parser.set_defaults(interop="allow")
+    args = parser.parse_args(argv)
+    if args.interop != "allow" and args.action != "probe-runtime":
+        parser.error("--native and --interop apply only to probe-runtime")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -290,6 +335,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             provision_container=False,
         )
         return 0 if resolved else 1
+    if args.action == "probe-runtime":
+        diagnostics: list[str] = []
+        executable = resolve_powershell_runtime(diagnostics=diagnostics, interop=args.interop)
+        if executable is None:
+            sys.stderr.write("".join(f"{line}\n" for line in diagnostics))
+            return 1
+        print(executable)
+        return 0
     if args.action == "run-pester":
         if not args.paths:
             raise SystemExit("run-pester requires at least one test path")

@@ -109,7 +109,13 @@ arrays. For example:
 {
   "capabilities": {
     "node": {"command": "node"},
-    "pwsh": {"commands": ["pwsh", "pwsh.exe"]},
+    "pwsh": {
+      "command": "{python}",
+      "probe": [
+        "{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--native",
+        "--repo-root", "{repo}"
+      ]
+    },
     "pester": {
       "command": "{python}",
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester"]
@@ -143,15 +149,40 @@ arrays. For example:
 The excerpt illustrates the schema only; the example test path is not a
 registered production test.
 
-`tests/support/powershell.py` keeps static parsing separate from behavioral
-execution. It resolves `pwsh` first and native `pwsh.exe` from WSL2 second. If
-neither exists, parser-only checks may use the retained
+Tests look up PowerShell only through `tests/support/powershell.py`; a source
+check in `tests/test_test_runner.py` rejects `which("pwsh")` and argv that start
+with a bare `pwsh` anywhere else. `resolve_powershell_runtime` tries `pwsh` on
+`PATH`, then on WSL2 `pwsh.exe` on `PATH` and
+`C:\Program Files\PowerShell\7\pwsh.exe`. It probes each candidate with
+`exit 0` and remembers successful probes for the rest of the process. Its
+`interop` argument decides whether a WSL2 interop `pwsh.exe` qualifies:
+
+- `allow` (default) suits callers that pass every path through
+  `powershell_path`. That helper raises if `wslpath` cannot translate a path,
+  rather than handing a POSIX path to `pwsh.exe`.
+- `forbid` suits callers that pass POSIX paths or run `/bin/sh` fakes. A native
+  Windows `pwsh.exe` still qualifies.
+- `require` accepts only a WSL2 interop `pwsh.exe`.
+
+`probe-runtime --native` and `probe-runtime --interop` expose the `forbid` and
+`require` modes to capability probes. The `pwsh` capability uses `--native`, so
+a WSL2 host with only `pwsh.exe` skips `pwsh` steps while `pester` steps still
+run through interop. A failed probe reports
+`capability probe failed for pwsh (exit 1)`; run
+`python3 tests/support/powershell.py probe-runtime --native` to print each
+candidate's diagnostic.
+
+Static parsing stays separate from behavioral execution. When no runtime
+resolves, parser-only checks may use the retained
 `local/powershell-audit:lts` Docker or Podman image built from
 `assets/Dockerfile.powershell-audit`. That image provides AST evidence only and
 does not satisfy the `pwsh` or `pester` capabilities. Behavioral PowerShell
-tests require a local/native runtime. The Pester probe accepts installed Pester
+tests need a resolved runtime. The Pester probe accepts installed Pester
 3.4 or newer, and the shared launcher selects the compatible Pester 3 or 5
 invocation without installing or upgrading host modules.
+Every `Assert-MockCalled` under `tests/powershell/` passes `-Scope`, because
+Pester 3 otherwise counts calls across the whole `Describe`; a source check
+enforces this.
 
 ## Isolation contract
 

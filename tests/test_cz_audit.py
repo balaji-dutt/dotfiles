@@ -10,10 +10,10 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import init_git_repository, isolated_environment, write_executable
+from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-POWERSHELL_IMAGE = "local/powershell-audit:lts"
 
 
 def _read_calls(path: Path) -> list[list[str]]:
@@ -602,20 +602,20 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
 class CzAuditPowerShellTests(CzAuditFixture, unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.local_pwsh = shutil.which("pwsh")
+        cls.local_pwsh = resolve_powershell_runtime(interop="forbid")
         cls.docker = shutil.which("docker")
         if cls.local_pwsh:
             return
         if not cls.docker:
             raise unittest.SkipTest("pwsh and Docker are unavailable")
         inspected = subprocess.run(
-            [cls.docker, "image", "inspect", POWERSHELL_IMAGE],
+            [cls.docker, "image", "inspect", POWERSHELL_AUDIT_IMAGE],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         if inspected.returncode != 0:
-            raise unittest.SkipTest(f"local image {POWERSHELL_IMAGE} is unavailable")
+            raise unittest.SkipTest(f"local image {POWERSHELL_AUDIT_IMAGE} is unavailable")
 
     def run_audit(
         self, command: str, relsrc: str, *, env: dict[str, str] | None = None
@@ -676,7 +676,7 @@ class CzAuditPowerShellTests(CzAuditFixture, unittest.TestCase):
             [
                 "--entrypoint",
                 "pwsh",
-                POWERSHELL_IMAGE,
+                POWERSHELL_AUDIT_IMAGE,
                 "-NoLogo",
                 "-NoProfile",
                 "-NonInteractive",

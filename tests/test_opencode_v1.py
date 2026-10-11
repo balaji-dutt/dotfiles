@@ -399,10 +399,7 @@ class WindowsHoldTests(FixtureTests):
 
     @classmethod
     def setUpClass(cls):
-        cls.pwsh = resolve_powershell_runtime()
-        # Windows pwsh.exe cannot read the POSIX fixture paths or execute the /bin/sh fakes.
-        if cls.pwsh and cls.pwsh.lower().endswith('.exe'):
-            cls.pwsh = None
+        cls.pwsh = resolve_powershell_runtime(interop='forbid')
         cls.docker = shutil.which('docker') or shutil.which('podman')
         if not cls.pwsh:
             if not cls.docker or subprocess.run(

@@ -18,7 +18,10 @@
       "command": "{python}",
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-parser", "--repo-root", "{repo}"]
     },
-    "pwsh": {"command": "pwsh"},
+    "pwsh": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--native", "--repo-root", "{repo}"]
+    },
     "sh": {"command": "sh"},
     "zsh": {"command": "zsh"}
   },
@@ -270,9 +273,17 @@
     {
       "id": "ffpwa-refresh",
       "suites": ["integration", "platform", "render"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_ffpwa_refresh"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_ffpwa_refresh.FfpwaRefreshCommandTests", "tests.test_ffpwa_refresh.FfpwaRuntimeHookRenderTests", "tests.test_ffpwa_refresh.FfpwaMacosHookTests"],
       "covers": ["tests/test_ffpwa_refresh.py"],
       "platforms": ["linux", "macos", "windows", "wsl2"]
+    },
+    {
+      "id": "ffpwa-refresh-pester",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_ffpwa_refresh.FfpwaRefreshPesterTests"],
+      "covers": ["tests/test_ffpwa_refresh.py"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "requires": ["pester"]
     },
     {
       "id": "git-template-hook-sync",

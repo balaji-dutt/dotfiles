@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.support.powershell import resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,14 +15,14 @@ TEMPLATE = (
     REPO_ROOT
     / ".chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl"
 )
-PWSH = shutil.which("pwsh")
+PWSH = resolve_powershell_runtime(interop="forbid")
 
 
 def ps_quote(value: str | Path) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not installed")
+@unittest.skipUnless(PWSH, "native pwsh is not available")
 class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

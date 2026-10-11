@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tests.support.fixtures import run_git, write_executable
 from tests.support.git_worktree import GitFixture, HELPER_LAUNCH_PREFIX
+from tests.support.powershell import resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,7 @@ SOURCE_PYTHON_RESOLVER = REPO_ROOT / "assets" / "resolve-python3"
 # Windows has no /bin/sh for CreateProcess to find, so the resolver's own shell
 # entry point has to be located on PATH.
 SH = shutil.which("sh")
+PWSH = resolve_powershell_runtime(interop="forbid")
 
 
 def render_windows_template(source: Path) -> str:
@@ -542,7 +544,7 @@ exit 0
         self.assertEqual(run_git(self.repo, "status", "--porcelain=v1").stdout, before)
 
 
-@unittest.skipUnless(shutil.which("pwsh"), "pwsh is required")
+@unittest.skipUnless(PWSH, "native pwsh is required")
 class GuardedMainSyncPowerShellTests(unittest.TestCase):
     def test_clean_dispatch_uses_probed_python_and_finalizes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="gpls pwsh ") as temporary:
@@ -573,7 +575,7 @@ raise SystemExit(0)
             env["GPLS_TEST_LOG"] = str(log)
             env["GPLS_TEST_REPO"] = str(repo)
             result = subprocess.run(
-                [shutil.which("pwsh") or "pwsh", "-NoProfile", "-File", str(script)],
+                [PWSH, "-NoProfile", "-File", str(script)],
                 env=env,
                 text=True,
                 stdout=subprocess.PIPE,

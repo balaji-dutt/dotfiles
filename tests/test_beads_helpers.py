@@ -11,9 +11,11 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import write_executable
+from tests.support.powershell import resolve_powershell_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PWSH = resolve_powershell_runtime(interop="forbid")
 SHELL_HELPERS = {
     "bash": ROOT / "dot_local/share/beads-helpers.bash",
     "zsh": ROOT / "dot_local/share/beads-helpers.zsh",
@@ -874,7 +876,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
                 stop_index = calls.index("bd:dolt stop")
                 self.assertLess(export_index, stop_index)
 
-    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+    @unittest.skipUnless(PWSH, "native pwsh is not available")
     def test_powershell_push_refuses_missing_remote_before_bd_calls(self) -> None:
         shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
         (self.repo / ".beads/dolt/test").mkdir(parents=True)
@@ -898,7 +900,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
 
         result = subprocess.run(
             [
-                "pwsh",
+                PWSH,
                 "-NoProfile",
                 "-File",
                 str(self.repo / "assets/beads-sync.ps1"),
@@ -918,7 +920,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("dolt:") for line in calls))
         self.assertFalse(any(line.startswith("bd:") for line in calls))
 
-    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+    @unittest.skipUnless(PWSH, "native pwsh is not available")
     def test_powershell_server_verbs_fail_loudly_before_side_effects(self) -> None:
         shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
         (self.repo / ".beads/dolt/test").mkdir(parents=True)
@@ -929,7 +931,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
                 self.log.unlink(missing_ok=True)
                 result = subprocess.run(
                     [
-                        "pwsh",
+                        PWSH,
                         "-NoProfile",
                         "-File",
                         str(self.repo / "assets/beads-sync.ps1"),
@@ -954,7 +956,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
                 self.assertIn("--host 127.0.0.1 --port 3307", calls[0])
                 self.assertIn("select 1;", calls[0])
 
-    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+    @unittest.skipUnless(PWSH, "native pwsh is not available")
     def test_powershell_init_dry_run_does_not_probe_server(self) -> None:
         shutil.copy2(ROOT / "assets/beads-sync.ps1", self.repo / "assets/beads-sync.ps1")
         self.install_failing_tools()
@@ -963,7 +965,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
 
         result = subprocess.run(
             [
-                "pwsh",
+                PWSH,
                 "-NoProfile",
                 "-File",
                 str(self.repo / "assets/beads-sync.ps1"),
@@ -981,7 +983,7 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
         self.assertEqual(self.read_calls(), [])
 
 
-@unittest.skipUnless(shutil.which("pwsh"), "pwsh is not installed")
+@unittest.skipUnless(PWSH, "native pwsh is not available")
 class PowerShellBeadsDispatchTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -1041,7 +1043,7 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
             f"bd @({encoded_args}); exit $global:LASTEXITCODE"
         )
         return subprocess.run(
-            ["pwsh", "-NoProfile", "-Command", command],
+            [PWSH, "-NoProfile", "-Command", command],
             cwd=self.repo,
             env=self.env,
             capture_output=True,
@@ -1058,7 +1060,7 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
             f"& $nativeBd @({encoded_args}); exit $global:LASTEXITCODE"
         )
         return subprocess.run(
-            ["pwsh", "-NoProfile", "-Command", command],
+            [PWSH, "-NoProfile", "-Command", command],
             cwd=self.repo,
             env=self.env,
             capture_output=True,
@@ -1154,7 +1156,7 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
             "-Value ('after:' + [string]$env:BD_NO_REMOTE_ADOPT)"
         )
         result = subprocess.run(
-            ["pwsh", "-NoProfile", "-Command", encoded],
+            [PWSH, "-NoProfile", "-Command", encoded],
             cwd=self.repo,
             env=self.env,
             capture_output=True,
