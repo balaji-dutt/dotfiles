@@ -14,9 +14,9 @@ every discovered candidate as owned, mirrored, generated, vendored/upstream,
 archived, or excluded.
 
 The inventory is a planning boundary, not a claim that every owned path already
-has full coverage. Each owned entry names its suite, durable work item or
-component, current coverage status, required test layers, supported platforms,
-risk, side effects, and any required critical-behavior matrix.
+has full coverage. Each owned entry names its durable work item or component,
+current coverage status, required test layers, supported platforms, risk, side
+effects, and any required critical-behavior matrix.
 
 ## Candidate discovery
 
@@ -52,6 +52,14 @@ conflict, run `--update-candidates` after the rest of the merge is resolved.
 Both sides were reviewed on their branches, so any `+` line it prints was
 reviewed on neither and needs review before the merge is committed.
 
+The census leaves out paths matched by the `excluded-test-support` entry
+(`tests/*.py`, `tests/powershell/**`, and `tests/support/**`). Those files are
+still classified exactly once, but adding one needs no census line. The checker
+pins that entry's selectors, so widening the boundary takes a checker change
+and review. A script added anywhere else under `tests/`, such as
+`tests/new.sh` or `tests/fixtures/tool.py`, is still an unreviewed and
+unclassified candidate.
+
 ## Classification and ownership
 
 Each path has one primary classification:
@@ -81,17 +89,19 @@ Every entry records:
 - the canonical `owner` kind, name, and source when applicable;
 - `languages`, `platforms`, `risk`, and observable `side_effects`;
 - required `test_layers`; and
-- `coverage` with a suite ID, status, durable work item or component, tracked
-  test paths, and behavioral requirements where required by risk.
+- `coverage` with a status, durable work item or component, tracked test paths,
+  and behavioral requirements where required by risk.
 
-Owned entries require a suite ID and durable ownership reference. Long-lived
+Owned entries require a durable ownership reference. Long-lived
 components such as `test-foundation` are preferred when ownership should outlive
 the Beads story that introduced the automation. `covered` and `partial` entries
 require tracked tests registered in a canonical suite. Critical entries also
 record success, failure, and safety requirements, with truthful `covered` or
 `planned` status for each branch. Non-owned entries require a provenance or
 exclusion rationale. The checker also validates stable enums, ordering,
-duplicate IDs and paths, stale selectors, and references to missing tests.
+duplicate IDs and paths, stale selectors, references to missing tests, and
+unknown or retired keys at every object level. Registry step ids are not
+copied into the inventory.
 
 `planned`, `partial`, and `covered` describe the current implementation state.
 Truthful planned gaps remain valid declarations and do not block unrelated
@@ -114,8 +124,9 @@ py -3 assets/check-automation-test-inventory.py
 py -3 -m unittest tests.test_automation_test_inventory
 ```
 
-To inspect the discovered census without reading the manifest, or to rewrite
-the reviewed list from it:
+To list every discovered candidate without reading the manifest, or to rewrite
+the reviewed list (which reads the manifest to leave out the test-support
+boundary):
 
 ```sh
 python3 assets/check-automation-test-inventory.py --list-candidates
@@ -128,8 +139,8 @@ When adding, removing, renaming, generating, or mirroring automation:
 
 1. Run `--list-candidates` and review every changed path and reason.
 2. Add or update one manifest entry with the correct primary classification.
-3. For owned automation, assign its suite and durable work item or component,
-   record registered test evidence, and apply the risk policy. Critical entries
+3. For owned automation, assign its durable work item or component, record
+   registered test evidence, and apply the risk policy. Critical entries
    must list success, failure, and safety requirements. Do not mark planned
    coverage as covered.
 4. Run `--update-candidates`, then review the `+`/`-` lines it prints and the

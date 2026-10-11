@@ -27,9 +27,9 @@ CONTRACTS = {
         "consumers": ("assets/check-automation-provenance.py",),
     },
     "automation-test-inventory.json": {
-        "schema": "schemas/automation-test-inventory.v3.schema.json",
-        "ref": "./schemas/automation-test-inventory.v3.schema.json",
-        "version": 3,
+        "schema": "schemas/automation-test-inventory.v4.schema.json",
+        "ref": "./schemas/automation-test-inventory.v4.schema.json",
+        "version": 4,
         "consumers": ("assets/check-automation-test-inventory.py",),
     },
     "gitlab-pipeline-guard.json": {
@@ -108,6 +108,7 @@ RETAINED_SCHEMAS = {
     "schemas/automation-provenance.v1.schema.json",
     "schemas/automation-test-inventory.v1.schema.json",
     "schemas/automation-test-inventory.v2.schema.json",
+    "schemas/automation-test-inventory.v3.schema.json",
 }
 STANDALONE_SCHEMAS = {
     "schemas/pipeline-guard.v1.schema.json": {
@@ -389,6 +390,10 @@ class ConfigContractTests(unittest.TestCase):
             "schemas/automation-test-inventory.v2.schema.json": (
                 "urn:dotfiles:schema:automation-test-inventory:v2",
                 2,
+            ),
+            "schemas/automation-test-inventory.v3.schema.json": (
+                "urn:dotfiles:schema:automation-test-inventory:v3",
+                3,
             ),
         }
         for relative_path, (schema_id, version) in retained_ids.items():

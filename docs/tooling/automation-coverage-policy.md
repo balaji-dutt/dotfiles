@@ -44,14 +44,15 @@ as soon as an isolated WSL2 runner is available, whichever comes first.
 ### Critical behavior matrix
 
 Each critical entry has sorted `coverage.behavior_requirements`. Every item has a
-stable ID, kind (`success`, `failure`, or `safety`), concrete description, status,
-and test evidence.
+stable ID, kind (`success`, `failure`, or `safety`), concrete description, and
+status. Test evidence is listed once per entry in `coverage.test_paths`, which
+must name tracked tests registered in a behavioral canonical suite (`fast`,
+`integration`, `render`, or `platform`) whenever any requirement is covered.
 
-- `covered` requirements name tracked tests registered in a behavioral canonical
-  suite (`fast`, `integration`, `render`, or `platform`).
-- `planned` requirements have no test paths and remain assigned through the
-  entry's durable work item and rationale.
-- The entry test list is the union of covered requirement evidence.
+- `covered` is a reviewed claim that the entry's registered tests exercise that
+  behavior. Registering the test family does not prove each requirement; the
+  reviewer checks the named assertions when a requirement changes state.
+- `planned` requirements remain open gaps, described by the entry's rationale.
 - All covered requirements make the entry `covered`; all planned make it
   `planned`; a mixture makes it `partial`.
 
@@ -60,6 +61,28 @@ command. Candidate-list review and the scoped reviewer checklist require each
 addition or behavior change to revisit the relevant entry. Existing truthful
 planned and partial gaps do not block unrelated changes or require downstream
 testing epics to land first.
+
+Any entry that lists `coverage.test_paths` must be reachable on every platform
+it claims: at least one registry step covering those tests runs there. A step
+without `platforms` runs everywhere, and `ci` and `devcontainer` count as
+`linux`.
+
+### Gap ownership and new metadata
+
+`coverage.work_item` records where the automation was implemented: a Beads ID
+or a durable component name such as `test-foundation`. It is history, not an
+assignment. An open gap is the planned requirement plus the rationale that
+explains it; whoever picks the gap up records the follow-up issue there. The
+checker never queries Beads, so offline and native Windows runs stay
+independent of the Dolt server.
+
+Before adding an inventory field, name the automated consumer or the human
+decision it informs, its authoritative source, and who updates it, and explain
+why existing data cannot answer the question. Put that reasoning in the change
+review rather than in another metadata registry. Derive execution facts from
+the registry and test results instead of copying them into the inventory. A
+retired field gets a new schema version and a checker error that names it and
+its replacement.
 
 ## Non-owned automation
 

@@ -18,8 +18,8 @@ from typing import Any
 CLASSIFICATIONS = frozenset(
     {"archived", "excluded", "generated", "mirrored", "owned", "vendored-upstream"}
 )
-SCHEMA_REF = "./schemas/automation-test-inventory.v3.schema.json"
-SCHEMA_VERSION = 3
+SCHEMA_REF = "./schemas/automation-test-inventory.v4.schema.json"
+SCHEMA_VERSION = 4
 CANDIDATES_PATH = Path("configs/automation-candidates.txt")
 COVERAGE_STATUSES = frozenset({"covered", "not-applicable", "partial", "planned"})
 BEHAVIOR_KINDS = frozenset({"failure", "safety", "success"})
@@ -29,6 +29,43 @@ WSL_PROVISIONING_WAIVED_REQUIREMENTS = frozenset(
     {"safety-disposable-wsl-boundary", "success-full-idempotent-provisioning"}
 )
 BEHAVIORAL_SUITES = frozenset({"fast", "integration", "platform", "render"})
+STEP_PLATFORMS = frozenset({"linux", "macos", "windows", "wsl2"})
+PLATFORM_ALIASES = {"ci": "linux", "devcontainer": "linux"}
+TEST_SUPPORT_ENTRY_ID = "excluded-test-support"
+TEST_SUPPORT_SELECTORS = ["tests/*.py", "tests/powershell/**", "tests/support/**"]
+ROOT_KEYS = frozenset({"$schema", "entries", "schema_version"})
+ENTRY_KEYS = frozenset(
+    {
+        "classification",
+        "coverage",
+        "id",
+        "languages",
+        "owner",
+        "paths",
+        "platforms",
+        "rationale",
+        "risk",
+        "side_effects",
+        "test_layers",
+    }
+)
+OWNER_KEYS = frozenset({"kind", "name"})
+COVERAGE_KEYS = frozenset({"behavior_requirements", "status", "test_paths", "work_item"})
+REQUIREMENT_KEYS = frozenset({"description", "id", "kind", "status"})
+WAIVER_KEYS = frozenset(
+    {"reason", "requirement_ids", "review_due", "review_trigger", "risk_owner"}
+)
+RETIRED_KEYS = {
+    "root": {
+        "candidate_digest": f"reviewed candidates live in {CANDIDATES_PATH.as_posix()}",
+    },
+    "coverage": {
+        "suite_id": "registry step ids are read from configs/test-suites.json, not the inventory",
+    },
+    "requirement": {
+        "test_paths": "list evidence once in the entry's coverage.test_paths",
+    },
+}
 LANGUAGES = frozenset(
     {
         "ansible",
@@ -334,19 +371,72 @@ def _check_string_list(
     return value
 
 
+def _check_keys(
+    value: Any,
+    *,
+    label: str,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+    retired: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CheckFailure(f"{label} must be an object")
+    present = sorted(set(value) & set(retired or {}))
+    if present:
+        raise CheckFailure(
+            f"{label}.{present[0]} is not part of schema v{SCHEMA_VERSION}; {(retired or {})[present[0]]}"
+        )
+    missing = sorted(required - set(value))
+    if missing:
+        raise CheckFailure(f"{label} is missing key(s): {', '.join(missing)}")
+    unknown = sorted(set(value) - required - optional)
+    if unknown:
+        raise CheckFailure(f"{label} has unknown key(s): {', '.join(unknown)}")
+    return value
+
+
+def test_support_boundary(manifest: Any) -> tuple[re.Pattern[str], ...]:
+    """Return the selectors whose matches are classified but not listed in the census."""
+
+    entries = manifest.get("entries") if isinstance(manifest, dict) else None
+    if not isinstance(entries, list):
+        return ()
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("id") == TEST_SUPPORT_ENTRY_ID:
+            if entry.get("classification") != "excluded" or entry.get("paths") != TEST_SUPPORT_SELECTORS:
+                raise CheckFailure(
+                    f"entry {TEST_SUPPORT_ENTRY_ID!r} must be excluded with paths "
+                    f"{TEST_SUPPORT_SELECTORS!r}; changing the census boundary requires a checker change"
+                )
+            return tuple(selector_regex(selector) for selector in TEST_SUPPORT_SELECTORS)
+    return ()
+
+
+def census_candidates(
+    candidates: tuple[Candidate, ...], boundary: tuple[re.Pattern[str], ...]
+) -> tuple[Candidate, ...]:
+    return tuple(
+        candidate
+        for candidate in candidates
+        if not any(pattern.fullmatch(candidate.path) for pattern in boundary)
+    )
+
+
 def _check_nonempty_string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise CheckFailure(f"{label} must be a non-empty string")
     return value
 
 
-def registry_coverage(repo_root: Path, registry_path: Path | None) -> dict[str, frozenset[str]]:
+def registry_coverage(
+    repo_root: Path, registry_path: Path | None
+) -> dict[str, tuple[frozenset[str], frozenset[str]]]:
     selected = repo_root / (registry_path or Path("configs/test-suites.json"))
     payload = load_json(selected)
     if not isinstance(payload, dict) or not isinstance(payload.get("steps"), list):
         raise CheckFailure(f"{selected}: registry root must contain a steps list")
 
-    coverage: dict[str, set[str]] = {}
+    coverage: dict[str, tuple[set[str], set[str]]] = {}
     for index, step in enumerate(payload["steps"]):
         prefix = f"{selected}: steps[{index}]"
         if not isinstance(step, dict):
@@ -359,9 +449,21 @@ def registry_coverage(repo_root: Path, registry_path: Path | None) -> dict[str, 
         covers = _check_string_list(
             step.get("covers"), label=f"{prefix}.covers", allowed=None, allow_empty=False
         )
+        platforms = (
+            _check_string_list(
+                step["platforms"], label=f"{prefix}.platforms", allowed=None, allow_empty=False
+            )
+            if "platforms" in step
+            else sorted(STEP_PLATFORMS)
+        )
         for test_path in covers:
-            coverage.setdefault(test_path, set()).update(suites)
-    return {path: frozenset(suites) for path, suites in coverage.items()}
+            step_suites, step_platforms = coverage.setdefault(test_path, (set(), set()))
+            step_suites.update(suites)
+            step_platforms.update(platforms)
+    return {
+        path: (frozenset(suites), frozenset(platforms))
+        for path, (suites, platforms) in coverage.items()
+    }
 
 
 def check_repository(
@@ -396,21 +498,32 @@ def check_repository(
     if not isinstance(manifest, dict):
         return CheckResult((f"{selected_manifest}: manifest root must be an object",), candidates, ())
     if manifest.get("$schema") != SCHEMA_REF:
-        errors.append(f"{selected_manifest}: $schema must be {SCHEMA_REF!r}")
+        errors.append(
+            f"{selected_manifest}: $schema must be {SCHEMA_REF!r}; schema v{SCHEMA_VERSION} is required"
+        )
     if manifest.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"{selected_manifest}: schema_version must be {SCHEMA_VERSION}")
-    if "candidate_digest" in manifest:
-        errors.append(
-            f"{selected_manifest}: candidate_digest is not part of schema v{SCHEMA_VERSION}; "
-            f"reviewed candidates live in {CANDIDATES_PATH.as_posix()}"
+    try:
+        _check_keys(
+            manifest,
+            label=f"{selected_manifest}: manifest root",
+            required=ROOT_KEYS,
+            retired=RETIRED_KEYS["root"],
         )
+    except CheckFailure as error:
+        errors.append(str(error))
+    try:
+        boundary = test_support_boundary(manifest)
+    except CheckFailure as error:
+        errors.append(f"{selected_manifest}: {error}")
+        boundary = ()
     selected_candidates = resolve_candidates_path(root, candidates_path)
     try:
         reviewed = set(load_reviewed_candidates(selected_candidates))
     except CheckFailure as error:
         errors.append(f"{selected_candidates}: {error}")
     else:
-        discovered = {candidate_line(candidate) for candidate in candidates}
+        discovered = {candidate_line(candidate) for candidate in census_candidates(candidates, boundary)}
         drift = [
             f"{selected_candidates}: unreviewed candidate {line!r}"
             for line in sorted(discovered - reviewed)
@@ -439,6 +552,7 @@ def check_repository(
             errors.append(f"{prefix} must be an object")
             continue
         try:
+            _check_keys(entry, label=prefix, required=ENTRY_KEYS)
             entry_id = _check_nonempty_string(entry.get("id"), f"{prefix}.id")
             classification = _check_nonempty_string(
                 entry.get("classification"), f"{prefix}.classification"
@@ -485,9 +599,12 @@ def check_repository(
                 allow_empty=True,
             )
 
-            owner = entry.get("owner")
-            if not isinstance(owner, dict):
-                raise CheckFailure(f"{prefix}.owner must be an object")
+            owner = _check_keys(
+                entry.get("owner"),
+                label=f"{prefix}.owner",
+                required=OWNER_KEYS,
+                optional=frozenset({"source"}),
+            )
             owner_kind = _check_nonempty_string(owner.get("kind"), f"{prefix}.owner.kind")
             if owner_kind not in OWNER_KINDS:
                 raise CheckFailure(f"{prefix}.owner.kind is unsupported: {owner_kind}")
@@ -496,13 +613,16 @@ def check_repository(
                 _check_nonempty_string(owner["source"], f"{prefix}.owner.source")
             _check_nonempty_string(entry.get("rationale"), f"{prefix}.rationale")
 
-            coverage = entry.get("coverage")
-            if not isinstance(coverage, dict):
-                raise CheckFailure(f"{prefix}.coverage must be an object")
+            coverage = _check_keys(
+                entry.get("coverage"),
+                label=f"{prefix}.coverage",
+                required=COVERAGE_KEYS,
+                optional=frozenset({"platform_smoke_waiver"}),
+                retired=RETIRED_KEYS["coverage"],
+            )
             status = _check_nonempty_string(coverage.get("status"), f"{prefix}.coverage.status")
             if status not in COVERAGE_STATUSES:
                 raise CheckFailure(f"{prefix}.coverage.status is unsupported: {status}")
-            suite_id = coverage.get("suite_id")
             work_item = coverage.get("work_item")
             test_paths = _check_string_list(
                 coverage.get("test_paths"),
@@ -516,13 +636,7 @@ def check_repository(
             waiver = coverage.get("platform_smoke_waiver")
             if waiver is not None:
                 waiver_prefix = f"{prefix}.coverage.platform_smoke_waiver"
-                expected_waiver_keys = {
-                    "reason", "risk_owner", "review_due", "review_trigger", "requirement_ids"
-                }
-                if not isinstance(waiver, dict) or set(waiver) != expected_waiver_keys:
-                    raise CheckFailure(
-                        f"{waiver_prefix} must contain exactly {sorted(expected_waiver_keys)!r}"
-                    )
+                _check_keys(waiver, label=waiver_prefix, required=WAIVER_KEYS)
                 if (
                     entry_id not in WSL_SMOKE_WAIVER_IDS
                     or classification != "owned"
@@ -556,7 +670,6 @@ def check_repository(
                     raise CheckFailure(f"{waiver_prefix}.requirement_ids must be empty without a behavior matrix")
 
             if classification == "owned":
-                _check_nonempty_string(suite_id, f"{prefix}.coverage.suite_id")
                 _check_nonempty_string(work_item, f"{prefix}.coverage.work_item")
                 if status == "not-applicable":
                     raise CheckFailure(f"{prefix}.coverage.status cannot be not-applicable for owned automation")
@@ -572,29 +685,38 @@ def check_repository(
                         f"{prefix}.coverage.test_paths references unregistered test {test_path!r}"
                     )
                 elif classification == "owned" and not (
-                    registered_coverage[test_path] & BEHAVIORAL_SUITES
+                    registered_coverage[test_path][0] & BEHAVIORAL_SUITES
                 ):
                     errors.append(
                         f"{prefix}.coverage.test_paths requires behavioral suite registration "
                         f"for {test_path!r}"
+                    )
+            if test_paths:
+                reachable = set().union(
+                    *(registered_coverage[path][1] for path in test_paths if path in registered_coverage)
+                )
+                claimed = {PLATFORM_ALIASES.get(name, name) for name in entry["platforms"]}
+                unreachable = sorted(claimed - reachable)
+                if unreachable:
+                    errors.append(
+                        f"{prefix}.platforms has no registered step for coverage.test_paths on: "
+                        f"{', '.join(unreachable)}"
                     )
 
             previous_requirement_id = ""
             requirement_kinds: set[str] = set()
             requirement_statuses: list[str] = []
             planned_requirement_ids: set[str] = set()
-            behavior_evidence: set[str] = set()
             for requirement_index, requirement in enumerate(behavior_requirements):
                 requirement_prefix = (
                     f"{prefix}.coverage.behavior_requirements[{requirement_index}]"
                 )
-                if not isinstance(requirement, dict):
-                    raise CheckFailure(f"{requirement_prefix} must be an object")
-                expected_keys = {"description", "id", "kind", "status", "test_paths"}
-                if set(requirement) != expected_keys:
-                    raise CheckFailure(
-                        f"{requirement_prefix} must contain exactly {sorted(expected_keys)!r}"
-                    )
+                _check_keys(
+                    requirement,
+                    label=requirement_prefix,
+                    required=REQUIREMENT_KEYS,
+                    retired=RETIRED_KEYS["requirement"],
+                )
                 requirement_id = _check_nonempty_string(
                     requirement.get("id"), f"{requirement_prefix}.id"
                 )
@@ -625,31 +747,6 @@ def check_repository(
                 requirement_statuses.append(requirement_status)
                 if requirement_status == "planned":
                     planned_requirement_ids.add(requirement_id)
-                requirement_tests = _check_string_list(
-                    requirement.get("test_paths"),
-                    label=f"{requirement_prefix}.test_paths",
-                    allowed=None,
-                    allow_empty=True,
-                )
-                if requirement_status == "covered" and not requirement_tests:
-                    raise CheckFailure(
-                        f"{requirement_prefix}.test_paths must not be empty for covered behavior"
-                    )
-                if requirement_status == "planned" and requirement_tests:
-                    raise CheckFailure(
-                        f"{requirement_prefix}.test_paths must be empty for planned behavior"
-                    )
-                for test_path in requirement_tests:
-                    if test_path not in tracked_paths:
-                        errors.append(
-                            f"{requirement_prefix}.test_paths references untracked path {test_path!r}"
-                        )
-                    elif not (registered_coverage.get(test_path, frozenset()) & BEHAVIORAL_SUITES):
-                        errors.append(
-                            f"{requirement_prefix}.test_paths requires behavioral suite registration "
-                            f"for {test_path!r}"
-                        )
-                    behavior_evidence.add(test_path)
 
             if waiver is not None and not set(waiver["requirement_ids"]) <= planned_requirement_ids:
                 raise CheckFailure(
@@ -679,10 +776,6 @@ def check_repository(
                         raise CheckFailure(
                             f"{prefix}.coverage.status must be {expected_status!r} from critical "
                             "behavior requirement statuses"
-                        )
-                    if test_paths != sorted(behavior_evidence):
-                        raise CheckFailure(
-                            f"{prefix}.coverage.test_paths must equal covered behavior evidence"
                         )
                 elif behavior_requirements:
                     raise CheckFailure(
@@ -727,9 +820,9 @@ def check_repository(
                         raise CheckFailure(f"{prefix}.side_effects must be ['none'] for exclusions")
                     if test_layers:
                         raise CheckFailure(f"{prefix}.test_layers must be empty for exclusions")
-                    if status != "not-applicable" or suite_id is not None or work_item is not None:
+                    if status != "not-applicable" or work_item is not None:
                         raise CheckFailure(
-                            f"{prefix}.coverage must be not-applicable with null suite/work item"
+                            f"{prefix}.coverage must be not-applicable with a null work item"
                         )
                 elif classification in {"archived", "generated", "mirrored", "vendored-upstream"}:
                     if "provenance" not in test_layers:
@@ -799,12 +892,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     mode.add_argument(
         "--list-candidates",
         action="store_true",
-        help="list tracked candidates and discovery reasons without reading the manifest",
+        help="list every tracked candidate and its discovery reasons without reading the manifest",
     )
     mode.add_argument(
         "--update-candidates",
         action="store_true",
-        help="rewrite the reviewed candidate list from discovery and print the changed lines",
+        help="rewrite the reviewed candidate list from discovery, leaving out the test-support "
+        "boundary, and print the changed lines",
     )
     return parser.parse_args(argv)
 
@@ -825,8 +919,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.update_candidates:
         selected = resolve_candidates_path(root, args.candidates)
+        manifest_path = args.manifest or Path("configs/automation-test-inventory.json")
+        if not manifest_path.is_absolute():
+            manifest_path = root / manifest_path
         try:
-            candidates = discover_candidates(root, tracked_files(root))
+            boundary = test_support_boundary(load_json(manifest_path))
+        except CheckFailure as error:
+            print(f"ERROR: {manifest_path}: {error}", file=sys.stderr)
+            return 1
+        try:
+            candidates = census_candidates(discover_candidates(root, tracked_files(root)), boundary)
             added, removed = update_reviewed_candidates(selected, candidates)
         except CheckFailure as error:
             print(f"ERROR: {error}", file=sys.stderr)

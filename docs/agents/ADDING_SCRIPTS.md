@@ -74,11 +74,13 @@ Adding, renaming, or removing production automation also requires an update to
 3. Register behavioral evidence in `configs/test-suites.json`, or record a
    truthful planned/partial gap with a durable work item and rationale.
 4. For critical automation, list success, failure, and safety requirements. A
-   covered requirement must cite a tracked test in a behavioral suite.
+   covered requirement is backed by the entry's tracked tests in a behavioral
+   suite.
 5. Use `excluded` only for a repository-owned non-production target with an
    explicit rationale. Static, audit, and provenance checks do not replace
    behavioral evidence for owned automation.
 6. Run the inventory checker and the affected canonical suite before review.
 
-The complete policy, including platform-only rules and optional targeted
-language metrics, is in `docs/tooling/automation-coverage-policy.md`.
+The complete policy, including platform-only rules, the rule for adding new
+inventory fields, and optional targeted language metrics, is in
+`docs/tooling/automation-coverage-policy.md`.

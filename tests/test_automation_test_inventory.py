@@ -22,11 +22,7 @@ ISOLATED_GIT = (
     "-c", "init.defaultBranch=main",
 )
 ISOLATED_ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-# A registry step with no platforms runs everywhere; see assets/run-tests.py.
-STEP_PLATFORMS = ("linux", "macos", "windows", "wsl2")
-# The inventory vocabulary is wider than the registry's; a devcontainer and a CI
-# runner are both Linux to a test step.
-PLATFORM_ALIASES = {"ci": "linux", "devcontainer": "linux"}
+TEST_SUPPORT_SELECTORS = ["tests/*.py", "tests/powershell/**", "tests/support/**"]
 
 
 def owned_entry(entry_id: str, paths: list[str]) -> dict:
@@ -41,7 +37,6 @@ def owned_entry(entry_id: str, paths: list[str]) -> dict:
         "side_effects": ["none"],
         "test_layers": ["unit"],
         "coverage": {
-            "suite_id": f"{entry_id}-suite",
             "status": "planned",
             "work_item": "dots-fixture",
             "test_paths": [],
@@ -63,7 +58,6 @@ def excluded_entry(entry_id: str, paths: list[str]) -> dict:
         "side_effects": ["none"],
         "test_layers": [],
         "coverage": {
-            "suite_id": None,
             "status": "not-applicable",
             "work_item": None,
             "test_paths": [],
@@ -73,19 +67,12 @@ def excluded_entry(entry_id: str, paths: list[str]) -> dict:
     }
 
 
-def behavior_requirement(
-    requirement_id: str,
-    kind: str,
-    *,
-    status: str = "planned",
-    test_paths: list[str] | None = None,
-) -> dict:
+def behavior_requirement(requirement_id: str, kind: str, *, status: str = "planned") -> dict:
     return {
         "id": requirement_id,
         "kind": kind,
         "description": f"Exercise the {kind} contract.",
         "status": status,
-        "test_paths": test_paths or [],
     }
 
 
@@ -137,8 +124,8 @@ class InventoryFixture:
         self.manifest_path.write_text(
             json.dumps(
                 {
-                    "$schema": "./schemas/automation-test-inventory.v3.schema.json",
-                    "schema_version": 3,
+                    "$schema": "./schemas/automation-test-inventory.v4.schema.json",
+                    "schema_version": 4,
                     **(extra or {}),
                     "entries": self.entries,
                 },
@@ -158,6 +145,7 @@ class InventoryFixture:
         *,
         covers: list[str] | None = None,
         suites: list[str] | None = None,
+        platforms: list[str] | None = None,
     ) -> None:
         path = self.root / "configs/test-suites.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +157,7 @@ class InventoryFixture:
                             "id": "tool-suite",
                             "suites": ["fast"] if suites is None else suites,
                             "covers": ["tests/test_tool.py"] if covers is None else covers,
+                            **({} if platforms is None else {"platforms": platforms}),
                         }
                     ]
                 },
@@ -336,7 +325,7 @@ class AutomationInventoryTests(unittest.TestCase):
         result = self.fixture.run()
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("candidate_digest is not part of schema v3", result.stderr)
+        self.assertIn("candidate_digest is not part of schema v4", result.stderr)
 
     def test_update_candidates_reports_changes_and_clears_drift(self) -> None:
         self.fixture.entries[0]["paths"] = ["scripts/*.py"]
@@ -389,12 +378,144 @@ class AutomationInventoryTests(unittest.TestCase):
             result.stderr,
         )
 
-    def test_owned_entry_requires_suite_and_work_item(self) -> None:
-        self.fixture.entries[0]["coverage"]["suite_id"] = None
+    def test_owned_entry_requires_work_item(self) -> None:
+        self.fixture.entries[0]["coverage"]["work_item"] = None
         self.fixture.write_manifest()
         result = self.fixture.run()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("coverage.suite_id must be a non-empty string", result.stderr)
+        self.assertIn("coverage.work_item must be a non-empty string", result.stderr)
+
+    def test_retired_keys_fail_with_their_replacement(self) -> None:
+        self.fixture.entries[0]["coverage"]["suite_id"] = "tool-suite"
+        self.fixture.write_manifest()
+        suite = self.fixture.run()
+        del self.fixture.entries[0]["coverage"]["suite_id"]
+        entry = self.fixture.entries[0]
+        entry["risk"] = "critical"
+        entry["test_layers"] = ["integration"]
+        entry["coverage"]["behavior_requirements"] = [
+            behavior_requirement("failure-case", "failure"),
+            {**behavior_requirement("safety-case", "safety"), "test_paths": []},
+            behavior_requirement("success-case", "success"),
+        ]
+        self.fixture.write_manifest()
+        requirement = self.fixture.run()
+
+        self.assertIn(
+            "coverage.suite_id is not part of schema v4; registry step ids are read from "
+            "configs/test-suites.json", suite.stderr,
+        )
+        self.assertIn(
+            "behavior_requirements[1].test_paths is not part of schema v4; list evidence once "
+            "in the entry's coverage.test_paths", requirement.stderr,
+        )
+
+    def test_unknown_keys_fail_at_every_object_boundary(self) -> None:
+        cases = (
+            ("root", lambda entry: None, {"notes": "unexpected"}, "manifest root has unknown key(s): notes"),
+            ("entry", lambda entry: entry.update(notes="x"), None, "entries[0] has unknown key(s): notes"),
+            ("owner", lambda entry: entry["owner"].update(team="x"), None,
+             "entries[0].owner has unknown key(s): team"),
+            ("coverage", lambda entry: entry["coverage"].update(owner="x"), None,
+             "entries[0].coverage has unknown key(s): owner"),
+            ("requirement", lambda entry: entry["coverage"]["behavior_requirements"].append(
+                {**behavior_requirement("success-case", "success"), "owner": "x"}), None,
+             "behavior_requirements[0] has unknown key(s): owner"),
+        )
+        for label, mutate, extra, message in cases:
+            with self.subTest(label):
+                self.fixture.entries = [owned_entry("tool", ["scripts/tool.py"])]
+                mutate(self.fixture.entries[0])
+                self.fixture.write_manifest(extra=extra)
+                result = self.fixture.run()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+    def test_old_schema_version_names_required_version(self) -> None:
+        self.fixture.write_manifest()
+        manifest = json.loads(self.fixture.manifest_path.read_text(encoding="utf-8"))
+        manifest["$schema"] = "./schemas/automation-test-inventory.v3.schema.json"
+        manifest["schema_version"] = 3
+        self.fixture.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("schema v4 is required", result.stderr)
+
+    def test_test_support_boundary_needs_no_census_line(self) -> None:
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.write("tests/support/helper.py", "VALUE = 1\n")
+        self.fixture.write("tests/powershell/Helper.Tests.ps1", "Describe 'helper' {}\n")
+        self.fixture.entries.append(excluded_entry("excluded-test-support", TEST_SUPPORT_SELECTORS))
+        self.fixture.entries.sort(key=lambda entry: entry["id"])
+        self.fixture.write_manifest()
+        self.fixture.commit("base")
+
+        self.fixture.write("tests/test_new.py", "import unittest\n")
+        added = self.fixture.run()
+        self.fixture.write("tests/new.sh", "#!/bin/sh\n")
+        self.fixture.write("tests/fixtures/new.py", "print('owned?')\n")
+        owned = self.fixture.run()
+
+        self.assertEqual(added.returncode, 0, added.stderr)
+        self.assertNotIn("tests/", self.fixture.candidates_path.read_text(encoding="utf-8"))
+        self.assertNotEqual(owned.returncode, 0)
+        for path, reasons in (("tests/new.sh", "script-extension,shebang"),
+                              ("tests/fixtures/new.py", "script-extension")):
+            self.assertIn(f"unreviewed candidate '{path}\\t{reasons}'", owned.stderr)
+            self.assertIn(f"unclassified automation candidate '{path}'", owned.stderr)
+
+    def test_census_line_inside_boundary_is_stale(self) -> None:
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.write("tests/support/helper.py", "VALUE = 1\n")
+        self.fixture.write("tests/powershell/Helper.Tests.ps1", "Describe 'helper' {}\n")
+        self.fixture.entries.append(excluded_entry("excluded-test-support", TEST_SUPPORT_SELECTORS))
+        self.fixture.entries.sort(key=lambda entry: entry["id"])
+        self.fixture.write_manifest()
+        with self.fixture.candidates_path.open("a", encoding="utf-8") as handle:
+            handle.write("tests/test_tool.py\tscript-extension\n")
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stale reviewed candidate 'tests/test_tool.py\\tscript-extension'", result.stderr)
+
+    def test_widened_boundary_and_invalid_manifest_fail(self) -> None:
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.entries.append(excluded_entry("excluded-test-support", ["tests/**"]))
+        self.fixture.entries.sort(key=lambda entry: entry["id"])
+        self.fixture.manifest_path.write_text(
+            json.dumps({"$schema": "./schemas/automation-test-inventory.v4.schema.json",
+                        "schema_version": 4, "entries": self.fixture.entries}),
+            encoding="utf-8",
+        )
+        widened_check = self.fixture.run()
+        widened_update = self.fixture.run("--update-candidates")
+        self.fixture.manifest_path.write_text("{not json", encoding="utf-8")
+        broken_update = self.fixture.run("--update-candidates")
+
+        self.assertIn("changing the census boundary requires a checker change", widened_check.stderr)
+        self.assertNotEqual(widened_update.returncode, 0)
+        self.assertIn("changing the census boundary requires a checker change", widened_update.stderr)
+        self.assertNotEqual(broken_update.returncode, 0)
+        self.assertIn("invalid JSON", broken_update.stderr)
+
+    def test_claimed_platform_needs_a_registered_step(self) -> None:
+        self.fixture.write("tests/test_tool.py", "import unittest\n")
+        self.fixture.entries.append(excluded_entry("test-support", ["tests/test_tool.py"]))
+        self.fixture.entries.sort(key=lambda entry: entry["id"])
+        entry = next(item for item in self.fixture.entries if item["id"] == "tool")
+        entry["platforms"] = ["devcontainer", "macos"]
+        entry["coverage"].update(status="covered", test_paths=["tests/test_tool.py"])
+        self.fixture.write_registry(platforms=["linux"])
+        self.fixture.write_manifest()
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("platforms has no registered step for coverage.test_paths on: macos", result.stderr)
+        self.assertNotIn("on: linux", result.stderr)
 
     def test_critical_entry_requires_success_failure_and_safety_matrix(self) -> None:
         entry = self.fixture.entries[0]
@@ -422,15 +543,9 @@ class AutomationInventoryTests(unittest.TestCase):
                 "status": "covered",
                 "test_paths": ["tests/test_tool.py"],
                 "behavior_requirements": [
-                    behavior_requirement(
-                        "failure-case", "failure", status="covered", test_paths=["tests/test_tool.py"]
-                    ),
-                    behavior_requirement(
-                        "safety-case", "safety", status="covered", test_paths=["tests/test_tool.py"]
-                    ),
-                    behavior_requirement(
-                        "success-case", "success", status="covered", test_paths=["tests/test_tool.py"]
-                    ),
+                    behavior_requirement("failure-case", "failure", status="covered"),
+                    behavior_requirement("safety-case", "safety", status="covered"),
+                    behavior_requirement("success-case", "success", status="covered"),
                 ],
             }
         )
@@ -539,9 +654,7 @@ class AutomationInventoryTests(unittest.TestCase):
         self.fixture.write("tests/test_tool.py", "import unittest\n")
         self.fixture.entries.append(excluded_entry("test-support", ["tests/test_tool.py"]))
         self.fixture.entries.sort(key=lambda item: item["id"])
-        entry["coverage"]["behavior_requirements"][0].update(
-            status="covered", test_paths=["tests/test_tool.py"]
-        )
+        entry["coverage"]["behavior_requirements"][0].update(status="covered")
         entry["coverage"]["test_paths"] = ["tests/test_tool.py"]
         entry["coverage"]["status"] = "partial"
         self.fixture.write_manifest()
@@ -563,9 +676,7 @@ class AutomationInventoryTests(unittest.TestCase):
                 self.assertIn(error, self.fixture.run().stderr)
 
         entry["coverage"] = deepcopy(baseline)
-        entry["coverage"]["behavior_requirements"][1].update(
-            status="covered", test_paths=["tests/test_tool.py"]
-        )
+        entry["coverage"]["behavior_requirements"][1].update(status="covered")
         self.fixture.write_manifest()
         self.assertIn("must remain planned without evidence", self.fixture.run().stderr)
 
@@ -646,7 +757,6 @@ class AutomationInventoryTests(unittest.TestCase):
         )
         entry["coverage"].update(
             {
-                "suite_id": "automation-provenance",
                 "status": "planned",
                 "work_item": "dots-fixture",
             }
@@ -713,33 +823,6 @@ class AutomationInventoryTests(unittest.TestCase):
             self.assertIn("configs/automation-test-inventory.json", reviewer)
             for term in ("failure", "owner", "rationale", "safety", "success"):
                 self.assertIn(term, reviewer)
-
-    def test_every_covered_entry_has_a_suite_on_each_claimed_platform(self) -> None:
-        inventory = json.loads(
-            (REPO_ROOT / "configs/automation-test-inventory.json").read_text(encoding="utf-8")
-        )
-        registry = json.loads((REPO_ROOT / "configs/test-suites.json").read_text(encoding="utf-8"))
-        covering_steps: dict[str, list[dict]] = {}
-        for step in registry["steps"]:
-            for covered in step["covers"]:
-                covering_steps.setdefault(covered, []).append(step)
-        for entry in inventory["entries"]:
-            test_paths = entry["coverage"].get("test_paths")
-            if not test_paths:
-                continue
-            reachable: set[str] = set()
-            for test_path in test_paths:
-                for step in covering_steps.get(test_path, ()):
-                    reachable |= set(step.get("platforms", STEP_PLATFORMS))
-            claimed = {
-                PLATFORM_ALIASES.get(platform, platform) for platform in entry["platforms"]
-            }
-            with self.subTest(entry=entry["id"]):
-                self.assertLessEqual(
-                    claimed,
-                    reachable,
-                    "no registered suite covering this entry runs on a platform it claims",
-                )
 
 
 class ConcurrentBranchTests(unittest.TestCase):
