@@ -16,7 +16,6 @@ plannotator-sync:
       case "${CI_PIPELINE_SOURCE}:${CI_COMMIT_REF_NAME}" in
         push:renovate/plannotator-*)
           python3 assets/sync-plannotator-assets.py --write
-          bash assets/sync-devcontainer-assets.sh
           python3 assets/check-plannotator-config.py
           PLANNOTATOR_FILES='configs/plannotator-assets.json
           dot_claude/skills/plannotator-annotate/SKILL.md
@@ -66,7 +65,7 @@ plannotator-policy:
   stage: test
   image: python:3.13.7-bookworm
   script:
-    - python3 -m unittest tests.test_plannotator_config
+    - python3 -m unittest tests.test_plannotator_config tests.test_plannotator_sync tests.test_gitlab_ci tests.test_renovate_ci_amend
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push"'

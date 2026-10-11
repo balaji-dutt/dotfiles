@@ -20,6 +20,7 @@ MANIFEST_PATH = Path("configs/plannotator-assets.json")
 SCHEMA_REF = "./schemas/plannotator-assets.v1.schema.json"
 CHEZMOIDATA_PATH = Path(".chezmoidata.yaml")
 VERSION_KEY = "plannotator_version"
+MIRROR_ROOT = Path("private_Documents/development/container-dotfiles/dotfiles")
 ALLOWED_TARGET_PREFIXES = (
     "dot_claude/skills/",
     "private_dot_config/opencode/commands/",
@@ -101,6 +102,17 @@ def artifact_repo_path(repo_root: Path, normalized_path: str) -> Path:
     return target
 
 
+def mirror_repo_path(repo_root: Path, normalized_path: str) -> Path:
+    relative = MIRROR_ROOT / normalize_artifact_path(normalized_path)
+    root = repo_root.resolve()
+    target = root
+    for part in relative.parts:
+        target = target / part
+        if target.is_symlink():
+            raise ValueError(f"mirror path must not traverse symlinks: {relative}")
+    return artifact_repo_path(root, relative.as_posix())
+
+
 def fetch_bytes(url: str) -> bytes:
     request = urllib.request.Request(
         url,
@@ -160,20 +172,21 @@ def write_synced(repo_root: Path) -> int:
     manifest = read_manifest(repo_root)
     version = pinned_version(repo_root)
     downloads = download_artifacts(manifest, version)
-    for download in downloads:
-        target = artifact_repo_path(repo_root, download.path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(download.data)
+    targets = [
+        (artifact_repo_path(repo_root, download.path), mirror_repo_path(repo_root, download.path))
+        for download in downloads
+    ]
+    for download, copies in zip(downloads, targets):
+        for target in copies:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(download.data)
         print(f"synced {download.path} from {download.url}")
+        print(f"mirrored {MIRROR_ROOT / download.path}")
 
     update_manifest(manifest, downloads)
     with (repo_root / MANIFEST_PATH).open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     print(f"updated {MANIFEST_PATH}")
-    print(
-        "Run `bash ./assets/sync-devcontainer-assets.sh` to mirror the Claude "
-        "skills into container-dotfiles."
-    )
     return 0
 
 
@@ -190,11 +203,16 @@ def check_synced(repo_root: Path) -> int:
     for artifact in manifest.get("artifacts", []):
         artifact_path = normalize_artifact_path(artifact["path"])
         local_path = artifact_repo_path(repo_root, artifact_path)
+        mirror_path = mirror_repo_path(repo_root, artifact_path)
+        if not mirror_path.is_file():
+            problems.append(f"missing mirror: {MIRROR_ROOT / artifact_path}")
         if not local_path.is_file():
             problems.append(f"missing artifact: {artifact_path}")
             continue
 
         local_data = local_path.read_bytes()
+        if mirror_path.is_file() and mirror_path.read_bytes() != local_data:
+            problems.append(f"mirror drift for {MIRROR_ROOT / artifact_path}")
         local_hash = sha256_bytes(local_data)
         if local_hash != artifact.get("sha256"):
             problems.append(

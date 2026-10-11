@@ -234,7 +234,6 @@ that single pin. Check and refresh with:
 ```sh
 python3 assets/sync-plannotator-assets.py --check
 python3 assets/sync-plannotator-assets.py --write
-bash ./assets/sync-devcontainer-assets.sh
 ```
 
 The tag is deliberately coupled to the CLI pin. These files call `plannotator`
@@ -246,8 +245,10 @@ subcommand would break the vendored copies silently. With it, the bump fails
 
 The sync helper keeps the OpenCode command files frontmatter-only even if
 upstream adds command bodies. `--check` validates the canonical files against
-the selected release; run the mirror script after `--write` to update
-`private_Documents/development/container-dotfiles/` as well.
+the selected release and rejects missing or stale container mirrors. `--write`
+updates the six canonical files and their copies under
+`private_Documents/development/container-dotfiles/dotfiles/` on any platform;
+it does not mirror unrelated assets.
 
 ## Version and privacy contract
 
@@ -272,9 +273,10 @@ its environment lacks the export; use a managed launcher for enforced parity.
 The unrelated `PLANNOTATOR_VERSION` does not supply the plugin pin. Desktop
 GUI launch environments are outside this contract.
 
-The Claude marketplace tag and the Claude/OpenCode refresh sentinels must
-match the CLI version, but a refresh sentinel alone never installs or pins a
-plugin. Renovate groups the source versions with a common release-age gate;
+The host and container Claude marketplace tags and the Claude/OpenCode refresh
+sentinels must match the CLI version, but a refresh sentinel alone never installs
+or pins a plugin. Renovate groups all five source pins across four files with a
+common seven-day release-age gate;
 `assets/check-plannotator-config.py` checks the source agreement offline.
 `python3 assets/check-plannotator-config.py --runtime` additionally checks the
 deployed CLI, shared file, exported version, privacy config and Claude plugin

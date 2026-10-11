@@ -1,7 +1,10 @@
 import importlib.util
+import copy
+import fnmatch
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("plannotator_config", ROOT / "assets/check-plannotator-config.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+LOAD_JSON = runpy.run_path(str(ROOT / "assets/check-ai-tooling.py"))["load_json"]
+PIN_FILES = (".chezmoidata.yaml", MODULE.MANIFEST, MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE)
+
+
+def matches_pattern(value, pattern):
+    if pattern.startswith("/") and pattern.endswith("/"):
+        return re.search(pattern[1:-1], value) is not None
+    return fnmatch.fnmatchcase(value, pattern)
 
 
 class PlannotatorConfigTests(unittest.TestCase):
@@ -27,15 +38,70 @@ class PlannotatorConfigTests(unittest.TestCase):
         self.assertEqual(MODULE.source_check(), self.source_version())
 
     def test_renovate_extracts_claude_marketplace_ref(self):
-        renovate = (ROOT / "renovate.json5").read_text(encoding="utf-8")
-        manager = renovate.split('"managerFilePatterns": [\n        "/^dot_claude\\\\/settings-base\\\\.json$/",', 1)[1]
-        self.assertIn('"/^private_Documents\\\\/development\\\\/container-dotfiles\\\\/dotfiles\\\\/dot_claude\\\\/settings-base\\\\.json$/"', manager.split('"matchStrings"', 1)[0])
-        expression = re.search(r'"matchStrings": \[\s*("(?:\\.|[^"\\])*")', manager).group(1)
-        pattern = json.loads(expression).replace("(?<currentValue>", "(?P<currentValue>")
-        for relative in (MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE):
-            with self.subTest(relative=relative):
-                settings = (ROOT / relative).read_text(encoding="utf-8")
-                self.assertEqual(re.findall(pattern, settings), [self.source_version()])
+        config = LOAD_JSON(ROOT / "renovate.json5", jsonc=True)
+        occurrences = self.plannotator_occurrences(config)
+        self.assertCountEqual(occurrences, [
+            (".chezmoidata.yaml", "backnotprop/plannotator"),
+            (MODULE.MANIFEST, "backnotprop/plannotator"),
+            (MODULE.MANIFEST, "@plannotator/opencode"),
+            (MODULE.CLAUDE, "backnotprop/plannotator"),
+            (MODULE.CONTAINER_CLAUDE, "backnotprop/plannotator"),
+        ])
+
+    def plannotator_occurrences(self, config):
+        occurrences = []
+        for relative in PIN_FILES:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            for manager in config["customManagers"]:
+                if not any(matches_pattern(relative, pattern) for pattern in manager["managerFilePatterns"]):
+                    continue
+                for expression in manager["matchStrings"]:
+                    pattern = re.sub(r"\(\?<([A-Za-z_]+)>", r"(?P<\1>", expression)
+                    for match in re.finditer(pattern, text):
+                        dep_name = manager.get("depNameTemplate", match.groupdict().get("depName"))
+                        if dep_name in ("backnotprop/plannotator", "@plannotator/opencode"):
+                            self.assertEqual(match.group("currentValue"), self.source_version())
+                            occurrences.append((relative, dep_name))
+        return occurrences
+
+    def assert_aligned_group(self, config):
+        for relative, dep_name in self.plannotator_occurrences(config):
+            for update_type in ("patch", "minor", "major"):
+                effective = {key: config.get(key) for key in (
+                    "groupName", "additionalBranchPrefix", "minimumReleaseAge", "automerge",
+                )}
+                selectors = {
+                    "matchManagers": "custom.regex", "matchFileNames": relative,
+                    "matchDepNames": dep_name, "matchUpdateTypes": update_type,
+                }
+                for rule in config["packageRules"]:
+                    self.assertFalse({key for key in rule if key.startswith("match")} - selectors.keys())
+                    if all(key not in rule or any(matches_pattern(value, pattern) for pattern in rule[key])
+                           for key, value in selectors.items()):
+                        effective.update({key: rule[key] for key in effective if key in rule})
+                self.assertEqual(effective["groupName"], "plannotator aligned", (relative, dep_name, update_type))
+                self.assertEqual(effective["additionalBranchPrefix"], "plannotator-")
+                self.assertEqual(effective["minimumReleaseAge"], "7 days")
+                self.assertEqual(effective["automerge"], update_type == "patch")
+
+    def test_renovate_groups_every_plannotator_pin(self):
+        config = LOAD_JSON(ROOT / "renovate.json5", jsonc=True)
+        rule = next(rule for rule in config["packageRules"] if rule.get("groupName") == "plannotator aligned")
+        self.assertEqual(rule["matchManagers"], ["custom.regex"])
+        self.assertCountEqual(rule["matchDepNames"], ["backnotprop/plannotator", "@plannotator/opencode"])
+        self.assertCountEqual(rule["matchFileNames"], PIN_FILES)
+        self.assert_aligned_group(config)
+
+    def test_missing_container_group_and_later_override_are_detected(self):
+        config = LOAD_JSON(ROOT / "renovate.json5", jsonc=True)
+        missing = copy.deepcopy(config)
+        rule = next(rule for rule in missing["packageRules"] if rule.get("groupName") == "plannotator aligned")
+        rule["matchFileNames"].remove(MODULE.CONTAINER_CLAUDE)
+        with self.assertRaises(AssertionError):
+            self.assert_aligned_group(missing)
+        config["packageRules"].append({"matchFileNames": [MODULE.CONTAINER_CLAUDE], "groupName": "separate"})
+        with self.assertRaises(AssertionError):
+            self.assert_aligned_group(config)
 
     def test_mismatched_sentinel_fails(self):
         with tempfile.TemporaryDirectory() as temp:

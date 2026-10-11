@@ -114,6 +114,7 @@ class PlannotatorSyncTests(unittest.TestCase):
         manifest = json.loads(self.manifest_file.read_text(encoding="utf-8"))
         for artifact, content in zip(manifest["artifacts"], self.payloads):
             self.assertEqual((self.repo / artifact["path"]).read_bytes(), content)
+            self.assertEqual((self.repo / self.script.MIRROR_ROOT / artifact["path"]).read_bytes(), content)
             self.assertEqual(artifact["sha256"], hashlib.sha256(content).hexdigest())
         snapshot = self.manifest_file.read_bytes()
         result, output, errors, _ = self.run_sync("--check")
@@ -130,7 +131,64 @@ class PlannotatorSyncTests(unittest.TestCase):
         result, _, errors, _ = self.run_sync("--write")
         self.assertEqual(result, 0, errors)
         self.assertEqual((self.repo / target).read_bytes(), b"---\ndescription: Annotate last response\n---\n\n")
+        self.assertEqual((self.repo / self.script.MIRROR_ROOT / target).read_bytes(), (self.repo / target).read_bytes())
         self.assertEqual(self.run_sync("--check")[0], 0)
+
+    def snapshot(self):
+        return {file_path.relative_to(self.repo): file_path.read_bytes()
+                for file_path in self.repo.rglob("*") if file_path.is_file()}
+
+    def test_mirror_only_drift_and_missing_are_read_only(self) -> None:
+        self.assertEqual(self.run_sync("--write")[0], 0)
+        mirror = self.repo / self.script.MIRROR_ROOT / self.artifacts[0]["path"]
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    mirror.unlink()
+                else:
+                    mirror.write_bytes(b"stale mirror\n")
+                before = self.snapshot()
+                result, _, errors, _ = self.run_sync("--check")
+                self.assertEqual(result, 1)
+                self.assertIn("missing mirror" if missing else "mirror drift", errors)
+                self.assertIn(str(mirror.relative_to(self.repo)), errors)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_repeat_write_preserves_unrelated_files_and_settings(self) -> None:
+        unrelated = self.repo / self.script.MIRROR_ROOT / "dot_claude/settings-base.json"
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_bytes(b'{"unchanged": true}\n')
+        self.assertEqual(self.run_sync("--write")[0], 0)
+        before = self.snapshot()
+        self.assertEqual(self.run_sync("--write")[0], 0)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(unrelated.read_bytes(), b'{"unchanged": true}\n')
+
+    def test_mirror_symlinks_fail_before_any_writes(self) -> None:
+        outside = self.fixture.root / "mirror outside"
+        outside.mkdir()
+        for relative in (self.script.MIRROR_ROOT, self.script.MIRROR_ROOT / self.artifacts[-1]["path"]):
+            with self.subTest(relative=relative):
+                target = self.repo / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.symlink_to(outside, target_is_directory=True)
+                original = self.manifest_file.read_bytes()
+                originals = [(self.repo / artifact["path"]).read_bytes() for artifact in self.artifacts]
+                result, _, errors, _ = self.run_sync("--write")
+                self.assertEqual(result, 1)
+                self.assertIn("mirror path must not traverse symlinks", errors)
+                self.assertEqual(self.manifest_file.read_bytes(), original)
+                self.assertEqual([(self.repo / artifact["path"]).read_bytes() for artifact in self.artifacts], originals)
+                self.assertEqual(list(outside.iterdir()), [])
+                target.unlink()
+
+    def test_failed_download_preserves_existing_mirrors(self) -> None:
+        self.assertEqual(self.run_sync("--write")[0], 0)
+        before = self.snapshot()
+        result, _, errors, _ = self.run_sync("--write", payloads=[b"different", urllib.error.URLError("offline")])
+        self.assertEqual(result, 1)
+        self.assertIn("failed to download", errors)
+        self.assertEqual(self.snapshot(), before)
 
     def test_invalid_manifest_version_and_paths_do_not_fetch(self) -> None:
         for updates, data, expected in (
