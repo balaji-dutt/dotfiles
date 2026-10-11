@@ -57,10 +57,50 @@ class PageantTests(unittest.TestCase):
         self.bind()
         for code in (0, 1):
             with self.subTest(code=code):
-                write_executable(self.add, f"#!/bin/sh\nexit {code}\n")
+                write_executable(self.add, f"#!/bin/sh\nprintf '%s\\n' 'The agent has no identities.'\nexit {code}\n")
                 self.assertTrue(self.relay.ensure(False))
                 self.assertFalse(self.relay.state.exists())
                 self.assertFalse(self.relay.repaired)
+
+    def test_exit_one_communication_errors_are_not_healthy_empty_agents(self) -> None:
+        self.bind()
+        cases = (
+            ("", "error fetching identities: communication with agent failed"),
+            ("", ""),
+            ("The agent has no identities.", "error fetching identities: invalid format"),
+            ("unexpected output", ""),
+            ("The agent has no identities.\nextra output", ""),
+        )
+        for output, error in cases:
+            with self.subTest(output=output, error=error):
+                write_executable(self.add, f"#!{sys.executable}\nimport sys\nprint({output!r})\nprint({error!r}, file=sys.stderr)\nsys.exit(1)\n")
+                self.assertFalse(self.relay.healthy())
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+             mock.patch.object(self.module, "eligible", return_value=True), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(self.module.main(["--check", "--json"]), 1)
+        self.assertFalse(json.loads(output.getvalue())["healthy"])
+
+    def test_communication_failure_reaches_one_supervised_restart(self) -> None:
+        self.bind()
+        calls = self.iso.root / "health-count"
+        write_executable(self.add, f"#!{sys.executable}\nimport os, sys\nfrom pathlib import Path\ncount = Path({str(calls)!r})\nn = int(count.read_text()) + 1 if count.exists() else 1\ncount.write_text(str(n))\nassert os.environ['LC_ALL'] == 'C'\nif n < 3:\n    print('error fetching identities: communication with agent failed', file=sys.stderr)\nelse:\n    print('The agent has no identities.')\nsys.exit(1)\n")
+        process = mock.Mock(pid=12345)
+        process.poll.return_value = None
+        real_spawn = subprocess.Popen
+
+        def spawn(command, **kwargs):
+            if command[0] == self.relay.socat:
+                self.bind()
+                return process
+            return real_spawn(command, **kwargs)
+
+        with mock.patch.object(self.relay, "listener", return_value=None), \
+             mock.patch.object(self.relay, "identity", return_value=self.record()), \
+             mock.patch.object(self.module.subprocess, "Popen", side_effect=spawn) as start:
+            self.assertTrue(self.relay.ensure(False))
+            self.assertTrue(self.relay.repaired)
+            self.assertEqual(sum(call.args[0][0] == self.relay.socat for call in start.call_args_list), 1)
+        self.assertEqual(calls.read_text(), "3")
 
     def test_dead_absent_and_hung_health_are_bounded(self) -> None:
         self.assertFalse(self.relay.healthy())
@@ -105,7 +145,7 @@ class PageantTests(unittest.TestCase):
 
     def test_owned_legacy_socket_directory_is_hardened_without_restart(self) -> None:
         self.bind()
-        write_executable(self.add, "#!/bin/sh\nexit 1\n")
+        write_executable(self.add, "#!/bin/sh\nprintf '%s\\n' 'The agent has no identities.'\nexit 1\n")
         for mode in (0o775, 0o777):
             with self.subTest(mode=oct(mode)):
                 self.socket_path.parent.chmod(mode)

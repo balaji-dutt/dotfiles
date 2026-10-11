@@ -192,9 +192,12 @@ Before the client's `probe`, `audit`, or `test`, a selected unhealthy Pageant
 socket gets at most one `--ensure` restart within a 15-second operation budget.
 An unset `SSH_AUTH_SOCK` selects the configured socket only in peer-env's
 child environment. A different selected agent, another OS, a container, or a
-healthy agent with no loaded keys is not reset (`ssh-add -l` exits 0 or 1 for
-a healthy agent). `--no-agent-repair` disables the restart. Neither client nor
-server sources shell rc files; incoming `serve` and `config` do not repair.
+healthy agent with no loaded keys is not reset. Health requires `ssh-add -l`
+to exit 0, or exit 1 with exactly `The agent has no identities.` on stdout
+and no stderr, checked in the C locale. Communication failures are unhealthy
+even when they exit 1; identity output is not logged. `--no-agent-repair`
+disables the restart. Neither client nor server sources shell rc files;
+incoming `serve` and `config` do not repair.
 
 Repair is serialized with a private lock and rechecks health after acquiring
 it. An owned legacy socket directory with group/world write permission (such
