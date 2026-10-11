@@ -238,8 +238,10 @@ hooks invoke it with the standard development roots on every `chezmoi apply`.
 
 The helper stores content-hash ownership beside each repository's Git hooks. It
 updates or removes only unchanged owned copies, adopts byte-identical hooks,
-and preserves unknown or unrelated hooks. Valid custom `core.hooksPath` values
-are reported and left alone.
+and migrates exact historical `prepare-commit-msg` copies identified by a
+hook-name-specific SHA-256 allowlist. Unknown, locally edited, and unrelated
+hooks are preserved. Valid custom `core.hooksPath` values are reported and left
+alone.
 
 Repositories rejected by Git's `safe.directory` ownership check are skipped
 with an informational message. Trust must be granted deliberately through Git

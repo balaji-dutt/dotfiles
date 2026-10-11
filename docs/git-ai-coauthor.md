@@ -93,6 +93,12 @@ content hash for each installed hook in the repository's Git hooks directory.
 Later applies update or remove only an unchanged, recorded copy. Byte-identical
 copies are adopted; unrelated hooks and unknown same-name hooks are preserved.
 
+The original GPT-5.2 and GPT-5.5 coauthor hooks from commits `eea03e2f` and
+`505504b7` are also migrated without a manifest when their exact SHA-256 hashes
+match the synchronizer's `prepare-commit-msg` allowlist. The current template
+replaces the historical copy and ownership is recorded for later updates.
+Locally edited copies and symlinks are preserved, not migrated.
+
 Valid repository-specific `core.hooksPath` values are also preserved and
 reported. The apply hook removes only two stale local overrides after seeding
 the default hooks directory: the old managed template path and a missing

@@ -98,6 +98,20 @@ class GitTemplateHookSyncTests(unittest.TestCase):
         manifest_path = self.hooks_dir(repo) / hook_sync.MANIFEST_NAME
         return json.loads(manifest_path.read_text(encoding="utf-8"))["hooks"]
 
+    def legacy_coauthor_hook(self, model: str = "GPT-5.2") -> str:
+        current = (
+            REPO_ROOT
+            / "private_dot_config/git/template/hooks/executable_prepare-commit-msg"
+        ).read_text(encoding="utf-8")
+        message_guard = (
+            'if [ ! -f "$msgfile" ]; then\n'
+            '  echo "ERROR: commit message file does not exist: $msgfile" >&2\n'
+            '  exit 1\n'
+            'fi\n\n'
+        )
+        self.assertEqual(current.count(message_guard), 1)
+        return current.replace(message_guard, "").replace("GPT-5.5", model)
+
     def test_initial_seed_preserves_unrelated_hook_and_executable_mode(self) -> None:
         repo = self.init_repo()
         hooks_dir = self.hooks_dir(repo)
@@ -178,6 +192,112 @@ class GitTemplateHookSyncTests(unittest.TestCase):
         self.assertIn("conflicts=1", output)
         self.assertIn("preserving unknown same-name hook", errors)
         self.assertEqual(destination.read_text(encoding="utf-8"), "custom hook\n")
+        self.assertFalse((self.hooks_dir(repo) / hook_sync.MANIFEST_NAME).exists())
+
+    def test_exact_legacy_coauthor_hooks_update_without_manifest(self) -> None:
+        digests = {
+            "GPT-5.2": "1657db92d4cce73ce39d2b0d4634b68099858f6e98a0b2fd9951e67776ca288e",
+            "GPT-5.5": "9ca6ec19cb5d7e442d26fd13ce628d9833e24b5a88bb4081d98f55ab16c2eeb1",
+        }
+        source = self.write_source("prepare-commit-msg", "#!/bin/sh\nexit 0\n")
+        for model, digest in digests.items():
+            with self.subTest(model=model):
+                repo = self.init_repo(model)
+                destination = self.hooks_dir(repo) / source.name
+                destination.write_bytes(self.legacy_coauthor_hook(model).encode("utf-8"))
+                destination.chmod(0o644)
+                self.assertEqual(hook_sync.sha256(destination), digest)
+
+                first_code, first_output, first_errors = self.run_sync(repo)
+                manifest_path = self.hooks_dir(repo) / hook_sync.MANIFEST_NAME
+                first_mtime = manifest_path.stat().st_mtime_ns
+                second_code, second_output, second_errors = self.run_sync(repo)
+
+                self.assertEqual(first_code, 0)
+                self.assertEqual(first_errors, "")
+                self.assertIn("updated managed hook", first_output)
+                self.assertIn("conflicts=0", first_output)
+                self.assertEqual(destination.read_bytes(), source.read_bytes())
+                self.assertTrue(destination.stat().st_mode & stat.S_IXUSR)
+                self.assertEqual(self.manifest(repo)[source.name], hook_sync.sha256(source))
+                self.assertEqual(second_code, 0)
+                self.assertEqual(second_errors, "")
+                self.assertNotIn("updated managed hook", second_output)
+                self.assertEqual(manifest_path.stat().st_mtime_ns, first_mtime)
+
+                self.write_source(source.name, "#!/bin/sh\nexit 1\n")
+                third_code, third_output, third_errors = self.run_sync(repo)
+                self.assertEqual(third_code, 0)
+                self.assertEqual(third_errors, "")
+                self.assertIn("updated managed hook", third_output)
+                self.assertEqual(destination.read_bytes(), source.read_bytes())
+                self.write_source(source.name, "#!/bin/sh\nexit 0\n")
+
+    def test_modified_legacy_coauthor_hook_is_preserved(self) -> None:
+        self.write_source("prepare-commit-msg", "#!/bin/sh\nexit 0\n")
+        for model in ("GPT-5.2", "GPT-5.5"):
+            with self.subTest(model=model):
+                repo = self.init_repo(model)
+                destination = self.hooks_dir(repo) / "prepare-commit-msg"
+                content = self.legacy_coauthor_hook(model) + "exit 0\n"
+                destination.write_bytes(content.encode("utf-8"))
+
+                return_code, output, errors = self.run_sync(repo)
+
+                self.assertEqual(return_code, 0)
+                self.assertIn("conflicts=1", output)
+                self.assertIn("preserving unknown same-name hook", errors)
+                self.assertEqual(destination.read_text(encoding="utf-8"), content)
+                self.assertNotIn("prepare-commit-msg", self.manifest(repo))
+
+    def test_legacy_digest_is_scoped_to_hook_name(self) -> None:
+        repo = self.init_repo()
+        destination = self.hooks_dir(repo) / "pre-commit"
+        content = self.legacy_coauthor_hook()
+        destination.write_bytes(content.encode("utf-8"))
+
+        return_code, _, errors = self.run_sync(repo)
+
+        self.assertEqual(return_code, 0)
+        self.assertIn("preserving unknown same-name hook", errors)
+        self.assertEqual(destination.read_text(encoding="utf-8"), content)
+        self.assertFalse((self.hooks_dir(repo) / hook_sync.MANIFEST_NAME).exists())
+
+    def test_symlink_to_legacy_hook_is_preserved(self) -> None:
+        repo = self.init_repo()
+        self.write_source("prepare-commit-msg", "#!/bin/sh\nexit 0\n")
+        external = self.base / "external-hook"
+        content = self.legacy_coauthor_hook()
+        external.write_bytes(content.encode("utf-8"))
+        destination = self.hooks_dir(repo) / "prepare-commit-msg"
+        try:
+            destination.symlink_to(external)
+        except OSError as exc:
+            self.skipTest(f"file symlinks are unavailable: {exc}")
+
+        return_code, _, errors = self.run_sync(repo)
+
+        self.assertEqual(return_code, 0)
+        self.assertIn("preserving unknown symlinked hook", errors)
+        self.assertTrue(destination.is_symlink())
+        self.assertEqual(external.read_text(encoding="utf-8"), content)
+        self.assertNotIn("prepare-commit-msg", self.manifest(repo))
+
+    def test_failed_legacy_update_does_not_record_ownership(self) -> None:
+        repo = self.init_repo()
+        (self.template_hooks / "pre-commit").unlink()
+        self.write_source("prepare-commit-msg", "#!/bin/sh\nexit 0\n")
+        destination = self.hooks_dir(repo) / "prepare-commit-msg"
+        content = self.legacy_coauthor_hook()
+        destination.write_bytes(content.encode("utf-8"))
+
+        with mock.patch.object(hook_sync, "copy_hook", side_effect=OSError("disk full")):
+            return_code, output, errors = self.run_sync(repo)
+
+        self.assertEqual(return_code, 1)
+        self.assertIn("failures=1", output)
+        self.assertIn("ERROR: synchronizing hooks", errors)
+        self.assertEqual(destination.read_text(encoding="utf-8"), content)
         self.assertFalse((self.hooks_dir(repo) / hook_sync.MANIFEST_NAME).exists())
 
     def test_worktrees_sharing_a_common_hooks_dir_are_reconciled_once(self) -> None:
