@@ -64,6 +64,8 @@ elif name == 'defaults':
 elif name == 'op':
     assert args[0] == 'read' and len(args) == 2
     assert args[1] in ('op://fixture/zoom-url', 'op://fixture/citrix-url')
+    if os.environ.get('TEST_OP') == 'fail': sys.exit(6)
+    if os.environ.get('TEST_OP') == 'empty': sys.exit(0)
     print('https://fixture.example.invalid/' + ('zoom.pkg' if args[1].endswith('zoom-url') else 'citrix.dmg'))
 elif name == 'curl':
     if os.environ.get('TEST_FAIL') == 'curl': sys.exit(44)
@@ -85,19 +87,28 @@ elif name == 'sudo':
     elif args[0].endswith('/install'):
         assert args[1:6] == ['-o', 'root', '-g', 'wheel', '-m'] and args[6] in ('0644', '0755')
         shutil.copyfile(owned(args[7]), owned(args[8]))
+        if os.environ.get('TEST_FAIL') == 'install-content': owned(args[8]).write_text('corrupt\n')
         owned(args[8]).chmod(int(args[6], 8))
     else:
         os.execv(owned(args[0]), args)
 elif name == 'hdiutil':
     if args[0] == 'attach':
+        if os.environ.get('TEST_FAIL') == 'attach': sys.exit(7)
         if '-mountpoint' in args:
             mount = owned(args[args.index('-mountpoint') + 1])
-            (mount / 'CitrixFixture.pkg').write_text('fixture package\n')
+            variant = os.environ.get('TEST_VDI_PKG', '')
+            if variant == 'generic':
+                (mount / 'Payload').mkdir(exist_ok=True)
+                (mount / 'Payload' / 'Installer.pkg').write_text('fixture package\n')
+            elif variant != 'none':
+                (mount / 'CitrixFixture.pkg').write_text('fixture package\n')
         else:
             assert args[-2:] == ['-nobrowse', '-plist']
             owned(args[1])
-            mount = root / 'mount'
-            print('<key>mount-point</key>\n<string>' + str(mount) + '</string>')
+            variant = os.environ.get('TEST_COPYQ_MOUNT', '')
+            mount = {'missing-app': root / 'mount-empty', 'file': root / 'mount-file'}.get(variant, root / 'mount')
+            if variant == 'malformed': print('<plist><dict>garbage</dict></plist>')
+            elif variant != 'empty': print('<key>mount-point</key>\n<string>' + str(mount) + '</string>')
     else:
         assert args[0] == 'detach' and len(args) in (2, 3)
         owned(args[1])
@@ -144,6 +155,7 @@ elif name in ('rm', 'cp'):
         shutil.copytree(owned(operands[0]), owned(operands[1]) / pathlib.Path(operands[0]).name)
 elif name in ('xattr', 'codesign'):
     owned(args[-1])
+    if name == 'codesign' and os.environ.get('TEST_FAIL') == 'codesign': sys.exit(1)
 elif name == 'sshd':
     assert args[:1] == ['-t'] and len(args) in (1, 3)
     if len(args) == 3:
@@ -414,6 +426,119 @@ class MacosLifecycleBoundaries(unittest.TestCase):
         self.assertNotEqual(failed.returncode, 0)
         self.assertEqual(len(self.calls('hdiutil')), 2)
         self.assertTrue((f.root / 'applications/CopyQ.app').is_dir())
+
+    def test_copyq_mount_and_signing_failures_stay_contained(self) -> None:
+        f = self.fixture
+        (f.root / 'mount-empty').mkdir()
+        (f.root / 'mount-file').write_text('not a mount\n')
+        script = self.render(COPYQ)
+        for variant in ('empty', 'malformed', 'file', 'missing-app'):
+            with self.subTest(variant):
+                self.env['TEST_COPYQ_MOUNT'] = variant
+                detaches = len([args for args in self.calls('hdiutil') if args[0] == 'detach'])
+                failed = self.run_hook(script)
+                self.assertNotEqual(failed.returncode, 0)
+                expected = ('CopyQ.app not found in mounted DMG' if variant == 'missing-app'
+                            else 'could not determine DMG mount point')
+                self.assertIn(expected, failed.stdout)
+                self.assertFalse((f.root / 'applications/CopyQ.app').exists())
+                self.assertFalse(list((f.root / 'tmp').glob('copyq.*')))
+                now_detached = len([args for args in self.calls('hdiutil') if args[0] == 'detach'])
+                self.assertEqual(now_detached - detaches, 1 if variant == 'missing-app' else 0)
+        self.assertFalse(self.calls('codesign'))
+        self.env.pop('TEST_COPYQ_MOUNT')
+        self.env['TEST_FAIL'] = 'codesign'
+        unsigned = self.run_hook(script)
+        self.assertNotEqual(unsigned.returncode, 0)
+        self.assertNotIn('installed successfully', unsigned.stdout)
+        self.assertEqual(self.calls('codesign'), [['--force', '--deep', '--sign', '-',
+                                                   str(f.root / 'applications/CopyQ.app')]])
+        self.assertFalse(list((f.root / 'tmp').glob('copyq.*')))
+
+    def test_nfs_reports_post_install_verification_failure(self) -> None:
+        f = self.fixture
+        config = f.root / 'etc/nfs.conf'
+        config.write_text('other = keep\n', encoding='utf-8')
+        self.env['TEST_FAIL'] = 'install-content'
+        failed = self.run_hook(self.render(NFS))
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn(f'failed to verify {config} after installation', failed.stderr)
+        self.assertNotIn('must be disconnected and remounted', failed.stdout)
+        self.assertEqual(len(self.calls('sudo')), 1)
+        self.assertFalse(list((f.root / 'tmp').glob('nfs.conf.*')))
+
+    def vdi_script(self, *, citrix_local: bool) -> str:
+        f = self.fixture
+        sha = hashlib.sha256(b'fixture package\n').hexdigest()
+        (f.root / 'Citrix.dmg').write_bytes(b'fixture package\n')
+        def configure(data: dict[str, object]) -> None:
+            vdi = data['macos_vdi']
+            vdi.update({'enabled': True, 'install': True})
+            vdi['citrix'].update({'desired_family': '26.03', 'display_version': '26.03',
+                                  'default_dmg_path': str(f.root / 'Citrix.dmg') if citrix_local else '',
+                                  'dmg_sha256': sha})
+            vdi['zoom'].update({'desired_pkg_version': '6.4', 'pkg_url_op_ref': 'op://fixture/zoom-url',
+                                'pkg_sha256': sha})
+        return self.render(VDI, configure)
+
+    def test_vdi_citrix_mount_and_package_discovery_variants(self) -> None:
+        script = self.vdi_script(citrix_local=True)
+        self.env['TEST_VERSIONS'] = json.dumps({'us.zoom.ZoomVDI': '6.4'})
+        installers = lambda: [args for args in self.calls('sudo') if args[0].endswith('/installer')]
+        self.env['TEST_FAIL'] = 'attach'
+        attach_failed = self.run_hook(script)
+        self.assertEqual(attach_failed.returncode, 7)
+        self.assertFalse(installers())
+        self.env.pop('TEST_FAIL')
+        self.env['TEST_VDI_PKG'] = 'none'
+        missing = self.run_hook(script)
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn('Could not find a Citrix package inside the DMG', missing.stderr)
+        self.assertFalse(installers())
+        self.env['TEST_VDI_PKG'] = 'generic'
+        fallback = self.run_hook(script)
+        self.assertEqual(fallback.returncode, 0, fallback.stderr)
+        self.assertEqual(len(installers()), 1)
+        self.assertEqual(Path(installers()[0][2]).name, 'Installer.pkg')
+        self.assertFalse(self.calls('curl'))
+        detached = [args for args in self.calls('hdiutil') if args[0] == 'detach']
+        self.assertEqual(len(detached), 3)
+        self.assertFalse(list((self.fixture.root / 'tmp').glob('macos-vdi.*')))
+
+    def test_vdi_provider_failures_skip_downloads_and_installs(self) -> None:
+        script = self.vdi_script(citrix_local=False)
+        self.env['TEST_VERSIONS'] = json.dumps({'com.citrix.ICAClient': '26.03.1'})
+        for variant, message in (('fail', 'Could not read Zoom VDI package URL from 1Password'),
+                                 ('empty', '1Password returned an empty Zoom VDI package URL')):
+            with self.subTest(variant):
+                self.env['TEST_OP'] = variant
+                result = self.run_hook(script)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(message, result.stderr)
+                self.assertIn('no usable package URL is configured', result.stderr)
+        self.env.pop('TEST_OP')
+        without_op = self.fixture.root / 'bin-without-op'
+        without_op.mkdir()
+        for fake in self.fixture.fake_bin.iterdir():
+            if fake.name != 'op':
+                shutil.copy2(fake, without_op / fake.name)
+        # On darwin run_hook executes inside the Linux image, whose python3 is /usr/local/bin/python3.
+        (without_op / 'python3').symlink_to('/usr/local/bin/python3' if sys.platform == 'darwin' else sys.executable)
+        self.env['PATH'] = str(without_op)
+        if sys.platform != 'darwin':
+            self.assertIsNone(shutil.which('op', path=self.env['PATH']))
+        absent = self.run_hook(script)
+        self.assertEqual(absent.returncode, 0, absent.stderr)
+        self.assertIn('1Password CLI is not available', absent.stderr)
+        self.env['TEST_VERSIONS'] = json.dumps({})
+        no_source = self.run_hook(script)
+        self.assertEqual(no_source.returncode, 0, no_source.stderr)
+        self.assertIn('Citrix install mode is enabled, but no usable DMG source was found', no_source.stderr)
+        self.assertEqual(len(self.calls('op')), 2)
+        self.assertFalse(self.calls('curl'))
+        self.assertFalse(self.calls('sudo'))
+        self.assertFalse(self.calls('hdiutil'))
+        self.assertFalse(list((self.fixture.root / 'tmp').glob('macos-vdi.*')))
 
     def test_launch_agents_retires_only_fixture_targets(self) -> None:
         f = self.fixture
