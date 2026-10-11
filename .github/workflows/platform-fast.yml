@@ -37,6 +37,24 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24.21.0'
+      - name: Install chezmoi
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHEZMOI_VERSION="2.69.3"
+          case "$(uname -s):$(uname -m)" in
+            Linux:x86_64) artifact="chezmoi-linux-amd64"; checksum="7f9070adda3fda72c7c326e0013fd9da5f7c5234d2de59e20ab3c166d42b93ef" ;;
+            Darwin:x86_64) artifact="chezmoi-darwin-amd64"; checksum="43ddfcbd337f60ba9bef25013ebed865df2bd2687caea27db27b37b9cb3192ff" ;;
+            Darwin:arm64) artifact="chezmoi-darwin-arm64"; checksum="3850c183183f0ed579b4dbb0a5c9a42ac11f85f51cfd174c6472991de6759539" ;;
+            *) exit 1 ;;
+          esac
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 60 "https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}/${artifact}" -o "$RUNNER_TEMP/chezmoi"
+          printf '%s  %s\n' "$checksum" "$RUNNER_TEMP/chezmoi" | shasum -a 256 --check
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$RUNNER_TEMP/chezmoi" "$HOME/.local/bin/chezmoi"
+          printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/chezmoi" --version
       - name: Expose sh from Git for Windows
         if: runner.os == 'Windows'
         shell: pwsh

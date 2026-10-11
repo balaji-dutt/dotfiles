@@ -65,6 +65,32 @@ class PlatformFastWorkflowTests(unittest.TestCase):
         self.assertIn("python-version: '3.13'", self.text)
         self.assertIn(f"node-version: '{gitlab_node_version()}'", self.text)
 
+    def test_posix_chezmoi_is_verified_before_installation(self) -> None:
+        setup = self.text.split("      - name: Install chezmoi\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: runner.os != 'Windows'", setup)
+        self.assertIn("shell: bash", setup)
+        self.assertIn("set -euo pipefail", setup)
+        version = re.search(r'CHEZMOI_VERSION="(\d+\.\d+\.\d+)"', setup)
+        self.assertIsNotNone(version)
+        gitlab = GITLAB_CI_PATH.read_text(encoding="utf-8")
+        self.assertIn(f"releases/download/v{version.group(1)}/chezmoi-linux-amd64", gitlab)
+        for platform, artifact in (("Linux:x86_64", "linux-amd64"), ("Darwin:x86_64", "darwin-amd64"), ("Darwin:arm64", "darwin-arm64")):
+            self.assertRegex(setup, rf'{platform}\) artifact="chezmoi-{artifact}"; checksum="[0-9a-f]{{64}}" ;;')
+        self.assertIn('case "$(uname -s):$(uname -m)" in', setup)
+        self.assertIn('*) exit 1 ;;', setup)
+        self.assertIn("curl --fail --silent --show-error --location --retry 2", setup)
+        self.assertIn("--connect-timeout 10 --max-time 60", setup)
+        self.assertIn('releases/download/v${CHEZMOI_VERSION}/${artifact}', setup)
+        verification = 'printf \'%s  %s\\n\' "$checksum" "$RUNNER_TEMP/chezmoi" | shasum -a 256 --check'
+        installation = 'install -m 0755 "$RUNNER_TEMP/chezmoi" "$HOME/.local/bin/chezmoi"'
+        self.assertIn(verification, setup)
+        self.assertIn(installation, setup)
+        self.assertIn('printf \'%s\\n\' "$HOME/.local/bin" >> "$GITHUB_PATH"', setup)
+        self.assertLess(setup.index("curl "), setup.index(verification))
+        self.assertLess(setup.index(verification), setup.index(installation))
+        self.assertLess(setup.index(installation), setup.index('"$HOME/.local/bin/chezmoi" --version'))
+        self.assertLess(self.index_of("name: Install chezmoi"), self.index_of("name: Run the fast suite"))
+
     def test_fast_suite_runs_with_required_capabilities_on_every_shell(self) -> None:
         self.assertIn(
             './assets/run-tests.sh fast --require-capabilities --report-file "ci-artifacts/fast-${{ matrix.os }}.json"',

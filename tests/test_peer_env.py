@@ -326,13 +326,35 @@ class LifecycleTests(unittest.TestCase):
                 self.assertIn("argv=check tracked.txt", self.fixture.audit_record("peer"))
 
     def test_aggregate_deadline_is_not_per_path_and_does_not_retry(self) -> None:
-        (self.fixture.local / "stub-mode.txt").write_text("delay")
+        server = self.server()
+        sha = self.publish()
+        clock = [100.0]
+        deadlines = []
+
+        def audit(command, cwd, scan_errors):
+            deadlines.append(server.deadline)
+            clock[0] += 0.4
+            return 124 if clock[0] >= server.deadline else 0
+
+        with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(server, "run_streamed", side_effect=audit) as run, \
+             contextlib.redirect_stderr(io.StringIO()):
+            result = server.run(["manual", sha, "0.65", "cleanup", "audit", "tracked.txt", "gone.txt", ".gitignore"])
+        self.assertEqual(result, 124)
+        self.assertEqual(deadlines, [100.65, 100.65])
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list], ["tracked.txt", "gone.txt"])
+        self.assert_removed("manual")
+
+    def test_client_forwards_timeout_without_retrying_validation(self) -> None:
+        helper = self.fixture.peer_repo("peer") / "assets/peer-env"
+        header = "    def run_streamed(self, command: list[str], cwd: Path, scan_errors: bool) -> int:\n"
+        helper.write_text(helper.read_text().replace(header, header + "        return EXIT_TIMEOUT\n"))
         result = self.fixture.run("audit", "all", "tracked.txt", "gone.txt", "--timeout", "0.65")
         self.assertEqual(result.returncode, 124, result.stderr)
-        self.assert_removed()
-        calls = [call for call in self.fixture.ssh_calls() if " run " in call["command"]]
+        calls = [shlex.split(call["command"]) for call in self.fixture.ssh_calls() if " run " in call["command"]]
         self.assertEqual(len(calls), 1)
-        self.assertEqual(self.fixture.audit_record("peer").count("END\n"), 2)
+        self.assertEqual(calls[0][calls[0].index("run") + 3], "0.65")
+        self.assert_removed()
 
     def test_keep_and_rm_are_mutually_exclusive(self) -> None:
         result = self.fixture.run("test", "all", "fast", "--rm", "--keep-worktree")
@@ -395,6 +417,45 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(server.remove(["manual"]), 0)
         self.assert_removed("manual")
 
+    def test_cleanup_accepts_symlinked_state_root_ancestors(self) -> None:
+        (self.fixture.peer_homes["peer"] / ".local/state").mkdir(parents=True)
+        alias = self.fixture.root / "home-alias"
+        alias.symlink_to(self.fixture.peer_homes["peer"], target_is_directory=True)
+        for configured in (False, True):
+            with self.subTest(xdg_state_home=configured):
+                env = {key: value for key, value in self.fixture.env.items() if not key.startswith("XDG_")}
+                env["HOME"] = str(alias)
+                if configured:
+                    env["XDG_STATE_HOME"] = str(alias / ".local/state")
+                server = MODULE.Serve(self.fixture.peer_repo("peer"), env, True)
+                sha = self.publish()
+                server.prepare(["manual", sha])
+                write_json(server.state / "runs/manual/result.json", {"completed": True})
+                self.assertEqual(server.remove(["manual", sha]), 0)
+                self.assert_removed("manual")
+
+    def test_cleanup_refuses_symlinks_inside_state_subtree(self) -> None:
+        for component in ("dotfiles", "peer-env", "runs", "manual", "result.json"):
+            with self.subTest(component=component):
+                env = {**self.fixture.env, "XDG_STATE_HOME": str(self.fixture.root / f"state-{component}")}
+                server = MODULE.Serve(self.fixture.peer_repo("peer"), env, True)
+                sha = self.publish()
+                server.prepare(["manual", sha])
+                result = server.state / "runs/manual/result.json"
+                write_json(result, {"completed": True})
+                target = next(item for item in (result, *result.parents) if item.name == component)
+                moved = self.fixture.root / f"moved-{component}"
+                target.rename(moved)
+                target.symlink_to(moved, target_is_directory=moved.is_dir())
+                with self.assertRaises((MODULE.Refused, OSError)):
+                    server.remove(["manual", sha])
+                self.assertTrue(self.fixture.peer_worktree("peer", "manual").exists())
+                self.assertEqual(server.published_sha("manual"), sha)
+                target.unlink()
+                moved.rename(target)
+                self.assertEqual(server.remove(["manual", sha]), 0)
+                self.assert_removed("manual")
+
     def test_old_server_is_refused_before_publish(self) -> None:
         helper = self.fixture.peer_repo("peer") / "assets" / "peer-env"
         helper.write_text(helper.read_text().replace('"capabilities": [RUN_CAPABILITY]', '"capabilities": []'))
@@ -441,10 +502,21 @@ class LifecycleTests(unittest.TestCase):
 
     def test_forced_runner_shutdown_retains_unverified_worktree(self) -> None:
         server = self.server()
-        command = write_executable(self.fixture.root / "run-tests.sh", "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 1; done\n")
-        server.deadline = time.monotonic() + 0.15
-        with mock.patch.object(MODULE, "STOP_GRACE", 0.05), contextlib.redirect_stderr(io.StringIO()):
+        command = write_executable(self.fixture.root / "run-tests.sh", "#!/bin/sh\ntrap '' TERM\nprintf 'READY\\n'\nwhile :; do sleep 1; done\n")
+        server.deadline = time.monotonic() + 5
+        ready = []
+
+        def output(text):
+            if "READY" in text:
+                ready.append(True)
+                server.deadline = time.monotonic() + 0.15
+
+        with mock.patch.object(MODULE, "STOP_GRACE", 0.05), \
+             contextlib.redirect_stdout(io.StringIO()) as stream, \
+             mock.patch.object(stream, "write", side_effect=output), \
+             contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(server.run_streamed([str(command)], self.fixture.local, False), 124)
+        self.assertEqual(ready, [True])
         self.assertFalse(server.children_stopped)
         server.deadline = None
         sha = self.publish()
@@ -512,7 +584,8 @@ class AgentPreflightTests(unittest.TestCase):
         env.pop("SSH_AUTH_SOCK", None)
         if "SSH_AUTH_SOCK" in updates:
             env["SSH_AUTH_SOCK"] = updates["SSH_AUTH_SOCK"]
-        return MODULE.agent_preflight(self.args, env)
+        with mock.patch.object(MODULE, "current_platform", return_value="wsl2"):
+            return MODULE.agent_preflight(self.args, env)
 
     def test_unhealthy_agent_repaired_once_before_ssh_without_rc(self) -> None:
         self.stub()

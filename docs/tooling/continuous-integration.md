@@ -334,6 +334,11 @@ Node 24.21.0) so a difference is a platform difference. Actions are pinned by
 major tag; Renovate's `enabledManagers` allowlist excludes `github-actions`,
 so those pins only move by hand.
 
+Linux and macOS install chezmoi 2.69.3 from the upstream release with a pinned
+SHA-256 for each runner architecture, verify it before installation, and add
+`~/.local/bin` to `GITHUB_PATH`. This supplies the required chezmoi capability
+for template-rendering tests, including `wsl2-pageant`.
+
 Reading results:
 
 ```sh

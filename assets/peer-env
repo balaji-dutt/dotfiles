@@ -266,7 +266,7 @@ def config_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path
 def state_dir(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
     base = environ.get("XDG_STATE_HOME") if os.name != "nt" else None
     root = Path(base) if base else home_dir(environ) / ".local" / "state"
-    return root / "dotfiles" / "peer-env"
+    return root.resolve() / "dotfiles" / "peer-env"
 
 
 def cache_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:

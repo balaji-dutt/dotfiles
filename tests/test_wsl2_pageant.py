@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import types
 import unittest
@@ -30,8 +31,10 @@ class PageantTests(unittest.TestCase):
         context = isolated_environment(prefix="pageant-test-")
         self.iso = context.__enter__()
         self.addCleanup(context.__exit__, None, None, None)
-        self.env = {**self.iso.env, "HOME": str(self.iso.home)}
-        self.socket_path = self.iso.root / "agent.sock"
+        self.env = {**self.iso.env, "HOME": str(self.iso.home.resolve())}
+        sockets = tempfile.TemporaryDirectory(prefix="pg-", dir=Path("/tmp").resolve())
+        self.addCleanup(sockets.cleanup)
+        self.socket_path = Path(sockets.name) / "agent.sock"
         self.executable = write_executable(self.iso.fake_bin / "npiperelay.exe", "#!/bin/sh\nexit 0\n")
         write_executable(self.iso.fake_bin / "socat", "#!/bin/sh\nexit 0\n")
         self.add = self.iso.fake_bin / "ssh-add"
@@ -40,8 +43,8 @@ class PageantTests(unittest.TestCase):
 
     def bind(self) -> socket.socket:
         listener = socket.socket(socket.AF_UNIX)
-        listener.bind(str(self.socket_path))
         self.addCleanup(listener.close)
+        listener.bind(str(self.socket_path))
         return listener
 
     def record(self, pid: int = 12345, start: str = "10") -> dict:
@@ -86,8 +89,8 @@ class PageantTests(unittest.TestCase):
             self.relay.healthy()
         self.socket_path.unlink()
         self.bind()
-        self.iso.root.chmod(0o777)
-        self.addCleanup(self.iso.root.chmod, 0o700)
+        self.socket_path.parent.chmod(0o777)
+        self.addCleanup(self.socket_path.parent.chmod, 0o700)
         with self.assertRaisesRegex(self.module.Refused, "unsafe socket directory"):
             self.relay.healthy()
 

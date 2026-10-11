@@ -395,6 +395,10 @@ files 0600; no symlinks or snapshot contents are copied. Each run has a shared
 The 20 most recent completed runs with verified child shutdown are retained;
 active, incomplete, and unverified-child records are not pruned.
 
+The configured state root (`XDG_STATE_HOME` or `~/.local/state`) is canonicalized
+before appending `dotfiles/peer-env`. Symlinked ancestors of that root are
+accepted; symlinks within the helper-owned subtree remain refused during cleanup.
+
 SIGKILL, host failure, or a forced-killed runner with independent step groups
 cannot guarantee immediate cleanup. When shutdown is unverified, the peer
 retains the worktree/ref and records `children_unverified`; both `remove` and
