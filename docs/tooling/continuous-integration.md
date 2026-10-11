@@ -316,8 +316,8 @@ Why Windows is `continue-on-error`: the `fast` suite already has known Windows
 failures (see [Why `windows-all` stays advisory](#why-windows-all-stays-advisory)),
 so a blocking Windows job would be red from the first run and drown the macOS
 and Linux signal. Linux and macOS do fail the workflow; a red run there is the
-data this matrix collects. Python 3.13 and Node 24.21.0 match the GitLab lane;
-other tools depend on the hosted platform. Actions are pinned by
+data this matrix collects. Runtimes are pinned to the GitLab lane (Python 3.13,
+Node 24.21.0) so a difference is a platform difference. Actions are pinned by
 major tag; Renovate's `enabledManagers` allowlist excludes `github-actions`,
 so those pins only move by hand.
 
