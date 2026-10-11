@@ -891,7 +891,7 @@ class PowerShellSupportTests(unittest.TestCase):
         )
 
     def test_runtime_windows_fallbacks(self) -> None:
-        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        standard = str(Path("/mnt/c/Program Files/PowerShell/7/pwsh.exe"))
         for native, expected in (("/mnt/c/pwsh.exe", "/mnt/c/pwsh.exe"), (None, standard)):
             with (
                 self.subTest(native=native),
@@ -951,7 +951,7 @@ class PowerShellSupportTests(unittest.TestCase):
             self.assertIn("cannot execute", diagnostics[0])
 
     def test_runtime_tries_standard_path_after_path_candidate_failure(self) -> None:
-        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        standard = str(Path("/mnt/c/Program Files/PowerShell/7/pwsh.exe"))
         with (
             mock.patch.object(powershell.shutil, "which", side_effect=[None, "/mnt/c/pwsh.exe"]),
             mock.patch.object(Path, "is_file", return_value=True),
@@ -976,7 +976,7 @@ class PowerShellSupportTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_runtime_deduplicates_candidates(self) -> None:
-        standard = "/mnt/c/Program Files/PowerShell/7/pwsh.exe"
+        standard = str(Path("/mnt/c/Program Files/PowerShell/7/pwsh.exe"))
         with (
             mock.patch.object(powershell.shutil, "which", return_value=standard),
             mock.patch.object(Path, "is_file", return_value=True),
