@@ -27,6 +27,10 @@
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--interop", "--repo-root", "{repo}"]
     },
     "sh": {"command": "sh"},
+    "windows-python-interop": {
+      "command": "py.exe",
+      "probe": ["py.exe", "-3", "-c", "import sys; raise SystemExit(sys.platform != 'win32')"]
+    },
     "zsh": {"command": "zsh"}
   },
   "steps": [
@@ -578,6 +582,14 @@
       "covers": ["tests/test_retire_legacy_cbm_mise.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash"]
+    },
+    {
+      "id": "runner-windows-interop",
+      "suites": ["integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_runner_windows_interop"],
+      "covers": ["tests/test_runner_windows_interop.py"],
+      "platforms": ["wsl2"],
+      "requires": ["windows-python-interop"]
     },
     {
       "id": "shell-lifecycle",

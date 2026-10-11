@@ -27,6 +27,7 @@ POSIX_WRAPPER = REPO_ROOT / "assets" / "run-tests.sh"
 POWERSHELL_WRAPPER = REPO_ROOT / "assets" / "run-tests.ps1"
 REGISTRY = REPO_ROOT / "configs" / "test-suites.json"
 SELECTION_CHECK = load_script_module(REPO_ROOT / "assets" / "check-test-selection.py", "check_test_selection")
+RUN_TESTS = load_script_module(RUNNER, "run_tests_supervision")
 
 
 PWSH_NAMES = {"pwsh", "pwsh.exe"}
@@ -311,6 +312,110 @@ class RunnerSupervisionTests(unittest.TestCase):
             with self.subTest(signal=signum):
                 self.check_interruption(signum)
 
+    def wait_for(self, path: Path, timeout: float = 5) -> None:
+        deadline = time.monotonic() + timeout
+        while not path.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(path.exists(), f"{path.name} did not appear")
+
+    def interrupted_run(self, *args: str) -> tuple[int, Path, dict | None]:
+        pid_file = self.fixture_pid("interrupted.pid")
+        report = self.fixture.root / "interrupted.json"
+        self.fixture.write_script("second.py", "import os, pathlib, time\n"
+                                  f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                  "time.sleep(30)\n")
+        self.fixture.write_script("third.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
+        self.fixture.steps.append(self.fixture.step("gamma", ["fast"], "third.py"))
+        self.fixture.write_registry()
+        running = None
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(self.fixture.command("--report-file", str(report), *args),
+                                      stdout=output, stderr=errors, start_new_session=True)
+            try:
+                self.wait_for(pid_file)
+                if report.exists():
+                    running = json.loads(report.read_text(encoding="utf-8"))
+                os.kill(runner.pid, signal.SIGINT)
+                runner.wait(timeout=6)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
+        self.assert_stopped(pid_file)
+        return runner.returncode, report, running
+
+    def test_interrupted_v2_run_keeps_completed_interrupted_and_pending_steps(self) -> None:
+        returncode, report, running = self.interrupted_run("--case-report")
+        self.assertEqual(returncode, 130)
+        self.assertIsNotNone(running, "no report while the second step ran")
+        self.assertEqual(running["state"], "running")
+        self.assertIsNone(running["exit_code"])
+        self.assertEqual([step["id"] for step in running["steps"]], ["alpha"])
+        self.assertEqual(running["context"]["selected_steps"], ["alpha", "beta", "gamma"])
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((payload["state"], payload["exit_code"]), ("interrupted", 130))
+        self.assertEqual(
+            [(step["id"], step["status"], step["outcome"]) for step in payload["steps"]],
+            [("alpha", "pass", "passed"), ("beta", "fail", "interrupted"), ("gamma", "skip", "not_run")],
+        )
+        self.assertEqual(payload["steps"][1]["reason"], "interrupted")
+
+    def test_interrupted_v1_run_writes_no_report(self) -> None:
+        returncode, report, running = self.interrupted_run()
+        self.assertEqual(returncode, 130)
+        self.assertIsNone(running)
+        self.assertFalse(report.exists())
+
+    def test_launch_failure_is_recorded_and_the_run_continues(self) -> None:
+        self.fixture.steps[0]["argv"] = ["{repo}/tests/missing-tool"]
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
+        self.fixture.write_registry()
+        report = self.fixture.root / "launch.json"
+        result = self.fixture.supervised("--case-report", "--report-file", str(report))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("FAIL alpha: cannot execute step:", result.stdout)
+        self.assertIn("PASS beta", result.stdout)
+        step = json.loads(report.read_text(encoding="utf-8"))["steps"][0]
+        self.assertEqual((step["status"], step["outcome"]), ("fail", "launch_error"))
+        self.assertEqual(step["termination"]["kind"], "launch_error")
+        self.assertEqual(step["case_report"], {"status": "unsupported-argv"})
+
+    def test_noisy_timed_out_step_output_is_bounded(self) -> None:
+        self.fixture.write_script("pass.py", "import sys\n"
+                                  "while True:\n"
+                                  "    sys.stdout.write('x' * 1023 + '\\n')\n")
+        self.fixture.steps[0]["timeout_seconds"] = 1
+        self.fixture.write_registry()
+        result = self.fixture.supervised()
+        self.assertEqual(result.returncode, 1, result.stderr[-2000:])
+        self.assertIn("FAIL alpha: timeout after 1 seconds", result.stdout)
+        self.assertRegex(result.stdout, r"\[runner: \d+ bytes of step output omitted\]")
+        self.assertLess(len(result.stdout), RUN_TESTS.STEP_OUTPUT_LIMIT_BYTES + 65536)
+
+    def test_large_output_from_a_passing_step_is_bounded(self) -> None:
+        self.fixture.write_script("pass.py", "import sys\n"
+                                  "for _ in range(3 * 1024):\n"
+                                  "    sys.stdout.write('y' * 1023 + '\\n')\n"
+                                  "sys.stdout.write('final line\\n')\n")
+        self.fixture.write_registry()
+        result = self.fixture.supervised()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS alpha", result.stdout)
+        self.assertRegex(result.stdout, r"\[runner: \d+ bytes of step output omitted\]")
+        self.assertIn("final line", result.stdout)
+        self.assertLess(len(result.stdout), RUN_TESTS.STEP_OUTPUT_LIMIT_BYTES + 65536)
+
+    def test_report_write_failure_returns_two(self) -> None:
+        report = self.fixture.root / "report-directory"
+        report.mkdir()
+        result = self.fixture.supervised("--case-report", "--report-file", str(report))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("WARNING: cannot update report", result.stderr)
+        self.assertIn("ERROR: cannot write report", result.stderr)
+
     def check_interruption(self, signum: int) -> None:
         pid_file = self.fixture_pid(f"interrupt-{signum}.pid")
         self.fixture.write_script("pass.py", "import os, pathlib, time\n"
@@ -334,6 +439,237 @@ class RunnerSupervisionTests(unittest.TestCase):
                 if runner.poll() is None:
                     os.killpg(runner.pid, signal.SIGKILL)
                     runner.wait(timeout=2)
+
+
+class FakePipes:
+    def __init__(self, drains) -> None:
+        self.drains = list(drains)
+
+    def drain(self, until: float) -> bool:
+        outcome = self.drains.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    def text(self) -> tuple[str, str]:
+        return "out", "err"
+
+
+class WindowsStepSupervisionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.dict(os.environ, {"SYSTEMROOT": "C:\\Windows"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.process = mock.Mock(pid=4242, returncode=0)
+
+    def launch(self, drains, *, taskkill=(), popen_error=None):
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", side_effect=popen_error,
+                                return_value=self.process) as popen,
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes", return_value=FakePipes(drains)),
+              mock.patch.object(RUN_TESTS.subprocess, "run", side_effect=list(taskkill)) as run):
+            result = RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"),
+                                                 env={"PATH": "C:/bin"}, timeout_seconds=3)
+        return result, popen, run
+
+    def test_completed_step_runs_in_its_own_process_group(self) -> None:
+        result, popen, run = self.launch([True])
+        self.assertEqual(result, ("out", "err", 0, None, "exited", None))
+        self.assertEqual(popen.call_args.kwargs["creationflags"], RUN_TESTS.WINDOWS_NEW_PROCESS_GROUP)
+        self.assertNotIn("text", popen.call_args.kwargs)
+        run.assert_not_called()
+
+    def test_timeout_kills_the_owned_tree_by_pid(self) -> None:
+        for code in (0, 128):
+            with self.subTest(taskkill=code):
+                result, _, run = self.launch([False, True], taskkill=[subprocess.CompletedProcess([], code)])
+                self.assertEqual(result, ("out", "err", None, "timeout after 3 seconds", "timeout", None))
+                taskkill = str(Path("C:\\Windows") / "System32" / "taskkill.exe")
+                self.assertEqual(run.call_args.args[0], [taskkill, "/T", "/F", "/PID", "4242"])
+                self.assertEqual(run.call_args.kwargs["cwd"], "C:\\Windows")
+                self.assertEqual(run.call_args.kwargs["timeout"], RUN_TESTS.WINDOWS_TASKKILL_TIMEOUT_SECONDS)
+                self.process.kill.assert_not_called()
+
+    def test_parent_outliving_its_output_is_a_timeout(self) -> None:
+        self.process.wait.side_effect = subprocess.TimeoutExpired("step.exe", 3)
+        result, _, run = self.launch([True, True], taskkill=[subprocess.CompletedProcess([], 0)])
+        self.assertEqual(result[4], "timeout")
+        run.assert_called_once()
+
+    def test_taskkill_problems_fall_back_to_the_step_process(self) -> None:
+        for outcome, fragment in (
+            (FileNotFoundError(2, "missing"), "cannot run taskkill"),
+            (subprocess.TimeoutExpired("taskkill", 10), "taskkill did not finish"),
+            (subprocess.CompletedProcess([], 1), "taskkill exited 1"),
+        ):
+            with self.subTest(fragment=fragment):
+                self.process.kill.reset_mock()
+                result, _, _ = self.launch([False, True], taskkill=[outcome])
+                self.process.kill.assert_called_once_with()
+                self.assertEqual(result[4], "timeout")
+                self.assertIn(fragment, result[5])
+                self.assertIn("stopped only the step process", result[3])
+
+    def test_undrained_output_is_reported_without_closing_pipes(self) -> None:
+        result, _, _ = self.launch([False, False], taskkill=[subprocess.CompletedProcess([], 0)])
+        self.assertEqual(result[:2], ("out", "err"))
+        self.assertEqual(result[5], "step output did not drain")
+        self.process.stdout.close.assert_not_called()
+        self.process.stderr.close.assert_not_called()
+
+    def test_launch_failure_is_reported(self) -> None:
+        result, _, run = self.launch([], popen_error=FileNotFoundError(2, "missing"))
+        self.assertEqual(result[2:5], (None, "cannot execute step: [Errno 2] missing", "launch_error"))
+        run.assert_not_called()
+
+    def test_interruption_stops_the_tree_and_propagates(self) -> None:
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", return_value=self.process),
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes", return_value=FakePipes([KeyboardInterrupt(), True])),
+              mock.patch.object(RUN_TESTS.subprocess, "run",
+                                return_value=subprocess.CompletedProcess([], 0)) as run):
+            with self.assertRaises(KeyboardInterrupt):
+                RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"), env={}, timeout_seconds=3)
+        self.assertEqual(run.call_args.args[0][1:], ["/T", "/F", "/PID", "4242"])
+
+
+class BoundedOutputTests(unittest.TestCase):
+    def test_keeps_the_tail_and_counts_dropped_bytes(self) -> None:
+        output = RUN_TESTS._BoundedOutput()
+        limit = RUN_TESTS.STEP_OUTPUT_LIMIT_BYTES
+        chunk = 100_000
+        for index in range(40):
+            output.add(bytes([65 + index % 26]) * chunk)
+        self.assertLess(output.size, limit + chunk)
+        text = output.text()
+        omitted = 40 * chunk - limit
+        self.assertTrue(text.startswith(f"[runner: {omitted} bytes of step output omitted]\n"))
+        self.assertEqual(len(text.split("\n", 1)[1]), limit)
+        self.assertTrue(text.endswith(chr(65 + 39 % 26) * 10))
+
+    def test_short_output_is_unchanged_and_crlf_is_normalized(self) -> None:
+        output = RUN_TESTS._BoundedOutput()
+        output.add("caf\u00e9\r\nok\r\n".encode("utf-8"))
+        self.assertEqual(output.text(), "caf\u00e9\nok\n")
+
+
+class ThreadedPipesTests(unittest.TestCase):
+    def test_reads_to_eof_and_closes_each_stream(self) -> None:
+        process = mock.Mock(stdout=io.BufferedReader(io.BytesIO(b"x" * 300_000)),
+                            stderr=io.BufferedReader(io.BytesIO(b"err\r\n")))
+        pipes = RUN_TESTS._ThreadedPipes(process)
+        self.assertTrue(pipes.drain(time.monotonic() + 5))
+        self.assertEqual(pipes.text(), ("x" * 300_000, "err\n"))
+        self.assertTrue(process.stdout.closed and process.stderr.closed)
+
+    def test_drain_returns_at_the_deadline_while_a_writer_holds_the_pipe(self) -> None:
+        read_end, write_end = os.pipe()
+        self.addCleanup(os.close, write_end)
+        process = mock.Mock(stdout=os.fdopen(read_end, "rb"), stderr=io.BufferedReader(io.BytesIO(b"")))
+        pipes = RUN_TESTS._ThreadedPipes(process)
+        os.write(write_end, b"partial\n")
+        started = time.monotonic()
+        self.assertFalse(pipes.drain(started + 0.5))
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(pipes.text()[0], "partial\n")
+
+
+class RunnerCrashEvidenceTests(unittest.TestCase):
+    LAUNCHER = "_run_windows_step" if RUN_TESTS.IS_WINDOWS else "_run_posix_step"
+
+    def steps(self):
+        return tuple(
+            RUN_TESTS.Step(name, ("fast",), ("{python}", "-c", "pass"), ("tests/x.py",), RUN_TESTS.PLATFORMS, ())
+            for name in ("alpha", "beta")
+        )
+
+    def run_steps(self, snapshots: list, **patches):
+        steps = self.steps()
+        with contextlib.ExitStack() as stack:
+            for name, value in patches.items():
+                stack.enter_context(mock.patch.object(RUN_TESTS, name, value))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            return RUN_TESTS.run_steps(RUN_TESTS.Registry({}, steps), steps, repo_root=REPO_ROOT,
+                                       require_capabilities=False, required_capabilities=frozenset(),
+                                       progress=snapshots.append)
+
+    def test_runner_crash_records_crashed_state_and_reraises(self) -> None:
+        snapshots = []
+        with self.assertRaises(RuntimeError):
+            self.run_steps(snapshots, **{self.LAUNCHER: mock.Mock(side_effect=RuntimeError("bug"))})
+        final = snapshots[-1]
+        self.assertEqual((final.state, final.exit_code), ("crashed", 1))
+        self.assertEqual([(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                         [("alpha", "interrupted", "runner crashed: RuntimeError"),
+                          ("beta", "not_run", "not run: the run stopped early")])
+
+    def test_keyboard_interrupt_records_interrupted_state(self) -> None:
+        snapshots = []
+        ok = ("", "", 0, None, "exited", None)
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_steps(snapshots, **{self.LAUNCHER: mock.Mock(side_effect=[ok, KeyboardInterrupt()])})
+        self.assertEqual(snapshots[0].state, "running")
+        final = snapshots[-1]
+        self.assertEqual((final.state, final.exit_code), ("interrupted", 130))
+        self.assertEqual([result.outcome for result in final.steps], ["passed", "interrupted"])
+
+    def test_system_exit_code_is_recorded(self) -> None:
+        for code, expected in ((143, 143), (None, 0), ("stop", 1)):
+            with self.subTest(code=code):
+                snapshots = []
+                with self.assertRaises(SystemExit):
+                    self.run_steps(snapshots, **{self.LAUNCHER: mock.Mock(side_effect=SystemExit(code))})
+                self.assertEqual((snapshots[-1].state, snapshots[-1].exit_code), ("interrupted", expected))
+
+    def test_windows_ntstatus_exit_is_a_crash(self) -> None:
+        access_violation = ("", "", 0xC0000005, None, "exited", None)
+        ordinary = ("", "", 3, None, "exited", None)
+        result = self.run_steps([], IS_WINDOWS=True,
+                                _run_windows_step=mock.Mock(side_effect=[access_violation, ordinary]))
+        self.assertEqual([step.outcome for step in result.steps], ["crash", "failed"])
+        self.assertEqual(result.steps[0].termination["kind"], "exited")
+
+
+class ReportReplaceRetryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.report = Path(temporary.name) / "report.json"
+        step = RUN_TESTS.Step("alpha", ("fast",), ("x",), ("tests/x.py",), RUN_TESTS.PLATFORMS, ())
+        self.result = RUN_TESTS.RunResult("linux", (RUN_TESTS.StepResult(step, "pass", None, 0),))
+
+    def test_windows_retries_a_locked_report_then_replaces_it(self) -> None:
+        real_replace = os.replace
+        attempts = []
+
+        def flaky(source, destination):
+            attempts.append(source)
+            if len(attempts) < 3:
+                raise PermissionError(13, "in use")
+            real_replace(source, destination)
+
+        with (mock.patch.object(RUN_TESTS, "IS_WINDOWS", True),
+              mock.patch.object(RUN_TESTS.os, "replace", side_effect=flaky),
+              mock.patch.object(RUN_TESTS.time, "sleep") as sleep):
+            RUN_TESTS.write_report(self.report, "fast", self.result)
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.05, 0.2])
+        self.assertEqual(json.loads(self.report.read_text(encoding="utf-8"))["exit_code"], 0)
+
+    def test_retry_gives_up_and_posix_does_not_retry(self) -> None:
+        for platform_name, expected_attempts in (("nt", 4), ("posix", 1)):
+            with self.subTest(platform=platform_name):
+                attempts = []
+
+                def locked(source, destination):
+                    attempts.append(source)
+                    raise PermissionError(13, "in use")
+
+                with (mock.patch.object(RUN_TESTS, "IS_WINDOWS", platform_name == "nt"),
+                      mock.patch.object(RUN_TESTS.os, "replace", side_effect=locked),
+                      mock.patch.object(RUN_TESTS.time, "sleep")):
+                    with self.assertRaises(PermissionError):
+                        RUN_TESTS.write_report(self.report, "fast", self.result)
+                self.assertEqual(len(attempts), expected_attempts)
+                self.assertEqual(list(self.report.parent.glob(".report.json.*")), [])
 
 
 class TestRunnerTests(unittest.TestCase):

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import platform as python_platform
 import re
+import selectors
 import signal
 import shutil
 import subprocess
@@ -18,6 +20,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from string import Formatter
+from typing import Callable
 
 
 SUITES = ("fast", "integration", "render", "provenance", "platform")
@@ -28,6 +31,12 @@ DEFAULT_STEP_TIMEOUT_SECONDS = 600
 SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
 STEP_STOP_GRACE_SECONDS = 1
 CASE_REPORT_ADAPTER = Path(__file__).resolve().parent / "unittest-case-report.py"
+STEP_OUTPUT_LIMIT_BYTES = 1024 * 1024
+WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+WINDOWS_TASKKILL_TIMEOUT_SECONDS = 10
+WINDOWS_TASKKILL_NOT_FOUND = 128
+WINDOWS_NTSTATUS_ERROR = 0xC0000000
+IS_WINDOWS = os.name == "nt"
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
     "COMSPEC",
@@ -97,9 +106,13 @@ class StepResult:
 class RunResult:
     platform: str
     steps: tuple[StepResult, ...]
+    state: str = "complete"
+    forced_exit_code: int | None = None
 
     @property
     def exit_code(self) -> int:
+        if self.forced_exit_code is not None:
+            return self.forced_exit_code
         return 1 if any(result.status == "fail" for result in self.steps) else 0
 
 
@@ -376,17 +389,103 @@ def _expanded_argv(step: Step, repo_root: Path) -> list[str]:
     return [item.format(**replacements) for item in step.argv]
 
 
-def _step_output(value: str | bytes | None) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
+class _BoundedOutput:
+    """Keep the last STEP_OUTPUT_LIMIT_BYTES of a stream and count what was dropped."""
+
+    def __init__(self) -> None:
+        self.chunks: collections.deque[bytes] = collections.deque()
+        self.size = 0
+        self.dropped = 0
+
+    def add(self, chunk: bytes) -> None:
+        self.chunks.append(chunk)
+        self.size += len(chunk)
+        while self.size - len(self.chunks[0]) >= STEP_OUTPUT_LIMIT_BYTES:
+            removed = self.chunks.popleft()
+            self.size -= len(removed)
+            self.dropped += len(removed)
+
+    def text(self) -> str:
+        data = b"".join(self.chunks)
+        excess = max(0, len(data) - STEP_OUTPUT_LIMIT_BYTES)
+        text = data[excess:].decode("utf-8", errors="replace").replace("\r\n", "\n")
+        omitted = self.dropped + excess
+        if omitted:
+            return f"[runner: {omitted} bytes of step output omitted]\n" + text
+        return text
 
 
-def _stop_step_group(process: subprocess.Popen[str]) -> tuple[str, str, str | None]:
-    output = error_output = ""
+class _PosixPipes:
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        self.outputs = (_BoundedOutput(), _BoundedOutput())
+        self.selector = selectors.DefaultSelector()
+        for stream, output in zip((process.stdout, process.stderr), self.outputs):
+            self.selector.register(stream, selectors.EVENT_READ, output)
+
+    def drain(self, until: float) -> bool:
+        while self.selector.get_map():
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                return False
+            for key, _ in self.selector.select(timeout=remaining):
+                chunk = os.read(key.fd, 65536)
+                if chunk:
+                    key.data.add(chunk)
+                else:
+                    self.selector.unregister(key.fileobj)
+                    key.fileobj.close()
+        return True
+
+    def abandon(self) -> bool:
+        streams = [key.fileobj for key in list(self.selector.get_map().values())]
+        for stream in streams:
+            self.selector.unregister(stream)
+            stream.close()
+        return bool(streams)
+
+    def text(self) -> tuple[str, str]:
+        return self.outputs[0].text(), self.outputs[1].text()
+
+
+class _ThreadedPipes:
+    """Windows pipes cannot be selected, so a daemon thread reads each one."""
+
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        self.outputs = (_BoundedOutput(), _BoundedOutput())
+        self.threads = [
+            threading.Thread(target=self._pump, args=(stream, output), daemon=True)
+            for stream, output in zip((process.stdout, process.stderr), self.outputs)
+        ]
+        for thread in self.threads:
+            thread.start()
+
+    @staticmethod
+    def _pump(stream, output: _BoundedOutput) -> None:
+        try:
+            while chunk := stream.read1(65536):
+                output.add(chunk)
+        except (OSError, ValueError):
+            return
+        finally:
+            stream.close()
+
+    def drain(self, until: float) -> bool:
+        while any(thread.is_alive() for thread in self.threads):
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                return False
+            # Short joins let Ctrl+C reach the runner; one long lock wait ignores it on Windows.
+            for thread in self.threads:
+                thread.join(min(remaining, 0.25))
+        return True
+
+    def text(self) -> tuple[str, str]:
+        return self.outputs[0].text(), self.outputs[1].text()
+
+
+def _stop_step_group(process: subprocess.Popen[bytes], pipes: _PosixPipes) -> str | None:
     errors: list[str] = []
-    for sig, grace in ((signal.SIGTERM, STEP_STOP_GRACE_SECONDS),
-                       (signal.SIGKILL, STEP_STOP_GRACE_SECONDS)):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
         except ProcessLookupError:
@@ -394,28 +493,19 @@ def _stop_step_group(process: subprocess.Popen[str]) -> tuple[str, str, str | No
         except OSError as error:
             errors.append(f"cannot signal step group: {error}")
         try:
-            drained_output, drained_error = process.communicate(timeout=grace)
-            output = drained_output or output
-            error_output = drained_error or error_output
-        except subprocess.TimeoutExpired as error:
-            output = _step_output(error.stdout) or output
-            error_output = _step_output(error.stderr) or error_output
+            pipes.drain(time.monotonic() + STEP_STOP_GRACE_SECONDS)
         except OSError as error:
             errors.append(f"cannot drain step output: {error}")
-        if sig == signal.SIGKILL:
-            break
+        # macOS refuses killpg with EPERM while the group leader is an unreaped zombie.
+        process.poll()
     if process.poll() is None:
         try:
             process.wait(timeout=STEP_STOP_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
             errors.append("step parent did not exit")
-    undrained = [pipe for pipe in (process.stdout, process.stderr)
-                 if pipe is not None and not pipe.closed]
-    for pipe in undrained:
-        pipe.close()
-    if undrained:
+    if pipes.abandon():
         errors.append("step output did not drain")
-    return output, error_output, "; ".join(errors) or None
+    return "; ".join(errors) or None
 
 
 def _run_posix_step(
@@ -423,6 +513,7 @@ def _run_posix_step(
 ) -> tuple[str, str, int | None, str | None, str, str | None]:
     previous = {}
     process = None
+    pipes = None
     pending_signal = None
 
     def cancel_step(signum, frame):
@@ -440,31 +531,91 @@ def _run_posix_step(
     try:
         try:
             process = subprocess.Popen(
-                command, cwd=repo_root, env=env, text=True, encoding="utf-8",
+                command, cwd=repo_root, env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
             )
         except OSError as error:
             return "", "", None, f"cannot execute step: {error}", "launch_error", None
+        pipes = _PosixPipes(process)
         if pending_signal is not None:
             raise SystemExit(128 + pending_signal)
         deadline = time.monotonic() + timeout_seconds
-        stdout, stderr = process.communicate(timeout=max(0, deadline - time.monotonic()))
-        return stdout, stderr, process.returncode, None, "exited", None
+        if not pipes.drain(deadline):
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+        process.wait(timeout=max(0, deadline - time.monotonic()))
+        return *pipes.text(), process.returncode, None, "exited", None
     except subprocess.TimeoutExpired:
-        stdout, stderr, cleanup_error = _stop_step_group(process)
+        cleanup_error = _stop_step_group(process, pipes)
         reason = f"timeout after {timeout_seconds} seconds"
         if cleanup_error:
             reason += f"; cleanup failed: {cleanup_error}"
-        return stdout, stderr, None, reason, "timeout", cleanup_error
+        return *pipes.text(), None, reason, "timeout", cleanup_error
     except BaseException:
-        if process is not None:
-            _, _, cleanup_error = _stop_step_group(process)
+        if process is not None and pipes is not None:
+            cleanup_error = _stop_step_group(process, pipes)
             if cleanup_error:
                 raise RuntimeError(f"step cleanup failed: {cleanup_error}")
         raise
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+
+
+def _stop_windows_tree(process: subprocess.Popen[bytes], pipes: _ThreadedPipes) -> str | None:
+    errors: list[str] = []
+    system_root = os.environ.get("SYSTEMROOT") or r"C:\Windows"
+    taskkill = Path(system_root) / "System32" / "taskkill.exe"
+    try:
+        stopped = subprocess.run(
+            [str(taskkill), "/T", "/F", "/PID", str(process.pid)],
+            cwd=system_root, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False, timeout=WINDOWS_TASKKILL_TIMEOUT_SECONDS,
+        )
+    except OSError as error:
+        errors.append(f"cannot run taskkill ({error}); stopped only the step process")
+    except subprocess.TimeoutExpired:
+        errors.append("taskkill did not finish; stopped only the step process")
+    else:
+        if stopped.returncode not in (0, WINDOWS_TASKKILL_NOT_FOUND):
+            errors.append(f"taskkill exited {stopped.returncode}; stopped only the step process")
+    if errors:
+        try:
+            process.kill()
+        except OSError as error:
+            errors.append(f"cannot stop step process: {error}")
+    if not pipes.drain(time.monotonic() + STEP_STOP_GRACE_SECONDS):
+        # Closing a pipe blocks while its reader thread waits on a descendant that still holds it.
+        errors.append("step output did not drain")
+    return "; ".join(errors) or None
+
+
+def _run_windows_step(
+    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
+) -> tuple[str, str, int | None, str | None, str, str | None]:
+    try:
+        process = subprocess.Popen(
+            command, cwd=repo_root, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=WINDOWS_NEW_PROCESS_GROUP,
+        )
+    except OSError as error:
+        return "", "", None, f"cannot execute step: {error}", "launch_error", None
+    pipes = _ThreadedPipes(process)
+    try:
+        deadline = time.monotonic() + timeout_seconds
+        if not pipes.drain(deadline):
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+        process.wait(timeout=max(0, deadline - time.monotonic()))
+        return *pipes.text(), process.returncode, None, "exited", None
+    except subprocess.TimeoutExpired:
+        cleanup_error = _stop_windows_tree(process, pipes)
+        reason = f"timeout after {timeout_seconds} seconds"
+        if cleanup_error:
+            reason += f"; cleanup failed: {cleanup_error}"
+        return *pipes.text(), None, reason, "timeout", cleanup_error
+    except BaseException:
+        _stop_windows_tree(process, pipes)
+        raise
 
 
 def case_report_command(command: list[str], sidecar: Path) -> list[str] | None:
@@ -507,107 +658,126 @@ def run_steps(
     require_capabilities: bool,
     required_capabilities: frozenset[str],
     case_report: bool = False,
+    progress: Callable[[RunResult], None] | None = None,
 ) -> RunResult:
-    passed = skipped = failed = 0
     platform = current_platform()
     step_results: list[StepResult] = []
-    with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
-        env = isolated_environment(repo_root, Path(temp_dir))
-        lookup_path = os.environ.get("PATH", os.defpath)
-        capability_cache: dict[str, tuple[str | None, str | None]] = {}
-        for step in steps:
-            if platform not in step.platforms:
-                reason = f"requires platform {', '.join(step.platforms)}"
-                print(f"SKIP {step.step_id}: {reason}")
-                skipped += 1
-                step_results.append(StepResult(step, "skip", reason, None, "skipped_platform"))
-                continue
-            missing: list[tuple[str, str]] = []
-            for name in step.requires:
-                if name not in capability_cache:
-                    capability_cache[name] = capability_reason(
-                        registry.capabilities[name],
-                        env=env,
-                        repo_root=repo_root,
-                        lookup_path=lookup_path,
-                    )
-                reason, _ = capability_cache[name]
-                if reason:
-                    missing.append((name, reason))
-            if missing:
-                should_fail = require_capabilities or any(
-                    name in required_capabilities for name, _ in missing
-                )
-                status = "FAIL" if should_fail else "SKIP"
-                reason = "; ".join(message for _, message in missing)
-                print(f"{status} {step.step_id}: {reason}")
-                if should_fail:
-                    failed += 1
-                    step_results.append(StepResult(step, "fail", reason, None, "missing_capability"))
-                else:
-                    skipped += 1
-                    step_results.append(StepResult(step, "skip", reason, None, "skipped_capability"))
-                continue
+    current = -1
 
-            command = _expanded_argv(step, repo_root)
-            step_env = env
-            bd_path = capability_cache["bd"][1] if "bd" in step.requires else None
-            if step.step_id == "beads-isolated-worktree" and bd_path:
-                step_env = {**env, "DOTFILES_TEST_BD": bd_path}
-            sidecar = Path(temp_dir) / "case-reports" / f"{step.step_id}.json" if case_report else None
-            adapted = case_report_command(command, sidecar) if sidecar else None
-            if adapted is not None:
-                command = adapted
-            print(f"RUN  {step.step_id}")
-            started = time.perf_counter()
-            if os.name == "nt":
-                result = subprocess.run(
-                    command, cwd=repo_root, env=step_env, check=False,
-                    text=True, encoding="utf-8",
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                )
-                stdout, stderr, returncode, failure_reason, kind, cleanup_error = (
-                    result.stdout, result.stderr, result.returncode, None, "exited", None
-                )
-            else:
-                stdout, stderr, returncode, failure_reason, kind, cleanup_error = _run_posix_step(
+    def record(result: StepResult) -> None:
+        step_results.append(result)
+        if progress is not None:
+            progress(RunResult(platform, tuple(step_results), state="running"))
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
+            env = isolated_environment(repo_root, Path(temp_dir))
+            lookup_path = os.environ.get("PATH", os.defpath)
+            capability_cache: dict[str, tuple[str | None, str | None]] = {}
+            for index, step in enumerate(steps):
+                current = index
+                if platform not in step.platforms:
+                    reason = f"requires platform {', '.join(step.platforms)}"
+                    print(f"SKIP {step.step_id}: {reason}")
+                    record(StepResult(step, "skip", reason, None, "skipped_platform"))
+                    continue
+                missing: list[tuple[str, str]] = []
+                for name in step.requires:
+                    if name not in capability_cache:
+                        capability_cache[name] = capability_reason(
+                            registry.capabilities[name],
+                            env=env,
+                            repo_root=repo_root,
+                            lookup_path=lookup_path,
+                        )
+                    reason, _ = capability_cache[name]
+                    if reason:
+                        missing.append((name, reason))
+                if missing:
+                    should_fail = require_capabilities or any(
+                        name in required_capabilities for name, _ in missing
+                    )
+                    status = "FAIL" if should_fail else "SKIP"
+                    reason = "; ".join(message for _, message in missing)
+                    print(f"{status} {step.step_id}: {reason}")
+                    if should_fail:
+                        record(StepResult(step, "fail", reason, None, "missing_capability"))
+                    else:
+                        record(StepResult(step, "skip", reason, None, "skipped_capability"))
+                    continue
+
+                command = _expanded_argv(step, repo_root)
+                step_env = env
+                bd_path = capability_cache["bd"][1] if "bd" in step.requires else None
+                if step.step_id == "beads-isolated-worktree" and bd_path:
+                    step_env = {**env, "DOTFILES_TEST_BD": bd_path}
+                sidecar = Path(temp_dir) / "case-reports" / f"{step.step_id}.json" if case_report else None
+                adapted = case_report_command(command, sidecar) if sidecar else None
+                if adapted is not None:
+                    command = adapted
+                print(f"RUN  {step.step_id}")
+                started = time.perf_counter()
+                launch = _run_windows_step if IS_WINDOWS else _run_posix_step
+                stdout, stderr, returncode, failure_reason, kind, cleanup_error = launch(
                     command, repo_root=repo_root, env=step_env,
                     timeout_seconds=step.timeout_seconds,
                 )
-            duration = round(time.perf_counter() - started, 3)
-            signal_number = -returncode if returncode is not None and returncode < 0 else None
-            termination = {
-                "kind": "signal" if signal_number else kind,
-                "exit_code": returncode,
-                "signal": signal_number,
-                "cleanup_error": cleanup_error,
-            }
-            cases = None
-            if sidecar:
-                cases = read_case_report(sidecar) if adapted else {"status": "unsupported-argv"}
-            if stdout:
-                print(stdout, end="" if stdout.endswith("\n") else "\n")
-            if stderr:
-                print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-            if returncode == 0 and failure_reason is None:
-                print(f"PASS {step.step_id}")
-                passed += 1
-                step_results.append(StepResult(step, "pass", None, 0, "passed", duration, termination, cases))
+                duration = round(time.perf_counter() - started, 3)
+                signal_number = -returncode if returncode is not None and returncode < 0 else None
+                termination = {
+                    "kind": "signal" if signal_number else kind,
+                    "exit_code": returncode,
+                    "signal": signal_number,
+                    "cleanup_error": cleanup_error,
+                }
+                cases = None
+                if sidecar:
+                    cases = read_case_report(sidecar) if adapted else {"status": "unsupported-argv"}
+                if stdout:
+                    print(stdout, end="" if stdout.endswith("\n") else "\n")
+                if stderr:
+                    print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+                if returncode == 0 and failure_reason is None:
+                    print(f"PASS {step.step_id}")
+                    record(StepResult(step, "pass", None, 0, "passed", duration, termination, cases))
+                else:
+                    reason = failure_reason or f"exit {returncode}"
+                    outcome = {"launch_error": "launch_error", "timeout": "timeout"}.get(kind, "failed")
+                    windows_crash = (IS_WINDOWS and returncode is not None
+                                     and returncode >= WINDOWS_NTSTATUS_ERROR)
+                    if signal_number or windows_crash:
+                        outcome = "crash"
+                    print(f"FAIL {step.step_id}: {reason}")
+                    record(StepResult(step, "fail", reason, returncode, outcome, duration, termination, cases))
+    except BaseException as error:
+        if progress is not None:
+            interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
+            if isinstance(error, SystemExit):
+                exit_code = error.code if isinstance(error.code, int) else int(error.code is not None)
             else:
-                reason = failure_reason or f"exit {returncode}"
-                outcome = {"launch_error": "launch_error", "timeout": "timeout"}.get(kind, "failed")
-                if signal_number:
-                    outcome = "crash"
-                print(f"FAIL {step.step_id}: {reason}")
-                failed += 1
-                step_results.append(
-                    StepResult(step, "fail", reason, returncode, outcome, duration, termination, cases)
-                )
-    print(f"SUMMARY pass={passed} skip={skipped} fail={failed}")
+                exit_code = 130 if isinstance(error, KeyboardInterrupt) else 1
+            partial = list(step_results)
+            remaining = list(steps[len(step_results):])
+            if current == len(step_results):
+                reason = "interrupted" if interrupted else f"runner crashed: {type(error).__name__}"
+                partial.append(StepResult(remaining.pop(0), "fail", reason, None, "interrupted"))
+            partial.extend(
+                StepResult(step, "skip", "not run: the run stopped early", None, "not_run")
+                for step in remaining
+            )
+            progress(RunResult(
+                platform, tuple(partial),
+                state="interrupted" if interrupted else "crashed",
+                forced_exit_code=exit_code,
+            ))
+        raise
+    totals = {status: sum(result.status == status for result in step_results)
+              for status in ("pass", "skip", "fail")}
+    print(f"SUMMARY pass={totals['pass']} skip={totals['skip']} fail={totals['fail']}")
     return RunResult(platform, tuple(step_results))
 
 
-def run_context(repo_root: Path, suite: str) -> dict[str, object]:
+def run_context(repo_root: Path, suite: str, steps: tuple[Step, ...]) -> dict[str, object]:
     def git(*args: str) -> str | None:
         try:
             completed = subprocess.run(
@@ -629,6 +799,7 @@ def run_context(repo_root: Path, suite: str) -> dict[str, object]:
             "version": python_platform.python_version(),
         },
         "suite": suite,
+        "selected_steps": [step.step_id for step in steps],
     }
 
 
@@ -662,8 +833,10 @@ def write_report(
     }
     if context is not None:
         payload["schema_version"] = 2
-        payload["state"] = "complete"
+        payload["state"] = result.state
         payload["context"] = context
+        if result.state == "running":
+            payload["exit_code"] = None
         for entry, step_result in zip(payload["steps"], result.steps):
             entry.update({
                 "outcome": step_result.outcome,
@@ -682,7 +855,14 @@ def write_report(
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        for delay in (0.05, 0.2, 0.5, None):
+            try:
+                os.replace(temporary, destination)
+                break
+            except PermissionError:
+                if delay is None or not IS_WINDOWS:
+                    raise
+                time.sleep(delay)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -752,6 +932,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{step.step_id}\t{','.join(step.suites)}\t{' '.join(_expanded_argv(step, repo_root))}")
         print(f"Selected steps: {len(steps)}")
         return 0
+    report_path = args.report_file
+    if report_path and not report_path.is_absolute():
+        report_path = repo_root / report_path
+    context = run_context(repo_root, args.suite, steps) if args.case_report else None
+    progress = None
+    if context is not None:
+        def progress(partial: RunResult) -> None:
+            try:
+                write_report(report_path, args.suite, partial, context=context)
+            except OSError as error:
+                print(f"WARNING: cannot update report {report_path}: {error}", file=sys.stderr)
+
     result = run_steps(
         registry,
         steps,
@@ -759,18 +951,11 @@ def main(argv: list[str] | None = None) -> int:
         require_capabilities=args.require_capabilities,
         required_capabilities=frozenset(args.require_capability),
         case_report=args.case_report,
+        progress=progress,
     )
-    if args.report_file:
-        report_path = args.report_file
-        if not report_path.is_absolute():
-            report_path = repo_root / report_path
+    if report_path:
         try:
-            write_report(
-                report_path,
-                args.suite,
-                result,
-                context=run_context(repo_root, args.suite) if args.case_report else None,
-            )
+            write_report(report_path, args.suite, result, context=context)
         except OSError as error:
             print(f"ERROR: cannot write report {report_path}: {error}", file=sys.stderr)
             return 2

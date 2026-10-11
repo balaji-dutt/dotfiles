@@ -376,7 +376,10 @@ class RunnerCaseReportTests(unittest.TestCase):
         payload = json.loads(self.report.read_text(encoding="utf-8"))
         self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["state"], "complete")
-        self.assertEqual(set(payload["context"]), {"dirty", "platform", "python", "revision", "suite"})
+        self.assertEqual(set(payload["context"]),
+                         {"dirty", "platform", "python", "revision", "selected_steps", "suite"})
+        self.assertEqual(payload["context"]["selected_steps"],
+                         ["bad", "good", "other-platform", "plain", "skipped", "vanish"])
         self.assertEqual(payload["context"]["platform"], payload["platform"])
         self.assertEqual(payload["context"]["suite"], "fast")
         self.assertEqual(payload["totals"], {"fail": 1, "pass": 4, "skip": 1})

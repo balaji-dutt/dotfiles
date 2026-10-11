@@ -88,13 +88,24 @@ unreadable sidecar is recorded but never changes a step's status.
 
 The report becomes `schema_version` 2. It keeps every version 1 field and adds:
 
-- `state`: `complete` (the runner writes the report once, after the last step).
+- `state`: `running`, `complete`, `interrupted` or `crashed`. The runner
+  rewrites the report atomically after every step, so a run in progress shows
+  `running` with its finished steps and a null `exit_code`. If the run is
+  interrupted (`SIGINT`, `SIGTERM`, `SIGHUP`, Ctrl+C) or the runner itself
+  raises, the last write marks the step in progress `interrupted`, the steps
+  after it `not_run`, and records the exit code the runner is leaving with
+  (128 plus the signal number, `130` for Ctrl+C, `1` for a runner crash). A
+  runner killed outright (`SIGKILL`, power loss) cannot write that final
+  report, so a file still at `running` means the run ended without a summary.
 - `context`: Git `revision` and `dirty` (tracked files only), `platform`,
-  Python `implementation` and `version`, and the `suite`.
+  Python `implementation` and `version`, the `suite`, and the
+  `selected_steps` in run order.
 - per step, `outcome`, one of `passed`, `failed`, `skipped_platform`,
   `skipped_capability`, `missing_capability`, `timeout`, `launch_error`,
-  `crash`, `interrupted` or `not_run`. The last two are reserved for
-  incomplete runs and are not produced yet.
+  `crash`, `interrupted` or `not_run`. On Windows, `crash` means an exit code
+  at or above `0xC0000000` (an NTSTATUS error such as an access violation).
+  `interrupted` steps have status `fail`, and `not_run` steps have status
+  `skip`.
 - per step, `duration_seconds` and `termination` (`kind`, `exit_code`,
   `signal`, `cleanup_error`); `kind` is `exited`, `timeout`, `launch_error` or
   `signal`. Steps that never started (platform or capability skips and
@@ -135,7 +146,7 @@ in `assets/run-tests.py` (`case_report_command`, `read_case_report`,
 The registry is `configs/test-suites.json`. Every step has a stable `id`, one or
 more `suites`, an argv array, and one or more `covers` paths. Optional
 `platforms` and `requires` fields declare when the step can run. An optional
-positive integer `timeout_seconds` sets the step's POSIX time limit (default:
+positive integer `timeout_seconds` sets the step's time limit (default:
 600 seconds). Commands are argv arrays, not shell strings; only `{python}` and
 `{repo}` placeholders are supported. Steps are sorted by ID, duplicate IDs are
 rejected, and `all` runs the resulting unique registry entries.
@@ -280,7 +291,30 @@ code in the final report, then continues to the next step. The registered live
 devcontainer step has a 1200-second step limit, distinct from the live-smoke
 command timeout above. Descendants that leave the step's process group are not
 covered by group signalling; undrained output is reported as a cleanup failure.
-Native Windows step execution does not yet enforce this limit.
+
+On Windows, each step starts in a new process group and gets the same
+`timeout_seconds` limit. On timeout or interruption the runner runs
+`%SYSTEMROOT%\System32\taskkill.exe /T /F /PID <step pid>` by absolute path,
+which ends the step and every descendant still linked to it by parent process
+ID. It never kills by process name. A descendant whose parent already exited is
+no longer linked, so `taskkill` cannot reach it. The runner then reports
+`step output did not drain` as a cleanup failure and moves on without closing
+the pipes, because closing them would wait for that descendant. Output read
+before the stall is still printed. If `taskkill` is missing, fails or does not
+finish within 10 seconds, the runner stops only the step process and records
+that as a cleanup failure. The `runner-windows-interop` step runs this path for
+real under Windows Python on a WSL2 host. It requires the
+`windows-python-interop` capability, which probes `py.exe -3`. A native Windows
+checkout is not yet verified.
+
+The runner reads each step's stdout and stderr as they arrive and keeps only the
+last 1 MiB of each, so a step that floods its output cannot exhaust the
+runner's memory. When it drops output, the printed stream starts with a line
+saying how many bytes it omitted.
+
+Version 1 reports are still written once, after the last step. An interrupted
+run without `--case-report` leaves no report, because a partial version 1
+file would look like a finished run that selected fewer steps.
 
 The runner prepends fail-closed `bd` and `dolt` commands. An accidental call
 therefore cannot reach this checkout's real Beads database. Tests that need
