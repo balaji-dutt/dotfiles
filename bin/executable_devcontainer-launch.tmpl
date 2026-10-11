@@ -832,6 +832,14 @@ run_picker() {
   PICKED_KEY="${PICK_KEYS[PICK_INDEX]}"
 }
 
+print_rebuild_notice() {
+  printf '%s\n' \
+    "devcontainer-launch: Rebuild succeeded. The CLI does not refresh VS Code's configuration baseline." \
+    'devcontainer-launch: If VS Code reopens this rebuilt container and warns that configuration changed,' \
+    'devcontainer-launch: choose Ignore only if its configuration/build inputs have not changed since this rebuild.' \
+    "devcontainer-launch: Ignore refreshes VS Code's baseline without rebuilding; later changes can still prompt." >&2 || :
+}
+
 main() {
   local platform action requested resolved mode existing
 
@@ -931,11 +939,13 @@ main() {
       ;;
     rebuild)
       prepare_devcontainer_action "$platform"
-      exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --skip-post-attach --remove-existing-container
+      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --skip-post-attach --remove-existing-container || return $?
+      print_rebuild_notice
       ;;
     rebuild-no-cache)
       prepare_devcontainer_action "$platform"
-      exec "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --skip-post-attach --remove-existing-container --build-no-cache
+      "${DEVCONTAINER_CMD[@]}" up "${devcontainer_args[@]}" --skip-post-attach --remove-existing-container --build-no-cache || return $?
+      print_rebuild_notice
       ;;
     stop)
       if [[ -n "$SELECTED_ID" && "$SELECTED_STATE" == "running" ]]; then
