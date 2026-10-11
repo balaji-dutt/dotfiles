@@ -274,6 +274,7 @@
           {"id": "failure-plannotator-publication", "kind": "failure", "description": "Stop Plannotator amendments and pushes after sync/config failure, missing tokens, or unexpected tracked changes; accept a no-diff result without a token.", "status": "covered", "test_paths": ["tests/test_renovate_ci_amend.py"]},
           {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, non-ancestor or octopus history, invalid-policy, and missing guarded tracking states; batch tips require their own successful CI evidence.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
           {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select the exact linear or batch tip, or the feature parent of a single no-ff merge directly based on advertised main; preserve the pre-push contract and block guarded local-ahead rebases even with an override.", "status": "covered", "test_paths": ["tests/test_gitlab_pipeline_guard.py"]},
+          {"id": "safety-pinned-ci-runtimes", "kind": "safety", "description": "Install pinned Node and chezmoi downloads only after strict SHA-256 verification, retaining the Linux fast lane's required-capability gate.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
           {"id": "safety-plannotator-check-dispatch", "kind": "safety", "description": "Keep MR and standalone dependency push pipelines read-only even with a token, and stop on failed checks without staging or publishing.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py", "tests/test_renovate_ci_amend.py"]},
           {"id": "safety-renovate-amend-lease", "kind": "safety", "description": "Keep Renovate amendment pushes behind branch, change, and token guards with a scoped staging set and an explicit source SHA lease.", "status": "covered", "test_paths": ["tests/test_renovate_ci_amend.py"]},
           {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered", "test_paths": ["tests/test_gitlab_ci.py"]},
@@ -772,8 +773,15 @@
         "suite_id": "peer-env",
         "status": "covered",
         "work_item": "dots-egir",
-        "test_paths": ["tests/test_peer_env.py"],
+        "test_paths": ["tests/test_peer_env.py", "tests/test_test_runner.py"],
         "behavior_requirements": [
+          {
+            "id": "failure-lifecycle-deadline-and-cancellation",
+            "kind": "failure",
+            "description": "Use one aggregate execution deadline, stop owned children on cooperative cancellation, clean preparation failures, and report incomplete cleanup without masking the primary failure or retrying validation.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py", "tests/test_test_runner.py"]
+          },
           {
             "id": "failure-refuse-malformed-request",
             "kind": "failure",
@@ -817,16 +825,23 @@
             "test_paths": ["tests/test_peer_env.py"]
           },
           {
+            "id": "safety-server-capability-required",
+            "kind": "safety",
+            "description": "Refuse servers lacking the atomic lifecycle capability before publishing; retain legacy server verbs for old clients.",
+            "status": "covered",
+            "test_paths": ["tests/test_peer_env.py"]
+          },
+          {
             "id": "safety-writes-confined-to-worktree-and-state",
             "kind": "safety",
-            "description": "Confine serve's own writes to worktrees/peer-env-<slug>, the peer-env refs, and the state directory, clean strays without deleting ignored audit logs, and release everything on clean; the entrypoints run from the snapshot and are not confined.",
+            "description": "Confine helper writes to unique detached worktrees, peer-env refs, and private state. Remove only canonical registered owned worktrees with matching SHAs under locks, preserving busy and unrelated worktrees and ordinary branches; entrypoints run from the snapshot and are not confined.",
             "status": "covered",
             "test_paths": ["tests/test_peer_env.py"]
           },
           {
             "id": "success-audit-and-test-run-in-peer-worktree",
             "kind": "success",
-            "description": "Publish the snapshot, prepare or reuse the peer worktree, run cz-audit or run-tests there, stream output, and propagate the remote exit code and ERROR: lines.",
+            "description": "Publish the snapshot, run cz-audit or run-tests in a unique disposable worktree, stream output, propagate remote exits and ERROR: lines, archive bounded private logs, and clean on success or failure unless explicitly retained.",
             "status": "covered",
             "test_paths": ["tests/test_peer_env.py"]
           },
@@ -965,7 +980,7 @@
         "test_paths": ["tests/test_test_fixtures.py", "tests/test_test_runner.py"],
         "behavior_requirements": []
       },
-      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, and POSIX step timeout/process-group teardown. Native Windows retains its unsupervised execution branch."
+      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, and POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP. Native Windows retains its unsupervised execution branch."
     },
     {
       "id": "user-utilities",
@@ -1093,6 +1108,30 @@
         ]
       },
       "rationale": "Fixture tests cover bootstrap decisions, failure boundaries, quoting, rerun stability, rendered Ansible dispatch, and real isolated Ansible command-task failure diagnostics. The pinned uv tool installation gate still needs a synthetic Ansible task test on a WSL2-capable runner. Full provisioning, idempotence, and disposable WSL2 host isolation remain unverified and planned under a reviewable platform-smoke waiver."
+    },
+    {
+      "id": "wsl2-pageant",
+      "classification": "owned",
+      "paths": ["bin/executable_wsl2-pageant.py.tmpl"],
+      "owner": {"kind": "repository", "name": "bounded WSL2 Pageant relay recovery"},
+      "languages": ["python"],
+      "platforms": ["wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "process"],
+      "test_layers": ["contract", "integration", "platform-smoke", "render", "unit"],
+      "coverage": {
+        "suite_id": "wsl2-pageant",
+        "status": "partial",
+        "work_item": "dots-acum",
+        "test_paths": ["tests/test_peer_env.py", "tests/test_shell_startup.py", "tests/test_wsl2_pageant.py"],
+        "behavior_requirements": [
+          {"id": "failure-bounded-repair", "kind": "failure", "description": "Bound hung health checks, missing tools, lock contention, and one failed restart without retries or installation.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
+          {"id": "safety-owned-relay-only", "kind": "safety", "description": "Reject symlinked, foreign, ambiguous, or PID-reused state and preserve other platforms, containers, agents, and healthy empty agents.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
+          {"id": "success-live-pageant-ipc", "kind": "success", "description": "Confirm bounded recovery against the real WSL2 socat/npiperelay/Pageant IPC chain in separately authorized isolated runtime state.", "status": "planned", "test_paths": []},
+          {"id": "success-shared-relay-dispatch", "kind": "success", "description": "Use the shared helper for shell startup, sset, and client preflight, with private records and rechecked health under a lock.", "status": "covered", "test_paths": ["tests/test_peer_env.py", "tests/test_shell_startup.py", "tests/test_wsl2_pageant.py"]}
+        ]
+      },
+      "rationale": "Disposable sockets, synthetic process records, mocked restart ownership, and rendered shell fixtures cover the helper contract without touching the developer relay. Live Windows named-pipe IPC remains unverified; the existing shell-startup WSL2 waiver is unchanged."
     }
   ]
 }

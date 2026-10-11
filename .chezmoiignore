@@ -76,6 +76,10 @@ bin/code
 bin/wsl-open
 {{ end }}
 
+{{ if not (and $isWSL2 (not $isDevcontainer) (get (get . "homelab" | default dict) "windows_user" | default "") (get (get . "homelab" | default dict) "npiperelay_path" | default "")) }}
+bin/wsl2-pageant.py
+{{ end }}
+
 {{/* Devcontainer helpers should exist ONLY on macOS or Debian WSL2 */}}
 {{ if not $isDevcontainerHost }}
 bin/devcontainer-launch

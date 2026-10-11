@@ -251,6 +251,31 @@ class GitLabCiContractTests(unittest.TestCase):
         self.assertLess(setup.index("sha256sum "), setup.index("tar -xJf "))
         self.assertLess(setup.index("tar -xJf "), setup.index("node --version"))
 
+    def test_linux_fast_verifies_pinned_chezmoi_before_installation(self) -> None:
+        block = top_level_block(self.text, "linux-fast")
+        setup = block.split("  before_script:\n", 1)[1].split("  script:\n", 1)[0]
+        self.assertIn("      set -eu\n", setup)
+        self.assertIn('test "$(uname -m)" = x86_64', setup)
+        download = re.search(
+            r"curl --fail --silent --show-error --location --retry 2 "
+            r"--connect-timeout 10 --max-time 60 "
+            r"https://github\.com/twpayne/chezmoi/releases/download/"
+            r"v\d+\.\d+\.\d+/chezmoi-linux-amd64 -o /tmp/chezmoi",
+            setup,
+        )
+        self.assertIsNotNone(download)
+        checksum = re.search(
+            r"printf '%s\\n' '[0-9a-f]{64}  /tmp/chezmoi' "
+            r"\| sha256sum --check --strict",
+            setup,
+        )
+        self.assertIsNotNone(checksum)
+        installation = "install -m 0755 /tmp/chezmoi /usr/local/bin/chezmoi"
+        self.assertIn(installation, setup)
+        self.assertLess(download.start(), checksum.start())
+        self.assertLess(checksum.start(), setup.index(installation))
+        self.assertLess(setup.index(installation), setup.index("chezmoi --version"))
+
     def test_linux_fast_installs_jq_before_attestation_tests(self) -> None:
         block = top_level_block(self.text, "linux-fast")
         setup = block.split("  before_script:\n", 1)[1].split("  script:\n", 1)[0]

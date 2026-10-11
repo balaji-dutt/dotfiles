@@ -254,6 +254,20 @@ worktree on the peer. Full contract: `docs/tooling/peer-environments.md`.
 Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
 `cd ... &&` prefixes fall outside the permission allow rules.
 
+- Runs remove their owned detached worktree and namespace ref on success and
+  failure, preserving private diagnostics separately. `--keep-worktree` is
+  for explicit debugging; `--rm` remains a cleanup alias. Report incomplete
+  cleanup; do not delete a retained worktree whose child shutdown is unverified.
+- Give the terminal tool at least `1500000` ms (25 minutes) for one peer with
+  the default 900-second execution budget. For `n` peers and execution budget
+  `T` seconds, allow at least `(180 + n * (T + 420)) * 1000` ms. If the harness
+  cannot provide that budget, use its supported background mechanism or
+  report the limitation before launching. A terminal's 120-second limit is
+  not a peer execution timeout; do not rerun validation to compensate for it.
+- Before probing, the helper may repair the selected local WSL2 Pageant relay
+  once within 15 seconds, without sourcing shell rc files or retrying audits
+  or tests. `--no-agent-repair` disables that restart. Agents must not invoke
+  `sset`, restart other agents, or retry authentication themselves.
 - `cz-audit` ends each check of any path outside the exemptions below with
   `INFO: peer-env:` lines on stderr. Each line is either a command to run or
   a statement to copy into the final response. Whenever a line says
@@ -279,10 +293,11 @@ Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
   change and rerun. 2 the client or peer refused (invalid path,
   secret-looking untracked file, config): rerun with `--tracked-only` or
   correct the path; never delete the listed files or edit the config.
-  3 nothing ran; report the statement. 75 another session holds the peer
-  worktree; run the command once more after your own earlier `peer-env`
+  3 nothing ran; report the statement. 75 another session holds the peer's
+  per-run slug lock; run the command once more after your own earlier `peer-env`
   command has finished, and if it exits 75 again report
-  `not verified on <platform>: peer busy`. 124 report
+  `not verified on <platform>: peer busy`. 124 means a helper phase or the
+  whole audit batch/test suite exhausted its budget; report
   `not verified on <platform>: peer timed out` and do not raise `--timeout`.
 - If no `INFO: peer-env:` line appeared for a platform-sensitive change and
   `./assets/peer-env probe` exits 2, report

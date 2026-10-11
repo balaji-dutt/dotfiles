@@ -264,7 +264,12 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.assert_stopped(child_pid)
 
     def test_interruption_stops_the_step_group(self) -> None:
-        pid_file = self.fixture_pid("interrupt.pid")
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signum):
+                self.check_interruption(signum)
+
+    def check_interruption(self, signum: int) -> None:
+        pid_file = self.fixture_pid(f"interrupt-{signum}.pid")
         self.fixture.write_script("pass.py", "import os, pathlib, time\n"
                                   f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
                                   "time.sleep(30)\n")
@@ -278,7 +283,7 @@ class RunnerSupervisionTests(unittest.TestCase):
                 while not pid_file.exists() and time.monotonic() < deadline:
                     time.sleep(0.05)
                 self.assertTrue(pid_file.exists(), "step did not start")
-                os.kill(runner.pid, signal.SIGINT)
+                os.kill(runner.pid, signum)
                 runner.wait(timeout=6)
                 self.assertNotEqual(runner.returncode, 0)
                 self.assert_stopped(pid_file)

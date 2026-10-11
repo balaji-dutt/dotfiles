@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -412,15 +413,33 @@ def _stop_step_group(process: subprocess.Popen[str]) -> tuple[str, str, str | No
 def _run_posix_step(
     command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
 ) -> tuple[str, str, int | None, str | None]:
+    previous = {}
+    process = None
+    pending_signal = None
+
+    def cancel_step(signum, frame):
+        nonlocal pending_signal
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        if process is None:
+            pending_signal = signum
+        else:
+            raise SystemExit(128 + signum)
+
+    if threading.current_thread() is threading.main_thread():
+        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            previous[sig] = signal.signal(sig, cancel_step)
     try:
-        process = subprocess.Popen(
-            command, cwd=repo_root, env=env, text=True, encoding="utf-8",
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
-        )
-    except OSError as error:
-        return "", "", None, f"cannot execute step: {error}"
-    deadline = time.monotonic() + timeout_seconds
-    try:
+        try:
+            process = subprocess.Popen(
+                command, cwd=repo_root, env=env, text=True, encoding="utf-8",
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+            )
+        except OSError as error:
+            return "", "", None, f"cannot execute step: {error}"
+        if pending_signal is not None:
+            raise SystemExit(128 + pending_signal)
+        deadline = time.monotonic() + timeout_seconds
         stdout, stderr = process.communicate(timeout=max(0, deadline - time.monotonic()))
         return stdout, stderr, process.returncode, None
     except subprocess.TimeoutExpired:
@@ -430,10 +449,14 @@ def _run_posix_step(
             reason += f"; cleanup failed: {cleanup_error}"
         return stdout, stderr, None, reason
     except BaseException:
-        _, _, cleanup_error = _stop_step_group(process)
-        if cleanup_error:
-            raise RuntimeError(f"step cleanup failed: {cleanup_error}")
+        if process is not None:
+            _, _, cleanup_error = _stop_step_group(process)
+            if cleanup_error:
+                raise RuntimeError(f"step cleanup failed: {cleanup_error}")
         raise
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def run_steps(
