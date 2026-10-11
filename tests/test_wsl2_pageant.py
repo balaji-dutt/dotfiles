@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -31,10 +32,12 @@ class PageantTests(unittest.TestCase):
         context = isolated_environment(prefix="pageant-test-")
         self.iso = context.__enter__()
         self.addCleanup(context.__exit__, None, None, None)
-        self.env = {**self.iso.env, "HOME": str(self.iso.home.resolve())}
         sockets = tempfile.TemporaryDirectory(prefix="pg-", dir=Path("/tmp").resolve())
         self.addCleanup(sockets.cleanup)
         self.socket_path = Path(sockets.name) / "agent.sock"
+        self.env = {**self.iso.env, "HOME": str(self.iso.home.resolve()),
+                    "SSH_AUTH_SOCK": str(self.socket_path),
+                    "WSL2_PAGEANT_SSH_AUTH_SOCK": str(self.socket_path)}
         self.executable = write_executable(self.iso.fake_bin / "npiperelay.exe", "#!/bin/sh\nexit 0\n")
         write_executable(self.iso.fake_bin / "socat", "#!/bin/sh\nexit 0\n")
         self.add = self.iso.fake_bin / "ssh-add"
@@ -100,6 +103,209 @@ class PageantTests(unittest.TestCase):
         with self.assertRaisesRegex(self.module.Refused, "symlinked directory"):
             self.relay.ensure(False)
 
+    def test_owned_legacy_socket_directory_is_hardened_without_restart(self) -> None:
+        self.bind()
+        write_executable(self.add, "#!/bin/sh\nexit 1\n")
+        for mode in (0o775, 0o777):
+            with self.subTest(mode=oct(mode)):
+                self.socket_path.parent.chmod(mode)
+                self.assertTrue(self.relay.ensure(False))
+                self.assertEqual(self.socket_path.parent.stat().st_mode & 0o777, 0o700)
+                self.assertFalse(self.relay.repaired)
+                self.assertFalse(self.relay.record_path.exists())
+
+    def test_directory_adoption_refuses_foreign_owners_and_symlinks(self) -> None:
+        self.socket_path.parent.chmod(0o775)
+        self.addCleanup(self.socket_path.parent.chmod, 0o700)
+        with mock.patch.object(self.module.os, "getuid", return_value=os.getuid() + 1), \
+             mock.patch.object(self.module.os, "fchmod") as chmod:
+            with self.assertRaisesRegex(self.module.Refused, "uid.*mode"):
+                self.module.secure_directory(self.socket_path.parent, repair_permissions=True)
+            chmod.assert_not_called()
+        link = self.iso.root / "socket-directory"
+        link.symlink_to(self.socket_path.parent, target_is_directory=True)
+        with self.assertRaisesRegex(self.module.Refused, "symlinked directory"):
+            self.module.secure_directory(link, repair_permissions=True)
+        self.assertEqual(self.socket_path.parent.stat().st_mode & 0o777, 0o775)
+
+    def test_directory_identity_change_during_hardening_is_refused(self) -> None:
+        self.socket_path.parent.chmod(0o775)
+        original_lstat = self.module.Path.lstat
+        real_chmod = self.module.os.fchmod
+        secured = False
+
+        def chmod(descriptor: int, mode: int) -> None:
+            nonlocal secured
+            real_chmod(descriptor, mode)
+            secured = True
+
+        def lstat(directory: Path):
+            info = original_lstat(directory)
+            if directory == self.socket_path.parent and secured:
+                return types.SimpleNamespace(st_ino=info.st_ino + 1, st_dev=info.st_dev)
+            return info
+
+        with mock.patch.object(self.module.os, "fchmod", side_effect=chmod), \
+             mock.patch.object(self.module.Path, "lstat", autospec=True, side_effect=lstat):
+            with self.assertRaisesRegex(self.module.Refused, "directory changed"):
+                self.module.secure_directory(self.socket_path.parent, repair_permissions=True)
+
+    def test_hardening_does_not_trust_a_foreign_socket_in_legacy_directory(self) -> None:
+        self.bind()
+        self.socket_path.parent.chmod(0o777)
+        original_lstat = self.module.Path.lstat
+
+        def lstat(file_path: Path):
+            info = original_lstat(file_path)
+            if file_path == self.socket_path:
+                return types.SimpleNamespace(st_mode=info.st_mode, st_uid=os.getuid() + 1)
+            return info
+
+        with mock.patch.object(self.module.Path, "lstat", autospec=True, side_effect=lstat), \
+             mock.patch.object(self.module.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(self.module.Refused, "unsafe socket ownership"):
+                self.relay.ensure(False)
+            spawn.assert_not_called()
+        self.assertTrue(self.socket_path.exists())
+        self.assertEqual(self.socket_path.parent.stat().st_mode & 0o777, 0o700)
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux socket diagnostics required")
+    def test_listener_uses_current_socket_inode_not_duplicate_pathnames(self) -> None:
+        previous = self.bind()
+        previous.listen()
+        self.socket_path.unlink()
+        current = self.bind()
+        current.listen()
+        record = self.record(pid=os.getpid())
+        with mock.patch.object(self.relay, "identity", return_value=record) as identity:
+            self.assertEqual(self.relay.listener(), record)
+            identity.assert_called_once_with(os.getpid())
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux socket diagnostics required")
+    def test_unlinked_listener_is_not_the_selected_socket(self) -> None:
+        previous = self.bind()
+        previous.listen()
+        self.socket_path.unlink()
+        with mock.patch.object(self.relay, "identity") as identity:
+            self.assertIsNone(self.relay.listener())
+            identity.assert_not_called()
+
+    def test_unmatched_live_socket_is_refused_instead_of_unlinked(self) -> None:
+        listener = self.bind()
+        listener.listen()
+        with mock.patch.object(self.module, "unix_listener_inodes", return_value=set()), \
+             mock.patch.object(self.relay, "identity") as identity:
+            with self.assertRaisesRegex(self.module.Refused, "unidentified live listener"):
+                self.relay.listener()
+            identity.assert_not_called()
+        self.assertTrue(self.socket_path.exists())
+
+    def test_bound_non_listening_socket_is_identified_as_stale(self) -> None:
+        self.bind()
+        with mock.patch.object(self.module, "unix_listener_inodes", return_value=set()), \
+             mock.patch.object(self.relay, "identity") as identity:
+            self.assertIsNone(self.relay.listener())
+            identity.assert_not_called()
+        self.assertTrue(self.socket_path.exists())
+
+    def diag_message(self, kind: int, payload: bytes = b"", flags: int = 0) -> bytes:
+        return struct.pack("=IHHII", 16 + len(payload), kind, flags, 1, 0) + payload
+
+    def diag_listener(self, inode: int, filesystem_inode: int, device: int) -> bytes:
+        payload = struct.pack("=BBBBIII", socket.AF_UNIX, socket.SOCK_STREAM, 10, 0, inode, 0, 0)
+        payload += struct.pack("=HHII", 12, 1, filesystem_inode, device)
+        return self.diag_message(20, payload)
+
+    def diagnose(self, responses: list[tuple], deadline: float | None = None) -> set[int]:
+        info = types.SimpleNamespace(st_ino=123, st_dev=os.makedev(1, 2))
+        transport = mock.MagicMock()
+        transport.__enter__.return_value = transport
+        transport.recvmsg.side_effect = responses
+        with mock.patch.object(self.module.socket, "AF_NETLINK", 16, create=True), \
+             mock.patch.object(self.module.socket, "socket", return_value=transport):
+            return self.module.unix_listener_inodes(info, deadline or self.relay.deadline)
+
+    def test_diagnostics_distinguish_same_inode_on_other_distro_devices(self) -> None:
+        info = types.SimpleNamespace(st_ino=123, st_dev=os.makedev(1, 2))
+        kernel_device = (os.major(info.st_dev) << 20) | os.minor(info.st_dev)
+        data = (self.diag_listener(111, info.st_ino, kernel_device + 1)
+                + self.diag_listener(222, info.st_ino, kernel_device)
+                + self.diag_message(3, struct.pack("=i", 0)))
+        self.assertEqual(self.diagnose([(data, [], 0, (0, 0))]), {222})
+
+    def test_incomplete_untrusted_or_failed_diagnostics_are_refused(self) -> None:
+        cases = [
+            (self.diag_message(3, flags=0x10), 0, (0, 0), self.module.Refused),
+            (self.diag_message(2, struct.pack("=i", -1)), 0, (0, 0), OSError),
+            (self.diag_message(2), 0, (0, 0), self.module.Refused),
+            (self.diag_message(3), socket.MSG_TRUNC, (0, 0), self.module.Refused),
+            (self.diag_message(3), 0, (1, 0), self.module.Refused),
+            (b"short", 0, (0, 0), self.module.Refused),
+            (self.diag_message(20, b"short"), 0, (0, 0), self.module.Refused),
+        ]
+        for data, flags, sender, exception in cases:
+            with self.subTest(data=data, flags=flags, sender=sender):
+                with self.assertRaises(exception):
+                    self.diagnose([(data, [], flags, sender)])
+        with self.assertRaisesRegex(self.module.Refused, "budget"):
+            self.diagnose([], time.monotonic() - 1)
+
+    def test_diagnostic_timeout_is_a_clean_main_failure_without_restart(self) -> None:
+        self.bind()
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+             mock.patch.object(self.module, "eligible", return_value=True), \
+             mock.patch.object(self.module, "RELAY", str(self.executable)), \
+             mock.patch.object(self.module, "unix_listener_inodes", side_effect=TimeoutError("diagnostic timeout")), \
+             mock.patch.object(self.module.subprocess, "Popen") as spawn, contextlib.redirect_stdout(output):
+            self.assertEqual(self.module.main(["--reset", "--json"]), 1)
+            spawn.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())["detail"], "diagnostic timeout")
+        self.assertEqual(json.loads(output.getvalue())["socket"], str(self.socket_path))
+
+    def test_unrepresentable_diagnostic_identity_is_refused(self) -> None:
+        for inode, major, minor in ((1 << 32, 0, 0), (1, 0x1000, 1), (1, 1, 0x100000)):
+            info = types.SimpleNamespace(st_ino=inode, st_dev=0)
+            with self.subTest(inode=inode, major=major, minor=minor), \
+                 mock.patch.object(self.module.os, "major", return_value=major), \
+                 mock.patch.object(self.module.os, "minor", return_value=minor), \
+                 self.assertRaisesRegex(self.module.Refused, "identity range"):
+                self.module.unix_listener_inodes(info, self.relay.deadline)
+
+    def fake_proc(self, pid: int, *, accessible: bool) -> mock.MagicMock:
+        proc = mock.MagicMock()
+        proc.name = str(pid)
+        proc.stat.return_value = types.SimpleNamespace(st_uid=os.getuid())
+        if accessible:
+            proc.__truediv__.return_value.iterdir.return_value = ["owned-fd"]
+        else:
+            proc.__truediv__.return_value.iterdir.side_effect = PermissionError("unrelated protected process")
+        return proc
+
+    def test_unrelated_inaccessible_process_does_not_block_verified_listener(self) -> None:
+        self.bind()
+        record = self.record()
+        processes = [self.fake_proc(1, accessible=False), self.fake_proc(record["pid"], accessible=True)]
+        with mock.patch.object(self.module, "unix_listener_inodes", return_value={333}), \
+             mock.patch.object(self.module.Path, "iterdir", return_value=processes), \
+             mock.patch.object(self.module.os, "readlink", return_value="socket:[333]"), \
+             mock.patch.object(self.relay, "identity", return_value=record) as identity:
+            self.assertEqual(self.relay.listener(), record)
+            identity.assert_called_once_with(record["pid"])
+
+    def test_unknown_or_multiple_visible_socket_owners_remain_refused(self) -> None:
+        self.bind()
+        for processes in ([self.fake_proc(1, accessible=False)],
+                          [self.fake_proc(2, accessible=True), self.fake_proc(3, accessible=True)]):
+            with self.subTest(owners=len(processes)), \
+                 mock.patch.object(self.module, "unix_listener_inodes", return_value={333}), \
+                 mock.patch.object(self.module.Path, "iterdir", return_value=processes), \
+                 mock.patch.object(self.module.os, "readlink", return_value="socket:[333]"), \
+                 mock.patch.object(self.relay, "identity") as identity:
+                with self.assertRaisesRegex(self.module.Refused, "unique socket listener"):
+                    self.relay.listener()
+                identity.assert_not_called()
+
     def test_foreign_socket_is_refused(self) -> None:
         self.bind()
         with mock.patch.object(self.module.os, "getuid", return_value=os.getuid() + 1):
@@ -125,6 +331,42 @@ class PageantTests(unittest.TestCase):
             with self.assertRaisesRegex(self.module.Refused, "ownership changed"):
                 self.relay.stop(self.record())
             send.assert_not_called()
+
+    def proc_identity(self, argv: list[str]) -> dict | None:
+        proc_root = self.iso.root / "proc"
+        proc = proc_root / "12345"
+        proc.mkdir(parents=True, exist_ok=True)
+        (proc / "stat").write_text("12345 (socat) " + " ".join(["S", *["0"] * 18, "10"]))
+        (proc / "cmdline").write_bytes("\0".join(argv).encode() + b"\0")
+        if not (proc / "exe").exists():
+            (proc / "exe").symlink_to(self.relay.socat)
+        with mock.patch.object(self.module, "Path", side_effect=lambda value: proc_root if value == "/proc" else Path(value)):
+            return self.relay.identity(12345)
+
+    def test_legacy_exec_quoting_and_private_socket_mode_are_adoptable(self) -> None:
+        for executable in (str(self.executable), f'"{self.executable}"', f"'{self.executable}'"):
+            for options in ("unlink-close,fork", "unlink-close,fork,mode=600"):
+                with self.subTest(executable=executable, options=options):
+                    argv = ["socat", f"EXEC:{executable} -ei -s {self.module.PIPE}",
+                            f"UNIX-LISTEN:{self.socket_path},{options}"]
+                    self.assertEqual(self.proc_identity(argv), {**self.record(), "argv": argv})
+        self.relay.executable = self.iso.root / "Windows User" / "npiperelay.exe"
+        self.assertIsNotNone(self.proc_identity(self.relay.command()))
+
+    def test_legacy_adoption_does_not_allow_extra_execution_or_listen_options(self) -> None:
+        command = self.relay.command()
+        unsafe = [
+            [command[0], command[1] + " extra", command[2]],
+            [command[0], command[1].replace(" -ei", " -evil"), command[2]],
+            [command[0], command[1].replace(self.module.PIPE, "//./pipe/another"), command[2]],
+            [command[0], "EXEC:/other/npiperelay.exe -ei -s " + self.module.PIPE, command[2]],
+            [command[0], command[1], command[2] + ",user=nobody"],
+            [command[0], command[1], command[2].replace("mode=600", "mode=666")],
+            [command[0], command[1], command[2].replace(str(self.socket_path), "/other/socket")],
+        ]
+        for argv in unsafe:
+            with self.subTest(argv=argv), self.assertRaisesRegex(self.module.Refused, "different socket/relay"):
+                self.proc_identity(argv)
 
     def test_prior_boot_record_does_not_trust_or_inspect_reused_pid(self) -> None:
         self.module.secure_directory(self.relay.state)

@@ -560,6 +560,7 @@ class RepoOpsTests(unittest.TestCase):
 
     def run_real_tmuxp_detached_load_and_repeat_attach(self):
         with isolated_environment(prefix="repo-ops-live-") as fixture, tmux_environment(fixture) as env:
+            env["TERM"] = "xterm-256color"
             theme = fixture.home / ".config/tmux/repo-ops.conf"
             theme.parent.mkdir(parents=True)
             theme.write_text((ROOT / "private_dot_config/tmux/repo-ops.conf").read_text())

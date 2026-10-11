@@ -197,11 +197,26 @@ a healthy agent). `--no-agent-repair` disables the restart. Neither client nor
 server sources shell rc files; incoming `serve` and `config` do not repair.
 
 Repair is serialized with a private lock and rechecks health after acquiring
-it. Only a same-user socat listener with the exact socket/relay arguments is
-stopped, using a verified PID/start time and Linux pidfd. Prior-boot PID records
-are ignored; same-boot PID reuse, foreign ownership, symlinks, or ambiguous
-listeners are refused without broad `pkill`. The helper does not start Windows
-Pageant, load keys, change trust/configuration, or retry remote validation.
+it. An owned legacy socket directory with group/world write permission (such
+as 0775 or 0777) is secured to 0700 under that lock; foreign-owned directories
+and symlinks remain refused. New relays create the socket with `mode=600`.
+
+Linux socket diagnostics match the selected socket's filesystem device and
+inode, not just its pathname. Identically named sockets in other WSL distros
+and unlinked listeners do not select another relay. Only a unique visible
+same-user socat listener with the exact socket/relay arguments is stopped,
+using a verified PID/start time and Linux pidfd. Legacy plain, single-quoted,
+or double-quoted relay paths and the listen form with or without `mode=600`
+are accepted; other arguments are refused.
+
+Prior-boot PID records are ignored; same-boot PID reuse, foreign ownership,
+symlinks, or ambiguous listeners are refused without broad `pkill`. Failed or
+incomplete diagnostics also refuse recovery. An unmatched live socket reports
+`socket has an unidentified live listener; refusing recovery`; inspect its
+ownership, configured relay path, and Linux diagnostic visibility rather than
+deleting the socket or killing another distro's relay to bypass the refusal.
+The helper does not start Windows Pageant, load keys, change trust/configuration,
+or retry remote validation.
 
 ## Commands
 

@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import json
 import os
 import shlex
 import shutil
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import time
@@ -20,6 +23,13 @@ RELAY = {{ printf "/mnt/c/Users/%s/%s" (get (get . "homelab" | default dict) "wi
 SOCKET = "/tmp/wsl2-ssh-agent/ssh-agent.sock"
 PIPE = "//./pipe/ssh-pageant"
 BUDGET = 15
+NETLINK_SOCK_DIAG = 4
+SOCK_DIAG_BY_FAMILY = 20
+NLMSG_ERROR = 2
+NLMSG_DONE = 3
+NLM_F_DUMP_INTR = 0x10
+UNIX_DIAG_VFS = 1
+TCP_LISTEN = 10
 
 
 class Refused(Exception):
@@ -32,15 +42,92 @@ def eligible(env: dict[str, str]) -> bool:
             and not Path("/.dockerenv").exists() and not Path("/run/.containerenv").exists())
 
 
-def secure_directory(directory: Path) -> None:
+def secure_directory(directory: Path, *, repair_permissions: bool = False) -> None:
     for parent in (directory, *directory.parents):
         if parent.is_symlink():
             raise Refused(f"symlinked directory: {parent}")
     directory.mkdir(parents=True, mode=0o700, exist_ok=True)
-    info = directory.stat()
-    if info.st_uid != os.getuid() or info.st_mode & 0o022:
-        raise Refused(f"unsafe directory ownership or permissions: {directory}")
-    directory.chmod(0o700)
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or (info.st_mode & 0o022 and not repair_permissions):
+            raise Refused(f"unsafe directory ownership or permissions: {directory} "
+                          f"(uid {info.st_uid}, mode {stat.S_IMODE(info.st_mode):04o})")
+        os.fchmod(descriptor, 0o700)
+        current = directory.lstat()
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise Refused(f"directory changed while securing it: {directory}")
+    finally:
+        os.close(descriptor)
+
+
+def unix_listener_inodes(info, deadline: float) -> set[int]:
+    if info.st_ino > 0xffffffff:
+        raise Refused("socket filesystem inode exceeds Linux diagnostic identity range")
+    major, minor = os.major(info.st_dev), os.minor(info.st_dev)
+    if major > 0xfff or minor > 0xfffff:
+        raise Refused("socket device exceeds Linux diagnostic identity range")
+    kernel_device = (major << 20) | minor
+    request = struct.pack("=BBHIIIII", socket.AF_UNIX, 0, 0, 1 << TCP_LISTEN, 0, 2,
+                          0xffffffff, 0xffffffff)
+    header = struct.pack("=IHHII", 16 + len(request), SOCK_DIAG_BY_FAMILY, 0x301, 1, 0)
+    matches = set()
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_SOCK_DIAG) as diagnostic:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise Refused("socket diagnostics exceeded the relay operation budget")
+        diagnostic.settimeout(min(2, remaining))
+        diagnostic.bind((0, 0))
+        diagnostic.sendto(header + request, (0, 0))
+        for _ in range(128):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise Refused("socket diagnostics exceeded the relay operation budget")
+            diagnostic.settimeout(min(2, remaining))
+            data, _, message_flags, sender = diagnostic.recvmsg(65536)
+            if message_flags & socket.MSG_TRUNC or sender[0] != 0:
+                raise Refused("unverifiable socket diagnostic response")
+            offset = 0
+            while offset < len(data):
+                if len(data) - offset < 16:
+                    raise Refused("truncated socket diagnostic header")
+                length, kind, flags, sequence, _ = struct.unpack_from("=IHHII", data, offset)
+                if length < 16 or offset + length > len(data) or sequence != 1:
+                    raise Refused("invalid socket diagnostic message")
+                if flags & NLM_F_DUMP_INTR:
+                    raise Refused("socket diagnostic snapshot was interrupted")
+                payload = data[offset + 16:offset + length]
+                offset += (length + 3) & ~3
+                if kind in (NLMSG_ERROR, NLMSG_DONE):
+                    if kind == NLMSG_ERROR or payload:
+                        if len(payload) < 4:
+                            raise Refused("truncated socket diagnostic status")
+                        code = struct.unpack_from("=i", payload)[0]
+                        if code:
+                            raise OSError(abs(code), os.strerror(abs(code)))
+                    if kind == NLMSG_DONE:
+                        return matches
+                    continue
+                if kind != SOCK_DIAG_BY_FAMILY or len(payload) < 16:
+                    raise Refused("unexpected socket diagnostic response")
+                family, _, state, _, inode, _, _ = struct.unpack_from("=BBBBIII", payload)
+                if family != socket.AF_UNIX or state != TCP_LISTEN:
+                    raise Refused("unexpected socket diagnostic family or state")
+                attribute = 16
+                while attribute < len(payload):
+                    if len(payload) - attribute < 4:
+                        raise Refused("truncated socket diagnostic attribute")
+                    size, name = struct.unpack_from("=HH", payload, attribute)
+                    if size < 4 or attribute + size > len(payload):
+                        raise Refused("invalid socket diagnostic attribute")
+                    if name == UNIX_DIAG_VFS:
+                        if size != 12:
+                            raise Refused("invalid socket filesystem identity")
+                        vfs_inode, device = struct.unpack_from("=II", payload, attribute + 4)
+                        if (vfs_inode, device) == (info.st_ino, kernel_device):
+                            matches.add(inode)
+                    attribute += (size + 3) & ~3
+        raise Refused("socket diagnostic response exceeded its bounded scan")
 
 
 class Relay:
@@ -98,11 +185,11 @@ class Relay:
                 pass
             process.wait(timeout=min(1, self.remaining()))
 
-    def command(self, legacy: bool = False) -> list[str]:
+    def command(self) -> list[str]:
         assert self.socat
-        executable = str(self.executable) if legacy else shlex.quote(str(self.executable))
+        executable = shlex.quote(str(self.executable))
         return [self.socat, f"EXEC:{executable} -ei -s {PIPE}",
-                f"UNIX-LISTEN:{self.socket},unlink-close,fork"]
+                f"UNIX-LISTEN:{self.socket},unlink-close,fork,mode=600"]
 
     def identity(self, pid: int) -> dict | None:
         self.remaining()
@@ -118,22 +205,38 @@ class Relay:
             return None
         if info.st_uid != os.getuid() or not self.socat or binary != Path(self.socat).resolve():
             raise Refused(f"relay PID {pid} is not the configured same-user socat")
-        expected = self.command()
-        legacy = self.command(legacy=True)
-        if len(argv) != 3 or argv[0] not in (self.socat, "socat") or argv[1:] not in (expected[1:], legacy[1:]):
+        if len(argv) != 3 or argv[0] not in (self.socat, "socat") or not argv[1].startswith("EXEC:"):
+            raise Refused(f"relay PID {pid} has different socket/relay arguments")
+        try:
+            execution = shlex.split(argv[1][5:])
+        except ValueError as error:
+            raise Refused(f"relay PID {pid} has invalid execution arguments") from error
+        listen = self.command()[2]
+        if (execution != [str(self.executable), "-ei", "-s", PIPE]
+                or argv[2] not in (listen, listen.removesuffix(",mode=600"))):
             raise Refused(f"relay PID {pid} has different socket/relay arguments")
         return {"pid": pid, "start": fields[19], "socket": str(self.socket), "argv": argv, "boot": self.boot}
 
     def listener(self) -> dict | None:
         self.remaining()
-        matches = [fields for line in Path("/proc/net/unix").read_text().splitlines()
-                   if len(fields := line.split()) == 8 and fields[7] == str(self.socket)
-                   and fields[3] == "00010000"]
+        info = self.socket_info()
+        if info is None:
+            return None
+        matches = unix_listener_inodes(info, self.deadline)
         if not matches:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(min(0.5, self.remaining()))
+                try:
+                    connection.connect(str(self.socket))
+                except OSError as error:
+                    if error.errno != errno.ECONNREFUSED:
+                        raise
+                else:
+                    raise Refused("socket has an unidentified live listener; refusing recovery")
             return None
         if len(matches) != 1:
             raise Refused("ambiguous socket listeners")
-        inode = f"socket:[{matches[0][6]}]"
+        inode = f"socket:[{next(iter(matches))}]"
         owners = []
         for proc in Path("/proc").iterdir():
             self.remaining()
@@ -144,12 +247,13 @@ class Relay:
                     continue
                 if any(os.readlink(fd) == inode for fd in (proc / "fd").iterdir()):
                     owners.append(int(proc.name))
-            except FileNotFoundError:
+            except (FileNotFoundError, PermissionError):
                 continue
-            except PermissionError as error:
-                raise Refused("cannot establish socket listener ownership") from error
         if len(owners) != 1:
             raise Refused("cannot establish a unique socket listener")
+        current = self.socket_info()
+        if current is None or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise Refused("socket generation changed during listener discovery")
         return self.identity(owners[0])
 
     def recorded(self) -> dict | None:
@@ -204,14 +308,19 @@ class Relay:
             time.sleep(0.05)
 
     def ensure(self, reset: bool) -> bool:
-        if not reset and self.healthy():
+        try:
+            directory = self.socket.parent.lstat()
+        except FileNotFoundError:
+            directory = None
+        needs_hardening = (directory is not None and stat.S_ISDIR(directory.st_mode)
+                           and directory.st_uid == os.getuid() and directory.st_mode & 0o022)
+        if not reset and not needs_hardening and self.healthy():
             return True
         if not self.socat or not os.access(self.executable, os.X_OK):
             raise Refused("socat or the configured npiperelay executable is missing")
         if not self.socket.is_absolute() or any(character in str(self.socket) for character in ",\n\r\t "):
             raise Refused("relay socket must be an absolute path without whitespace or commas")
         secure_directory(self.state)
-        secure_directory(self.socket.parent)
         descriptor = os.open(self.state / "lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, "w") as lock:
             while True:
@@ -221,6 +330,7 @@ class Relay:
                     break
                 except BlockingIOError:
                     time.sleep(0.05)
+            secure_directory(self.socket.parent, repair_permissions=True)
             if not reset and self.healthy():
                 return True
             original = self.socket_info()

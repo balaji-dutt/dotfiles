@@ -1125,13 +1125,14 @@
         "work_item": "dots-acum",
         "test_paths": ["tests/test_peer_env.py", "tests/test_shell_startup.py", "tests/test_wsl2_pageant.py"],
         "behavior_requirements": [
-          {"id": "failure-bounded-repair", "kind": "failure", "description": "Bound hung health checks, missing tools, lock contention, and one failed restart without retries or installation.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
-          {"id": "safety-owned-relay-only", "kind": "safety", "description": "Reject symlinked, foreign, ambiguous, or PID-reused state and preserve other platforms, containers, agents, and healthy empty agents.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
+          {"id": "failure-bounded-repair", "kind": "failure", "description": "Bound hung health checks, failed or incomplete Linux socket diagnostics, missing tools, lock contention, and one failed restart without retries or installation.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
+          {"id": "safety-owned-relay-only", "kind": "safety", "description": "Require a unique visible same-user listener with exact normalized relay arguments, reject symlinked, foreign, ambiguous, unidentified-live, or PID-reused state, and preserve other platforms, containers, agents, and healthy empty agents.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
+          {"id": "success-legacy-directory-and-local-listener", "kind": "success", "description": "Harden only an owned legacy socket directory and identify its listener by filesystem device/inode despite duplicate pathnames from other distros or unlinked sockets.", "status": "covered", "test_paths": ["tests/test_wsl2_pageant.py"]},
           {"id": "success-live-pageant-ipc", "kind": "success", "description": "Confirm bounded recovery against the real WSL2 socat/npiperelay/Pageant IPC chain in separately authorized isolated runtime state.", "status": "planned", "test_paths": []},
           {"id": "success-shared-relay-dispatch", "kind": "success", "description": "Use the shared helper for shell startup, sset, and client preflight, with private records and rechecked health under a lock.", "status": "covered", "test_paths": ["tests/test_peer_env.py", "tests/test_shell_startup.py", "tests/test_wsl2_pageant.py"]}
         ]
       },
-      "rationale": "Disposable sockets, synthetic process records, mocked restart ownership, and rendered shell fixtures cover the helper contract without touching the developer relay. Live Windows named-pipe IPC remains unverified; the existing shell-startup WSL2 waiver is unchanged."
+      "rationale": "Disposable sockets, real Linux socket diagnostics, synthetic cross-device responses and process records, mocked restart ownership, and rendered shell fixtures cover the helper contract without touching the developer relay. Live Windows named-pipe IPC remains unverified; the existing shell-startup WSL2 waiver is unchanged."
     }
   ]
 }
