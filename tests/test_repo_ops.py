@@ -28,6 +28,31 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "bin/executable_repo-ops"
 
 
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def stop_tmux_server(socket_name, env):
+    panes = subprocess.run(["tmux", "-L", socket_name, "list-panes", "-a", "-F", "#{pane_pid}"],
+                           env=env, capture_output=True, text=True)
+    pane_pids = [int(pid) for pid in panes.stdout.split()] if panes.returncode == 0 else []
+    result = subprocess.run(["tmux", "-L", socket_name, "kill-server"], env=env,
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        # Hung-up pane shells can still write history into the fixture HOME after kill-server returns.
+        deadline = time.monotonic() + 5
+        for pid in pane_pids:
+            while pid_alive(pid):
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"tmux pane process {pid} outlived kill-server")
+                time.sleep(0.05)
+    return result
+
+
 @contextmanager
 def tmux_environment(fixture):
     with tempfile.TemporaryDirectory(prefix="ro-", dir="/tmp") as socket_dir:
@@ -36,8 +61,7 @@ def tmux_environment(fixture):
         try:
             yield env
         finally:
-            result = subprocess.run(["tmux", "-L", "repo-ops", "kill-server"], env=env,
-                                    capture_output=True, text=True)
+            result = stop_tmux_server("repo-ops", env)
             socket = Path(socket_dir) / f"tmux-{os.getuid()}" / "repo-ops"
             missing_server = (result.stderr.startswith("no server running on ") or
                               (result.stderr.endswith("(No such file or directory)\n") and
@@ -416,7 +440,7 @@ class RepoOpsTests(unittest.TestCase):
                                            "#{@repo_ops_command}").stdout.strip(), "")
                     os.write(master, b"\x03")
             finally:
-                other("kill-server")
+                stop_tmux_server("other", env)
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_command_prompt_and_confirmation_at_terminal_widths(self):
