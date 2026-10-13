@@ -61,6 +61,7 @@ PUBLISH_TIMEOUT = 120
 PREPARE_TIMEOUT = 60
 CLEANUP_TIMEOUT = 60
 STOP_GRACE = 10
+PROBE_MARGIN = 10
 TRANSPORT_MARGIN = 30
 DIAGNOSTIC_LIMIT = 20 * 1024 * 1024
 DIAGNOSTIC_RUNS = 20
@@ -620,7 +621,7 @@ def probe_peer(
         peer,
         [PROTOCOL, "identity"],
         environ,
-        timeout=timeout + 10,
+        timeout=timeout + PROBE_MARGIN,
         connect_timeout=timeout,
     )
     return classify(peer, result, timed_out, time.monotonic() - started, timeout)

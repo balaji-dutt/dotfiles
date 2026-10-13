@@ -221,6 +221,16 @@ Claude review gate (~34s), GitLab pipeline guard (~25s), Claude token check
 (~17s), inventory (~12s), and remind-Beads hook (~9s). This is not the six-selector
 sample below, a hosted CI measurement, or evidence that cases may safely be cut.
 
+Current status (2026-10-13): three `fast --case-report` runs on WSL2 (CPython
+3.14.8) put the sum of step medians at 113 seconds. Two test waits shrank:
+the GitLab pipeline guard's fake API now stops in 0.04 seconds instead of 0.5
+(15.6 to 5.8 seconds per run), and the peer-env hung-probe bound is checked
+in-process with a one-second `PROBE_MARGIN` (27.5 to 18.9 seconds). The median
+sum is now 95 seconds, with the same cases and skips apart from that peer-env
+test, which is now two tests. The remaining slow cases wait on real bounds
+(tmux status redraws, step and health timeouts), run the Node contract suite,
+or build a fresh repository per test, and stay.
+
 The runner uses one sandbox per invocation, buffers output, has no per-step
 `subprocess.run` timeout, and writes its atomic report only after all steps
 finish (`assets/run-tests.py:373–478`). An unhandled launch error or hung child
@@ -229,10 +239,14 @@ though none was observed in the sample. Add bounded steps, owned process-tree
 cleanup on each OS, partial/incomplete-run reporting, and per-step homes unless
 sharing is intentional. Test the failure paths before considering parallelism.
 
-Current status (2026-10-10): POSIX steps now have a default 600-second limit,
+Current status (2026-10-13): POSIX steps have a default 600-second limit,
 per-step overrides, process-group termination, and bounded output draining.
-Native Windows step supervision and partial reports for interrupted runs remain
-open; the paragraph above describes the original assessment baseline.
+Windows steps start in their own process group, and a timeout stops the owned
+PID tree with `taskkill /T /F`; that path is exercised through WSL2 interop,
+not yet on a native Windows checkout. Each stream keeps its last 1 MiB. Under
+`--case-report` the v2 report is rewritten after every step and marks
+interrupted, crashed, and not-run steps; the default v1 report is still written
+only at the end. The paragraph above describes the original assessment baseline.
 
 Platform routing also has concrete mismatches: WSL-gated
 `WindowsShellSmokeTests` in `tests/test_windows_shell.py:87` is selected through

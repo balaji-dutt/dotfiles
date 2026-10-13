@@ -835,7 +835,26 @@ class ProbeTests(unittest.TestCase):
 
         self.assertEqual(fixture.run("audit", "me", "tracked.txt").returncode, 2)
 
-    def test_all_unreachable_exits_3_and_hang_is_bounded(self) -> None:
+    def test_all_unreachable_exits_3(self) -> None:
+        fixture = PeerFixture(
+            self,
+            {
+                "alpha": {"mode": "fail", "platform": OTHER_PLATFORMS[0], "stderr": "Connection refused\n"},
+                "beta": {"mode": "fail", "platform": OTHER_PLATFORMS[1], "stderr": "Operation timed out\n"},
+            },
+        )
+        result = fixture.run("probe", "--json", "--connect-timeout", "1")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["peers"]["alpha"]["status"], "unreachable")
+        self.assertEqual(payload["peers"]["beta"]["status"], "unreachable")
+        self.assertEqual(payload["peers"]["beta"]["detail"], "Operation timed out")
+        calls = fixture.ssh_calls()
+        self.assertEqual(sorted(call["host"] for call in calls), ["alpha-host", "beta-host"])
+        for call in calls:
+            self.assertIn("ConnectTimeout=1", call["argv"])
+
+    def test_hung_probe_is_killed_at_connect_timeout_plus_margin(self) -> None:
         fixture = PeerFixture(
             self,
             {
@@ -843,15 +862,16 @@ class ProbeTests(unittest.TestCase):
                 "beta": {"mode": "hang", "platform": OTHER_PLATFORMS[1], "seconds": 20},
             },
         )
-        started = time.monotonic()
-        result = fixture.run("probe", "--json", "--connect-timeout", "1")
-        elapsed = time.monotonic() - started
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertLess(elapsed, 15)
-        payload = json.loads(result.stdout)
-        self.assertEqual(payload["peers"]["beta"]["status"], "unreachable")
-        self.assertIn("timeout after 1s", payload["peers"]["beta"]["detail"])
-        self.assertEqual(payload["peers"]["alpha"]["status"], "unreachable")
+        peers = list(MODULE.load_config(fixture.env).peers.values())
+        with mock.patch.object(MODULE, "PROBE_MARGIN", 1):
+            started = time.monotonic()
+            results = MODULE.probe_all(peers, fixture.env, 1)
+            elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 8)
+        self.assertEqual(results["alpha"].status, "unreachable")
+        self.assertEqual(results["beta"].status, "unreachable")
+        self.assertEqual(results["beta"].detail, "timeout after 1s")
+        self.assertGreaterEqual(results["beta"].elapsed, 2)
 
     def test_identity_file_is_passed_through(self) -> None:
         fixture = PeerFixture(
