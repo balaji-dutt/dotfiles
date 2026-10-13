@@ -57,8 +57,10 @@ def source_check(root=ROOT):
     privacy = contents("private_dot_plannotator/modify_private_config.json")
     if 'set $config "share" "disabled"' not in privacy or 'set $config "jina" false' not in privacy:
         raise ValueError("host Plannotator privacy settings are missing")
+    if 'set $config "claudeCodeMod" false' not in privacy:
+        raise ValueError("host Plannotator Claude Code mod must be disabled")
     container_config = contents("private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl")
-    for key, value in (("PLANNOTATOR_SHARE", "disabled"), ("PLANNOTATOR_JINA", "false")):
+    for key, value in (("PLANNOTATOR_SHARE", "disabled"), ("PLANNOTATOR_JINA", "false"), ("PLANNOTATOR_CLAUDE_MOD", "0")):
         if f'"{key}": "{value}"' not in container_config:
             raise ValueError(f"container {key} must be {value}")
     return version
@@ -89,6 +91,10 @@ def runtime_check(version, home=Path.home()):
         raise ValueError("PLANNOTATOR_SHARE overrides disabled sharing")
     if os.environ.get("PLANNOTATOR_JINA", "false").lower() in ("true", "1"):
         raise ValueError("PLANNOTATOR_JINA overrides disabled Jina")
+    if config.get("claudeCodeMod") is not False:
+        raise ValueError("deployed Plannotator config does not disable the Claude Code mod")
+    if os.environ.get("PLANNOTATOR_CLAUDE_MOD", "").strip().lower() in ("1", "true", "on"):
+        raise ValueError("PLANNOTATOR_CLAUDE_MOD overrides the disabled Claude Code mod")
     claude = shutil.which("claude")
     if claude is None:
         raise ValueError("Claude Code is missing from PATH; installed plugin cannot be verified")

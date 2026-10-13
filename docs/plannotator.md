@@ -152,12 +152,22 @@ PowerShell and restart OpenCode after applying the change.
 
 Claude Code enables the Plannotator plugin through `~/.claude/settings.json`.
 
-Keep the plugin enabled. It ships hooks and nothing else — a `PreToolUse` hook on
+Keep the plugin enabled. Its `hooks/hooks.json` declares a `PreToolUse` hook on
 `EnterPlanMode` that runs `plannotator improve-context`, and a
-`PermissionRequest` hook on `ExitPlanMode` that runs `plannotator`. Both come
-from the plugin's own `hooks/hooks.json`, so this repo adds no `PermissionRequest`
-entry of its own; a duplicate in `settings.json` would launch `plannotator` twice
-per plan approval, with both instances contending for the same hook stdin.
+`PermissionRequest` hook on `ExitPlanMode` that runs `plannotator`. This repo
+adds no `PermissionRequest` entry of its own; a duplicate in `settings.json`
+would launch `plannotator` twice per plan approval, with both instances
+contending for the same hook stdin.
+
+From 0.28 the plugin also ships a Claude Code mod (a hooks module) that is on by
+default in interactive Claude Code 2.1.287 and later. The mod denies the first
+`ExitPlanMode` call, reviews without blocking, and returns the decision as a new
+prompt; it also takes over the `/plannotator-*` commands and registers a
+`plannotator` tool. This repo turns it off with `claudeCodeMod: false` in
+`~/.plannotator/config.json` and `PLANNOTATOR_CLAUDE_MOD=0` in the homelab
+container, so `ExitPlanMode` keeps the blocking `PermissionRequest` flow that
+`exitplan-freshness-guard.py` and the Beads plan-approval hook expect. The env
+var wins over the config key, and Claude Code reads both only at startup.
 
 The plugin does **not** supply the `/plannotator-*` slash commands. Those are
 vendored into this repo — see [Vendored slash commands](#vendored-slash-commands).
@@ -289,10 +299,12 @@ inherit the new environment. Restart OpenCode and Claude Code after updating
 their plugins; existing sessions retain their loaded configuration.
 
 Chezmoi's `~/.plannotator/config.json` modify-template manages only
-`share: "disabled"` and `jina: false`, preserving other Plannotator settings.
-Containers use `PLANNOTATOR_SHARE=disabled` and `PLANNOTATOR_JINA=false`.
-An inherited `PLANNOTATOR_SHARE` or `PLANNOTATOR_JINA` override can change
-effective behavior on the host, so check the runtime environment too. Sharing
+`share: "disabled"`, `jina: false` and `claudeCodeMod: false`, preserving
+other Plannotator settings. Containers use `PLANNOTATOR_SHARE=disabled`,
+`PLANNOTATOR_JINA=false` and `PLANNOTATOR_CLAUDE_MOD=0`. An inherited
+`PLANNOTATOR_SHARE`, `PLANNOTATOR_JINA` or `PLANNOTATOR_CLAUDE_MOD` override
+can change effective behavior on the host, so check the runtime environment
+too. The `--runtime` check rejects each of these overrides. Sharing
 disabled removes the sharing workflow; disabling Jina uses direct fetching
 instead of Jina's extraction. Neither setting is a network sandbox.
 

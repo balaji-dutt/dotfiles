@@ -22,6 +22,8 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 LOAD_JSON = runpy.run_path(str(ROOT / "assets/check-ai-tooling.py"))["load_json"]
 PIN_FILES = (".chezmoidata.yaml", MODULE.MANIFEST, MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE)
+HOST_PLANNOTATOR_CONFIG = "private_dot_plannotator/modify_private_config.json"
+CONTAINER_DEVCONTAINER = "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
 
 
 def matches_pattern(value, pattern):
@@ -103,18 +105,20 @@ class PlannotatorConfigTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_aligned_group(config)
 
+    def copy_source_fixture(self, root):
+        for relative in (
+            ".chezmoidata.yaml", MODULE.MANIFEST, MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE, MODULE.HOST,
+            MODULE.PROJECT, MODULE.CONTAINER, "private_dot_config/dotfiles/versions/plannotator.tmpl",
+            HOST_PLANNOTATOR_CONFIG, CONTAINER_DEVCONTAINER,
+        ):
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / relative).read_bytes())
+
     def test_mismatched_sentinel_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for relative in (
-                ".chezmoidata.yaml", MODULE.MANIFEST, MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE, MODULE.HOST,
-                MODULE.PROJECT, MODULE.CONTAINER, "private_dot_config/dotfiles/versions/plannotator.tmpl",
-                "private_dot_plannotator/modify_private_config.json",
-                "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
-            ):
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes((ROOT / relative).read_bytes())
+            self.copy_source_fixture(root)
             version = self.source_version()
             self.assertEqual(MODULE.source_check(root), version)
             sentinel = root / MODULE.MANIFEST
@@ -128,22 +132,57 @@ class PlannotatorConfigTests(unittest.TestCase):
     def test_container_claude_mirror_must_match(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for relative in (
-                ".chezmoidata.yaml", MODULE.MANIFEST, MODULE.CLAUDE, MODULE.CONTAINER_CLAUDE,
-                MODULE.HOST, MODULE.PROJECT, MODULE.CONTAINER,
-                "private_dot_config/dotfiles/versions/plannotator.tmpl",
-                "private_dot_plannotator/modify_private_config.json",
-                "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
-            ):
-                target = root / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes((ROOT / relative).read_bytes())
+            self.copy_source_fixture(root)
             mirror = root / MODULE.CONTAINER_CLAUDE
             settings = json.loads(mirror.read_text(encoding="utf-8"))
             settings["extraKnownMarketplaces"]["plannotator"]["source"]["ref"] = "v0.0.0"
             mirror.write_text(json.dumps(settings), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Claude marketplace tag must match CLI"):
                 MODULE.source_check(root)
+
+    def test_claude_code_mod_must_stay_disabled_in_source(self):
+        for relative, needle, message in (
+            (HOST_PLANNOTATOR_CONFIG, '{{- $_ := set $config "claudeCodeMod" false -}}\n',
+             "Claude Code mod must be disabled"),
+            (CONTAINER_DEVCONTAINER, '    "PLANNOTATOR_CLAUDE_MOD": "0",\n',
+             "container PLANNOTATOR_CLAUDE_MOD must be 0"),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.copy_source_fixture(root)
+                self.assertEqual(MODULE.source_check(root), self.source_version())
+                target = root / relative
+                original = target.read_text(encoding="utf-8")
+                self.assertIn(needle, original)
+                target.write_text(original.replace(needle, ""), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, message):
+                    MODULE.source_check(root)
+
+    def test_runtime_rejects_enabled_claude_code_mod(self):
+        version = self.source_version()
+        cli = subprocess.CompletedProcess(["plannotator", "--version"], 0, stdout=f"plannotator {version}\n", stderr="")
+        privacy = {"share": "disabled", "jina": False}
+        for config, env, message in (
+            (privacy, {}, "does not disable the Claude Code mod"),
+            ({**privacy, "claudeCodeMod": True}, {}, "does not disable the Claude Code mod"),
+            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": "1"}, "overrides the disabled"),
+            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": " On "}, "overrides the disabled"),
+            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": "0"}, "Claude Code is missing"),
+        ):
+            with self.subTest(config=config, env=env), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                pin = root / ".config/dotfiles/versions/plannotator"
+                pin.parent.mkdir(parents=True)
+                pin.write_text(version + "\n", encoding="utf-8")
+                deployed = root / ".plannotator/config.json"
+                deployed.parent.mkdir()
+                deployed.write_text(json.dumps(config), encoding="utf-8")
+                which = lambda name: "/fake/plannotator" if name == "plannotator" else None
+                with patch.dict("os.environ", {"PLANNOTATOR_PIN_VERSION": version, **env}, clear=True), \
+                        patch.object(MODULE.shutil, "which", side_effect=which), \
+                        patch.object(MODULE.subprocess, "run", return_value=cli):
+                    with self.assertRaisesRegex(ValueError, message):
+                        MODULE.runtime_check(version, root)
 
     def test_runtime_missing_pin_is_read_only(self):
         with tempfile.TemporaryDirectory() as temp:

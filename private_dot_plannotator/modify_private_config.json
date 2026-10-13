@@ -9,4 +9,5 @@
 {{- end -}}
 {{- $_ := set $config "share" "disabled" -}}
 {{- $_ := set $config "jina" false -}}
+{{- $_ := set $config "claudeCodeMod" false -}}
 {{ $config | toPrettyJson }}
