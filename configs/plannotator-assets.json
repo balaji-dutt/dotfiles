@@ -9,12 +9,12 @@
     {
       "path": "dot_claude/skills/plannotator-annotate/SKILL.md",
       "source_path": "apps/skills/claude/plannotator-annotate/SKILL.md",
-      "sha256": "be4666ee5d68cb3259cf3843f871d4a0455e3e6aa63c077c913e7e9b6f71b7f0"
+      "sha256": "d69c5b012cbeefcedd05970f5f55b5fba5b83d54d9c2a24fd8a3e1286f323b69"
     },
     {
       "path": "dot_claude/skills/plannotator-last/SKILL.md",
       "source_path": "apps/skills/claude/plannotator-last/SKILL.md",
-      "sha256": "bbcd69c3d42470f2eae41942516e4a604524f6af7d35b6e12a0ef29d90687160"
+      "sha256": "1a979daa6b39e86706b9e644ab7bd847f53373ecdfd6ec1d06d3d228727dd54d"
     },
     {
       "path": "dot_claude/skills/plannotator-review/SKILL.md",
