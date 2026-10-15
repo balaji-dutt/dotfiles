@@ -67,7 +67,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 upstream="${tmpdir}/upstream.sh"
 expected="${tmpdir}/expected.sh"
 
-curl -fsSL "$URL" -o "$upstream"
+curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 60 "$URL" -o "$upstream"
 bash -n "$upstream" || { echo "ERROR: downloaded body fails syntax check: $URL" >&2; exit 1; }
 
 # Construct the expected vendored body:
