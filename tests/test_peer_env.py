@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -549,6 +550,309 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(sum(log.stat().st_size for log in item.directory.iterdir() if log.name != "result.json"), 12)
             self.assertTrue(active.directory.exists())
             self.assertEqual(len(list((state / "runs").iterdir())), 3)
+
+    def test_symbolic_namespace_ref_is_refused_without_touching_its_target(self) -> None:
+        self.fixture.peer_git("peer", "symbolic-ref", MODULE.REF_NAMESPACE + "manual", "refs/heads/main")
+        server = self.server()
+        with self.assertRaisesRegex(MODULE.Refused, "symbolic ref"):
+            server.remove(["manual", self.fixture.head])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.clean([]), 1)
+        self.assertEqual(self.fixture.peer_git("peer", "rev-parse", "refs/heads/main").stdout.strip(), self.fixture.head)
+
+
+@POSIX_ONLY
+class SymlinkedParentTests(unittest.TestCase):
+    """The peer's worktrees/ is a symlink into a private directory shared with AoE worktrees."""
+
+    def setUp(self) -> None:
+        self.addCleanup(os.umask, os.umask(0o022))
+        self.fixture = PeerFixture(self, {"peer": {}})
+        self.harden_sandbox()
+        self.home = self.fixture.peer_homes["peer"]
+        self.repo = self.fixture.peer_repo("peer")
+        self.link = self.repo / "worktrees"
+        self.target = self.home / ".local/share/agent-of-empires/worktrees/dotfiles"
+        self.target.mkdir(parents=True)
+        self.private(self.target)
+        self.link.symlink_to(self.target, target_is_directory=True)
+        self.fixture.peer_git("peer", "worktree", "add", "-q", "-b", "ordinary", str(self.link / "ordinary"))
+        self.fixture.peer_git("peer", "worktree", "add", "-q", "-b", "aoe", str(self.link / "aoe"))
+        self.fixture.peer_git("peer", "worktree", "lock", "--reason", "aoe-managed worktree", str(self.link / "aoe"))
+
+    def harden_sandbox(self) -> None:
+        unsafe = []
+        for item in self.fixture.root.resolve().parents:
+            info = item.stat()
+            if info.st_uid == os.getuid() and not info.st_mode & 0o077:
+                break
+            if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
+                if info.st_uid != os.getuid():
+                    self.skipTest(f"{item} is shared and not owned by this user")
+                unsafe.append((item, stat.S_IMODE(info.st_mode)))
+        else:
+            if unsafe:
+                self.skipTest("no private user-owned ancestor bounds the test sandbox")
+        for item, mode in unsafe:
+            self.addCleanup(item.chmod, mode)
+            item.chmod(mode & ~0o022)
+
+    def private(self, directory: Path) -> Path:
+        resolved, root = directory.resolve(), self.fixture.root.resolve()
+        if root not in resolved.parents:
+            raise AssertionError(f"{directory} is outside the fixture")
+        for item in (resolved, *resolved.parents):
+            if item == root:
+                break
+            item.chmod(0o755)
+        return directory
+
+    def server(self):
+        env = {key: value for key, value in self.fixture.env.items() if not key.startswith("XDG_")}
+        env["HOME"] = str(self.home)
+        return MODULE.Serve(self.repo, env, True)
+
+    def publish(self, slug: str = "manual") -> str:
+        self.fixture.peer_git("peer", "update-ref", MODULE.REF_NAMESPACE + slug, self.fixture.head)
+        return self.fixture.head
+
+    def point_link(self, destination: Path) -> None:
+        self.link.unlink()
+        self.link.symlink_to(destination, target_is_directory=True)
+        self.addCleanup(self.restore_link)
+
+    def restore_link(self) -> None:
+        if self.link.is_symlink():
+            self.link.unlink()
+        self.link.symlink_to(self.target, target_is_directory=True)
+
+    def refs(self) -> list[str]:
+        return self.fixture.peer_git("peer", "for-each-ref", "--format=%(refname)", MODULE.REF_NAMESPACE).stdout.split()
+
+    def records(self) -> dict[str, str]:
+        listing = self.fixture.peer_git("peer", "worktree", "list", "--porcelain").stdout
+        records, current = {}, None
+        for line in listing.splitlines():
+            if line.startswith("worktree "):
+                current = line[len("worktree "):]
+                records[current] = ""
+            elif current is not None and line:
+                records[current] += line + "\n"
+        return records
+
+    def helper_records(self) -> list[str]:
+        return [path for path in self.records() if Path(path).name.startswith("peer-env-")]
+
+    def manifest(self, slug: str = "manual") -> dict:
+        return json.loads((self.fixture.peer_state("peer") / "runs" / slug / "result.json").read_text())
+
+    def assert_aoe_intact(self) -> None:
+        self.assertTrue(self.link.is_symlink())
+        self.assertEqual(Path(os.readlink(self.link)), self.target)
+        records = self.records()
+        canonical = self.target.resolve()
+        self.assertIn(str(canonical / "ordinary"), records)
+        self.assertIn("locked aoe-managed worktree", records[str(canonical / "aoe")])
+        for branch in ("ordinary", "aoe"):
+            self.assertTrue((self.target / branch / "tracked.txt").exists())
+            self.assertEqual(self.fixture.peer_git("peer", "rev-parse", f"refs/heads/{branch}").stdout.strip(), self.fixture.head)
+
+    def assert_removed(self) -> None:
+        self.assertEqual(self.refs(), [])
+        self.assertEqual(self.helper_records(), [])
+        self.assertEqual(list(self.target.glob("peer-env-*")), [])
+        self.assert_aoe_intact()
+
+    def test_client_runs_use_the_canonical_parent_and_clean_up(self) -> None:
+        for mode, code in (("ok", 0), ("exit7", 7), ("error", 1)):
+            with self.subTest(mode=mode):
+                (self.fixture.local / "stub-mode.txt").write_text(mode)
+                result = self.fixture.run("audit", "all", "tracked.txt")
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertNotIn("cleanup incomplete", result.stderr)
+                slug = self.fixture.last_slug("peer")
+                record = self.fixture.audit_record("peer", slug)
+                self.assertIn("argv=check tracked.txt", record)
+                self.assertIn(f"cwd={self.target.resolve() / ('peer-env-' + slug)}\n", record)
+                manifest = self.manifest(slug)
+                self.assertEqual((manifest["exit"], manifest["cleanup"], manifest["prepared"]), (code, "removed", True))
+                self.assert_removed()
+
+    def test_keep_then_remove_and_client_clean(self) -> None:
+        result = self.fixture.run("test", "all", "fast", "--keep-worktree")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        slug = self.fixture.last_slug("peer")
+        worktree = self.target.resolve() / f"peer-env-{slug}"
+        self.assertEqual(self.helper_records(), [str(worktree)])
+        self.assertIn("stub tests ran: fast", result.stdout)
+        self.assertEqual(self.server().remove([slug, self.fixture.head]), 0)
+        self.assert_removed()
+        self.assertEqual(self.fixture.run("audit", "all", "tracked.txt", "--keep-worktree").returncode, 0)
+        self.assertEqual(len(self.helper_records()), 1)
+        result = self.fixture.run("clean", "peer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_removed()
+
+    def test_busy_slug_is_skipped_by_clean(self) -> None:
+        import fcntl
+
+        self.assertEqual(self.fixture.run("audit", "all", "tracked.txt", "--keep-worktree").returncode, 0)
+        slug = self.fixture.last_slug("peer")
+        server = self.server()
+        with (server.state / f"lock-{slug}").open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(server.clean([]), 75)
+            self.assertTrue((self.target / f"peer-env-{slug}").is_dir())
+        self.assertEqual(server.clean([]), 0)
+        self.assert_removed()
+
+    def test_unverified_shutdown_retains_worktree_and_ref(self) -> None:
+        server = self.server()
+        sha = self.publish()
+
+        def stuck(command, cwd, scan_errors):
+            server.children_stopped = False
+            return 124
+
+        with mock.patch.object(server, "run_streamed", side_effect=stuck), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "cleanup", "test", "fast"]), 124)
+        self.assertTrue((self.target / "peer-env-manual").is_dir())
+        self.assertEqual(self.refs(), [MODULE.REF_NAMESPACE + "manual"])
+        with self.assertRaisesRegex(MODULE.Refused, "child shutdown is unverified"):
+            server.remove(["manual", sha])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.clean([]), 1)
+        self.assertTrue((self.target / "peer-env-manual").is_dir())
+        self.assert_aoe_intact()
+
+    def test_target_change_during_a_run_retains_the_original_worktree(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        elsewhere = self.home / "elsewhere"
+        elsewhere.mkdir()
+        self.private(elsewhere)
+
+        def swap(command, cwd, scan_errors):
+            self.assertEqual(cwd, self.target.resolve() / "peer-env-manual")
+            self.point_link(elsewhere)
+            return 0
+
+        with mock.patch.object(server, "run_streamed", side_effect=swap), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "cleanup", "audit", "tracked.txt"]), 1)
+        manifest = self.manifest()
+        self.assertIn("worktree parent changed", manifest["archive_error"])
+        self.assertIn("worktree parent changed", manifest["cleanup"])
+        self.assertTrue((self.target / "peer-env-manual").is_dir())
+        self.assertEqual(server.published_sha("manual"), sha)
+        self.restore_link()
+        self.assertEqual(server.remove(["manual", sha]), 0)
+        self.assert_removed()
+
+    def test_target_change_between_keep_and_remove_is_refused(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        with mock.patch.object(server, "run_streamed", return_value=0), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "keep", "audit", "tracked.txt"]), 0)
+        elsewhere = self.home / "elsewhere"
+        elsewhere.mkdir()
+        self.private(elsewhere)
+        self.point_link(elsewhere)
+        with self.assertRaisesRegex(MODULE.Refused, "worktree parent changed"):
+            server.remove(["manual", sha])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.clean([]), 1)
+        self.assertTrue((self.target / "peer-env-manual").is_dir())
+        self.assertEqual(server.published_sha("manual"), sha)
+        self.restore_link()
+        self.assertEqual(server.remove(["manual", sha]), 0)
+        self.assert_removed()
+
+    def test_clean_reports_a_refless_worktree_outside_the_current_parent(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        with mock.patch.object(server, "run_streamed", return_value=0), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "keep", "audit", "tracked.txt"]), 0)
+        self.fixture.peer_git("peer", "update-ref", "-d", MODULE.REF_NAMESPACE + "manual", sha)
+        elsewhere = self.home / "elsewhere"
+        elsewhere.mkdir()
+        self.private(elsewhere)
+        self.point_link(elsewhere)
+        with contextlib.redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(server.clean([]), 1)
+        self.assertIn("worktree parent changed", errors.getvalue())
+        self.assertTrue((self.target / "peer-env-manual").is_dir())
+        self.assertEqual(self.helper_records(), [str(self.target.resolve() / "peer-env-manual")])
+        self.restore_link()
+        self.assert_aoe_intact()
+
+    def test_escaping_and_unsafe_targets_are_refused(self) -> None:
+        server = self.server()
+        regular = self.home / "regular-file"
+        regular.write_text("x")
+        shared = self.home / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        group = self.home / "group"
+        (group / "child").mkdir(parents=True)
+        group.chmod(0o775)
+        (group / "child").chmod(0o755)
+        state = server.state
+        state.mkdir(parents=True)
+        self.private(state)
+        cases = {
+            "checkout or its ancestors": (self.repo, self.repo.parent, self.repo / "assets", self.repo / ".git"),
+            "registered worktree": (self.target / "ordinary",),
+            "helper state": (state,),
+            "dangling": (self.home / "missing",),
+            "does not name a directory": (regular,),
+            "unsafe worktree parent ownership or mode": (shared, group / "child"),
+        }
+        if os.getuid() != 0 and Path("/usr/share").is_dir():
+            cases["not owned by this user"] = (Path("/usr/share"),)
+        for message, destinations in cases.items():
+            for destination in destinations:
+                with self.subTest(destination=destination):
+                    self.point_link(destination)
+                    with self.assertRaisesRegex(MODULE.Refused, message):
+                        server.worktree_parent()
+                    self.restore_link()
+        sticky = self.home / "sticky"
+        (sticky / "child").mkdir(parents=True)
+        sticky.chmod(0o1777)
+        (sticky / "child").chmod(0o755)
+        self.point_link(sticky / "child")
+        self.assertEqual(server.worktree_parent(), (sticky / "child").resolve())
+
+    def test_refused_layout_removes_only_the_unused_ref(self) -> None:
+        shared = self.home / "shared"
+        shared.mkdir()
+        shared.chmod(0o777)
+        self.point_link(shared)
+        result = self.fixture.run("audit", "all", "tracked.txt")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("unsafe worktree parent ownership or mode", result.stderr)
+        self.assertNotIn("cleanup incomplete", result.stderr)
+        self.assertNotIn("argv=", self.fixture.audit_record("peer"))
+        manifest = self.manifest(self.fixture.last_slug("peer"))
+        self.assertEqual((manifest["exit"], manifest["prepared"]), (2, False))
+        self.assertEqual(manifest["cleanup"], "ref removed; no worktree was created")
+        self.assertEqual(self.refs(), [])
+        self.assertEqual(list(shared.iterdir()), [])
+        self.restore_link()
+        self.assert_aoe_intact()
+
+    def test_symlinked_leaf_retains_the_ref_and_the_link_destination(self) -> None:
+        server = self.server()
+        sha = self.publish()
+        (self.target / "peer-env-manual").symlink_to(self.target / "ordinary", target_is_directory=True)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(server.run(["manual", sha, "1", "cleanup", "audit", "tracked.txt"]), 2)
+            self.assertEqual(server.clean([]), 1)
+        self.assertIn("retaining", self.manifest()["cleanup"])
+        self.assertEqual(server.published_sha("manual"), sha)
+        self.assertTrue((self.target / "peer-env-manual").is_symlink())
+        self.assert_aoe_intact()
 
 
 @POSIX_ONLY

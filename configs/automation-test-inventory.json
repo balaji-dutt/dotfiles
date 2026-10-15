@@ -810,6 +810,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-symlinked-worktree-parent-bound",
+            "kind": "safety",
+            "description": "Accept a symlinked worktrees parent only when its resolved target is private, user-owned, and outside the checkout, git metadata, state, and registered worktrees; refuse leaf symlinks and re-pointed targets, retain ambiguous worktrees and refs, and delete a ref alone only when no worktree exists.",
+            "status": "covered"
+          },
+          {
             "id": "safety-writes-confined-to-worktree-and-state",
             "kind": "safety",
             "description": "Confine helper writes to unique detached worktrees, peer-env refs, and private state. Remove only canonical registered owned worktrees with matching SHAs under locks, preserving busy and unrelated worktrees and ordinary branches; entrypoints run from the snapshot and are not confined.",

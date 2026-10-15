@@ -43,7 +43,8 @@ key grants is stated plainly here:
   `PEER_ENV=1`, and on WSL2 `WSL_DISTRO_NAME` and `WSL_INTEROP`. The peer's
   ambient provider keys never reach the entrypoint, and nothing the client
   sends becomes an environment variable.
-- `serve`'s own writes are confined to `worktrees/peer-env-<slug>/`,
+- `serve`'s own writes are confined to `peer-env-<slug>/` under the
+  canonical worktree parent (see [Worktree layouts](#worktree-layouts)),
   `refs/peer-env/*` plus worktree metadata under `.git/`, and
   `~/.local/state/dotfiles/peer-env/` (diagnostics, log, and locks). A
   `pre-receive` hook
@@ -276,7 +277,7 @@ client-side refusal or unreachable result prints its reason instead.
    locks. The push uses `--receive-pack` so the peer's
    `serve` handles it and installs the namespace hook.
 4. One peer-owned `run` request holds the slug lock across SHA validation,
-   detached checkout in `worktrees/peer-env-<slug>`, execution, archival, and
+   detached checkout in `<worktree parent>/peer-env-<slug>`, execution, archival, and
    cleanup. The installed server, not the snapshot, owns this lifecycle.
 5. The entrypoint runs with the scrubbed environment and streams output back.
    Diagnostics are saved separately, then the worktree/ref are removed on
@@ -354,7 +355,7 @@ the `git-receive-pack` form git emits) is refused.
 | `identity` | Print `PEER-ENV-IDENTITY {json}` with `uname -s`, `uname -r`, platform, `restricted`, tool availability, protocol version, and capabilities. |
 | `receive-pack [path]` | `git receive-pack` on the peer's own checkout with a per-push `pre-receive` hook that rejects any ref outside `refs/peer-env/<slug>`. The path argument is ignored. |
 | `run <slug> <sha> <timeout> cleanup\|keep audit\|test ...` | Hold the slug lock across preparation, one bounded execution, diagnostics, and cleanup or explicit retention. |
-| `prepare <slug> <sha>` | Under a per-slug lock, create or re-check-out `worktrees/peer-env-<slug>` at `<sha>`, which must equal `refs/peer-env/<slug>`. |
+| `prepare <slug> <sha>` | Under a per-slug lock, create or re-check-out `<worktree parent>/peer-env-<slug>` at `<sha>`, which must equal `refs/peer-env/<slug>`. |
 | `exec <slug> audit <path>...` | Validate each path (relative, normalised, present in the snapshot) and run `./assets/cz-audit.sh check` for each. |
 | `exec <slug> test <suite> [--require-capabilities]` | Run `./assets/run-tests.sh` for a known suite. |
 | `remove <slug> [expected-sha]` | Remove a proven owned worktree/ref after verifying shutdown and expected SHA; the single-argument legacy form remains available. |
@@ -402,8 +403,53 @@ Default runs remove only their registered detached worktree and matching
 `./assets/peer-env clean all` removes proven owned leftovers under per-slug
 locks. Ordinary branches and worktrees, symlink escapes, ambiguous legacy
 worktrees outside the canonical helper directory, and active locked slugs
-are not deleted. There are no helper-created branch refs. `worktrees/` is
-gitignored; namespace refs remain local to each peer.
+are not deleted; `clean` reports a detached `peer-env-<slug>` registration
+outside that directory and exits 1, even when its ref is gone. There are no
+helper-created branch refs. `worktrees/` is gitignored; namespace refs remain
+local to each peer.
+
+When the worktree layout is refused, cleanup deletes `refs/peer-env/<slug>`
+only if it still names the expected SHA, it is not a symbolic ref, no
+registered worktree is named `peer-env-<slug>`, and nothing exists at that
+path. The manifest then records `"prepared": false` and
+`"cleanup": "ref removed; no worktree was created"`, and the run keeps exit 2;
+no audit or test ran. If any of those conditions fails, including a refused
+leaf path, the ref is retained.
+
+### Worktree layouts
+
+`serve` derives the worktree parent from `<repo>/worktrees` on every request:
+
+| Layout | Behaviour |
+| :--- | :--- |
+| Missing or a real directory | Used as is; created on first `prepare`. |
+| Symlink to a private directory, such as the Agent of Empires layout `worktrees -> ~/.local/share/agent-of-empires/worktrees/<repo>` | The resolved target is the parent. Helper worktrees sit beside the AoE worktrees; neither the symlink nor the AoE worktrees are touched. |
+
+The symlink target is refused when it is dangling or not a directory, is not
+owned by the serving user, has a target or ancestor that is not owned by that
+user or root, or has one that is group- or world-writable without the sticky
+bit. It is also refused when it is the checkout, an ancestor of it, or inside
+it, inside the git common directory or helper state, or inside a registered
+worktree. A symlinked `peer-env-<slug>` leaf, or a leaf whose real path leaves
+the parent, is refused.
+
+Git records linked worktree paths with symlinks resolved, so the registration
+is the binding between requests. If any `peer-env-<slug>` registration lies
+outside the current parent, because the symlink was re-pointed after a
+`--keep-worktree` run or during a run, `remove` and `clean` refuse with
+`worktree parent changed` and retain the worktree and ref. Restore the link,
+then run `./assets/peer-env clean all`. The checks run as the serving user and
+do not defend against that same user racing them.
+
+The root `.gitignore` carries `/worktrees` alongside `worktrees/`, because the
+directory pattern does not match a symlink; without it, `git clean -fd` in the
+peer checkout would delete the link.
+
+Deployment follows the server-first rollout: land the change on `main`, have
+the owner pull it into the peer's `main` checkout, then run
+`./assets/peer-env clean all` to clear refs leaked by refused runs. Rollback is
+a revert on `main` and the same pull; an old server refuses symlinked parents
+again but leaves helper worktrees it did not create alone.
 
 Private `${XDG_STATE_HOME:-~/.local/state}/dotfiles/peer-env/runs/<slug>/`
 contains `output.log`, `result.json` (SHA, exit, timing, cleanup, truncation),
@@ -481,7 +527,13 @@ a PATH shim.
 
 Lifecycle tests also cover aggregate deadlines, cooperative signals, cleanup
 failure, legacy compatibility, capability refusal, retained unverified
-shutdown, and diagnostic limits. `tests/test_wsl2_pageant.py` renders the
+shutdown, and diagnostic limits. `SymlinkedParentTests` repeats success,
+failure, keep, remove, clean, busy, and unverified-shutdown runs with
+`worktrees` symlinked beside locked and ordinary AoE-style worktrees, and
+covers target changes, escapes, unsafe ownership, symlinked leaves, and
+ref-only reconciliation. That is offline coverage of the server code; it does
+not show that a deployed peer accepts its own layout, which needs the owner's
+deployment and a separate peer rerun. `tests/test_wsl2_pageant.py` renders the
 managed helper and uses disposable sockets and mocked process records;
 `tests/test_shell_startup.py` checks shared shell dispatch and
 `tests/test_test_runner.py` verifies independent step-group signal shutdown.

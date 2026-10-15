@@ -70,7 +70,9 @@ CONTROL_PERSIST = 120
 MAX_SOCKET_PATH = 103
 CONTROL_TEMP_SUFFIX = 17  # OpenSSH binds ControlPath as "<path>.<16 random chars>" first
 REF_NAMESPACE = "refs/peer-env/"
-WORKTREE_PREFIX = "worktrees/peer-env-"
+WORKTREE_DIR = "worktrees"
+WORKTREE_NAME = "peer-env-"
+WORKTREE_PREFIX = f"{WORKTREE_DIR}/{WORKTREE_NAME}"
 IDENTITY_MARKER = "PEER-ENV-IDENTITY "
 SLUG_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 SLUG_RE = re.compile(SLUG_PATTERN)
@@ -1195,7 +1197,7 @@ class Diagnostics:
         self.directory = state / "runs" / slug
         self.directory.mkdir(mode=0o700)
         self.remaining = DIAGNOSTIC_LIMIT
-        self.manifest = {"run": slug, "sha": sha, "keep": keep, "completed": False,
+        self.manifest = {"run": slug, "sha": sha, "keep": keep, "completed": False, "prepared": False,
                          "started": time.time(), "truncated": False}
         self.output = self.open_file("output.log")
         self.save()
@@ -1308,11 +1310,51 @@ class Serve:
         except OSError:
             pass
 
+    def worktree_parent(self) -> Path:
+        link = self.root / WORKTREE_DIR
+        if not link.is_symlink():
+            if link.exists() and not link.is_dir():
+                raise Refused(f"worktree parent is not a directory: {link}")
+            return link
+        target = Path(os.path.realpath(link))
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            raise Refused(f"dangling worktree parent symlink: {link}") from None
+        if not stat.S_ISDIR(info.st_mode):
+            raise Refused(f"worktree parent symlink does not name a directory: {link}")
+        if info.st_uid != os.getuid():
+            raise Refused(f"worktree parent symlink target is not owned by this user: {target}")
+        for item in (target, *target.parents):
+            info = item.lstat()
+            shared = info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX
+            if info.st_uid not in (0, os.getuid()) or shared:
+                raise Refused(f"unsafe worktree parent ownership or mode: {item}")
+        if target == self.root or self.root in target.parents or target in self.root.parents:
+            raise Refused(f"worktree parent symlink escapes to the checkout or its ancestors: {target}")
+        common = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()).resolve()
+        if target == common or common in target.parents:
+            raise Refused(f"worktree parent symlink points into git metadata: {target}")
+        state = self.state.resolve()
+        if target == state or state in target.parents:
+            raise Refused(f"worktree parent symlink points into helper state: {target}")
+        for path in self.worktree_records():
+            registered = Path(path)
+            if registered == target or registered in target.parents:
+                raise Refused(f"worktree parent symlink points into registered worktree {registered}")
+        return target
+
     def worktree(self, slug: str) -> Path:
-        worktree = self.root / f"{WORKTREE_PREFIX}{validate_slug(slug)}"
-        if worktree.is_symlink() or worktree.parent.is_symlink():
+        worktree = self.worktree_parent() / f"{WORKTREE_NAME}{validate_slug(slug)}"
+        if worktree.is_symlink():
             raise Refused(f"symlinked worktree path: {worktree}")
+        if worktree.exists() and os.path.realpath(worktree) != str(worktree):
+            raise Refused(f"worktree path escapes its parent: {worktree}")
         return worktree
+
+    def slug_records(self, slug: str) -> dict[str, dict[str, str]]:
+        name = f"{WORKTREE_NAME}{validate_slug(slug)}"
+        return {path: record for path, record in self.worktree_records().items() if Path(path).name == name}
 
     def git(self, *args: str, check: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         timeout = PREPARE_TIMEOUT if self.deadline is None else max(0.001, self.deadline - time.monotonic())
@@ -1402,20 +1444,24 @@ class Serve:
         return EXIT_OK
 
     def published_sha(self, slug: str) -> str | None:
-        ref = self.git("rev-parse", "--verify", "--quiet", f"{REF_NAMESPACE}{slug}", check=False)
+        name = f"{REF_NAMESPACE}{slug}"
+        if self.git("symbolic-ref", "--quiet", name, check=False).returncode == 0:
+            raise Refused(f"symbolic ref in the helper namespace: {name}")
+        ref = self.git("rev-parse", "--verify", "--quiet", name, check=False)
         return ref.stdout.strip() if ref.returncode == 0 else None
 
-    def prepare_unlocked(self, slug: str, sha: str) -> None:
+    def prepare_unlocked(self, slug: str, sha: str) -> Path:
         if self.published_sha(slug) != sha:
             raise Refused(f"{sha} is not {REF_NAMESPACE}{slug}; publish it first")
         worktree = self.worktree(slug)
+        self.owned_worktree(slug)
         if worktree.exists():
-            self.owned_worktree(slug)
             self.git("checkout", "--quiet", "--detach", "--force", sha, cwd=worktree)
             self.git("clean", "-fdq", cwd=worktree)
         else:
             worktree.parent.mkdir(exist_ok=True)
             self.git("worktree", "add", "--quiet", "--detach", str(worktree), sha)
+        return worktree
 
     def worktree_records(self) -> dict[str, dict[str, str]]:
         records: dict[str, dict[str, str]] = {}
@@ -1432,7 +1478,11 @@ class Serve:
 
     def owned_worktree(self, slug: str, sha: str | None = None) -> dict[str, str] | None:
         worktree = self.worktree(slug)
-        record = self.worktree_records().get(str(worktree))
+        records = self.slug_records(slug)
+        stray = sorted(path for path in records if path != str(worktree))
+        if stray:
+            raise Refused(f"worktree parent changed: {', '.join(stray)} is outside {worktree.parent}")
+        record = records.get(str(worktree))
         if record is None:
             if worktree.exists():
                 raise Refused(f"unregistered worktree: {worktree}")
@@ -1475,17 +1525,19 @@ class Serve:
 
             for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
                 previous[sig] = signal.signal(sig, cancelled)
+            worktree: Path | None = None
             try:
                 self.deadline = time.monotonic() + PREPARE_TIMEOUT
-                self.prepare_unlocked(slug, sha)
+                worktree = self.prepare_unlocked(slug, sha)
+                self.diagnostics.manifest["prepared"] = True
                 self.deadline = time.monotonic() + seconds
-                commands, scan_errors = self.exec_commands(slug, args[4:])
+                commands, scan_errors = self.exec_commands(worktree, args[4:])
                 code = EXIT_OK
                 for command in commands:
                     if time.monotonic() >= self.deadline:
                         code = EXIT_TIMEOUT
                         break
-                    result = self.run_streamed(command, self.worktree(slug), scan_errors)
+                    result = self.run_streamed(command, worktree, scan_errors)
                     if code == EXIT_OK:
                         code = result
                     if result == EXIT_TIMEOUT:
@@ -1508,21 +1560,23 @@ class Serve:
                 if not self.children_stopped:
                     self.diagnostics.manifest["children_unverified"] = True
                 try:
-                    try:
-                        self.diagnostics.archive(self.worktree(slug), self.deadline)
-                    except (OSError, Refused) as error:
-                        emit(f"diagnostic archival failed: {error}")
-                        self.diagnostics.manifest["archive_error"] = str(error)
-                        if code == EXIT_OK:
-                            code = EXIT_FAILED
+                    if worktree is not None:
+                        try:
+                            if self.worktree(slug) != worktree:
+                                raise Refused(f"worktree parent changed during the run: {worktree}")
+                            self.diagnostics.archive(worktree, self.deadline)
+                        except (OSError, Refused) as error:
+                            emit(f"diagnostic archival failed: {error}")
+                            self.diagnostics.manifest["archive_error"] = str(error)
+                            if code == EXIT_OK:
+                                code = EXIT_FAILED
                     if not self.children_stopped:
                         raise Refused("child shutdown is unverified; retaining worktree and ref")
                     if keep:
                         cleanup = "retained"
-                        emit(f"retained {self.worktree(slug)} and {REF_NAMESPACE}{slug}")
+                        emit(f"retained {worktree or WORKTREE_PREFIX + slug} and {REF_NAMESPACE}{slug}")
                     else:
-                        self.remove_unlocked(slug, sha)
-                        cleanup = "removed"
+                        cleanup = self.remove_unlocked(slug, sha)
                 except (Refused, OSError, subprocess.TimeoutExpired) as error:
                     cleanup = f"incomplete: {error}"
                     emit(f"cleanup {cleanup}")
@@ -1548,7 +1602,7 @@ class Serve:
         worktree = self.worktree(slug)
         if not (worktree / ".git").exists():
             raise Refused(f"{WORKTREE_PREFIX}{slug} is not prepared")
-        commands, scan_errors = self.exec_commands(slug, args[1:])
+        commands, scan_errors = self.exec_commands(worktree, args[1:])
         with self.lock(slug):
             self.deadline = time.monotonic() + DEFAULT_RUN_TIMEOUT
             try:
@@ -1563,8 +1617,7 @@ class Serve:
             finally:
                 self.deadline = None
 
-    def exec_commands(self, slug: str, args: list[str]) -> tuple[list[list[str]], bool]:
-        worktree = self.worktree(slug)
+    def exec_commands(self, worktree: Path, args: list[str]) -> tuple[list[list[str]], bool]:
         kind, rest = args[0], args[1:]
         if kind == "audit":
             if not rest:
@@ -1702,19 +1755,37 @@ class Serve:
         if not isinstance(manifest, dict) or manifest.get("completed") is not True or manifest.get("children_unverified"):
             raise Refused("child shutdown is unverified; retaining worktree and ref for operator inspection")
 
-    def remove_unlocked(self, slug: str, sha: str | None) -> None:
+    def remove_unlocked(self, slug: str, sha: str | None) -> str:
         actual = self.published_sha(slug)
         if actual is not None and actual != sha:
             raise Refused(f"ref ownership mismatch: {REF_NAMESPACE}{slug}")
+        try:
+            worktree = self.worktree(slug)
+        except Refused as error:
+            return self.remove_ref_only(slug, actual, error)
         record = self.owned_worktree(slug, sha)
         if record is not None:
             if sha is None:
-                raise Refused(f"no ownership ref for {self.worktree(slug)}")
-            self.git("worktree", "remove", "--force", str(self.worktree(slug)))
+                raise Refused(f"no ownership ref for {worktree}")
+            if Path(record["worktree"]).is_symlink():
+                raise Refused(f"symlinked worktree path: {record['worktree']}")
+            self.git("worktree", "remove", "--force", record["worktree"])
         if actual is not None:
-            self.git("update-ref", "-d", f"{REF_NAMESPACE}{slug}", sha)
-        if str(self.worktree(slug)) in self.worktree_records() or self.worktree(slug).exists() or self.published_sha(slug):
+            self.git("update-ref", "--no-deref", "-d", f"{REF_NAMESPACE}{slug}", actual)
+        if self.slug_records(slug) or os.path.lexists(worktree) or self.published_sha(slug):
             raise Refused(f"cleanup verification failed: {slug}")
+        return "removed"
+
+    def remove_ref_only(self, slug: str, actual: str | None, error: Refused) -> str:
+        if self.slug_records(slug) or os.path.lexists(self.root / f"{WORKTREE_PREFIX}{slug}"):
+            raise Refused(f"{error}; retaining {REF_NAMESPACE}{slug}")
+        if actual is None:
+            return "no worktree or ref to remove"
+        self.git("update-ref", "--no-deref", "-d", f"{REF_NAMESPACE}{slug}", actual)
+        if self.published_sha(slug):
+            raise Refused(f"cleanup verification failed: {slug}")
+        emit(f"removed {REF_NAMESPACE}{slug}; no worktree was created ({error})")
+        return "ref removed; no worktree was created"
 
     def clean(self, args: list[str]) -> int:
         if args:
@@ -1724,10 +1795,21 @@ class Serve:
         try:
             refs = self.git("for-each-ref", "--format=%(refname)", REF_NAMESPACE)
             slugs = {validate_slug(ref[len(REF_NAMESPACE):]) for ref in refs.stdout.splitlines()}
-            for path in self.worktree_records():
+            try:
+                parent = self.worktree_parent()
+            except Refused as error:
+                emit(f"worktree layout refused: {error}")
+                parent = None
+                code = EXIT_FAILED
+            for path, record in self.worktree_records().items():
                 candidate = Path(path)
-                if candidate.parent == self.root / "worktrees" and candidate.name.startswith("peer-env-"):
-                    slugs.add(validate_slug(candidate.name[len("peer-env-"):]))
+                if not candidate.name.startswith(WORKTREE_NAME):
+                    continue
+                slug = candidate.name[len(WORKTREE_NAME):]
+                if candidate.parent == parent:
+                    slugs.add(validate_slug(slug))
+                elif SLUG_RE.fullmatch(slug) and "detached" in record:
+                    slugs.add(slug)
             for slug in sorted(slugs):
                 try:
                     with self.lock(slug):
