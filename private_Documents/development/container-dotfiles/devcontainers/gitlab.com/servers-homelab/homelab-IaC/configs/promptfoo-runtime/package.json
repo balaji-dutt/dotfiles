@@ -3,10 +3,10 @@
   "name": "homelab-devcontainer-promptfoo-runtime",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.293",
-    "@anthropic-ai/sdk": "0.132.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.296",
+    "@anthropic-ai/sdk": "0.133.0",
     "@opencode-ai/sdk": "1.18.35",
-    "promptfoo": "0.124.0"
+    "promptfoo": "0.124.1"
   },
   "allowScripts": {
     "@playwright/browser-chromium": true,
