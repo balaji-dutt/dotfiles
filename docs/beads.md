@@ -432,12 +432,14 @@ The platform-selected roots and machine directories are:
 | Platform | Root | Machine key |
 | --- | --- | --- |
 | WSL2 | `/mnt/devdrive` | `<hostname>-<WSL_DISTRO_NAME>` |
-| macOS | `/Volumes/devdrive` | `<hostname>-macos` |
+| macOS | `/Volumes/devdrive` | `<LocalHostName>-macos` |
 | native Windows | `V:\` | `<computername>-windows` |
 
 Components are lowercased, runs outside `[a-z0-9._-]` become `-`, and leading
 or trailing separators are removed. Thus `Ubuntu-24.04` remains distinct from
-another WSL distro on the same host. Snapshots land under
+another WSL distro on the same host. macOS reads `scutil --get LocalHostName`
+because `hostname` there changes with DHCP, Tailscale, and mDNS; it falls back
+to `hostname` only when scutil fails. Snapshots land under
 `<root>/beads-snapshots/dots/<machine>/`. Generic Linux and devcontainers have
 no default root. The mirrored devcontainer wrappers also skip their separate
 `hliac` database because the automatic hook is scoped to `dots`.
@@ -466,7 +468,14 @@ Set `BD_AUTO_SNAPSHOT=0` to opt out of throttled wrapper and push snapshots. It
 does not suppress forced manual, pull, or `--backup` snapshots. Test or unusual
 hosts can override `BD_SNAPSHOT_ROOT`, `BD_SNAPSHOT_MACHINE`,
 `BD_SNAPSHOT_INTERVAL_SECONDS`, `BD_SNAPSHOT_RETENTION`, and
-`BD_SNAPSHOT_DEADLINE_SECONDS`.
+`BD_SNAPSHOT_DEADLINE_SECONDS`. A Bonjour name conflict can rename the macOS
+LocalHostName (for example to `...-2`), which starts a new machine directory;
+set `BD_SNAPSHOT_MACHINE` to pin the key.
+
+On the macOS NFS mount every snapshot gets a 4 KB `._` AppleDouble companion.
+macOS stores its `com.apple.provenance` attribute there because the server
+cannot hold xattrs, and the attribute cannot be removed. The companion is
+renamed and deleted with its snapshot, so retention also prunes it.
 
 These JSONL files are a portable recovery floor, not a full database backup.
 `--all` includes issues plus labels, dependencies, comments, infra items,

@@ -678,6 +678,47 @@ class BeadsSnapshotTests(unittest.TestCase):
         self.assertIn("disabled", disabled.stderr)
         self.assertEqual(len(self.log.read_text(encoding="utf-8").splitlines()), before)
 
+    def stub_macos_identity(self, scutil_body: str) -> None:
+        self.env.pop("BD_SNAPSHOT_MACHINE", None)
+        self.env.pop("WSL_DISTRO_NAME", None)
+        self.assertEqual(self.env["BD_SNAPSHOT_ROOT"], str(self.root))
+        write_executable(self.bin_dir / "uname", "#!/bin/sh\necho Darwin\n")
+        write_executable(
+            self.bin_dir / "hostname",
+            """
+            #!/bin/sh
+            if [ "$1" = -s ]; then echo foo; else echo foo.clients.example; fi
+            """, dedent=True,
+        )
+        write_executable(self.bin_dir / "scutil", scutil_body, dedent=True)
+
+    def test_macos_machine_uses_local_hostname(self) -> None:
+        self.stub_macos_identity(
+            """
+            #!/bin/sh
+            [ "$1 $2" = "--get LocalHostName" ] || exit 1
+            echo Balajis-M4-MacBook-Pro
+            """
+        )
+
+        result = self.run_sync("snapshot")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        snapshots = self.snapshots()
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].parent.name, "balajis-m4-macbook-pro-macos")
+        self.assertRegex(snapshots[0].name, r"^dots-balajis-m4-macbook-pro-macos-.*\.jsonl$")
+
+    def test_macos_machine_falls_back_to_hostname_when_scutil_fails(self) -> None:
+        self.stub_macos_identity("#!/bin/sh\nexit 1\n")
+
+        result = self.run_sync("snapshot")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        snapshots = self.snapshots()
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].parent.name, "foo.clients.example-macos")
+
 
 class BeadsSyncRemoteGuardTests(unittest.TestCase):
     def setUp(self) -> None:

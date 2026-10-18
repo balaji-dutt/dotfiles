@@ -459,6 +459,19 @@ function ConvertTo-SnapshotComponent([string]$Value, [string]$Fallback) {
   return $Fallback
 }
 
+function Get-MacOSLocalHostName {
+  $scutil = Get-Command scutil -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  $scutilPath = if ($scutil) { $scutil.Source } else { '/usr/sbin/scutil' }
+  if (-not (Test-Path -LiteralPath $scutilPath -PathType Leaf)) { return $null }
+  try {
+    $name = & $scutilPath --get LocalHostName 2>$null
+  } catch {
+    return $null
+  }
+  if ($LASTEXITCODE -ne 0 -or -not $name) { return $null }
+  return ([string]($name | Select-Object -First 1)).Trim()
+}
+
 function Get-SnapshotIdentity {
   $root = $env:BD_SNAPSHOT_ROOT
   $hostName = ConvertTo-SnapshotComponent ([Environment]::MachineName) 'host'
@@ -467,6 +480,8 @@ function Get-SnapshotIdentity {
     $machine = "$hostName-windows"
   } elseif ($IsMacOS) {
     if (-not $root) { $root = '/Volumes/devdrive' }
+    $localHostName = Get-MacOSLocalHostName
+    if ($localHostName) { $hostName = ConvertTo-SnapshotComponent $localHostName 'host' }
     $machine = "$hostName-macos"
   } else {
     $isWsl = [bool]$env:WSL_DISTRO_NAME

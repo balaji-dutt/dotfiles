@@ -534,21 +534,35 @@ print(value or sys.argv[2])
 PY
 }
 
-snapshot_root_and_machine() {
-  local root="${BD_SNAPSHOT_ROOT:-}" platform host distro machine
-  host="$(normalize_snapshot_component "$(hostname 2>/dev/null || true)" host)"
+macos_local_host_name() {
+  local scutil_bin name
+  scutil_bin="$(type -P scutil || true)"
+  [[ -n "$scutil_bin" ]] || scutil_bin=/usr/sbin/scutil
+  [[ -x "$scutil_bin" ]] || return 1
+  name="$("$scutil_bin" --get LocalHostName 2>/dev/null)" || return 1
+  [[ -n "$name" ]] || return 1
+  printf '%s\n' "$name"
+}
 
-  if [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && command grep -qi microsoft /proc/version; }; then
-    platform=wsl
-    [[ -n "$root" ]] || root=/mnt/devdrive
-    distro="$(normalize_snapshot_component "${WSL_DISTRO_NAME:-wsl}" wsl)"
-    machine="${host}-${distro}"
-  elif [[ "$(uname -s 2>/dev/null || true)" == Darwin ]]; then
+snapshot_root_and_machine() {
+  local root="${BD_SNAPSHOT_ROOT:-}" platform host distro machine raw_host
+
+  # macOS `hostname` follows DHCP, Tailscale, and mDNS; LocalHostName does not.
+  if [[ "$(uname -s 2>/dev/null || true)" == Darwin ]]; then
     platform=macos
     [[ -n "$root" ]] || root=/Volumes/devdrive
+    raw_host="$(macos_local_host_name || hostname 2>/dev/null || true)"
+    host="$(normalize_snapshot_component "$raw_host" host)"
     machine="${host}-${platform}"
+  elif [[ -n "${WSL_DISTRO_NAME:-}" ]] || { [[ -r /proc/version ]] && command grep -qi microsoft /proc/version; }; then
+    platform=wsl
+    [[ -n "$root" ]] || root=/mnt/devdrive
+    host="$(normalize_snapshot_component "$(hostname 2>/dev/null || true)" host)"
+    distro="$(normalize_snapshot_component "${WSL_DISTRO_NAME:-wsl}" wsl)"
+    machine="${host}-${distro}"
   else
     platform=linux
+    host="$(normalize_snapshot_component "$(hostname 2>/dev/null || true)" host)"
     machine="${host}-${platform}"
   fi
 
