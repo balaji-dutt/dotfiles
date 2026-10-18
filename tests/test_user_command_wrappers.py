@@ -876,5 +876,213 @@ class AgentEnvironmentTests(unittest.TestCase):
                         self.assertEqual(json.loads(log.read_text(encoding="utf-8"))["env"]["PATH"], env["PATH"])
 
 
+class OpenCodeEnvironmentTests(unittest.TestCase):
+    WRAPPERS = AgentEnvironmentTests.WRAPPERS[:2]
+    STALE = "synthetic-stale-go-key"
+    CURRENT = "synthetic-current-go-key"
+    ROTATED = "synthetic-rotated-go-key"
+
+    def prepare(self, fixture, source, target):
+        wrapper = PlannotatorWrapperTests().render(fixture, source, target)
+        env = PlannotatorWrapperTests.clean_port_environment(fixture.env)
+        for key in list(env):
+            if key.startswith(("OPENCODE_", "ANTHROPIC_", "OPENAI_", "CLAUDE_")):
+                env.pop(key)
+        env.update(OPENCODE_API_KEY=self.STALE, EXPECTED_GO_KEY=self.CURRENT)
+        PlannotatorWrapperTests.write_pin(env)
+        env_file = Path(env["XDG_CONFIG_HOME"]) / "opencode/opencode.env"
+        env_file.parent.mkdir(parents=True, exist_ok=True)
+        child_log = fixture.root / "child launched"
+        agent = write_executable(
+            fixture.root / "agent tools/opencode",
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            f"Path({str(child_log)!r}).write_text('launched')\n"
+            "print(json.dumps({'matches': os.environ.get('OPENCODE_API_KEY') == "
+            "os.environ.get('EXPECTED_GO_KEY'), 'argv': sys.argv[1:], 'cwd': os.getcwd(), "
+            "'other': {k: os.environ.get(k) for k in ['OPENCODE_PROFILES', 'OPENCODE_CONFIG_DIR', "
+            "'OPENCODE_GO_WORKSPACE_ID', 'OPENCODE_GO_AUTH_COOKIE', 'ANTHROPIC_API_KEY', "
+            "'PLANNOTATOR_PORT', 'PLANNOTATOR_PIN_VERSION']}}))\n"
+            "sys.exit(int(os.environ.get('FAKE_EXIT', '0')))\n",
+        )
+        env["OPENCODE_BIN"] = str(agent)
+        return wrapper, env_file, env, child_log
+
+    def assert_private(self, result):
+        for secret in (self.STALE, self.CURRENT, self.ROTATED):
+            self.assertNotIn(secret, result.stdout + result.stderr)
+
+    def test_both_wrappers_refresh_each_launch_and_preserve_contract(self):
+        for source, target, _, _ in self.WRAPPERS:
+            with self.subTest(target=target), isolated_environment(prefix="go env [spaces] ") as fixture:
+                wrapper, env_file, env, _ = self.prepare(fixture, source, target)
+                for inherited in (self.STALE, None):
+                    child_env = env.copy()
+                    if inherited is None:
+                        child_env.pop("OPENCODE_API_KEY")
+                    child_env.update(
+                        OPENCODE_PROFILES="chosen-profile", OPENCODE_CONFIG_DIR="chosen-config",
+                        OPENCODE_GO_WORKSPACE_ID="chosen-workspace", OPENCODE_GO_AUTH_COOKIE="chosen-cookie",
+                        ANTHROPIC_API_KEY="chosen-anthropic", FAKE_EXIT="23",
+                    )
+                    for key, assignment in ((self.CURRENT, ""), (self.ROTATED, "export ")):
+                        env_file.write_text(
+                            f"{assignment}OPENCODE_API_KEY={shlex.quote(key)}\n"
+                            "export OPENCODE_PROFILES=unwanted OPENCODE_CONFIG_DIR=unwanted\n"
+                            "export OPENCODE_GO_WORKSPACE_ID=unwanted OPENCODE_GO_AUTH_COOKIE=unwanted\n"
+                            "export ANTHROPIC_API_KEY=unwanted PATH=/absent PLANNOTATOR_PORT=unwanted\n"
+                            "export PLANNOTATOR_PIN_VERSION=unwanted OPENCODE_BIN=/absent\n"
+                            "cd /\nset +u\n",
+                            encoding="utf-8",
+                        )
+                        result = run_script(wrapper, "literal $* spaces", env=child_env | {"EXPECTED_GO_KEY": key}, cwd=fixture.root)
+                        self.assertEqual(result.returncode, 23, result.stderr)
+                        payload = json.loads(result.stdout)
+                        self.assertTrue(payload["matches"])
+                        self.assertEqual(payload["argv"], ["literal $* spaces"])
+                        self.assertEqual(payload["cwd"], str(fixture.root.resolve()))
+                        self.assertEqual(list(payload["other"].values()), [
+                            "chosen-profile", "chosen-config", "chosen-workspace", "chosen-cookie",
+                            "chosen-anthropic", "4300-4309" if "custom" in target else "4200-4209", "0.27.22",
+                        ])
+                        self.assert_private(result)
+
+    def test_missing_file_preserves_inheritance_but_empty_or_missing_key_clears_it(self):
+        for source, target, _, _ in self.WRAPPERS:
+            with self.subTest(target=target), isolated_environment() as fixture:
+                wrapper, env_file, env, _ = self.prepare(fixture, source, target)
+                for inherited in (self.STALE, None):
+                    child_env = env.copy()
+                    if inherited is None:
+                        child_env.pop("OPENCODE_API_KEY")
+                        child_env.pop("EXPECTED_GO_KEY")
+                    else:
+                        child_env["EXPECTED_GO_KEY"] = inherited
+                    result = run_script(wrapper, env=child_env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout)["matches"])
+                for content in ("", "export OPENCODE_API_KEY=''\n", "export OTHER=value\n"):
+                    env_file.write_text(content, encoding="utf-8")
+                    child_env = env.copy()
+                    child_env.pop("EXPECTED_GO_KEY")
+                    result = run_script(wrapper, env=child_env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout)["matches"])
+                    self.assert_private(result)
+
+    def test_fixed_user_path_default_xdg_and_regular_symlink(self):
+        with isolated_environment(prefix="go config spaces ") as fixture:
+            wrapper, env_file, env, _ = self.prepare(fixture, *self.WRAPPERS[0][:2])
+            decoy = fixture.root / "project/opencode.env"
+            decoy.parent.mkdir()
+            decoy.write_text("exit 97\n", encoding="utf-8")
+            (fixture.root / ".env").write_text("exit 97\n", encoding="utf-8")
+            env.update(OPENCODE_ENV_FILE=str(decoy), OPENCODE_CONFIG_DIR=str(decoy.parent))
+            for config_home in (None, "", str(fixture.root / "custom config")):
+                child_env = env.copy()
+                if config_home is None:
+                    child_env.pop("XDG_CONFIG_HOME")
+                else:
+                    child_env["XDG_CONFIG_HOME"] = config_home
+                selected = Path(config_home or str(fixture.home / ".config")) / "opencode/opencode.env"
+                selected.parent.mkdir(parents=True, exist_ok=True)
+                selected.write_text(f"OPENCODE_API_KEY={self.CURRENT}\n", encoding="utf-8")
+                result = run_script(wrapper, env=child_env, cwd=fixture.root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["matches"])
+                selected.unlink()
+            backing = fixture.root / "trusted env"
+            backing.write_text(f"OPENCODE_API_KEY={self.CURRENT}\n", encoding="utf-8")
+            env_file.symlink_to(backing)
+            result = run_script(wrapper, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["matches"])
+
+    def test_invalid_files_refuse_launch_without_contents_or_arguments(self):
+        for source, target, _, _ in self.WRAPPERS:
+            for kind in ("syntax", "failure", "early-exit", "directory", "dangling", "relative", "unreadable"):
+                with self.subTest(target=target, kind=kind), isolated_environment() as fixture:
+                    wrapper, env_file, env, child_log = self.prepare(fixture, source, target)
+                    if kind == "unreadable" and os.geteuid() == 0:
+                        continue
+                    if kind == "directory":
+                        env_file.mkdir()
+                    elif kind == "dangling":
+                        env_file.symlink_to(fixture.root / "absent")
+                    else:
+                        content = f"OPENCODE_API_KEY={self.CURRENT}\n"
+                        content += {"syntax": "'unterminated\n", "failure": "return 7\n", "early-exit": "exit 0\n"}.get(kind, "")
+                        env_file.write_text(content, encoding="utf-8")
+                        if kind == "relative":
+                            env["XDG_CONFIG_HOME"] = "relative"
+                        if kind == "unreadable":
+                            env_file.chmod(0)
+                    try:
+                        result = run_script(wrapper, "private-argument", env=env | {"OPENCODE_PLANNOTATOR_VERBOSE": "1"})
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertIn("unable to load host OpenCode environment", result.stderr)
+                        self.assertFalse(child_log.exists())
+                        self.assertNotIn("private-argument", result.stdout + result.stderr)
+                        self.assert_private(result)
+                    finally:
+                        if kind == "unreadable":
+                            env_file.chmod(0o600)
+
+    def test_source_noise_and_tracing_do_not_disclose_keys_and_options_are_restored(self):
+        with isolated_environment() as fixture:
+            _, env_file, env, _ = self.prepare(fixture, *self.WRAPPERS[0][:2])
+            helper = fixture.home / ".local/share/dotfiles/agent-env.sh"
+            probe = write_executable(
+                fixture.root / "probe",
+                'source "$1"\nbefore=$-\nrc=0\ndotfiles_opencode_env || rc=$?\n'
+                'after=$-\n{ set +x +v; } 2>/dev/null\n'
+                '[ "$before" = "$after" ] || exit 93\n'
+                'if [ "$rc" = 0 ]; then [ "${OPENCODE_API_KEY-}" = "$EXPECTED_GO_KEY" ] || exit 94; fi\n'
+                'exit "$rc"\n',
+            )
+            for failure in (False, True):
+                env_file.write_text(
+                    f"set -xv\nOPENCODE_API_KEY={self.CURRENT}\n"
+                    'printf "%s\\n" "$OPENCODE_API_KEY"\n'
+                    'printf "%s\\n" "$OPENCODE_API_KEY" >&2\n'
+                    + ("return 7\n" if failure else ""), encoding="utf-8",
+                )
+                for flags in ([], ["-x"], ["-v"], ["-xv"]):
+                    with self.subTest(failure=failure, flags=flags):
+                        result = subprocess.run(
+                            ["/bin/bash", *flags, str(probe), str(helper)], env=env,
+                            capture_output=True, text=True, check=False,
+                        )
+                        self.assertEqual(result.returncode, int(failure), result.stderr)
+                        self.assertEqual(result.stdout, "")
+                        self.assert_private(result)
+
+    def test_non_opencode_launchers_dry_run_and_containers_never_source_user_file(self):
+        with isolated_environment() as fixture:
+            wrapper, env_file, env, child_log = self.prepare(fixture, *self.WRAPPERS[0][:2])
+            sentinel = fixture.root / "env sourced"
+            env_file.write_text(f": > {shlex.quote(str(sentinel))}\nexit 97\n", encoding="utf-8")
+            for source, target, _, _ in self.WRAPPERS:
+                wrapper = PlannotatorWrapperTests().render(fixture, source, target)
+                dry = run_script(wrapper, env=env | {"OPENCODE_PLANNOTATOR_DRY_RUN": "1"})
+                self.assertEqual(dry.returncode, 0, dry.stderr)
+                self.assertFalse(child_log.exists())
+                for marker in ("DEVCONTAINER", "REMOTE_CONTAINERS", "CODESPACES"):
+                    result = run_script(wrapper, env=env | {marker: "1", "EXPECTED_GO_KEY": self.STALE})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout)["matches"])
+                child_log.unlink()
+            claude = PlannotatorWrapperTests().render(fixture, "executable_claude-plannotator.tmpl", "claude-plannotator")
+            result = run_script(claude, env=env | {"CLAUDE_BIN": env["OPENCODE_BIN"], "EXPECTED_GO_KEY": self.STALE})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["matches"])
+            generic = write_executable(fixture.root / "agent-env", (BIN / "executable_agent-env").read_text(encoding="utf-8"))
+            result = run_script(generic, env["OPENCODE_BIN"], env=env | {"EXPECTED_GO_KEY": self.STALE})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json.loads(result.stdout)["matches"])
+            self.assertFalse(sentinel.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

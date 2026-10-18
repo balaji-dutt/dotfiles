@@ -44,7 +44,8 @@ literal.
 
 Normalization happens before agent executable lookup, including when
 `OPENCODE_BIN` or `CLAUDE_BIN` is explicitly set. Arguments, working directory,
-other inherited exports, and the downstream exit status are preserved.
+other inherited exports (except the OpenCode Go key described below), and the
+downstream exit status are preserved.
 Plannotator dry-runs exit before loading the helper. The host launchers skip
 normalization when `DEVCONTAINER=1`, `REMOTE_CONTAINERS` is nonempty, or
 `CODESPACES` is nonempty; container-owned launchers remain separate. Native
@@ -78,13 +79,44 @@ This provides consistent tool selection, not a byte-identical terminal
 environment. Interactive Zsh may resolve direct installation paths while
 agents resolve shims. Shim dispatch can load project environment for the tool
 and its children; it does not load arbitrary mise `[env]` values into the
-parent agent. The launchers do not reconstruct direnv state, interactive
-aliases, functions, secrets, or exports absent from the launching process.
+parent agent. Apart from the OpenCode Go key refresh below, the launchers do
+not reconstruct direnv state, interactive aliases, functions, secrets, or
+exports absent from the launching process.
 
 Plain `zsh -c` still reads `.zshenv`. A later login shell can reorder PATH via
 macOS `path_helper`; an OpenCode `shell.env` plugin can also change the tool
 environment. If a child resolves a different tool, inspect those later layers
 rather than sourcing the entire interactive `.zshrc`.
+
+## Host OpenCode Go credential refresh
+
+On each host launch, both OpenCode wrappers call `dotfiles_opencode_env` from
+the shared helper. It reads the trusted user shell file at
+`${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env` and imports only
+`OPENCODE_API_KEY`. This avoids reusing an expired key retained by a persistent
+tmux server after the managed file has been refreshed. The config-home path
+must be absolute; project `.env` files, `OPENCODE_CONFIG_DIR`, and an inherited
+`OPENCODE_ENV_FILE` do not select the credential source.
+
+- A readable regular file (including a symlink to one) is authoritative:
+  its nonempty key overrides any inherited key, even a deliberate per-process
+  override. An empty or absent key in that file unsets the inherited key;
+  any remaining authentication depends on OpenCode's configured sources.
+- A genuinely absent file preserves the inherited key or its absence.
+- An unreadable, nonregular, dangling, invalid, or unsuccessfully evaluated
+  file refuses launch with a generic error. Early exit without completing
+  evaluation also refuses launch.
+
+The file is evaluated in a subshell to isolate unrelated exports, profile
+selection, PATH, working directory, and shell options. Source output and
+tracing are suppressed during credential loading. This is trusted shell
+configuration, not a sandbox: commands in the file still execute as the user.
+The loader itself uses Bash builtins and does not fetch credentials or run
+chezmoi, 1Password, shell profiles, or network commands.
+
+Claude and generic `agent-env` launches do not load this file. Dry-runs and
+all three container markers listed above skip the refresh. Container-owned
+wrappers and their credential lifecycle are separate and unchanged.
 
 ## Compare with a terminal
 
@@ -124,8 +156,25 @@ wrapper. Ask that agent to run the same nonmutating version checks in the same
 repository. Do not use a commit or merge as an environment test, or restart
 unrelated running sessions.
 
+For an OpenCode Go credential-refresh rollout alone, apply the shared helper
+and both OpenCode wrappers together, with separate live-apply approval and
+the intended source checkout selected:
+
+```sh
+chezmoi apply ~/.local/share/dotfiles/agent-env.sh \
+  ~/bin/opencode-plannotator ~/bin/opencode-plannotator-custom
+```
+
+Quit and relaunch only the affected OpenCode agent through AoE, then check
+`/quota`: Go should authenticate and Claude/OpenAI should retain their usual
+behavior. Existing OpenCode processes retain their original environment;
+reopening the AoE UI alone does not prove a new agent process was launched.
+Do not kill the tmux server, restart unrelated sessions, or print credentials
+to diagnose a mismatch.
+
 The isolated wrapper tests cover environment plumbing with fake tools; they
-do not prove live mise dispatch or AoE behavior. Live acceptance also needs an
+do not prove live provider authentication, mise dispatch, or AoE behavior.
+Live tool-resolution acceptance also needs an
 installed project-specific Python selection and a missing-version refusal
 check using an isolated mise fixture, without changing the real tool store.
 If the wrapper, terminal, and agent disagree, capture executable paths and

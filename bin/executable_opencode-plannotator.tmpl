@@ -80,6 +80,7 @@ if ! is_devcontainer; then
   [ -f "$agent_env_file" ] && [ -r "$agent_env_file" ] || die "missing or unreadable host environment helper"
   source "$agent_env_file"
   dotfiles_agent_env
+  dotfiles_opencode_env || die "unable to load host OpenCode environment"
 fi
 
 OPENCODE_BIN="${OPENCODE_BIN:-}"

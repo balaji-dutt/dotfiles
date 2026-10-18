@@ -56,3 +56,49 @@ dotfiles_agent_env() {
   export MISE_NOT_FOUND_AUTO_INSTALL=false
   export MISE_NOT_FOUND_SYSTEM_FALLBACK=false
 }
+
+dotfiles_opencode_env() {
+  local tracing=0 verbose=0 rc=0 config_home env_file completed_key
+  case "$-" in *x*) tracing=1 ;; esac
+  case "$-" in *v*) verbose=1 ;; esac
+  { set +x +v; } 2>/dev/null
+
+  config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  env_file="$config_home/opencode/opencode.env"
+  case "$config_home" in
+    /*)
+      if [ ! -e "$env_file" ] && [ ! -L "$env_file" ]; then
+        :
+      elif [ ! -f "$env_file" ] || [ ! -r "$env_file" ]; then
+        rc=1
+      elif completed_key="$(
+        {
+          unset OPENCODE_API_KEY BASH_XTRACEFD
+          source "$env_file" >/dev/null 2>&1 || exit 1
+          set +x +v
+          builtin printf '%s.' "${OPENCODE_API_KEY-}"
+        } 2>/dev/null
+      )"; then
+        case "$completed_key" in
+          *.)
+            completed_key="${completed_key%.}"
+            if [ -n "$completed_key" ]; then
+              export OPENCODE_API_KEY="$completed_key"
+            else
+              unset OPENCODE_API_KEY
+            fi
+            ;;
+          *) rc=1 ;;
+        esac
+      else
+        rc=1
+      fi
+      ;;
+    *) rc=1 ;;
+  esac
+
+  unset completed_key
+  if [ "$verbose" = 1 ]; then set -v; fi
+  if [ "$tracing" = 1 ]; then set -x; fi
+  return "$rc"
+}
