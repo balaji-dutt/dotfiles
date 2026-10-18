@@ -44,12 +44,13 @@ issue before deciding whether another handoff is needed.
   depends on how the session was launched:
   - Plain `claude` (no Plannotator wrapper): plan file is at
     `~/.claude/plans/<slug>.md`.
-  - `claude-plannotator` wrapper (Plannotator intercepts `ExitPlanMode`):
-    plan file is exclusively at
-    `~/.plannotator/plans/<slug>-YYYY-MM-DD-approved.md`. The approved
-    plan text returns inline to the agent, but the only on-disk artifact
-    lives under `~/.plannotator/` — `~/.claude/plans/` will NOT contain
-    a matching file in this case.
+  - `claude-plannotator` wrapper (Plannotator reviews the plan): the
+    native `~/.claude/plans/<slug>.md` still exists, and Plannotator also
+    writes the reviewed copy to
+    `~/.plannotator/plans/<heading-slug>-YYYY-MM-DD-approved.md`. Hand off
+    the approved file. Its slug comes from the plan's heading, not the native
+    file name, and a second approval of the same heading on the same day
+    overwrites it.
 - The lifecycle entry point is **plan-mode → implementation**. The
   `beads-work` skill handles the "work on dots-foo" path; this handoff
   handles the "free-form chat → plan → implement" path.
@@ -77,8 +78,8 @@ the user once whether this is an implementation plan (route here, to
 3. If the user picks create or attach, delegate to `beads-issue-author`
    via the Agent tool with `subagent_type: beads-issue-author`. Pass:
    - the plan file path (exact, from the ExitPlanMode flow). Use the
-     `~/.plannotator/plans/<slug>-YYYY-MM-DD-approved.md` path when the
-     session was launched via `claude-plannotator`; otherwise use the
+     `~/.plannotator/plans/<heading-slug>-YYYY-MM-DD-approved.md` path when
+     the session was launched via `claude-plannotator`; otherwise use the
      native `~/.claude/plans/<slug>.md` path. If the path is unknown,
      ask the user once rather than scanning either directory.
    - mode (`create` or `attach`) and `<prefix>-<id>` if attaching;
@@ -188,7 +189,7 @@ without any source edits. Pass only one explicit plan source:
 - the approved plan text already present in the current chat, or
 - an exact plan file path the user confirmed in this chat (native
   `~/.claude/plans/<slug>.md` or Plannotator
-  `~/.plannotator/plans/<slug>-YYYY-MM-DD-approved.md`).
+  `~/.plannotator/plans/<heading-slug>-YYYY-MM-DD-approved.md`).
 
 Do not ask the subagent to find the newest or latest file under
 `~/.claude/plans` or `~/.plannotator`.

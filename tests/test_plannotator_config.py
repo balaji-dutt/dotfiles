@@ -140,34 +140,41 @@ class PlannotatorConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Claude marketplace tag must match CLI"):
                 MODULE.source_check(root)
 
-    def test_claude_code_mod_must_stay_disabled_in_source(self):
-        for relative, needle, message in (
-            (HOST_PLANNOTATOR_CONFIG, '{{- $_ := set $config "claudeCodeMod" false -}}\n',
-             "Claude Code mod must be disabled"),
-            (CONTAINER_DEVCONTAINER, '    "PLANNOTATOR_CLAUDE_MOD": "0",\n',
-             "container PLANNOTATOR_CLAUDE_MOD must be 0"),
+    def test_claude_code_mod_must_stay_enabled_in_source(self):
+        jina = '    "PLANNOTATOR_JINA": "false",\n'
+        enabled = '{{- $_ := set $config "claudeCodeMod" true -}}\n'
+        for relative, needle, replacement, message in (
+            (HOST_PLANNOTATOR_CONFIG, enabled, "", "Claude Code mod must be enabled"),
+            (HOST_PLANNOTATOR_CONFIG, enabled, enabled + '{{- $_ := set $config "claudeCodeMod" false -}}\n',
+             "Claude Code mod must be enabled"),
+            (CONTAINER_DEVCONTAINER, jina, jina + '    "PLANNOTATOR_CLAUDE_MOD": "0",\n',
+             "container must not set PLANNOTATOR_CLAUDE_MOD"),
+            (CONTAINER_DEVCONTAINER, '    "PLANNOTATOR_DATA_DIR": "/home/vscode/.plannotator",\n', "",
+             "container PLANNOTATOR_DATA_DIR must be /home/vscode/.plannotator"),
         ):
-            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temp:
+            with self.subTest(relative=relative, replacement=replacement), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 self.copy_source_fixture(root)
                 self.assertEqual(MODULE.source_check(root), self.source_version())
                 target = root / relative
                 original = target.read_text(encoding="utf-8")
                 self.assertIn(needle, original)
-                target.write_text(original.replace(needle, ""), encoding="utf-8")
+                target.write_text(original.replace(needle, replacement), encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, message):
                     MODULE.source_check(root)
 
-    def test_runtime_rejects_enabled_claude_code_mod(self):
+    def test_runtime_rejects_disabled_claude_code_mod(self):
         version = self.source_version()
         cli = subprocess.CompletedProcess(["plannotator", "--version"], 0, stdout=f"plannotator {version}\n", stderr="")
         privacy = {"share": "disabled", "jina": False}
         for config, env, message in (
-            (privacy, {}, "does not disable the Claude Code mod"),
-            ({**privacy, "claudeCodeMod": True}, {}, "does not disable the Claude Code mod"),
-            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": "1"}, "overrides the disabled"),
-            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": " On "}, "overrides the disabled"),
-            ({**privacy, "claudeCodeMod": False}, {"PLANNOTATOR_CLAUDE_MOD": "0"}, "Claude Code is missing"),
+            (privacy, {}, "does not enable the Claude Code mod"),
+            ({**privacy, "claudeCodeMod": False}, {}, "does not enable the Claude Code mod"),
+            ({**privacy, "claudeCodeMod": True}, {"PLANNOTATOR_CLAUDE_MOD": "0"}, "overrides the enabled"),
+            ({**privacy, "claudeCodeMod": True}, {"PLANNOTATOR_CLAUDE_MOD": " Off "}, "overrides the enabled"),
+            ({**privacy, "claudeCodeMod": True}, {"PLANNOTATOR_CLAUDE_MOD": "disabled"}, "overrides the enabled"),
+            ({**privacy, "claudeCodeMod": True}, {}, "Claude Code is missing"),
+            ({**privacy, "claudeCodeMod": True}, {"PLANNOTATOR_CLAUDE_MOD": "1"}, "Claude Code is missing"),
         ):
             with self.subTest(config=config, env=env), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
