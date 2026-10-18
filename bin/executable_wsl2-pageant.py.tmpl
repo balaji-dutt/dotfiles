@@ -50,9 +50,13 @@ def secure_directory(directory: Path, *, repair_permissions: bool = False) -> No
     descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         info = os.fstat(descriptor)
-        if info.st_uid != os.getuid() or (info.st_mode & 0o022 and not repair_permissions):
-            raise Refused(f"unsafe directory ownership or permissions: {directory} "
-                          f"(uid {info.st_uid}, mode {stat.S_IMODE(info.st_mode):04o})")
+        if info.st_uid != os.getuid():
+            raise Refused(f"foreign directory ownership: {directory} "
+                          f"(expected uid {os.getuid()}, observed uid {info.st_uid}, "
+                          f"mode {stat.S_IMODE(info.st_mode):04o})")
+        if info.st_mode & 0o022 and not repair_permissions:
+            raise Refused(f"unsafe directory permissions: {directory} "
+                          f"(mode {stat.S_IMODE(info.st_mode):04o})")
         os.fchmod(descriptor, 0o700)
         current = directory.lstat()
         if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
@@ -198,31 +202,73 @@ class Relay:
         return [self.socat, f"EXEC:{executable} -ei -s {PIPE}",
                 f"UNIX-LISTEN:{self.socket},unlink-close,fork,mode=600"]
 
-    def identity(self, pid: int) -> dict | None:
+    def process_lifetime(self, pid: int) -> tuple[int, str] | None:
         self.remaining()
         proc = Path("/proc") / str(pid)
         try:
             info = proc.stat()
             fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+            if len(fields) < 20 or not fields[19].isascii() or not fields[19].isdigit():
+                raise ValueError("invalid start time")
             if fields[0] == "Z":
                 return None
-            argv = (proc / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
-            binary = (proc / "exe").resolve()
         except FileNotFoundError:
             return None
-        if info.st_uid != os.getuid() or not self.socat or binary != Path(self.socat).resolve():
-            raise Refused(f"relay PID {pid} is not the configured same-user socat")
+        except (OSError, ValueError, IndexError) as error:
+            raise Refused(f"relay PID {pid} process lifetime unavailable") from error
+        return info.st_uid, fields[19]
+
+    def identity(self, pid: int) -> dict | None:
+        before = self.process_lifetime(pid)
+        if before is None:
+            return None
+        if before[0] != os.getuid():
+            raise Refused(f"relay PID {pid} owner mismatch")
+        if not self.boot:
+            raise Refused("boot identity unavailable")
+        proc = Path("/proc") / str(pid)
+        try:
+            argv = (proc / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
+            binary = (proc / "exe").resolve(strict=True)
+        except FileNotFoundError:
+            if self.process_lifetime(pid) is None:
+                return None
+            raise Refused(f"relay PID {pid} executable/arguments unavailable")
+        except (OSError, ValueError) as error:
+            raise Refused(f"relay PID {pid} executable/arguments unavailable") from error
+        after = self.process_lifetime(pid)
+        if after is None:
+            return None
+        if after != before:
+            raise Refused(f"relay PID {pid} lifetime changed during identity inspection")
+        if not self.socat or binary != Path(self.socat).resolve():
+            raise Refused(f"relay PID {pid} configured socat executable mismatch")
         if len(argv) != 3 or argv[0] not in (self.socat, "socat") or not argv[1].startswith("EXEC:"):
-            raise Refused(f"relay PID {pid} has different socket/relay arguments")
+            raise Refused(f"relay PID {pid} has different socket/relay arguments (argv shape mismatch)")
         try:
             execution = shlex.split(argv[1][5:])
         except ValueError as error:
-            raise Refused(f"relay PID {pid} has invalid execution arguments") from error
+            raise Refused(f"relay PID {pid} has invalid execution arguments (quoting mismatch)") from error
         listen = self.command()[2]
-        if (execution != [str(self.executable), "-ei", "-s", PIPE]
-                or argv[2] not in (listen, listen.removesuffix(",mode=600"))):
-            raise Refused(f"relay PID {pid} has different socket/relay arguments")
-        return {"pid": pid, "start": fields[19], "socket": str(self.socket), "argv": argv, "boot": self.boot}
+        if len(execution) != 4:
+            mismatch = "execution shape"
+        elif execution[0] != str(self.executable):
+            mismatch = "relay path"
+        elif execution[1:3] != ["-ei", "-s"]:
+            mismatch = "execution flags"
+        elif execution[3] != PIPE:
+            mismatch = "pipe"
+        elif argv[2] not in (listen, listen.removesuffix(",mode=600")):
+            mismatch = "listen arguments"
+        else:
+            return {"pid": pid, "start": before[1], "socket": str(self.socket), "argv": argv, "boot": self.boot}
+        raise Refused(f"relay PID {pid} has different socket/relay arguments ({mismatch} mismatch)")
+
+    def identity_at(self, pid: int, stage: str) -> dict | None:
+        try:
+            return self.identity(pid)
+        except Refused as error:
+            raise Refused(f"{stage}: {error}") from error
 
     def listener(self) -> dict | None:
         self.remaining()
@@ -261,9 +307,16 @@ class Relay:
         current = self.socket_info()
         if current is None or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
             raise Refused("socket generation changed during listener discovery")
-        return self.identity(owners[0])
+        return self.identity_at(owners[0], "discovered listener")
 
     def recorded(self) -> dict | None:
+        try:
+            return self.read_record()
+        except (Refused, OSError, ValueError) as error:
+            detail = str(error) if isinstance(error, Refused) else "unreadable or invalid relay PID record"
+            raise Refused(f"saved record: {detail}") from error
+
+    def read_record(self) -> dict | None:
         if not self.record_path.exists() and not self.record_path.is_symlink():
             return None
         descriptor = os.open(self.record_path, os.O_RDONLY | os.O_NOFOLLOW)
@@ -272,9 +325,21 @@ class Relay:
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
                 raise Refused("unsafe relay PID record")
             record = json.load(handle)
-        if type(record.get("pid")) is not int or record.get("socket") != str(self.socket):
+        if (not isinstance(record, dict) or set(record) != {"pid", "start", "socket", "argv", "boot"}
+                or type(record["pid"]) is not int or record["pid"] <= 0
+                or not isinstance(record["start"], str) or not record["start"].isascii() or not record["start"].isdigit()
+                or not isinstance(record["boot"], str) or not record["boot"]
+                or not isinstance(record["argv"], list) or len(record["argv"]) != 3
+                or not all(isinstance(argument, str) for argument in record["argv"])):
+            raise Refused("invalid relay PID record")
+        if record["socket"] != str(self.socket):
             raise Refused("relay PID record has different ownership")
+        if not self.boot:
+            raise Refused("boot identity unavailable")
         if record.get("boot") != self.boot:
+            return None
+        lifetime = self.process_lifetime(record["pid"])
+        if lifetime is None or lifetime[1] != record["start"]:
             return None
         identity = self.identity(record["pid"])
         if identity is not None and identity != record:
@@ -298,19 +363,19 @@ class Relay:
             os.close(descriptor)
 
     def stop_verified(self, record: dict, descriptor: int) -> None:
-        if self.identity(record["pid"]) != record:
+        if self.identity_at(record["pid"], "shutdown recheck") != record:
             raise Refused("relay ownership changed before shutdown")
         signal.pidfd_send_signal(descriptor, signal.SIGTERM)
         until = time.monotonic() + min(2, self.remaining())
         while time.monotonic() < until:
-            if self.identity(record["pid"]) is None:
+            if self.identity_at(record["pid"], "shutdown recheck") is None:
                 return
             time.sleep(0.05)
-        if self.identity(record["pid"]) != record:
+        if self.identity_at(record["pid"], "shutdown recheck") != record:
             raise Refused("relay ownership changed during shutdown")
         signal.pidfd_send_signal(descriptor, signal.SIGKILL)
         while self.remaining() > 0:
-            if self.identity(record["pid"]) is None:
+            if self.identity_at(record["pid"], "shutdown recheck") is None:
                 return
             time.sleep(0.05)
 
@@ -340,6 +405,8 @@ class Relay:
             secure_directory(self.socket.parent, repair_permissions=True)
             if not reset and self.healthy():
                 return True
+            if not self.boot:
+                raise Refused("boot identity unavailable; refusing relay recovery")
             original = self.socket_info()
             recorded = self.recorded()
             listener = self.listener()
@@ -362,7 +429,7 @@ class Relay:
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                        start_new_session=True)
             try:
-                identity = self.identity(process.pid)
+                identity = self.identity_at(process.pid, "newly spawned child")
                 if identity is None:
                     raise Refused("socat exited before relay ownership was recorded")
                 self.write_record(identity)
@@ -376,7 +443,7 @@ class Relay:
                 raise Refused("relay did not become healthy within the recovery budget")
             except BaseException:
                 if process.poll() is None:
-                    identity = self.identity(process.pid)
+                    identity = self.identity_at(process.pid, "new child cleanup")
                     if identity:
                         self.stop(identity)
                 process.wait(timeout=1)

@@ -4,8 +4,11 @@ import os
 import json
 import re
 import shutil
+import socket
 import stat
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,6 +65,103 @@ class DevcontainerLifecycleTests(unittest.TestCase):
 
     def assert_success(self, result: subprocess.CompletedProcess[str]) -> None:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def generated_sset(self) -> Path:
+        result = self.run_bash('source "$1"; install_sset_helper', str(POST_START))
+        self.assert_success(result)
+        helper = self.fixture.home / ".local/bin/sset"
+        self.assertNotIn("pkill -f", helper.read_text())
+        return helper
+
+    def agent_fixture(self, platform: str = "wsl2") -> tuple[Path, dict[str, str]]:
+        directory = tempfile.TemporaryDirectory(prefix="container-agent-", dir=Path("/tmp").resolve())
+        self.addCleanup(directory.cleanup)
+        parent = Path(directory.name)
+        sock = parent / "agent.sock"
+        listener = socket.socket(socket.AF_UNIX)
+        self.addCleanup(listener.close)
+        listener.bind(str(sock))
+        sock.chmod(0o600)
+        npiperelay = write_executable(self.fixture.fake_bin / "npiperelay.exe", "#!/bin/sh\nexit 99\n")
+        env = {**self.env, "SSH_AUTH_SOCK": str(sock), "WSL_NPIPERELAY_PATH": str(npiperelay),
+               "AGENT_PROBE_RC": "0", "AGENT_PROBE_STDOUT": "", "AGENT_PROBE_STDERR": ""}
+        env.pop("ORBSTACK_HOST_SSH_AUTH_SOCK", None)
+        if platform == "macos":
+            env["ORBSTACK_HOST_SSH_AUTH_SOCK"] = str(sock)
+        write_executable(self.fixture.fake_bin / "ssh-add", f"#!{sys.executable}\n"
+            "import os, sys\n"
+            "if sys.argv[1] == '-l':\n"
+            "    assert os.environ['LC_ALL'] == 'C'\n"
+            "    sys.stdout.write(os.environ['AGENT_PROBE_STDOUT'])\n"
+            "    sys.stderr.write(os.environ['AGENT_PROBE_STDERR'])\n"
+            "    sys.exit(int(os.environ['AGENT_PROBE_RC']))\n"
+            "if os.environ['AGENT_PROBE_RC'] == '1': sys.exit(1)\n"
+            "print('ssh-ed25519 AAAAFIXTURE root_terraform_ansible')\n")
+        write_executable(self.fixture.fake_bin / "timeout", '#!/bin/sh\nshift\nexec "$@"\n')
+        write_executable(self.fixture.fake_bin / "sleep", "#!/bin/sh\nexit 0\n")
+        write_executable(self.fixture.fake_bin / "socat", "#!/bin/sh\nexit 99\n")
+        return sock, env
+
+    def test_sset_consumes_host_socket_without_directory_or_process_mutation(self) -> None:
+        helper = self.generated_sset()
+        sock, env = self.agent_fixture()
+        sock.parent.chmod(0o500)
+        self.addCleanup(sock.parent.chmod, 0o700)
+        forbidden = self.fixture.root / "mutations"
+        for tool in ("pkill", "setsid", "nohup", "socat"):
+            write_executable(self.fixture.fake_bin / tool,
+                             f"#!/bin/sh\nprintf '%s\\n' '{tool}' >> '{forbidden}'\nexit 99\n")
+        for tool in ("chmod", "mkdir", "rm"):
+            executable = shutil.which(tool)
+            write_executable(self.fixture.fake_bin / tool, f"#!/bin/sh\n"
+                f"for arg do if [ \"$arg\" = '{sock.parent}' ] || [ \"$arg\" = '{sock}' ]; then "
+                f"printf '%s\\n' '{tool}' >> '{forbidden}'; exit 99; fi; done\n"
+                f'exec "{executable}" "$@"\n')
+        original = sock.stat().st_ino
+        result = self.run_bash('"$1"', str(helper), env=env)
+        self.assert_success(result)
+        self.assertEqual(sock.stat().st_ino, original)
+        self.assertEqual(stat.S_IMODE(sock.parent.stat().st_mode), 0o500)
+        self.assertFalse(forbidden.exists())
+        self.assertIn("AAAAFIXTURE", (self.fixture.home / ".ssh/root_terraform_ansible.pub").read_text())
+
+    def test_sset_readiness_classifies_empty_and_communication_failures_without_key_loss(self) -> None:
+        helper = self.generated_sset()
+        sock, env = self.agent_fixture()
+        key_file = self.fixture.home / ".ssh/root_terraform_ansible.pub"
+        key_file.parent.mkdir(parents=True)
+        cases = ((0, "", "", True), (1, "The agent has no identities.\n", "", True),
+                 (1, "", "communication with agent failed", False),
+                 (1, "The agent has no identities.\n", "invalid format", False),
+                 (1, "unexpected private output", "", False), (124, "", "", False))
+        for rc, output, errors, healthy in cases:
+            with self.subTest(rc=rc, output=output):
+                key_file.write_text("existing-key\n")
+                result = self.run_bash('"$1"', str(helper), env={**env, "AGENT_PROBE_RC": str(rc),
+                    "AGENT_PROBE_STDOUT": output, "AGENT_PROBE_STDERR": errors})
+                self.assertEqual(result.returncode == 0, healthy and rc == 0, result.stderr)
+                self.assertNotIn("unexpected private output", result.stderr)
+                self.assertNotIn("AAAAFIXTURE", result.stderr + result.stdout)
+                if healthy and rc == 0:
+                    self.assertIn("AAAAFIXTURE", key_file.read_text())
+                    self.assertEqual(stat.S_IMODE(key_file.stat().st_mode), 0o600)
+                else:
+                    self.assertEqual(key_file.read_text(), "existing-key\n")
+                    if healthy:
+                        self.assertIn("has no keys", result.stderr)
+                        self.assertNotIn("did not become ready", result.stderr)
+                    else:
+                        self.assertIn("host", result.stderr)
+                self.assertTrue(sock.exists())
+
+    def test_sset_macos_empty_agent_probe_remains_usable(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture("macos")
+        result = self.run_bash('"$1"', str(helper), env={**env, "AGENT_PROBE_RC": "1",
+            "AGENT_PROBE_STDOUT": "The agent has no identities.\n"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("has no keys", result.stderr)
+        self.assertNotIn("did not become ready", result.stderr)
 
     def test_lifecycle_scripts_are_source_safe_and_dispatchable(self) -> None:
         cases = (

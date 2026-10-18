@@ -196,7 +196,6 @@ set -Eeuo pipefail
 
 sock="${SSH_AUTH_SOCK:-/tmp/wsl-ssh-pageant/ssh-agent.sock}"
 sock_dir="$(dirname "$sock")"
-npiperelay_path="${WSL_NPIPERELAY_PATH:-}"
 orbstack_host_sock="${ORBSTACK_HOST_SSH_AUTH_SOCK:-}"
 orbstack_relay_script="/tmp/host-homelab-devcontainer/orbstack_ssh_agent_relay.py"
 orbstack_relay_log="/tmp/orbstack-ssh-agent-relay.log"
@@ -275,36 +274,31 @@ echo $! >"$relay_pid"
 ' sh "$sock" "$sock_dir" "$orbstack_relay_pid" "$orbstack_relay_log" "$python_bin" "$orbstack_relay_script" "$orbstack_host_sock" "$user_name" "$group_name"
 }
 
-if [[ -z "$npiperelay_path" ]]; then
-  for candidate in /mnt/c/Users/*/Applications/npiperelay.exe; do
-    if [[ -x "$candidate" ]]; then
-      npiperelay_path="$candidate"
-      break
-    fi
-  done
-fi
-
-mkdir -p "$HOME/.ssh" "$sock_dir"
-chmod 700 "$sock_dir" >/dev/null 2>&1 || true
-
-ensure_orbstack_relay || true
-
-if [[ -n "$npiperelay_path" ]] && command -v socat >/dev/null 2>&1 && [[ -x "$npiperelay_path" ]]; then
-  pkill -f 'socat.*npiperelay\.exe.*ssh-pageant' >/dev/null 2>&1 || true
-  rm -f "$sock" >/dev/null 2>&1 || true
-
-  if command -v setsid >/dev/null 2>&1; then
-    setsid -f socat EXEC:"\"$npiperelay_path\" -ei -s //./pipe/ssh-pageant" UNIX-LISTEN:"$sock",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1
+agent_recovery_hint() {
+  if [[ -n "$orbstack_host_sock" ]]; then
+    echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
   else
-    nohup socat EXEC:"\"$npiperelay_path\" -ei -s //./pipe/ssh-pageant" UNIX-LISTEN:"$sock",unlink-close,fork,mode=600 </dev/null >/dev/null 2>&1 &
+    echo "WARN: Run sset on the WSL host in the owning distro, then retry sset in this container." >&2
   fi
+}
+
+mkdir -p "$HOME/.ssh"
+if [[ -n "$orbstack_host_sock" ]]; then
+  mkdir -p "$sock_dir"
+  chmod 700 "$sock_dir" >/dev/null 2>&1 || true
+  ensure_orbstack_relay || true
 fi
+
+ssh_add_stdout="$(mktemp)"
+ssh_add_stderr="$(mktemp)"
+trap 'rm -f "$ssh_add_stdout" "$ssh_add_stderr"' EXIT
 
 agent_ready=0
 for ((i=0; i<50; i++)); do
   rc=0
-  timeout 2 ssh-add -l >/dev/null 2>&1 || rc=$?
-  if [[ "$rc" -eq 0 || "$rc" -eq 1 ]]; then
+  LC_ALL=C timeout 2 ssh-add -l >"$ssh_add_stdout" 2>"$ssh_add_stderr" || rc=$?
+  if [[ "$rc" -eq 0 ]] || { [[ "$rc" -eq 1 && ! -s "$ssh_add_stderr" ]] &&
+      [[ "$(<"$ssh_add_stdout")" == "The agent has no identities." ]]; }; then
     agent_ready=1
     break
   fi
@@ -313,12 +307,10 @@ done
 
 if [[ "$agent_ready" -ne 1 ]]; then
   echo "WARN: SSH agent did not become ready; keeping existing key file." >&2
-  echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
+  agent_recovery_hint
   exit 1
 fi
 
-ssh_add_stdout="$(mktemp)"
-ssh_add_stderr="$(mktemp)"
 ssh_add_exit=0
 
 timeout 5 ssh-add -L >"$ssh_add_stdout" 2>"$ssh_add_stderr" || ssh_add_exit=$?
@@ -349,7 +341,6 @@ if [[ "$ssh_add_exit" -eq 0 ]]; then
     echo "INFO: refreshed $ssh_pub_key_file from SSH agent." >&2
   else
     echo "WARN: SSH agent returned no usable public keys for Ansible." >&2
-    rm -f "$ssh_add_stdout" "$ssh_add_stderr"
     exit 1
   fi
 else
@@ -357,7 +348,7 @@ else
     echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
   elif [[ "$ssh_add_exit" -eq 124 ]]; then
     echo "WARN: ssh-add -L timed out; SSH agent appears unhealthy." >&2
-    echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
+    agent_recovery_hint
   else
     ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
     if [[ -n "$ssh_add_error" ]]; then
@@ -365,13 +356,10 @@ else
     else
       echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
     fi
-    echo "WARN: Reopen or rebuild the devcontainer to refresh SSH agent forwarding." >&2
+    agent_recovery_hint
   fi
-  rm -f "$ssh_add_stdout" "$ssh_add_stderr"
   exit 1
 fi
-
-rm -f "$ssh_add_stdout" "$ssh_add_stderr"
 EOF
 
   chmod 700 "$helper_path"

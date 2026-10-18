@@ -551,6 +551,65 @@ class TemplateRenderTests(unittest.TestCase):
                 syntax = subprocess.run(["bash", "-n", "-c", argv[2]], capture_output=True, check=False)
                 self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
+    def initializer(self, platform: str) -> str:
+        line = next(line for line in self.rendered(platform).splitlines()
+                    if line.strip().startswith('"initializeCommand"'))
+        return json.loads(line.split(":", 1)[1].strip().rstrip(","))[2]
+
+    def test_wsl_parent_mount_is_read_only_and_host_helper_is_the_only_writer(self) -> None:
+        text = self.rendered("wsl2")
+        self.assertIn("source=/tmp/wsl2-ssh-agent,target=/tmp/wsl-ssh-pageant,type=bind,readonly", text)
+        command = self.initializer("wsl2")
+        self.assertIn("wsl2-pageant.py", command)
+        for forbidden in ("pkill", "npiperelay.exe", "setsid", "UNIX-LISTEN:", 'rm -f "$SOCK"'):
+            self.assertNotIn(forbidden, command)
+
+    def test_wsl_preflight_requires_healthy_non_skipped_helper_before_browser_relay(self) -> None:
+        command = self.initializer("wsl2")
+        self.assertNotIn("pkill", command)
+        self.assertIn("wsl2-pageant.py", command)
+        with isolated_environment(prefix="container-pageant-") as iso:
+            helper_log = iso.root / "helper.json"
+            browser_log = iso.root / "browser-started"
+            helper = write_executable(iso.home / "bin/wsl2-pageant.py", f"#!{sys.executable}\n"
+                "import json, os, pathlib, sys\n"
+                "pathlib.Path(os.environ['HELPER_LOG']).write_text(json.dumps([sys.argv[1:], "
+                "os.environ.get('SSH_AUTH_SOCK'), os.environ.get('WSL2_PAGEANT_SSH_AUTH_SOCK')]))\n"
+                "print(os.environ['HELPER_RESULT'])\n"
+                "sys.exit(int(os.environ.get('HELPER_RC', '0')))\n")
+            script = iso.home / "Documents/development/dotfiles" / RELAY_PATH.relative_to(ROOT)
+            write_executable(script, "import os, pathlib\npathlib.Path(os.environ['BROWSER_LOG']).touch()\n")
+            env = {**iso.env, "SSH_AUTH_SOCK": "/other/agent", "WSL2_PAGEANT_SSH_AUTH_SOCK": "/other/override",
+                   "HELPER_LOG": str(helper_log), "BROWSER_LOG": str(browser_log)}
+            cases = ((0, '{"healthy":true}', True), (1, '{"healthy":false}', False),
+                     (0, '{"healthy":false}', False), (0, '{"healthy":true,"skipped":true}', False),
+                     (0, 'not json', False), (0, '[]', False))
+            for rc, payload, success in cases:
+                with self.subTest(rc=rc, payload=payload):
+                    browser_log.unlink(missing_ok=True)
+                    result = subprocess.run([BASH, "-c", command], env={**env, "HELPER_RC": str(rc), "HELPER_RESULT": payload},
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+                    self.assertEqual(browser_log.exists(), success, result.stderr)
+                    self.assertEqual(json.loads(helper_log.read_text()),
+                                     [["--ensure", "--json"], "/tmp/wsl2-ssh-agent/ssh-agent.sock", "/tmp/wsl2-ssh-agent/ssh-agent.sock"])
+            helper.unlink()
+            browser_log.unlink(missing_ok=True)
+            result = subprocess.run([BASH, "-c", command], env=env, capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(browser_log.exists())
+
+    def test_macos_initializer_does_not_require_pageant(self) -> None:
+        command = self.initializer("macos")
+        self.assertNotIn("wsl2-pageant", command)
+        with isolated_environment(prefix="container-macos-relay-") as iso:
+            marker = iso.root / "started"
+            script = iso.home / "Documents/development/dotfiles" / RELAY_PATH.relative_to(ROOT)
+            write_executable(script, f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+            result = subprocess.run([BASH, "-c", command], env=iso.env, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(marker.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
