@@ -205,6 +205,18 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.pids.append(path)
         return path
 
+    def start_sentinel(self) -> subprocess.Popen[bytes]:
+        sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                    start_new_session=True)
+
+        def stop() -> None:
+            if sentinel.poll() is None:
+                sentinel.kill()
+            sentinel.wait(timeout=5)
+
+        self.addCleanup(stop)
+        return sentinel
+
     def test_group_cleanup_reaps_before_each_signal(self) -> None:
         process = mock.Mock(pid=123, returncode=0)
         pipes = mock.Mock()
@@ -280,7 +292,9 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
         self.fixture.write_registry()
         report = self.fixture.root / "result.json"
+        sentinel = self.start_sentinel()
         result = self.fixture.supervised("--report-file", str(report))
+        self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("hung diagnostic", result.stdout)
         self.assertIn("FAIL alpha: timeout after 1 seconds", result.stdout)
@@ -435,22 +449,30 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.fixture.write_script("pass.py", "import sys\n"
                                   "for _ in range(3 * 1024):\n"
                                   "    sys.stdout.write('y' * 1023 + '\\n')\n"
-                                  "sys.stdout.write('final line\\n')\n")
+                                  "    sys.stderr.write('z' * 1023 + '\\n')\n"
+                                  "sys.stdout.write('final line\\n')\n"
+                                  "sys.stderr.write('final error line\\n')\n")
         self.fixture.write_registry()
         result = self.fixture.supervised()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         self.assertIn("PASS alpha", result.stdout)
-        self.assertRegex(result.stdout, r"\[runner: \d+ bytes of step output omitted\]")
+        for stream in (result.stdout, result.stderr):
+            self.assertRegex(stream, r"\[runner: \d+ bytes of step output omitted\]")
+            self.assertLess(len(stream), RUN_TESTS.STEP_OUTPUT_LIMIT_BYTES + 65536)
         self.assertIn("final line", result.stdout)
-        self.assertLess(len(result.stdout), RUN_TESTS.STEP_OUTPUT_LIMIT_BYTES + 65536)
+        self.assertIn("final error line", result.stderr)
 
     def test_report_write_failure_returns_two(self) -> None:
         report = self.fixture.root / "report-directory"
         report.mkdir()
-        result = self.fixture.supervised("--case-report", "--report-file", str(report))
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("WARNING: cannot update report", result.stderr)
-        self.assertIn("ERROR: cannot write report", result.stderr)
+        for case_report in (True, False):
+            with self.subTest(case_report=case_report):
+                args = ["--case-report"] if case_report else []
+                result = self.fixture.supervised(*args, "--report-file", str(report))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("ERROR: cannot write report", result.stderr)
+                if case_report:
+                    self.assertIn("WARNING: cannot update report", result.stderr)
 
     def check_interruption(self, signum: int) -> None:
         pid_file = self.fixture_pid(f"interrupt-{signum}.pid")
@@ -458,6 +480,7 @@ class RunnerSupervisionTests(unittest.TestCase):
                                   f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
                                   "time.sleep(30)\n")
         self.fixture.write_registry()
+        sentinel = self.start_sentinel()
         with (tempfile.TemporaryFile(mode="w+t") as output,
               tempfile.TemporaryFile(mode="w+t") as errors):
             runner = subprocess.Popen(self.fixture.command(), stdout=output, stderr=errors,
@@ -471,6 +494,7 @@ class RunnerSupervisionTests(unittest.TestCase):
                 runner.wait(timeout=6)
                 self.assertNotEqual(runner.returncode, 0)
                 self.assert_stopped(pid_file)
+                self.assertIsNone(sentinel.poll(), "unrelated process was stopped")
             finally:
                 if runner.poll() is None:
                     os.killpg(runner.pid, signal.SIGKILL)
@@ -809,13 +833,20 @@ class TestRunnerTests(unittest.TestCase):
     def test_missing_capability_skips_locally_and_fails_when_required(self) -> None:
         self.fixture.capabilities = {"absent": {"command": "definitely-not-a-real-command"}}
         self.fixture.steps[0]["requires"] = ["absent"]
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
         self.fixture.write_registry()
         local = self.fixture.run()
         self.assertEqual(local.returncode, 0, local.stderr)
         self.assertIn("SKIP alpha: missing capability absent", local.stdout)
-        strict = self.fixture.run("--require-capabilities")
+        report = self.fixture.root / "strict.json"
+        strict = self.fixture.run("--require-capabilities", "--case-report", "--report-file", str(report))
         self.assertEqual(strict.returncode, 1)
         self.assertIn("FAIL alpha: missing capability absent", strict.stdout)
+        self.assertIn("PASS beta", strict.stdout)
+        steps = json.loads(report.read_text(encoding="utf-8"))["steps"]
+        self.assertEqual([(step["id"], step["status"], step["outcome"]) for step in steps],
+                         [("alpha", "fail", "missing_capability"), ("beta", "pass", "passed")])
 
     def test_guard_shim_does_not_satisfy_bd_capability(self) -> None:
         empty_bin = self.fixture.root / "empty-bin"
@@ -1087,11 +1118,19 @@ class TestRunnerTests(unittest.TestCase):
             "blocked = shutil.which('bd')\n"
             "if blocked is None: raise SystemExit('bd guard command was not found')\n"
             "result = subprocess.run([blocked, '--version'], check=False, text=True, capture_output=True)\n"
+            "dolt_path = shutil.which('dolt')\n"
+            "if dolt_path is None: raise SystemExit('dolt guard command was not found')\n"
+            "dolt = subprocess.run([dolt_path, 'version'], check=False, text=True, capture_output=True)\n"
             f"pathlib.Path({str(output)!r}).write_text(json.dumps({{"
             "'home': os.environ['HOME'], 'userprofile': os.environ['USERPROFILE'], "
             "'tmp': os.environ['TMPDIR'], 'secret': os.environ.get('FIXTURE_SECRET_TOKEN'), "
-            "'git_global': os.environ['GIT_CONFIG_GLOBAL'], 'bd_exit': result.returncode, "
-            "'bd_error': result.stderr}), encoding='utf-8')\n",
+            "'git_global': os.environ['GIT_CONFIG_GLOBAL'], "
+            "'git_system': os.environ['GIT_CONFIG_SYSTEM'], "
+            "'git_config_size': os.path.getsize(os.environ['GIT_CONFIG_GLOBAL']), "
+            "'xdg': [os.environ[name] for name in "
+            "('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME')], "
+            "'bd_exit': result.returncode, 'bd_error': result.stderr, "
+            "'dolt_exit': dolt.returncode, 'dolt_error': dolt.stderr}), encoding='utf-8')\n",
         )
         env = os.environ.copy()
         env["FIXTURE_SECRET_TOKEN"] = "must-not-leak"
@@ -1103,8 +1142,14 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIsNone(actual["secret"])
         self.assertEqual(actual["bd_exit"], 97)
         self.assertIn("blocked real bd invocation", actual["bd_error"])
+        self.assertEqual(actual["dolt_exit"], 97)
+        self.assertIn("blocked real dolt invocation", actual["dolt_error"])
         self.assertTrue(actual["git_global"].startswith(str(Path(actual["home"]).parent)))
+        self.assertEqual(actual["git_system"], actual["git_global"])
+        self.assertEqual(actual["git_config_size"], 0)
         self.assertTrue(actual["tmp"].startswith(str(Path(actual["home"]).parent)))
+        for directory in actual["xdg"]:
+            self.assertTrue(Path(directory).is_relative_to(actual["home"]), directory)
 
     def test_devcontainer_smoke_opt_in_and_artifact_settings_are_passed_through(self) -> None:
         output = self.fixture.root / "smoke-environment.json"
@@ -1241,6 +1286,17 @@ class TestRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Selected steps:", result.stdout)
+
+        invalid = subprocess.run(
+            [BASH, str(POSIX_WRAPPER), "not-a-suite"],
+            cwd=REPO_ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(invalid.returncode, 2, invalid.stderr)
+        self.assertIn("invalid choice", invalid.stderr)
 
     def test_powershell_wrapper_delegates_to_runner(self) -> None:
         diagnostics: list[str] = []

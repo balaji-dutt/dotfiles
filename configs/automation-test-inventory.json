@@ -954,16 +954,28 @@
       "owner": {"kind": "repository", "name": "test-foundation"},
       "languages": ["bash", "powershell", "python"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
-      "risk": "high",
+      "risk": "critical",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {
-        "status": "covered",
+        "status": "partial",
         "work_item": "test-foundation",
         "test_paths": ["tests/test_case_report.py", "tests/test_runner_windows_interop.py", "tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
-        "behavior_requirements": []
+        "behavior_requirements": [
+          {"id": "failure-incomplete-run-evidence", "kind": "failure", "description": "Leave a v2 report with completed, interrupted, and not-run steps and an interrupted or crashed run state when a run stops early, and write a v1 report only at the end.", "status": "covered"},
+          {"id": "failure-report-write-exit", "kind": "failure", "description": "Exit 2 when the final v1 or v2 report cannot be written.", "status": "covered"},
+          {"id": "failure-step-outcomes", "kind": "failure", "description": "Fail a step with an explicit outcome on timeout, launch error, signal crash, Windows NTSTATUS exit, or missing required capability, and run later steps after a timeout, launch error, or missing capability.", "status": "covered"},
+          {"id": "safety-bounded-step-output", "kind": "safety", "description": "Keep only the last 1 MiB of each step's stdout and stderr and report the omitted byte count.", "status": "covered"},
+          {"id": "safety-native-windows-tree-termination", "kind": "safety", "description": "Stop only the step's own PID tree on timeout and interruption from a native Windows checkout, leaving an unrelated process alive.", "status": "planned"},
+          {"id": "safety-owned-tree-termination", "kind": "safety", "description": "Stop the step's own POSIX process group, including TERM-resistant and pipe-holding descendants, on timeout and SIGINT, SIGTERM, or SIGHUP while an unrelated process survives, and kill only the step's Windows PID tree on timeout under WSL2 interop.", "status": "covered"},
+          {"id": "safety-synthetic-sandbox", "kind": "safety", "description": "Give every step synthetic home, XDG, and temp directories, an empty global and system Git config, and no parent secrets; block real bd and dolt with guard shims, and sandbox directly imported tests the same way.", "status": "covered"},
+          {"id": "success-case-report-adapter", "kind": "success", "description": "Match python -m unittest exit codes in the case-report adapter, record per-case outcomes and subtests in report v2, and leave report v1 unchanged.", "status": "covered"},
+          {"id": "success-suite-and-capability-selection", "kind": "success", "description": "Select suites deterministically, skip missing capabilities locally, fail them under --require-capabilities or --require-capability, reject unknown required capabilities with exit 2, keep platform mismatches as skips, and never let a guard shim satisfy bd.", "status": "covered"},
+          {"id": "success-test-selection-completeness", "kind": "success", "description": "Account for every concrete unittest class once per platform or as a reviewed exception, and reject class definitions the selection check cannot resolve.", "status": "covered"},
+          {"id": "success-wrapper-delegation", "kind": "success", "description": "Pass arguments and exit status from run-tests.sh and run-tests.ps1 through to run-tests.py.", "status": "covered"}
+        ]
       },
-      "rationale": "Contract tests cover delegation, suite selection, isolation, capability handling, shared fixtures, source-only selection completeness (every concrete unittest class selected once per platform or listed as a reviewed exception), the opt-in --case-report pilot (adapter exit codes matching python -m unittest, per-case outcomes, report v2 without changing v1), POSIX step timeout/process-group teardown on SIGINT, SIGTERM, and SIGHUP, interrupted-run evidence in report v2, and mocked Windows tree termination. Deterministic POSIX cleanup tests cover reap-before-signal ordering, a bounded retry only when the parent exits during a permission failure, and persistent permission-error reporting; subprocess tests cover pipe-holding descendants, SIGKILL escalation, and bounded failure for detached pipe holders. Windows step timeouts and owned-tree termination run for real under Windows Python through WSL2 interop from a \\\\wsl.localhost checkout; a native Windows checkout is not verified."
+      "rationale": "Windows owned-tree termination runs for real only under Windows Python through WSL2 interop from a \\\\wsl.localhost checkout; Windows interruption, NTSTATUS classification, and the taskkill fallback are exercised with mocks. Native Windows checkout behavior remains unverified, which keeps the entry partial."
     },
     {
       "id": "user-utilities",
