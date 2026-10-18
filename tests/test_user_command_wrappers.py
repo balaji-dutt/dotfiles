@@ -15,6 +15,7 @@ from tests.support.fixtures import isolated_environment, write_executable
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BIN = REPO_ROOT / "bin"
 AGENT_ENV = REPO_ROOT / "dot_local/share/dotfiles/agent-env.sh"
+CONTAINER_DOTFILES = REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles"
 
 
 def deploy_agent_env(fixture) -> tuple[Path, Path]:
@@ -878,6 +879,9 @@ class AgentEnvironmentTests(unittest.TestCase):
 
 class OpenCodeEnvironmentTests(unittest.TestCase):
     WRAPPERS = AgentEnvironmentTests.WRAPPERS[:2]
+    BUILD_PORT = "4200-4209"
+    CUSTOM_PORT = "4300-4309"
+    LOAD_ERROR = "unable to load host OpenCode environment"
     STALE = "synthetic-stale-go-key"
     CURRENT = "synthetic-current-go-key"
     ROTATED = "synthetic-rotated-go-key"
@@ -944,7 +948,7 @@ class OpenCodeEnvironmentTests(unittest.TestCase):
                         self.assertEqual(payload["cwd"], str(fixture.root.resolve()))
                         self.assertEqual(list(payload["other"].values()), [
                             "chosen-profile", "chosen-config", "chosen-workspace", "chosen-cookie",
-                            "chosen-anthropic", "4300-4309" if "custom" in target else "4200-4209", "0.27.22",
+                            "chosen-anthropic", self.CUSTOM_PORT if "custom" in target else self.BUILD_PORT, "0.27.22",
                         ])
                         self.assert_private(result)
 
@@ -1021,7 +1025,7 @@ class OpenCodeEnvironmentTests(unittest.TestCase):
                     try:
                         result = run_script(wrapper, "private-argument", env=env | {"OPENCODE_PLANNOTATOR_VERBOSE": "1"})
                         self.assertEqual(result.returncode, 1, result.stderr)
-                        self.assertIn("unable to load host OpenCode environment", result.stderr)
+                        self.assertIn(self.LOAD_ERROR, result.stderr)
                         self.assertFalse(child_log.exists())
                         self.assertNotIn("private-argument", result.stdout + result.stderr)
                         self.assert_private(result)
@@ -1058,7 +1062,7 @@ class OpenCodeEnvironmentTests(unittest.TestCase):
                         self.assertEqual(result.stdout, "")
                         self.assert_private(result)
 
-    def test_non_opencode_launchers_dry_run_and_containers_never_source_user_file(self):
+    def test_launcher_specific_skip_boundaries(self):
         with isolated_environment() as fixture:
             wrapper, env_file, env, child_log = self.prepare(fixture, *self.WRAPPERS[0][:2])
             sentinel = fixture.root / "env sourced"
@@ -1082,6 +1086,74 @@ class OpenCodeEnvironmentTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(json.loads(result.stdout)["matches"])
             self.assertFalse(sentinel.exists())
+
+
+class ContainerOpenCodeEnvironmentTests(OpenCodeEnvironmentTests):
+    BUILD_PORT = "5200-5209"
+    CUSTOM_PORT = "5300-5309"
+    LOAD_ERROR = "unable to load container OpenCode environment"
+
+    def prepare(self, fixture, source, target):
+        wrapper, env_file, env, child_log = super().prepare(
+            fixture, str(CONTAINER_DOTFILES / "dot_local/bin" / source), target,
+        )
+        helper = fixture.home / ".local/share/dotfiles/agent-env.sh"
+        helper.write_bytes((CONTAINER_DOTFILES / "dot_local/share/dotfiles/agent-env.sh").read_bytes())
+        env.update(DEVCONTAINER="1", OPENCODE_PLANNOTATOR_VERBOSE="0", MISE_SHIMS_DIR="/absent")
+        guard_log = fixture.root / "guard.json"
+        write_executable(
+            wrapper.parent / "opencode-project-deps-guard",
+            f"#!{sys.executable}\n"
+            "import json, os, sys\nfrom pathlib import Path\n"
+            f"Path({str(guard_log)!r}).write_text(json.dumps({{'argv': sys.argv[1:], "
+            "'matches': os.environ.get('OPENCODE_API_KEY') == os.environ.get('EXPECTED_GO_KEY'), "
+            "'path': os.environ.get('PATH')}))\n"
+            "sys.exit(int(os.environ.get('FAKE_GUARD_EXIT', '0')))\n",
+        )
+        return wrapper, env_file, env, child_log
+
+    def test_launcher_specific_skip_boundaries(self):
+        for source, target, _, _ in self.WRAPPERS:
+            with self.subTest(target=target), isolated_environment() as fixture:
+                wrapper, env_file, env, child_log = self.prepare(fixture, source, target)
+                sentinel = fixture.root / "env sourced"
+                env_file.write_text(f": > {shlex.quote(str(sentinel))}\nexit 97\n", encoding="utf-8")
+                helper = fixture.home / ".local/share/dotfiles/agent-env.sh"
+                helper.unlink()
+                dry = run_script(wrapper, env=env | {"OPENCODE_PLANNOTATOR_DRY_RUN": "1"})
+                self.assertEqual(dry.returncode, 0, dry.stderr)
+                self.assertFalse(sentinel.exists())
+                self.assertFalse(child_log.exists())
+                self.assertFalse((fixture.root / "guard.json").exists())
+                missing = run_script(wrapper, "private-argument", env=env)
+                self.assertEqual(missing.returncode, 1, missing.stderr)
+                self.assertIn("missing host-managed agent environment helper", missing.stderr)
+                self.assertNotIn("private-argument", missing.stderr)
+                self.assertFalse(sentinel.exists())
+                self.assertFalse(child_log.exists())
+
+    def test_all_markers_refresh_before_guard_without_changing_path_and_guard_failure_stops_child(self):
+        for source, target, _, _ in self.WRAPPERS:
+            with self.subTest(target=target), isolated_environment() as fixture:
+                wrapper, env_file, env, child_log = self.prepare(fixture, source, target)
+                env_file.write_text(f"OPENCODE_API_KEY={self.CURRENT}\n", encoding="utf-8")
+                for marker in (None, "DEVCONTAINER", "REMOTE_CONTAINERS", "CODESPACES"):
+                    child_env = env.copy()
+                    child_env.pop("DEVCONTAINER")
+                    if marker:
+                        child_env[marker] = "1"
+                    result = run_script(wrapper, "literal argument", env=child_env, cwd=fixture.root)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout)["matches"])
+                    guard = json.loads((fixture.root / "guard.json").read_text())
+                    self.assertTrue(guard["matches"])
+                    self.assertEqual(guard["path"], child_env["PATH"])
+                    self.assertEqual(guard["argv"], ["--opencode-bin", env["OPENCODE_BIN"], "--cwd", str(fixture.root.resolve())])
+                    self.assert_private(result)
+                    child_log.unlink()
+                refused = run_script(wrapper, env=env | {"FAKE_GUARD_EXIT": "29"})
+                self.assertEqual(refused.returncode, 29, refused.stderr)
+                self.assertFalse(child_log.exists())
 
 
 if __name__ == "__main__":

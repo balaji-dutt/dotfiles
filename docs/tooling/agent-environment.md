@@ -114,9 +114,34 @@ configuration, not a sandbox: commands in the file still execute as the user.
 The loader itself uses Bash builtins and does not fetch credentials or run
 chezmoi, 1Password, shell profiles, or network commands.
 
-Claude and generic `agent-env` launches do not load this file. Dry-runs and
-all three container markers listed above skip the refresh. Container-owned
-wrappers and their credential lifecycle are separate and unchanged.
+Claude and generic `agent-env` launches do not load this file. Host-wrapper
+dry-runs and all three container markers listed above skip the refresh.
+Container-owned wrappers use the policy below.
+
+## Container OpenCode Go credential refresh
+
+Both container-owned OpenCode wrappers use the same selective loader and key
+precedence described above. The helper is mirrored into the container dotfiles
+by `configs/devcontainer-sync.jsonc`. Only `dotfiles_opencode_env` is called:
+container PATH and profile selection stay unchanged, and host mise shims are
+not required. Refresh runs before `opencode-project-deps-guard`, with or without
+container markers. Dry-run exits before requiring the helper or loading keys;
+dependency-guard failures still prevent OpenCode from starting.
+
+The credential source is the container's own
+`${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.env`, normally linked to
+persistent storage. The host-rendered `opencode.env` snapshot and the post-start
+copy into that storage are separate lifecycle steps. Launching OpenCode does
+not render, fetch, or copy credentials: the container file must already contain
+the current key. A stale host snapshot needs a separately approved refresh
+and the normal lifecycle import before a fresh launch can use that key.
+
+Deploy the mirrored helper and both container wrappers together through the
+host's container-dotfiles tree and the normal container installer or rebuild,
+with live-deployment approval. Existing containers need the installed files
+updated too; changing this repository alone is insufficient. Then quit and
+relaunch only the affected OpenCode process and check `/quota`, including the
+unchanged Claude/OpenAI providers. Do not restart unrelated sessions.
 
 ## Compare with a terminal
 

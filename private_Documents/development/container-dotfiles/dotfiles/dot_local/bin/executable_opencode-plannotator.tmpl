@@ -76,6 +76,11 @@ if [ "${OPENCODE_PLANNOTATOR_DRY_RUN:-}" = "1" ]; then
   exit 0
 fi
 
+agent_env_file="$HOME/.local/share/dotfiles/agent-env.sh"
+[[ -f "$agent_env_file" && -r "$agent_env_file" ]] || die "missing host-managed agent environment helper"
+source "$agent_env_file"
+dotfiles_opencode_env || die "unable to load container OpenCode environment"
+
 OPENCODE_BIN="${OPENCODE_BIN:-}"
 if [ -z "$OPENCODE_BIN" ]; then
   OPENCODE_BIN="$(command -v opencode || true)"

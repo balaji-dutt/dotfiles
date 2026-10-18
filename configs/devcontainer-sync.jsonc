@@ -117,7 +117,8 @@
         "cleanup_managed": false,
         "include": [
           "beads-helpers.zsh",
-          "beads-helpers.bash"
+          "beads-helpers.bash",
+          "dotfiles/agent-env.sh"
         ],
         "exclude": []
       }

@@ -731,6 +731,7 @@
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-plannotator.tmpl",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/beads-helpers.bash",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/beads-helpers.zsh",
+        "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/dotfiles/agent-env.sh",
         "private_Documents/development/container-dotfiles/dotfiles/dot_local/share/zsh-modern-cli-hints.zsh",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/git/template/hooks/**",
         "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/**",
@@ -742,9 +743,9 @@
       "platforms": ["devcontainer"],
       "risk": "high",
       "side_effects": ["filesystem", "process"],
-      "test_layers": ["provenance"],
-      "coverage": {"status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py"], "behavior_requirements": []},
-      "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules rather than duplicate behavioral suites."
+      "test_layers": ["integration", "provenance"],
+      "coverage": {"status": "covered", "work_item": "dots-4jy.10.1.4", "test_paths": ["tests/test_automation_provenance.py", "tests/test_user_command_wrappers.py"], "behavior_requirements": []},
+      "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules. OpenCode wrapper fixtures also exercise the shared selective Go key loader with stale inheritance, rotation, credential-safe refusals, unchanged PATH and profile exports, dry-run exclusions, and dependency-guard ordering and failure propagation. These fixtures do not verify live container provisioning or provider authentication."
     },
     {
       "id": "peer-env",

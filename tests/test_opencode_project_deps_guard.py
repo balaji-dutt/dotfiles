@@ -361,6 +361,15 @@ class OpenCodeProjectDepsGuardTests(unittest.TestCase):
 
 @unittest.skipIf(os.name == "nt", "plannotator wrappers require POSIX shell execution")
 class OpenCodePlannotatorWrapperTests(unittest.TestCase):
+    @staticmethod
+    def wrapper_environment(home: Path, base_env: dict[str, str] | None = None) -> dict[str, str]:
+        env = dict(os.environ if base_env is None else base_env)
+        for key in list(env):
+            if key.startswith(("OPENCODE_", "ANTHROPIC_", "OPENAI_", "CLAUDE_")):
+                env.pop(key)
+        env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"))
+        return env
+
     def render_wrapper(self, source: Path, destination: Path) -> None:
         rendered = source.read_text(encoding="utf-8")
         replacements = {
@@ -376,6 +385,9 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
         pin = destination.parent / ".config/dotfiles/versions/plannotator"
         pin.parent.mkdir(parents=True, exist_ok=True)
         pin.write_text("0.27.22\n", encoding="utf-8")
+        helper = destination.parent / ".local/share/dotfiles/agent-env.sh"
+        helper.parent.mkdir(parents=True, exist_ok=True)
+        helper.write_bytes((CONTAINER_BIN.parent / "share/dotfiles/agent-env.sh").read_bytes())
 
     def test_wrappers_block_exec_on_guard_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -386,8 +398,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
             write_executable(root / "opencode-project-deps-guard", "#!/bin/sh\nexit 23\n")
             wrapper = root / "opencode-plannotator"
             self.render_wrapper(WRAPPERS[0], wrapper)
-            env = os.environ.copy()
-            env["HOME"] = str(root)
+            env = self.wrapper_environment(root)
             env["OPENCODE_BIN"] = str(opencode)
             result = subprocess.run(
                 [str(wrapper), "--agent", "build"],
@@ -421,8 +432,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
                 wrapper_name = source.name.removeprefix("executable_").removesuffix(".tmpl")
                 wrapper = root / wrapper_name
                 self.render_wrapper(source, wrapper)
-                env = os.environ.copy()
-                env["HOME"] = str(root)
+                env = self.wrapper_environment(root)
                 env["OPENCODE_BIN"] = str(opencode)
                 result = subprocess.run(
                     [str(wrapper), "--agent", "build", "two words"],
@@ -460,8 +470,7 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
                 self.render_wrapper(source, wrapper)
                 nested = fixture.repo / "nested"
                 nested.mkdir()
-                env = fixture.env
-                env["HOME"] = str(fixture.bin_dir)
+                env = self.wrapper_environment(fixture.bin_dir, fixture.env)
                 env["OPENCODE_BIN"] = str(fixture.opencode)
                 result = subprocess.run(
                     [str(wrapper), "--agent", "build", "two words"], cwd=nested,
@@ -480,8 +489,8 @@ class OpenCodePlannotatorWrapperTests(unittest.TestCase):
             root = Path(temp_dir)
             wrapper = root / "opencode-plannotator"
             self.render_wrapper(WRAPPERS[0], wrapper)
-            env = os.environ.copy()
-            env["HOME"] = str(root)
+            (root / ".local/share/dotfiles/agent-env.sh").unlink()
+            env = self.wrapper_environment(root)
             env["OPENCODE_PLANNOTATOR_DRY_RUN"] = "1"
             env["OPENCODE_BIN"] = str(root / "does-not-exist")
             result = subprocess.run(

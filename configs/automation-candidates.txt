@@ -261,6 +261,7 @@ private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executab
 private_Documents/development/container-dotfiles/dotfiles/dot_local/bin/executable_opencode-project-deps-guard	chezmoi-executable,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_local/share/beads-helpers.bash	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_local/share/beads-helpers.zsh	script-extension
+private_Documents/development/container-dotfiles/dotfiles/dot_local/share/dotfiles/agent-env.sh	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_local/share/zsh-modern-cli-hints.zsh	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_p10k.zsh	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_zshrc	shell-startup
