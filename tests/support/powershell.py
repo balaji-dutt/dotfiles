@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Sequence
 
 
@@ -38,7 +38,7 @@ class FixturePowerShell:
         if not candidate.is_absolute():
             candidate = root / candidate
         relative = candidate.resolve().relative_to(root)
-        return str(Path('/fixture') / relative) if self.engine else str(candidate)
+        return str(PurePosixPath('/fixture', *relative.parts)) if self.engine else str(candidate)
 
     def quote(self, root: Path, value: str | Path) -> str:
         return powershell_quote(self.path(root, value))

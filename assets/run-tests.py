@@ -486,18 +486,24 @@ class _ThreadedPipes:
 def _stop_step_group(process: subprocess.Popen[bytes], pipes: _PosixPipes) -> str | None:
     errors: list[str] = []
     for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            pass
-        except OSError as error:
-            errors.append(f"cannot signal step group: {error}")
+        for attempt in range(2):
+            # macOS refuses killpg with EPERM while the group leader is an unreaped zombie.
+            parent_exited = process.poll() is not None
+            try:
+                os.killpg(process.pid, sig)
+            except ProcessLookupError:
+                pass
+            except PermissionError as error:
+                if attempt == 0 and not parent_exited and process.poll() is not None:
+                    continue
+                errors.append(f"cannot signal step group: {error}")
+            except OSError as error:
+                errors.append(f"cannot signal step group: {error}")
+            break
         try:
             pipes.drain(time.monotonic() + STEP_STOP_GRACE_SECONDS)
         except OSError as error:
             errors.append(f"cannot drain step output: {error}")
-        # macOS refuses killpg with EPERM while the group leader is an unreaped zombie.
-        process.poll()
     if process.poll() is None:
         try:
             process.wait(timeout=STEP_STOP_GRACE_SECONDS)
