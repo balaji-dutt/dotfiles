@@ -983,12 +983,21 @@ class BeadsSyncRemoteGuardTests(unittest.TestCase):
         self.assertEqual(self.read_calls(), [])
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not available")
 class PowerShellBeadsDispatchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        from tests.support.powershell import require_fixture_powershell
+        cls.backend = require_fixture_powershell()
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.temp = Path(self.temp_dir.name)
+        self.profile = self.temp / 'profile.ps1'
+        self.profile.write_text(
+            (ROOT / 'private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1').read_text(),
+            encoding='utf-8',
+        )
         self.bin_dir = self.temp / "bin"
         self.bin_dir.mkdir()
         self.repo = self.temp / "repo"
@@ -1037,36 +1046,40 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
         )
 
     def run_wrapper(self, *args: str) -> subprocess.CompletedProcess[str]:
-        encoded_args = ",".join("'" + arg.replace("'", "''") + "'" for arg in args)
+        encoded_args = self.encode_arguments(args)
         command = (
-            f". '{ROOT / 'private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1'}'; "
-            f"bd @({encoded_args}); exit $global:LASTEXITCODE"
+            f". {self.backend.quote(self.temp, self.profile)}; "
+            f"$callArgs = @({encoded_args}); bd @callArgs; exit $global:LASTEXITCODE"
         )
-        return subprocess.run(
-            [PWSH, "-NoProfile", "-Command", command],
-            cwd=self.repo,
-            env=self.env,
-            capture_output=True,
-            text=True,
-            check=False,
+        return self.run_command(command)
+
+    def encode_arguments(self, args: tuple[str, ...]) -> str:
+        translated = []
+        for index, arg in enumerate(args):
+            if index and args[index - 1] == '-C':
+                arg = self.backend.path(self.temp, arg)
+            elif arg.startswith('--directory='):
+                arg = '--directory=' + self.backend.path(self.temp, arg.split('=', 1)[1])
+            translated.append("'" + arg.replace("'", "''") + "'")
+        return ','.join(translated)
+
+    def run_command(self, command: str) -> subprocess.CompletedProcess[str]:
+        return self.backend.run(
+            self.temp, cwd=self.repo, command=command, environ=self.env,
+            env_keys=('HOME', 'USERPROFILE', 'BD_TEST_LOG', 'BD_TEST_SYNC_EXIT',
+                      'BD_TEST_NATIVE_EXIT', 'BD_NO_REMOTE_ADOPT'),
+            path_keys=('HOME', 'USERPROFILE', 'BD_TEST_LOG'),
         )
 
     def run_direct(self, *args: str) -> subprocess.CompletedProcess[str]:
-        encoded_args = ",".join("'" + arg.replace("'", "''") + "'" for arg in args)
+        encoded_args = self.encode_arguments(args)
         command = (
-            f". '{ROOT / 'private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1'}'; "
+            f". {self.backend.quote(self.temp, self.profile)}; "
             "$nativeBd = (Get-Command bd -CommandType Application, ExternalScript | "
             "Select-Object -First 1).Source; "
-            f"& $nativeBd @({encoded_args}); exit $global:LASTEXITCODE"
+            f"$callArgs = @({encoded_args}); & $nativeBd @callArgs; exit $global:LASTEXITCODE"
         )
-        return subprocess.run(
-            [PWSH, "-NoProfile", "-Command", command],
-            cwd=self.repo,
-            env=self.env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        return self.run_command(command)
 
     def test_redirect_and_status_propagation(self) -> None:
         self.env["BD_TEST_SYNC_EXIT"] = "19"
@@ -1151,18 +1164,11 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
         )
         self.env.pop("BD_NO_REMOTE_ADOPT", None)
         encoded = (
-            f". '{ROOT / 'private_Documents/PowerShell/Microsoft.PowerShell_profile.ps1'}'; "
+            f". {self.backend.quote(self.temp, self.profile)}; "
             "bd list; Add-Content -LiteralPath $env:BD_TEST_LOG "
             "-Value ('after:' + [string]$env:BD_NO_REMOTE_ADOPT)"
         )
-        result = subprocess.run(
-            [PWSH, "-NoProfile", "-Command", encoded],
-            cwd=self.repo,
-            env=self.env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = self.run_command(encoded)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             self.log.read_text(encoding="utf-8").splitlines(), ["adopt:1", "after:"]
@@ -1184,7 +1190,7 @@ class PowerShellBeadsDispatchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             self.log.read_text(encoding="utf-8").splitlines(),
-            [f"native:-C {self.other_repo} dolt push"],
+            [f"native:-C {self.backend.path(self.temp, self.other_repo)} dolt push"],
         )
 
 

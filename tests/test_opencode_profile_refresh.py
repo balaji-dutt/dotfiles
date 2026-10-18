@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.support.powershell import resolve_powershell_runtime
+from tests.support.powershell import require_fixture_powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,16 +30,11 @@ POWERSHELL_ENV_TEMPLATE = (
 POWERSHELL_PROMPT_TEMPLATE = (
     REPO_ROOT / "private_dot_config/powershell/prompt.ps1.tmpl"
 )
-PWSH = resolve_powershell_runtime(interop="forbid")
 ZSH = shutil.which("zsh")
 
 
 def shell_quote(value: str | Path) -> str:
     return "'" + str(value).replace("'", "'\"'\"'") + "'"
-
-
-def ps_quote(value: str | Path) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
 
 
 def render_windows_template(
@@ -404,8 +399,21 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not available")
 class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.backend = require_fixture_powershell()
+
+    def ps_quote(self, value: str | Path) -> str:
+        return self.backend.quote(self.root, value)
+
+    def run_pwsh(self, body: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return self.backend.run(
+            self.root, cwd=self.workspace, command=body, environ=env,
+            env_keys=('HOME', 'XDG_CONFIG_HOME', 'OPENCODE_PROFILES', 'OPENCODE_PROFILE', 'OPENCODE_CONFIG_DIR'),
+            path_keys=('HOME', 'XDG_CONFIG_HOME', 'OPENCODE_CONFIG_DIR'),
+        )
+
     def setUp(self) -> None:
         super().setUp()
         self.install_sync_helper(container_fallback=False)
@@ -427,7 +435,7 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
                 body = textwrap.dedent(
                     f"""
                     $ErrorActionPreference = 'Stop'
-                    . {ps_quote(self.rendered_env)}
+                    . {self.ps_quote(self.rendered_env)}
                     Update-OpenCodeProfileEnvironment
                     [pscustomobject]@{{
                       ConfigSet = [bool](Test-Path Env:OPENCODE_CONFIG_DIR)
@@ -439,15 +447,7 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
                 )
                 env = self.shell_env(profiles)
                 env["OPENCODE_CONFIG_DIR"] = str(self.root / "stale")
-                result = subprocess.run(
-                    [PWSH, "-NoProfile", "-Command", body],
-                    cwd=self.workspace,
-                    env=env,
-                    check=False,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+                result = self.run_pwsh(body, env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 data = json.loads(result.stdout.splitlines()[-1])
                 self.assertFalse(data["ConfigSet"])
@@ -463,24 +463,24 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
         body = textwrap.dedent(
             f"""
             $ErrorActionPreference = 'Stop'
-            . {ps_quote(self.rendered_env)}
+            . {self.ps_quote(self.rendered_env)}
             $runtime = Join-Path $env:OPENCODE_CONFIG_DIR 'opencode.jsonc'
             $before = (Get-Item -LiteralPath $runtime).LastWriteTimeUtc.Ticks
-            $config = Get-Content -Raw -LiteralPath {ps_quote(canonical)} | ConvertFrom-Json
+            $config = Get-Content -Raw -LiteralPath {self.ps_quote(canonical)} | ConvertFrom-Json
             $config.plugin = @('@tarquinen/opencode-dcp@3.1.15')
-            $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath {ps_quote(canonical)}
-            (Get-Item -LiteralPath {ps_quote(canonical)}).LastWriteTimeUtc = [datetime]::UtcNow.AddSeconds(3)
+            $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath {self.ps_quote(canonical)}
+            (Get-Item -LiteralPath {self.ps_quote(canonical)}).LastWriteTimeUtc = [datetime]::UtcNow.AddSeconds(3)
             function global:prompt {{ "ORIGINAL:$global:LASTEXITCODE`:$($global:?)" }}
-            . {ps_quote(self.rendered_prompt)}
+            . {self.ps_quote(self.rendered_prompt)}
             $firstWrapper = (Get-Command prompt -CommandType Function).ScriptBlock.ToString()
             $global:LASTEXITCODE = 37
-            Get-Item -LiteralPath (Join-Path {ps_quote(self.root)} 'missing') -ErrorAction SilentlyContinue | Out-Null
+            Get-Item -LiteralPath (Join-Path {self.ps_quote(self.root)} 'missing') -ErrorAction SilentlyContinue | Out-Null
             $promptOutput = prompt
             $after = (Get-Item -LiteralPath $runtime).LastWriteTimeUtc.Ticks
-            . {ps_quote(self.rendered_prompt)}
+            . {self.ps_quote(self.rendered_prompt)}
             $secondWrapper = (Get-Command prompt -CommandType Function).ScriptBlock.ToString()
             $global:LASTEXITCODE = 37
-            Get-Item -LiteralPath (Join-Path {ps_quote(self.root)} 'missing') -ErrorAction SilentlyContinue | Out-Null
+            Get-Item -LiteralPath (Join-Path {self.ps_quote(self.root)} 'missing') -ErrorAction SilentlyContinue | Out-Null
             $secondPromptOutput = prompt
             $noop = (Get-Item -LiteralPath $runtime).LastWriteTimeUtc.Ticks
             $runtimeConfig = Get-Content -Raw -LiteralPath $runtime | ConvertFrom-Json
@@ -496,15 +496,7 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
             }} | ConvertTo-Json -Compress
             """
         )
-        result = subprocess.run(
-            [PWSH, "-NoProfile", "-Command", body],
-            cwd=self.workspace,
-            env=self.shell_env("defaults review"),
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        result = self.run_pwsh(body, self.shell_env('defaults review'))
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(

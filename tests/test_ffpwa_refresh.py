@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, write_executable
-from tests.support.powershell import pester_version, resolve_powershell_runtime, run_pester
+from tests.support.powershell import require_fixture_powershell, run_pester
 from tests.support.chezmoi_render import CHEZMOI, render_template
 
 
@@ -17,8 +18,6 @@ COMMAND = REPO_ROOT / "bin" / "executable_ffpwa-refresh"
 MACOS_HOOK = ".chezmoiscripts/run_after_macos-ffpwa-runtime.sh.tmpl"
 WINDOWS_HOOK = ".chezmoiscripts/run_after_windows-ffpwa-runtime.ps1.tmpl"
 PESTER_TEST = REPO_ROOT / "tests" / "powershell" / "FfpwaRefresh.Tests.ps1"
-PWSH = resolve_powershell_runtime()
-PESTER = pester_version(PWSH) if PWSH else None
 SITES = (
     ("01JKR0YG7ESP2E7XHWQ8P92V3C", "Toodledo", "https://www.toodledo.com/signin.php"),
     ("01JKR2ZM8G31NPX0GJC8MRCMZT", "BookFusion", "https://www.bookfusion.com/bookshelf"),
@@ -297,10 +296,22 @@ class FfpwaMacosHookTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
 
 
-@unittest.skipUnless(PWSH and PESTER and PESTER >= (3, 4), "Pester 3.4+ is required")
 class FfpwaRefreshPesterTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.backend = require_fixture_powershell(require_pester=True)
+
     def test_windows_command_behavior(self) -> None:
-        result = run_pester((PESTER_TEST,), repo_root=REPO_ROOT)
+        with isolated_environment(prefix='ffpwa-pester-') as fixture:
+            for relative in ('tests/powershell/FfpwaRefresh.Tests.ps1',
+                             'tests/powershell/PesterCompat.ps1',
+                             'dot_local/executable_ffpwa-refresh.ps1'):
+                destination = fixture.root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(REPO_ROOT / relative, destination)
+            result = run_pester((fixture.root / PESTER_TEST.relative_to(REPO_ROOT),),
+                                repo_root=fixture.root, backend=self.backend,
+                                environ=fixture.env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 

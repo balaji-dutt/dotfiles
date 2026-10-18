@@ -1268,6 +1268,157 @@ class PowerShellSupportTests(unittest.TestCase):
         powershell._PROBED_RUNTIMES.clear()
         self.addCleanup(powershell._PROBED_RUNTIMES.clear)
 
+    def test_fixture_native_keeps_environment_and_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            backend = powershell.FixturePowerShell(executable='/tools/pwsh')
+            expected = subprocess.CompletedProcess([], 17, 'out', 'err')
+            env = {'FIXTURE': 'native'}
+            with mock.patch.object(subprocess, 'run', return_value=expected) as run:
+                self.assertIs(backend.run(root, script=root / 'script.ps1',
+                                          args=('space and quote\'arg',), environ=env), expected)
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[0], '/tools/pwsh')
+            self.assertEqual(argv[-1], "space and quote'arg")
+            self.assertEqual(run.call_args.kwargs['env'], env)
+            self.assertEqual(run.call_args.kwargs['cwd'], str(root))
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX container fallback')
+    def test_fixture_container_maps_only_declared_paths_and_environment(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pwsh space '") as temporary:
+            root = Path(temporary).resolve()
+            backend = powershell.FixturePowerShell(engine='podman', client_env={'CLIENT': 'yes'})
+            env = {'FIXTURE_FILE': str(root / "new 'file"), 'TEXT': '/not/a/path',
+                   'SECRET_TOKEN': 'never-forward', 'PATH': '/host/bin'}
+            expected = subprocess.CompletedProcess([], 23, 'out', 'err')
+            with mock.patch.object(subprocess, 'run', return_value=expected) as run:
+                self.assertIs(backend.run(root, script=root / "script 'file.ps1",
+                                          environ=env, env_keys=('FIXTURE_FILE', 'TEXT'),
+                                          path_keys=('FIXTURE_FILE',), timeout=7), expected)
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[:5], ['podman', 'run', '--rm', '--pull=never', '--network=none'])
+            self.assertIn('--user', argv)
+            self.assertIn(f'{os.getuid()}:{os.getgid()}', argv)
+            self.assertEqual('--userns=keep-id' in argv, os.getuid() != 0)
+            self.assertIn(f'type=bind,source={root},target=/fixture', argv)
+            self.assertIn('/fixture/script \'file.ps1', argv)
+            self.assertIn('FIXTURE_FILE=/fixture/new \'file', argv)
+            self.assertIn('TEXT=/not/a/path', argv)
+            self.assertIn('TMPDIR=/fixture/tmp', argv)
+            self.assertNotIn('never-forward', ' '.join(argv))
+            self.assertNotIn('/host/bin', ' '.join(argv))
+            self.assertEqual(run.call_args.kwargs['env'], {'CLIENT': 'yes'})
+            self.assertEqual(run.call_args.kwargs['timeout'], 7)
+            self.assertEqual(backend.quote(root, root / "a'b"), "'/fixture/a''b'")
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX symlink fixture')
+    def test_fixture_rejects_external_paths_and_symlink_escapes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary).resolve()
+            backend = powershell.FixturePowerShell(engine='docker')
+            (root / 'escape').symlink_to(external, target_is_directory=True)
+            for candidate in (external, root / '../escape', root / 'escape/new'):
+                with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                    backend.path(root, candidate)
+            with mock.patch.object(subprocess, 'run') as run:
+                with self.assertRaises(ValueError):
+                    backend.run(root, script=Path(external) / 'script.ps1')
+                run.assert_not_called()
+
+    def test_fixture_requires_exactly_one_invocation(self) -> None:
+        backend = powershell.FixturePowerShell(executable='pwsh')
+        for kwargs in ({}, {'script': Path('script.ps1'), 'command': 'exit 0'}):
+            with self.assertRaises(ValueError):
+                backend.run(Path('.'), **kwargs)
+
+    def test_fixture_timeout_removes_only_owned_container(self) -> None:
+        backend = powershell.FixturePowerShell(engine='docker')
+        timeout = subprocess.TimeoutExpired('docker', 1)
+        with mock.patch.object(subprocess, 'run', side_effect=[timeout, subprocess.CompletedProcess([], 0)]) as run:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                backend._container_run([], ['-Command', 'exit 0'], 1)
+        argv, cleanup = [call.args[0] for call in run.call_args_list]
+        name = argv[argv.index('--name') + 1]
+        self.assertEqual(cleanup, ['docker', 'rm', '--force', name])
+        self.assertNotIn('--userns=keep-id', argv)
+        self.assertEqual(run.call_args_list[1].kwargs['timeout'], 2)
+
+    def test_fixture_uncertain_cleanup_retains_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            root = parent / 'fixture'
+            root.mkdir()
+            (root / 'diagnostic').write_text('keep')
+            backend = powershell.FixturePowerShell(engine='docker')
+            with mock.patch.object(subprocess, 'run', side_effect=[subprocess.TimeoutExpired('docker', 1),
+                                                                 subprocess.CompletedProcess([], 1)]):
+                with self.assertRaisesRegex(RuntimeError, 'cleanup unverified'):
+                    backend._container_run([], [], 1, root=root)
+            self.assertFalse(root.exists())
+            retained = list(parent.glob('fixture-retained-*'))
+            self.assertEqual(len(retained), 1)
+            self.assertEqual((retained[0] / 'diagnostic').read_text(), 'keep')
+
+    def test_fixture_resolution_prefers_native_without_container_probe(self) -> None:
+        with (mock.patch.object(powershell, 'resolve_powershell_runtime', return_value='pwsh') as native,
+              mock.patch.object(subprocess, 'run') as run):
+            backend = powershell.resolve_fixture_powershell(environ={'PATH': '/tools'})
+        self.assertEqual(backend.executable, 'pwsh')
+        self.assertEqual(native.call_args.kwargs['interop'], 'forbid')
+        run.assert_not_called()
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX container fallback')
+    def test_fixture_missing_images_never_provision_or_leak_probe_output(self) -> None:
+        diagnostics = []
+        with (mock.patch.object(powershell, 'resolve_powershell_runtime', return_value=None),
+              mock.patch.object(powershell.shutil, 'which', side_effect=lambda name, **_: name),
+              mock.patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, 'private', 'private')) as run):
+            self.assertIsNone(powershell.resolve_fixture_powershell(diagnostics=diagnostics))
+        self.assertEqual([call.args[0][1:3] for call in run.call_args_list],
+                         [['image', 'inspect'], ['image', 'inspect']])
+        self.assertIn('explicit', ' '.join(diagnostics))
+        self.assertNotIn('private', ' '.join(diagnostics))
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX container fallback')
+    def test_fixture_tries_podman_after_unavailable_docker(self) -> None:
+        with (mock.patch.object(powershell, 'resolve_powershell_runtime', return_value=None),
+              mock.patch.object(powershell.shutil, 'which', side_effect=lambda name, **_: name),
+              mock.patch.object(subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 1),
+                                                               subprocess.CompletedProcess([], 0),
+                                                               subprocess.CompletedProcess([], 0)]) as run):
+            backend = powershell.resolve_fixture_powershell(require_pester=True)
+        self.assertEqual(backend.engine, 'podman')
+        self.assertEqual(backend.pester, (5, 7, 1))
+        self.assertIn('Import-Module Pester -RequiredVersion 5.7.1', run.call_args.args[0][-1])
+        self.assertIn("$ErrorActionPreference = 'Stop'", run.call_args.args[0][-1])
+
+    def test_fixture_pester_requires_nonempty_success_and_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            backend = powershell.FixturePowerShell(engine='docker', pester=(5, 7, 1))
+            with mock.patch.object(backend, 'run', return_value=subprocess.CompletedProcess([], 1)) as run:
+                result = powershell.run_pester((root / "test's.ps1",), repo_root=root, backend=backend)
+            self.assertEqual(result.returncode, 1)
+            command = run.call_args.kwargs['command']
+            for clause in ('TotalCount -le 0', 'PassedCount -le 0', 'FailedCount -gt 0',
+                           'FailedContainersCount -gt 0', 'FailedBlocksCount -gt 0'):
+                self.assertIn(clause, command)
+            self.assertIn("'/fixture/test''s.ps1'", command)
+
+    def test_fixture_registry_keeps_native_capabilities_separate(self) -> None:
+        registry = json.loads(REGISTRY.read_text())
+        capabilities = registry['capabilities']
+        self.assertIn('--native', capabilities['pwsh']['probe'])
+        self.assertIn('probe-pester', capabilities['pester']['probe'])
+        self.assertIn('probe-container', capabilities['pwsh-container']['probe'])
+        steps = {step['id']: step for step in registry['steps']}
+        for step_id in ('beads-helpers-powershell', 'codebase-memory-installer-powershell',
+                        'host-plugin-refresh-windows', 'opencode-profile-powershell'):
+            self.assertIn('pwsh-fixture', steps[step_id]['requires'])
+            self.assertNotIn('fast', steps[step_id]['suites'])
+        self.assertIn('pester-fixture', steps['ffpwa-refresh-pester']['requires'])
+        self.assertEqual(steps['windows-shell']['requires'], ['chezmoi', 'pester'])
+
     def test_runtime_prefers_local_pwsh_and_probes_supplied_environment(self) -> None:
         env = {"PATH": "/fixture", "WSL_DISTRO_NAME": "Fixture"}
         with (

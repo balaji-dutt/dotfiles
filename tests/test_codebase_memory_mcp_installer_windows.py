@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support.powershell import resolve_powershell_runtime
+from tests.support.powershell import require_fixture_powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,15 +15,14 @@ TEMPLATE = (
     REPO_ROOT
     / ".chezmoiscripts/run_after_install_codebase-memory-mcp.ps1.tmpl"
 )
-PWSH = resolve_powershell_runtime(interop="forbid")
-
-
-def ps_quote(value: str | Path) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-@unittest.skipUnless(PWSH, "native pwsh is not available")
 class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.backend = require_fixture_powershell()
+
+    def ps_quote(self, value: str | Path) -> str:
+        return self.backend.quote(self.root, value)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -54,18 +53,12 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
         env.pop("CBM_CACHE_DIR", None)
         command = (
             "$ErrorActionPreference = 'Stop'; "
-            f". {ps_quote(self.rendered)}; "
+            f". {self.ps_quote(self.rendered)}; "
             + body
         )
-        return subprocess.run(
-            [PWSH, "-NoProfile", "-Command", command],
-            cwd=self.root,
-            env=env,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        return self.backend.run(self.root, command=command, environ=env,
+                                env_keys=('HOME', 'USERPROFILE'),
+                                path_keys=('HOME', 'USERPROFILE'))
 
     def read_json(self, result: subprocess.CompletedProcess[str]) -> dict[str, object]:
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -138,17 +131,17 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           function Get-CimInstance {{
             param([string] $ClassName, [string] $Filter, $ErrorAction)
             @(
-              [pscustomobject]@{{ Name = 'codebase-memory-mcp.exe'; ProcessId = 51; SessionId = 1; ParentProcessId = 7; ExecutablePath = {ps_quote(managed)} }},
-              [pscustomobject]@{{ Name = 'codebase-memory-mcp.exe'; ProcessId = 52; SessionId = 1; ParentProcessId = 8; ExecutablePath = {ps_quote(other)} }}
+              [pscustomobject]@{{ Name = 'codebase-memory-mcp.exe'; ProcessId = 51; SessionId = 1; ParentProcessId = 7; ExecutablePath = {self.ps_quote(managed)} }},
+              [pscustomobject]@{{ Name = 'codebase-memory-mcp.exe'; ProcessId = 52; SessionId = 1; ParentProcessId = 8; ExecutablePath = {self.ps_quote(other)} }}
             )
           }}
-          $state = Get-ManagedCbmProcessState -ManagedPath {ps_quote(str(managed).upper())}
+          $state = Get-ManagedCbmProcessState -ManagedPath ({self.ps_quote(managed)}.ToUpperInvariant())
           [pscustomobject]@{{ Status = $state.Status; Ids = @($state.Processes.Id); Paths = @($state.Processes.Path) }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
         self.assertEqual(data["Status"], "Known")
         self.assertEqual(data["Ids"], [51])
-        self.assertEqual(data["Paths"], [str(managed)])
+        self.assertEqual(data["Paths"], [self.backend.path(self.root, managed)])
 
     def test_graceful_shutdown_needs_no_forced_cleanup(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
@@ -159,7 +152,7 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           function Get-ManagedCbmProcessState {{ [pscustomobject]@{{ Status = 'Known'; Processes = @(); Error = $null }} }}
           function Test-CodingAgentsStopped {{ $script:AgentGuarded = $true; return $true }}
           function Stop-CbmProcessById {{ $script:Forced = $true }}
-          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          $proceed = Stop-CbmForUpgrade -ManagedPath {self.ps_quote(managed)}
           [pscustomobject]@{{ Forced = $script:Forced; AgentGuarded = $script:AgentGuarded; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
@@ -174,12 +167,12 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           $script:GuardCount = 0
           function Invoke-CbmNative {{ [pscustomobject]@{{ ExitCode = $null; Output = ''; TimedOut = $true; StillRunning = $false; ProcessId = 60 }} }}
           function Get-ManagedCbmProcessState {{
-            [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {ps_quote(managed)} }}); Error = $null }}
+            [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {self.ps_quote(managed)} }}); Error = $null }}
           }}
           function Test-CodingAgentsStopped {{ $script:GuardCount++; return $true }}
           function Stop-CbmProcessById {{ param([int] $Id, [string] $ManagedPath); $script:Stopped += $Id }}
           function Wait-ForManagedCbmProcessesToExit {{ [pscustomobject]@{{ Status = 'Known'; Processes = @(); Error = $null }} }}
-          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          $proceed = Stop-CbmForUpgrade -ManagedPath {self.ps_quote(managed)}
           [pscustomobject]@{{ Stopped = @($script:Stopped); GuardCount = $script:GuardCount; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
@@ -195,11 +188,11 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           $script:Forced = $false
           function Invoke-CbmNative {{ [pscustomobject]@{{ ExitCode = 1; Output = ''; TimedOut = $false; StillRunning = $false; ProcessId = 60 }} }}
           function Get-ManagedCbmProcessState {{
-            [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; Path = {ps_quote(managed)} }}); Error = $null }}
+            [pscustomobject]@{{ Status = 'Known'; Processes = @([pscustomobject]@{{ Id = 61; Path = {self.ps_quote(managed)} }}); Error = $null }}
           }}
           function Test-CodingAgentsStopped {{ return $false }}
           function Stop-CbmProcessById {{ $script:Forced = $true }}
-          $proceed = Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)}
+          $proceed = Stop-CbmForUpgrade -ManagedPath {self.ps_quote(managed)}
           [pscustomobject]@{{ Forced = $script:Forced; Proceed = $proceed }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
@@ -211,21 +204,21 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
     def test_surviving_managed_process_aborts_publication(self) -> None:
         managed = self.home / ".local" / "codebase-memory-mcp.exe"
         body = f"""
-          $process = [pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {ps_quote(managed)} }}
+          $process = [pscustomobject]@{{ Id = 61; SessionId = 1; ParentProcessId = 9; Path = {self.ps_quote(managed)} }}
           function Invoke-CbmNative {{ [pscustomobject]@{{ ExitCode = 1; Output = ''; TimedOut = $false; StillRunning = $false; ProcessId = 60 }} }}
           function Get-ManagedCbmProcessState {{ [pscustomobject]@{{ Status = 'Known'; Processes = @($process); Error = $null }} }}
           function Test-CodingAgentsStopped {{ return $true }}
           function Stop-CbmProcessById {{ }}
           function Wait-ForManagedCbmProcessesToExit {{ [pscustomobject]@{{ Status = 'Known'; Processes = @($process); Error = $null }} }}
           $message = $null
-          try {{ Stop-CbmForUpgrade -ManagedPath {ps_quote(managed)} }} catch {{ $message = $_.Exception.Message }}
+          try {{ Stop-CbmForUpgrade -ManagedPath {self.ps_quote(managed)} }} catch {{ $message = $_.Exception.Message }}
           [pscustomobject]@{{ Message = $message }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
         data = self.read_json(result)
         self.assertIn("existing binary was left in place", str(data["Message"]))
         self.assertIn("pid=61", result.stdout)
-        self.assertIn(str(managed), result.stdout)
+        self.assertIn(self.backend.path(self.root, managed), result.stdout)
 
     def test_version_probe_uses_bounded_native_runner(self) -> None:
         candidate = self.root / "codebase-memory-mcp.exe"
@@ -237,7 +230,7 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             $script:Observed = [pscustomobject]@{{ Path = $Path; Arguments = @($Arguments); Timeout = $TimeoutSeconds }}
             [pscustomobject]@{{ ExitCode = 0; Output = 'codebase-memory-mcp 0.10.2'; TimedOut = $false; StillRunning = $false; ProcessId = 70 }}
           }}
-          $read = Get-CbmVersion -Path {ps_quote(candidate)}
+          $read = Get-CbmVersion -Path {self.ps_quote(candidate)}
           [pscustomobject]@{{ Version = $read.Version; TimedOut = $read.TimedOut; Arguments = @($script:Observed.Arguments); Timeout = $script:Observed.Timeout }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
@@ -248,9 +241,9 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
 
     def test_native_runner_terminates_a_timed_out_command(self) -> None:
         body = """
-          $childCommand = '$null = Start-Process -FilePath (Join-Path $PSHOME ''pwsh.exe'') -ArgumentList @(''-NoProfile'', ''-Command'', ''Start-Sleep -Seconds 30'') -NoNewWindow -PassThru; Start-Sleep -Seconds 30'
+          $childCommand = '$null = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @(''-NoProfile'', ''-Command'', ''Start-Sleep -Seconds 30'') -NoNewWindow -PassThru; Start-Sleep -Seconds 30'
           $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-          $result = Invoke-CbmNative -Path (Join-Path $PSHOME 'pwsh.exe') -Arguments @('-NoProfile', '-Command', $childCommand) -TimeoutSeconds 1
+          $result = Invoke-CbmNative -Path (Get-Process -Id $PID).Path -Arguments @('-NoProfile', '-Command', $childCommand) -TimeoutSeconds 1
           $stopwatch.Stop()
           [pscustomobject]@{
             TimedOut = $result.TimedOut
@@ -319,7 +312,7 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
           $asset = "codebase-memory-mcp-windows-$(Get-NativeReleaseArchitecture).zip"
           function Get-CbmVersion {{
             param([string] $Path)
-            if ($Path -eq {ps_quote(existing)}) {{
+            if ($Path -eq {self.ps_quote(existing)}) {{
               return [pscustomobject]@{{ Version = '0.9.9'; TimedOut = $false }}
             }}
             return [pscustomobject]@{{ Version = '0.10.2'; TimedOut = $false }}
@@ -329,7 +322,7 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             $script:Phases += $Phase
             if ($Phase -eq 'codebase-memory-mcp binary replacement') {{
               $script:StagedAtGate = @(
-                Get-ChildItem -LiteralPath {ps_quote(install_dir)} -File -Filter 'codebase-memory-mcp.exe.new-*'
+                Get-ChildItem -LiteralPath {self.ps_quote(install_dir)} -File -Filter 'codebase-memory-mcp.exe.new-*'
               ).Count
             }}
             return ($Phase -eq 'codebase-memory-mcp download')
@@ -354,8 +347,8 @@ class WindowsCodebaseMemoryMcpInstallerTests(unittest.TestCase):
             Phases = @($script:Phases)
             StagedAtGate = $script:StagedAtGate
             TempDirRemoved = (-not (Test-Path -LiteralPath $script:TempDir))
-            Content = (Get-Content -LiteralPath {ps_quote(existing)} -Raw)
-            Remaining = @((Get-ChildItem -LiteralPath {ps_quote(install_dir)} -File).Name)
+            Content = (Get-Content -LiteralPath {self.ps_quote(existing)} -Raw)
+            Remaining = @((Get-ChildItem -LiteralPath {self.ps_quote(install_dir)} -File).Name)
           }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)

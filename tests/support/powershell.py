@@ -8,11 +8,163 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
 
 POWERSHELL_AUDIT_IMAGE = "local/powershell-audit:lts"
+POWERSHELL_TEST_IMAGE = "local/powershell-tests:lts"
+PESTER_TEST_VERSION = "5.7.1"
+
+
+@dataclass
+class FixturePowerShell:
+    executable: str | None = None
+    engine: str | None = None
+    image: str = POWERSHELL_AUDIT_IMAGE
+    client_env: dict[str, str] = field(default_factory=lambda: dict(os.environ))
+    pester: tuple[int, ...] | None = None
+
+    @property
+    def label(self) -> str:
+        return f"container:{self.image}" if self.engine else f"native:{self.executable}"
+
+    def path(self, root: Path, value: str | Path) -> str:
+        root = root.resolve()
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        relative = candidate.resolve().relative_to(root)
+        return str(Path('/fixture') / relative) if self.engine else str(candidate)
+
+    def quote(self, root: Path, value: str | Path) -> str:
+        return powershell_quote(self.path(root, value))
+
+    def run(
+        self, root: Path, *, cwd: Path | None = None, script: Path | None = None,
+        command: str | None = None, args: Sequence[str] = (),
+        environ: dict[str, str] | None = None, env_keys: Sequence[str] = (),
+        path_keys: Sequence[str] = (), timeout: float = 180,
+    ) -> subprocess.CompletedProcess[str]:
+        if (script is None) == (command is None):
+            raise ValueError("provide exactly one of script or command")
+        root = root.resolve()
+        if self.engine and ',' in str(root):
+            raise ValueError('fixture root must not contain a comma')
+        workdir = self.path(root, cwd or root)
+        invocation = ['-NoLogo', '-NoProfile', '-NonInteractive']
+        invocation += ['-File', self.path(root, script), *args] if script else ['-Command', command, *args]
+        env = dict(os.environ if environ is None else environ)
+        if not self.engine:
+            return subprocess.run(
+                [self.executable, *invocation], cwd=workdir, env=env,
+                capture_output=True, text=True, check=False, timeout=timeout,
+            )
+        home, temporary = root / 'home', root / 'tmp'
+        home.mkdir(exist_ok=True)
+        temporary.mkdir(exist_ok=True)
+        forwarded = {key: env[key] for key in env_keys if key in env}
+        for key in path_keys:
+            if forwarded.get(key):
+                forwarded[key] = self.path(root, forwarded[key])
+        forwarded.setdefault('HOME', self.path(root, home))
+        forwarded.setdefault('USERPROFILE', forwarded['HOME'])
+        for key in ('TMPDIR', 'TEMP', 'TMP'):
+            forwarded.setdefault(key, self.path(root, temporary))
+        forwarded['PATH'] = '/fixture/bin:/opt/microsoft/powershell/7:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        options = ['--mount', f'type=bind,source={root},target=/fixture', '--workdir', workdir]
+        for key, value in sorted(forwarded.items()):
+            options += ['--env', f'{key}={value}']
+        return self._container_run(options, invocation, timeout, root=root)
+
+    def _container_run(self, options, invocation, timeout, *, root=None):
+        name = 'dotfiles-pwsh-' + uuid.uuid4().hex
+        argv = [self.engine, 'run', '--rm', '--pull=never', '--network=none', '--name', name]
+        if hasattr(os, 'getuid'):
+            if Path(self.engine).name == 'podman' and os.getuid() != 0:
+                argv += ['--userns=keep-id']
+            argv += ['--user', f'{os.getuid()}:{os.getgid()}']
+        argv += [*options, '--entrypoint', 'pwsh', self.image, *invocation]
+        try:
+            return subprocess.run(argv, env=self.client_env, capture_output=True,
+                                  text=True, check=False, timeout=timeout)
+        except BaseException:
+            try:
+                cleanup = subprocess.run([self.engine, 'rm', '--force', name],
+                                         env=self.client_env, capture_output=True,
+                                         check=False, timeout=2)
+                cleaned = cleanup.returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                cleaned = False
+            if not cleaned:
+                retained = None
+                if root is not None:
+                    retained = root.with_name(root.name + '-retained-' + name)
+                    root.rename(retained)
+                raise RuntimeError(f'container cleanup unverified: {name}; fixture retained: {retained}') from None
+            raise
+
+
+def resolve_fixture_powershell(
+    *, image: str = POWERSHELL_TEST_IMAGE, container_only: bool = False,
+    require_pester: bool = False, environ=os.environ, diagnostics: list[str] | None = None,
+) -> FixturePowerShell | None:
+    deadline = time.monotonic() + 25
+    notes = diagnostics if diagnostics is not None else []
+    if not container_only:
+        executable = resolve_powershell_runtime(environ=environ, interop='forbid', diagnostics=notes)
+        if executable:
+            version = None
+            if require_pester:
+                try:
+                    result = subprocess.run(
+                        [executable, '-NoProfile', '-Command',
+                         '(Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()'],
+                        env=dict(environ), capture_output=True, text=True, check=False, timeout=3,
+                    )
+                    version = tuple(int(part) for part in result.stdout.strip().split('.')) if result.returncode == 0 else None
+                except (ValueError, OSError, subprocess.TimeoutExpired):
+                    version = None
+            if not require_pester or (version and version >= (3, 4)):
+                return FixturePowerShell(executable=executable, client_env=dict(environ), pester=version)
+    if os.name != 'nt':
+        for engine_name in ('docker', 'podman'):
+            engine = shutil.which(engine_name, path=environ.get('PATH'))
+            if not engine or time.monotonic() >= deadline:
+                continue
+            backend = FixturePowerShell(engine=engine, image=image, client_env=dict(environ))
+            try:
+                inspected = subprocess.run([engine, 'image', 'inspect', image], env=dict(environ),
+                                           capture_output=True, check=False, timeout=min(2, max(.1, deadline - time.monotonic())))
+                if inspected.returncode:
+                    notes.append(f'{engine_name}: retained {image} unavailable (image or daemon); see docs/tooling/test-runner.md for the explicit build command')
+                    continue
+                probe = 'exit 0'
+                if image == POWERSHELL_TEST_IMAGE:
+                    probe = "$ErrorActionPreference = 'Stop'; Get-Command git, python3, bash -ErrorAction Stop | Out-Null; Import-Module Pester -RequiredVersion " + PESTER_TEST_VERSION + "; exit 0"
+                result = backend._container_run([], ['-NoProfile', '-NonInteractive', '-Command', probe],
+                                                min(10, max(.1, deadline - time.monotonic())))
+                if result.returncode == 0:
+                    backend.pester = (5, 7, 1) if image == POWERSHELL_TEST_IMAGE else None
+                    return backend
+                notes.append(f'{engine_name}: {image} runtime probe exited {result.returncode}')
+            except (OSError, subprocess.TimeoutExpired):
+                notes.append(f'{engine_name}: {image} runtime probe unavailable or timed out')
+    notes.append(f'fixture PowerShell unavailable; explicitly build {image} as documented in docs/tooling/test-runner.md')
+    return None
+
+
+def require_fixture_powershell(**kwargs) -> FixturePowerShell:
+    import unittest
+    diagnostics: list[str] = []
+    backend = resolve_fixture_powershell(diagnostics=diagnostics, **kwargs)
+    if backend is None:
+        raise unittest.SkipTest('; '.join(diagnostics))
+    print(f'PowerShell backend: {backend.label}', file=sys.stderr)
+    return backend
 
 
 def is_wsl(environ: dict[str, str] | os._Environ[str] = os.environ) -> bool:
@@ -273,7 +425,23 @@ def run_pester(
     *,
     repo_root: Path,
     environ: dict[str, str] | os._Environ[str] = os.environ,
+    backend: FixturePowerShell | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if backend is not None:
+        if not backend.pester or backend.pester < (3, 4):
+            raise RuntimeError('Pester 3.4 or newer is unavailable')
+        paths = ', '.join(backend.quote(repo_root, path) for path in test_paths)
+        parameter = 'Path' if backend.pester[0] >= 5 else 'Script'
+        module = ('Import-Module Pester -RequiredVersion ' + PESTER_TEST_VERSION
+                  if backend.engine else 'Import-Module Pester')
+        script = (
+            f"$ErrorActionPreference = 'Stop'; {module}; "
+            f'$result = Invoke-Pester -{parameter} @({paths}) -PassThru; '
+            "if (-not $result -or $result.TotalCount -le 0 -or $result.PassedCount -le 0 "
+            "-or $result.FailedCount -gt 0 -or $result.FailedContainersCount -gt 0 "
+            "-or $result.FailedBlocksCount -gt 0) { exit 1 }; exit 0"
+        )
+        return backend.run(repo_root, command=script, environ=dict(environ))
     executable = resolve_powershell_runtime(environ=environ)
     version = pester_version(executable, environ=environ)
     if not executable or not version or version < (3, 4):
@@ -312,7 +480,8 @@ def run_pester(
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "action", choices=("probe-parser", "probe-pester", "probe-runtime", "run-pester")
+        "action", choices=("probe-parser", "probe-pester", "probe-runtime", "run-pester",
+                           "probe-container", "probe-fixture", "probe-pester-fixture")
     )
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -328,6 +497,18 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
+    if args.action in ('probe-container', 'probe-fixture', 'probe-pester-fixture'):
+        diagnostics: list[str] = []
+        backend = resolve_fixture_powershell(
+            image=POWERSHELL_AUDIT_IMAGE if args.action == 'probe-container' else POWERSHELL_TEST_IMAGE,
+            container_only=args.action == 'probe-container',
+            require_pester=args.action == 'probe-pester-fixture', diagnostics=diagnostics,
+        )
+        if backend:
+            print(backend.label)
+            return 0
+        sys.stderr.write('\n'.join(diagnostics) + '\n')
+        return 1
     if args.action == "probe-parser":
         resolved = powershell_parser_command(
             args.repo_root,

@@ -14,6 +14,10 @@
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester", "--repo-root", "{repo}"]
     },
     "ps": {"command": "ps"},
+    "pester-fixture": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester-fixture"]
+    },
     "powershell-parser": {
       "command": "{python}",
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-parser", "--repo-root", "{repo}"]
@@ -27,6 +31,14 @@
       "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-runtime", "--interop", "--repo-root", "{repo}"]
     },
     "sh": {"command": "sh"},
+    "pwsh-container": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-container"]
+    },
+    "pwsh-fixture": {
+      "command": "{python}",
+      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-fixture"]
+    },
     "windows-python-interop": {
       "command": "py.exe",
       "probe": ["py.exe", "-3", "-c", "import sys; raise SystemExit(sys.platform != 'win32')"]
@@ -132,7 +144,7 @@
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_helpers.PowerShellBeadsDispatchTests"],
       "covers": ["tests/test_beads_helpers.py"],
-      "requires": ["git", "pwsh"]
+      "requires": ["git", "pwsh-fixture"]
     },
     {
       "id": "beads-isolated-worktree",
@@ -215,7 +227,7 @@
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_codebase_memory_mcp_installer_windows"],
       "covers": ["tests/test_codebase_memory_mcp_installer_windows.py"],
-      "requires": ["pwsh"]
+      "requires": ["pwsh-fixture"]
     },
     {
       "id": "codebase-memory-pin",
@@ -303,7 +315,7 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_ffpwa_refresh.FfpwaRefreshPesterTests"],
       "covers": ["tests/test_ffpwa_refresh.py"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
-      "requires": ["pester"]
+      "requires": ["pester-fixture"]
     },
     {
       "id": "git-template-hook-sync",
@@ -391,7 +403,7 @@
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_host_ai_plugin_refresh_windows"],
       "covers": ["tests/test_host_ai_plugin_refresh_windows.py"],
-      "requires": ["pwsh"]
+      "requires": ["pwsh-fixture"]
     },
     {
       "id": "lifecycle-render",
@@ -482,7 +494,7 @@
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_profile_refresh.PowerShellOpenCodeProfileRefreshTests"],
       "covers": ["tests/test_opencode_profile_refresh.py"],
-      "requires": ["pwsh"]
+      "requires": ["pwsh-fixture"]
     },
     {
       "id": "opencode-v1-holds",

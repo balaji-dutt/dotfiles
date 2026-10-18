@@ -252,8 +252,8 @@ with a bare `pwsh` anywhere else. `resolve_powershell_runtime` tries `pwsh` on
 
 `probe-runtime --native` and `probe-runtime --interop` expose the `forbid` and
 `require` modes to capability probes. The `pwsh` capability uses `--native`, so
-a WSL2 host with only `pwsh.exe` skips `pwsh` steps while `pester` steps still
-run through interop. The `pwsh-interop` capability uses `--interop`. Only the
+a WSL2 host with only `pwsh.exe` skips `pwsh` steps while native `pester`
+capability probes may use interop. The `pwsh-interop` capability uses `--interop`. Only the
 WSL2 `windows-shell-interop-smoke` step requires it, and that step is evidence
 of Windows PowerShell reached through interop, not of a native Windows checkout.
 A failed probe reports
@@ -264,14 +264,53 @@ candidate's diagnostic.
 Static parsing stays separate from behavioral execution. When no runtime
 resolves, parser-only checks may use the retained
 `local/powershell-audit:lts` Docker or Podman image built from
-`assets/Dockerfile.powershell-audit`. That image provides AST evidence only and
-does not satisfy the `pwsh` or `pester` capabilities. Behavioral PowerShell
-tests need a resolved runtime. The Pester probe accepts installed Pester
+`assets/Dockerfile.powershell-audit`. Parser success provides AST evidence only;
+neither retained image satisfies the native `pwsh` or `pester` capabilities.
+The native Pester probe accepts installed Pester
 3.4 or newer, and the shared launcher selects the compatible Pester 3 or 5
 invocation without installing or upgrading host modules.
 Every `Assert-MockCalled` under `tests/powershell/` passes `-Scope`, because
 Pester 3 otherwise counts calls across the whole `Describe`; a source check
 enforces this.
+
+### Optional PowerShell fixture containers
+
+Build retained images explicitly from the checkout root (replace `docker` with
+`podman` when appropriate). Builds need network access; tests never build or pull:
+
+```sh
+docker build -f assets/Dockerfile.powershell-audit -t local/powershell-audit:lts .
+docker build -f assets/Dockerfile.powershell-tests -t local/powershell-tests:lts .
+```
+
+The audit image supports the audit, Beads sync, and OpenCode hold fixtures.
+The optional test image adds Git, Python 3, and AllUsers Pester **5.7.1** for
+the Beads dispatch, installer, host-plugin refresh, OpenCode profile, and FFPWA
+Pester fixtures. Both images carry `image_retention=retain`.
+
+| Capability | Probe and meaning |
+| :--- | :--- |
+| `pwsh-container` | `probe-container`: execute the retained audit image, independently of native PowerShell |
+| `pwsh-fixture` | `probe-fixture`: prefer native PowerShell, otherwise execute the retained test image |
+| `pester-fixture` | `probe-pester-fixture`: native PowerShell with Pester >=3.4, otherwise the retained test image |
+
+Run probes with `python3 tests/support/powershell.py <probe>`. Missing images or
+unusable engines produce skips with build guidance; execution failures after
+backend selection fail the test. `fast` requires none of these capabilities.
+Fixture routes exclude WSL Windows interop and print their selected backend.
+
+The shared launcher mounts only one staged fixture at `/fixture`, translates
+declared fixture paths, forwards an explicit environment allowlist, disables
+networking, and runs as the invoking UID/GID (rootless Podman uses keep-id).
+Timed-out runs remove only their owned container; uncertain cleanup fails and
+retains the fixture at the diagnostic path. Pester must discover and pass at
+least one test, with no failed tests, blocks, or containers.
+
+Container results are Linux PowerShell behavior, **not native Windows proof**.
+Job Objects, reparse points, Windows process enumeration, and the native-only
+Windows shell/lifecycle suites still need Windows. Audit-image Beads init
+cases requiring Git still skip. Use `--case-report` to inspect these case-level
+skips rather than treating a passing registration step as full coverage.
 
 ## Isolation contract
 

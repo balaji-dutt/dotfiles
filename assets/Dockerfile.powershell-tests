@@ -1,0 +1,7 @@
+FROM mcr.microsoft.com/powershell:lts-ubuntu-22.04
+LABEL image_retention=retain
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git python3 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pwsh -NoLogo -NoProfile -NonInteractive -Command \
+    '$ErrorActionPreference = "Stop"; Install-Module -Name Pester -RequiredVersion 5.7.1 -Repository PSGallery -Scope AllUsers -Force; Import-Module Pester -RequiredVersion 5.7.1; Get-Command git, python3, bash -ErrorAction Stop | Out-Null'

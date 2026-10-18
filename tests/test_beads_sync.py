@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import init_git_repository, isolated_environment, write_executable
-from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_runtime
+from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, require_fixture_powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -561,20 +561,8 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
     def setUpClass(cls) -> None:
         if os.name == "nt":
             raise unittest.SkipTest("native Windows execution is opportunistic for this suite")
-        cls.pwsh = resolve_powershell_runtime(interop="forbid")
-        cls.docker = shutil.which("docker")
-        if cls.pwsh:
-            return
-        if not cls.docker:
-            raise unittest.SkipTest("pwsh and docker are unavailable")
-        inspected = subprocess.run(
-            [cls.docker, "image", "inspect", POWERSHELL_AUDIT_IMAGE],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if inspected.returncode != 0:
-            raise unittest.SkipTest(f"local image {POWERSHELL_AUDIT_IMAGE} is unavailable")
+        cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
+        cls.pwsh = cls.backend.executable
 
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None
@@ -583,84 +571,20 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
         if env_updates:
             env.update(env_updates)
         script = self.repo / "assets/beads-sync.ps1"
-        if self.pwsh:
-            return subprocess.run(
-                [self.pwsh, "-NoProfile", "-File", str(script), *arguments],
-                cwd=self.repo,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-        def container_path(value: str) -> str:
-            relative = Path(value).resolve().relative_to(self.fixture.root.resolve())
-            return "/fixture/" + relative.as_posix()
-
-        allowed_names = {
-            "GIT_CONFIG_GLOBAL",
-            "GIT_CONFIG_SYSTEM",
-            "GIT_TERMINAL_PROMPT",
-            "HOME",
-            "PATH",
-            "TEMP",
-            "TMP",
-            "TMPDIR",
-            "USERPROFILE",
-        }
-        container_env = {
-            name: value
-            for name, value in env.items()
-            if name in allowed_names
-            or name.startswith(("BD_", "BEADS_", "DOLT_", "XDG_"))
-        }
-        for name in (
-            "BD_SNAPSHOT_ROOT",
-            "BD_SYNC_TEST_LOG",
-            "GIT_CONFIG_GLOBAL",
-            "GIT_CONFIG_SYSTEM",
-            "HOME",
-            "TEMP",
-            "TMP",
-            "TMPDIR",
-            "USERPROFILE",
-            "XDG_CACHE_HOME",
-            "XDG_CONFIG_HOME",
-        ):
-            if container_env.get(name):
-                container_env[name] = container_path(container_env[name])
-        container_env["PATH"] = "/fixture/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        argv = [
-            self.docker,
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--user",
-            f"{os.getuid()}:{os.getgid()}",
-        ]
-        argv.extend(
-            [
-                "--mount",
-                f"type=bind,src={self.fixture.root},dst=/fixture",
-                "--workdir",
-                container_path(str(self.repo)),
-            ]
-        )
-        for name, value in sorted(container_env.items()):
-            argv.extend(["--env", f"{name}={value}"])
-        argv.extend(
-            [
-                "--entrypoint",
-                "pwsh",
-                POWERSHELL_AUDIT_IMAGE,
-                "-NoProfile",
-                "-File",
-                container_path(str(script)),
-                *arguments,
-            ]
-        )
-        return subprocess.run(argv, capture_output=True, text=True, check=False)
+        paths = ('BD_SNAPSHOT_ROOT', 'BD_SYNC_TEST_LOG', 'GIT_CONFIG_GLOBAL',
+                 'GIT_CONFIG_SYSTEM', 'HOME', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE',
+                 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME')
+        values = ('GIT_TERMINAL_PROMPT', 'BD_EXPORT_MODE', 'BD_VERSION_STRING',
+                  'BD_INIT_RC', 'BD_START_RC', 'BD_COMMIT_OUTPUT', 'BD_COMMIT_RC',
+                  'BD_PUSH_OUTPUT', 'BD_PUSH_RC', 'BD_NO_REMOTE_ADOPT',
+                  'DOLT_SERVER_RC', 'DOLT_FK_SCAN_RC', 'DOLT_FK_TABLES', 'DOLT_FKS_PRESENT',
+                  'DOLT_ORPHANS', 'DOLT_ALTER_RC', 'DOLT_ABORT_RC', 'DOLT_DIRTY_ROWS',
+                  'DOLT_REMOTE_NAME', 'DOLT_REMOTE_URL', 'DOLT_BRANCH', 'DOLT_PULL_OUTPUT',
+                  'DOLT_PULL_RC', 'DOLT_CONFLICT_ROWS', 'DOLT_HEAD_TABLES', 'DOLT_BD_VERSION',
+                  'DOLT_WISPS_BEFORE', 'DOLT_WISPS_AFTER')
+        return self.backend.run(self.fixture.root, cwd=self.repo, script=script,
+                                args=arguments, environ=env, env_keys=(*paths, *values),
+                                path_keys=paths)
 
     def test_init_compares_wisp_tables_before_and_after_reset(self) -> None:
         if not self.pwsh:

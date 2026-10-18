@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_runtime
+from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, require_fixture_powershell
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -399,14 +399,7 @@ class WindowsHoldTests(FixtureTests):
 
     @classmethod
     def setUpClass(cls):
-        cls.pwsh = resolve_powershell_runtime(interop='forbid')
-        cls.docker = shutil.which('docker') or shutil.which('podman')
-        if not cls.pwsh:
-            if not cls.docker or subprocess.run(
-                [cls.docker, 'image', 'inspect', POWERSHELL_AUDIT_IMAGE],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            ).returncode:
-                raise unittest.SkipTest('POSIX PowerShell runtime/retained audit image unavailable')
+        cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
 
     def setUp(self):
         super().setUp()
@@ -432,14 +425,11 @@ Set-OpenCodeV1Hold
     def run_hook(self):
         sentinel = self.root / 'harness-ran'
         sentinel.unlink(missing_ok=True)
-        if self.pwsh:
-            argv = [self.pwsh, '-NoProfile', '-File', str(self.root / 'harness.ps1')]
-        else:
-            argv = [self.docker, 'run', '--rm', '--network=none', '-v', f'{self.root}:/fixture', '--entrypoint', 'pwsh']
-            for key in ('INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED'):
-                argv += ['-e', f'{key}={self.env.get(key, "")}']
-            argv += ['-e', 'FIXTURE=/fixture', POWERSHELL_AUDIT_IMAGE, '-NoProfile', '-File', '/fixture/harness.ps1']
-        result = subprocess.run(argv, env=self.env, text=True, capture_output=True, timeout=60)
+        result = self.backend.run(
+            self.root, script=self.root / 'harness.ps1', environ=self.env,
+            env_keys=('FIXTURE', 'INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED'),
+            path_keys=('FIXTURE',), timeout=60,
+        )
         self.assertTrue(sentinel.exists(),
                         f'harness did not execute (rc={result.returncode}):\n{result.stdout}{result.stderr}')
         return result

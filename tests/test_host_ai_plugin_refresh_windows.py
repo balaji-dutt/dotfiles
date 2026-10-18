@@ -3,13 +3,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support.powershell import resolve_powershell_runtime
+from tests.support.powershell import require_fixture_powershell, resolve_powershell_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,8 +29,14 @@ def ps_encoded(script: str) -> str:
     return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
-@unittest.skipUnless(PWSH, "native pwsh is not available")
 class WindowsHostAiPluginRefreshTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.backend = require_fixture_powershell()
+
+    def ps_quote(self, value: str | Path) -> str:
+        return self.backend.quote(self.root, value)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -37,6 +44,12 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         self.rendered = self.root / "host-ai-plugin-refresh.ps1"
+        (self.root / 'configs').mkdir()
+        shutil.copyfile(REPO_ROOT / 'configs/host-ai-plugin-refresh.jsonc',
+                        self.root / 'configs/host-ai-plugin-refresh.jsonc')
+        (self.root / 'dot_claude').mkdir()
+        shutil.copyfile(REPO_ROOT / 'dot_claude/settings-base.json',
+                        self.root / 'dot_claude/settings-base.json')
         self.render_template()
 
     def render_template(self) -> None:
@@ -56,7 +69,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         )
         source = source.replace(
             "{{ .chezmoi.sourceDir }}",
-            str(REPO_ROOT).replace("'", "''"),
+            self.backend.path(self.root, self.root).replace("'", "''"),
         )
         self.rendered.write_text(source + "\n", encoding="utf-8")
 
@@ -79,21 +92,15 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             env.update(env_updates)
         command = (
             "$ErrorActionPreference = 'Stop'; "
-            f". {ps_quote(self.rendered)}; "
+            f". {self.ps_quote(self.rendered)}; "
             + body
         )
-        return subprocess.run(
-            [PWSH, "-NoProfile", "-Command", command],
-            cwd=self.root,
-            env=env,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        return self.backend.run(self.root, command=command, environ=env,
+                                env_keys=('HOME', 'USERPROFILE', 'HOST_AI_PLUGIN_REFRESH_DRY_RUN'),
+                                path_keys=('HOME', 'USERPROFILE'))
 
     def read_json(self, result: subprocess.CompletedProcess[str]) -> dict[str, object]:
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         json_line = next(
             line for line in reversed(result.stdout.splitlines()) if line.startswith("{")
         )
@@ -106,7 +113,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         xdg = self.root / "xdg-cache"
         body = f"""
           $default = New-OpenCodeCachePaths -CacheRoot (Join-Path $HOME '.cache\\opencode')
-          $env:XDG_CACHE_HOME = {ps_quote(xdg)}
+          $env:XDG_CACHE_HOME = {self.ps_quote(xdg)}
           $xdg = New-OpenCodeCachePaths -CacheRoot (Join-Path $env:XDG_CACHE_HOME 'opencode')
           [pscustomobject]@{{
             DefaultRoot = $default.CacheRoot
@@ -115,9 +122,9 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))
-        self.assertEqual(Path(str(data["DefaultRoot"])), self.default_cache())
+        self.assertEqual(data["DefaultRoot"], self.backend.path(self.root, self.default_cache()))
         self.assertEqual(data["DefaultLeaf"], "packages")
-        self.assertEqual(Path(str(data["XdgRoot"])), xdg / "opencode")
+        self.assertEqual(data["XdgRoot"], self.backend.path(self.root, xdg / 'opencode'))
 
     def test_manifest_contract_marker_fails_closed(self) -> None:
         manifest = self.root / "invalid-manifest.jsonc"
@@ -126,7 +133,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_pwsh(
-            f"$ConfigPath = {ps_quote(manifest)}; $code = Invoke-HostAiPluginRefresh; Write-Host \"CODE=$code\""
+            f"$ConfigPath = {self.ps_quote(manifest)}; $code = Invoke-HostAiPluginRefresh; Write-Host \"CODE=$code\""
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("$schema must be", result.stdout)
@@ -137,10 +144,10 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         candidates = {
             "relative": r"relative\opencode",
             "filesystem-root": str(filesystem_root),
-            "home": str(self.home),
-            "sibling": str(self.home / ".cache" / "sibling"),
-            "unexpected-parent": str(self.home / "elsewhere" / "opencode"),
-            "traversal": str(self.home) + r"\.cache\other\..\opencode",
+            "home": self.backend.path(self.root, self.home),
+            "sibling": self.backend.path(self.root, self.home / '.cache/sibling'),
+            "unexpected-parent": self.backend.path(self.root, self.home / 'elsewhere/opencode'),
+            "traversal": self.backend.path(self.root, self.home) + r"\.cache\other\..\opencode",
         }
         for label, candidate in candidates.items():
             with self.subTest(label=label):
@@ -161,7 +168,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         untrusted = self.root / "other" / "opencode"
         body = f"""
           function Get-OpenCodeDebugCachePath {{
-            [pscustomobject]@{{ Status = 'Known'; Path = {ps_quote(untrusted)}; Error = $null }}
+            [pscustomobject]@{{ Status = 'Known'; Path = {self.ps_quote(untrusted)}; Error = $null }}
           }}
           try {{
             Get-OpenCodeCachePaths | Out-Null
@@ -175,20 +182,21 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("untrusted cache root", result.stdout)
         self.assertNotIn("ACCEPTED", result.stdout)
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows reparse points require native Windows')
     def test_reparse_cache_boundary_is_rejected_when_supported(self) -> None:
         outside = self.root / "outside"
         cache = self.default_cache()
         body = f"""
-          New-Item -ItemType Directory -Path {ps_quote(outside)} -Force | Out-Null
-          New-Item -ItemType Directory -Path {ps_quote(cache.parent)} -Force | Out-Null
+          New-Item -ItemType Directory -Path {self.ps_quote(outside)} -Force | Out-Null
+          New-Item -ItemType Directory -Path {self.ps_quote(cache.parent)} -Force | Out-Null
           try {{
-            New-Item -ItemType Junction -Path {ps_quote(cache)} -Target {ps_quote(outside)} | Out-Null
+            New-Item -ItemType Junction -Path {self.ps_quote(cache)} -Target {self.ps_quote(outside)} | Out-Null
           }} catch {{
             'SKIP: junction creation unavailable: ' + $_.Exception.Message
             return
           }}
           try {{
-            New-OpenCodeCachePaths -CacheRoot {ps_quote(cache)} | Out-Null
+            New-OpenCodeCachePaths -CacheRoot {self.ps_quote(cache)} | Out-Null
             'ACCEPTED'
           }} catch {{
             'REJECTED: ' + $_.Exception.Message
@@ -607,7 +615,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         )
         body = f"""
           $plugins = @([pscustomobject]@{{ Name = 'expected-plugin' }})
-          $record = [pscustomobject]@{{ name = 'example'; installLocation = {ps_quote(marketplace)} }}
+          $record = [pscustomobject]@{{ name = 'example'; installLocation = {self.ps_quote(marketplace)} }}
           $valid = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins $plugins -Records @($record)
           $missing = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins @([pscustomobject]@{{ Name = 'missing-plugin' }}) -Records @($record)
           $duplicate = Test-ClaudeMarketplaceCatalog -Marketplace 'example' -Plugins $plugins -Records @($record, $record)
@@ -657,8 +665,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
               Ok = $true
               Error = $null
               Records = @(
-                [pscustomobject]@{{ name = 'healthy'; installLocation = {ps_quote(healthy)} }},
-                [pscustomobject]@{{ name = 'broken'; installLocation = {ps_quote(empty)} }}
+                [pscustomobject]@{{ name = 'healthy'; installLocation = {self.ps_quote(healthy)} }},
+                [pscustomobject]@{{ name = 'broken'; installLocation = {self.ps_quote(empty)} }}
               )
             }}
           }}
@@ -723,7 +731,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           function Test-ClaudeEnablement {{}}
           function Get-OpenCodePlugins {{ return @() }}
           function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
-          $ConfigPath = {ps_quote(manifest)}
+          $ConfigPath = {self.ps_quote(manifest)}
           $code = Invoke-HostAiPluginRefresh
           [pscustomobject]@{{
             Code = $code
@@ -776,7 +784,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           function Test-ClaudeEnablement {{}}
           function Get-OpenCodePlugins {{ return @() }}
           function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
-          $ConfigPath = {ps_quote(manifest)}
+          $ConfigPath = {self.ps_quote(manifest)}
           $code = Invoke-HostAiPluginRefresh
           [pscustomobject]@{{
             Code = $code
@@ -838,8 +846,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
               Ok = $true
               Error = $null
               Records = @(
-                [pscustomobject]@{{ name = 'first'; installLocation = {ps_quote(first)} }},
-                [pscustomobject]@{{ name = 'second'; installLocation = {ps_quote(second)} }}
+                [pscustomobject]@{{ name = 'first'; installLocation = {self.ps_quote(first)} }},
+                [pscustomobject]@{{ name = 'second'; installLocation = {self.ps_quote(second)} }}
               )
             }}
           }}
@@ -851,7 +859,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           function Test-ClaudeEnablement {{}}
           function Get-OpenCodePlugins {{ return @() }}
           function Update-OpenCodeCache {{ $script:OpenCodeCalled = $true; return $true }}
-          $ConfigPath = {ps_quote(manifest)}
+          $ConfigPath = {self.ps_quote(manifest)}
           $code = Invoke-HostAiPluginRefresh
           [pscustomobject]@{{
             Code = $code
@@ -895,7 +903,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             [pscustomobject]@{{ ExitCode = 1; Output = 'network unavailable'; TimedOut = $false }}
           }}
           function Get-ClaudeMarketplaceInventory {{
-            [pscustomobject]@{{ Ok = $true; Error = $null; Records = @([pscustomobject]@{{ name = 'preserved'; installLocation = {ps_quote(marketplace)} }}) }}
+            [pscustomobject]@{{ Ok = $true; Error = $null; Records = @([pscustomobject]@{{ name = 'preserved'; installLocation = {self.ps_quote(marketplace)} }}) }}
           }}
           function Get-InstalledClaudePluginIds {{
             $ids = [System.Collections.Generic.HashSet[string]]::new()
@@ -940,8 +948,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
               Ok = $true
               Error = $null
               Records = @(
-                [pscustomobject]@{{ name = 'Case'; installLocation = {ps_quote(missing)} }},
-                [pscustomobject]@{{ name = 'case'; installLocation = {ps_quote(healthy)} }}
+                [pscustomobject]@{{ name = 'Case'; installLocation = {self.ps_quote(missing)} }},
+                [pscustomobject]@{{ name = 'case'; installLocation = {self.ps_quote(healthy)} }}
               )
             }}
           }}
@@ -1009,8 +1017,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         catalog.parent.mkdir(parents=True)
         catalog.write_text('{"plugins":[{"name":"plannotator"}]}', encoding="utf-8")
         body = f"""
-          $ConfigPath = {ps_quote(manifest)}
-          $SettingsBasePath = {ps_quote(settings)}
+          $ConfigPath = {self.ps_quote(manifest)}
+          $SettingsBasePath = {self.ps_quote(settings)}
           $script:ClaudeFailures = @()
           $script:Registered = $false
           $script:Commands = @()
@@ -1019,7 +1027,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           function Get-ClaudeMarketplaceInventory {{
             $records = @()
             if ($script:Registered) {{
-              $records = @([pscustomobject]@{{ name = 'plannotator'; source = 'github'; repo = 'backnotprop/plannotator'; ref = 'v0.27.22'; installLocation = {ps_quote(catalog.parent.parent)} }})
+              $records = @([pscustomobject]@{{ name = 'plannotator'; source = 'github'; repo = 'backnotprop/plannotator'; ref = 'v0.27.22'; installLocation = {self.ps_quote(catalog.parent.parent)} }})
             }}
             return [pscustomobject]@{{ Ok = $true; Records = $records; Error = $null }}
           }}
@@ -1131,8 +1139,8 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           [pscustomobject]@{{
             Ok = $ok
             ProbeCount = $script:ProbeCount
-            PackagesExist = Test-Path -LiteralPath {ps_quote(packages)}
-            SiblingExists = Test-Path -LiteralPath {ps_quote(sibling)}
+            PackagesExist = Test-Path -LiteralPath {self.ps_quote(packages)}
+            SiblingExists = Test-Path -LiteralPath {self.ps_quote(sibling)}
           }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(body)
@@ -1159,12 +1167,13 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $ok = Update-OpenCodeCache -Plugins @()
           [pscustomobject]@{{
             Ok = $ok
-            PackagesExist = Test-Path -LiteralPath {ps_quote(packages)}
-            SiblingExists = Test-Path -LiteralPath {ps_quote(sibling)}
+            PackagesExist = Test-Path -LiteralPath {self.ps_quote(packages)}
+            SiblingExists = Test-Path -LiteralPath {self.ps_quote(sibling)}
           }} | ConvertTo-Json -Compress
         """
-        data = self.read_json(self.run_pwsh(body))
-        self.assertTrue(data["Ok"])
+        result = self.run_pwsh(body)
+        data = self.read_json(result)
+        self.assertTrue(data["Ok"], result.stdout)
         self.assertFalse(data["PackagesExist"])
         self.assertTrue(data["SiblingExists"])
 
@@ -1181,7 +1190,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
             [pscustomobject]@{{ Status = 'Stopped'; Processes = @(); Error = $null }}
           }}
           $ok = Update-OpenCodeCache -Plugins @()
-          [pscustomobject]@{{ Ok = $ok; MarkerExists = Test-Path -LiteralPath {ps_quote(marker)} }} | ConvertTo-Json -Compress
+          [pscustomobject]@{{ Ok = $ok; MarkerExists = Test-Path -LiteralPath {self.ps_quote(marker)} }} | ConvertTo-Json -Compress
         """
         result = self.run_pwsh(
             body,
@@ -1193,6 +1202,12 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         self.assertIn("Would remove OpenCode packages cache", result.stdout)
 
     def install_fixture_body(self, process_status: str) -> tuple[str, Path, Path, Path]:
+        if self.backend.engine:
+            fake_bin = self.root / 'bin'
+            fake_bin.mkdir(exist_ok=True)
+            npm = fake_bin / 'npm'
+            npm.write_text('#!/bin/sh\nexit 97\n', encoding='utf-8')
+            npm.chmod(0o755)
         packages = self.default_cache() / "packages"
         target = packages / "example-plugin@1.0.0"
         sibling = self.default_cache() / "sibling.marker"
@@ -1200,7 +1215,7 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
         (target / "old.marker").write_text("old\n", encoding="utf-8")
         sibling.write_text("sibling\n", encoding="utf-8")
         body = f"""
-          $cachePaths = New-OpenCodeCachePaths -CacheRoot {ps_quote(self.default_cache())}
+          $cachePaths = New-OpenCodeCachePaths -CacheRoot {self.ps_quote(self.default_cache())}
           $plugin = [pscustomobject]@{{
             Package = 'example-plugin'
             Version = '1.0.0'
@@ -1231,10 +1246,10 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
           $ok = Install-OpenCodeCachePlugin -CachePaths $cachePaths -Plugin $plugin -CacheWillBeRemoved $false
           [pscustomobject]@{{
             Ok = $ok
-            OldMarkerExists = Test-Path -LiteralPath {ps_quote(target / 'old.marker')}
-            PackageJsonExists = Test-Path -LiteralPath {ps_quote(target / 'node_modules/example-plugin/package.json')}
-            SiblingExists = Test-Path -LiteralPath {ps_quote(sibling)}
-            StagingCount = @(Get-ChildItem -LiteralPath {ps_quote(packages)} -Filter '*.installing-*' -Force).Count
+            OldMarkerExists = Test-Path -LiteralPath {self.ps_quote(target / 'old.marker')}
+            PackageJsonExists = Test-Path -LiteralPath {self.ps_quote(target / 'node_modules/example-plugin/package.json')}
+            SiblingExists = Test-Path -LiteralPath {self.ps_quote(sibling)}
+            StagingCount = @(Get-ChildItem -LiteralPath {self.ps_quote(packages)} -Filter '*.installing-*' -Force).Count
           }} | ConvertTo-Json -Compress
         """
         return body, packages, target, sibling
@@ -1260,14 +1275,14 @@ class WindowsHostAiPluginRefreshTests(unittest.TestCase):
     def test_mutated_or_unvalidated_path_objects_are_rejected(self) -> None:
         sibling = self.default_cache() / "sibling"
         body = f"""
-          $cachePaths = New-OpenCodeCachePaths -CacheRoot {ps_quote(self.default_cache())}
-          $cachePaths.PackagesDir = {ps_quote(sibling)}
+          $cachePaths = New-OpenCodeCachePaths -CacheRoot {self.ps_quote(self.default_cache())}
+          $cachePaths.PackagesDir = {self.ps_quote(sibling)}
           $mutatedRejected = $false
           try {{
             Get-OpenCodeCachePackageDir -CachePaths $cachePaths -Package 'example-plugin' -Version '1.0.0' | Out-Null
           }} catch {{ $mutatedRejected = $true }}
           $rawRejected = $false
-          try {{ Remove-ValidatedOpenCodePath -ValidatedPath {ps_quote(sibling)} }} catch {{ $rawRejected = $true }}
+          try {{ Remove-ValidatedOpenCodePath -ValidatedPath {self.ps_quote(sibling)} }} catch {{ $rawRejected = $true }}
           [pscustomobject]@{{ MutatedRejected = $mutatedRejected; RawRejected = $rawRejected }} | ConvertTo-Json -Compress
         """
         data = self.read_json(self.run_pwsh(body))

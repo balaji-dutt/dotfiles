@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import init_git_repository, isolated_environment, write_executable
-from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, resolve_powershell_runtime
+from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, require_fixture_powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -602,96 +602,22 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
 class CzAuditPowerShellTests(CzAuditFixture, unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.local_pwsh = resolve_powershell_runtime(interop="forbid")
-        cls.docker = shutil.which("docker")
-        if cls.local_pwsh:
-            return
-        if not cls.docker:
-            raise unittest.SkipTest("pwsh and Docker are unavailable")
-        inspected = subprocess.run(
-            [cls.docker, "image", "inspect", POWERSHELL_AUDIT_IMAGE],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if inspected.returncode != 0:
-            raise unittest.SkipTest(f"local image {POWERSHELL_AUDIT_IMAGE} is unavailable")
+        cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
 
     def run_audit(
         self, command: str, relsrc: str, *, env: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
         child_env = dict(env or self.env)
-        if self.local_pwsh:
-            argv = [
-                self.local_pwsh,
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-File",
-                str(self.repo / "assets" / "cz-audit.ps1"),
-                command,
-                relsrc,
-            ]
-            return subprocess.run(
-                argv,
-                cwd=self.repo,
-                env=child_env,
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-
-        fixture_root = self.fixture.root.resolve()
-
-        def container_path(value: str) -> str:
-            try:
-                relative = Path(value).resolve().relative_to(fixture_root)
-            except (OSError, ValueError):
-                return value
-            return "/fixture/" + relative.as_posix()
-
-        container_env = {
-            key: container_path(value)
-            for key, value in child_env.items()
-            if key.startswith(("AUDIT_", "CHEZMOI_", "CZ_AUDIT_")) or key in {"HOME", "TMPDIR"}
-        }
-        container_env["PATH"] = "/fixture/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        argv = [
-            self.docker,
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--mount",
-            f"type=bind,source={fixture_root},target=/fixture",
-            "--workdir",
-            f"/fixture/{self.repo.name}",
-        ]
-        if hasattr(os, "getuid"):
-            argv.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-        for key, value in sorted(container_env.items()):
-            argv.extend(["--env", f"{key}={value}"])
-        argv.extend(
-            [
-                "--entrypoint",
-                "pwsh",
-                POWERSHELL_AUDIT_IMAGE,
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-File",
-                container_path(str(self.repo / "assets" / "cz-audit.ps1")),
-                command,
-                relsrc,
-            ]
-        )
-        return subprocess.run(
-            argv,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        paths = ('AUDIT_CALL_LOG', 'AUDIT_SOURCE_DIR', 'AUDIT_TARGET_DIR',
+                 'CHEZMOI_SOURCE_DIR', 'CZ_AUDIT_LOGDIR', 'HOME', 'TMPDIR',
+                 'AUDIT_ANSIBLE_LOG', 'AUDIT_WRAPPER_LOG')
+        return self.backend.run(
+            self.fixture.root, cwd=self.repo, script=self.repo / 'assets/cz-audit.ps1',
+            args=(command, relsrc), environ=child_env, path_keys=paths,
+            env_keys=(*paths, 'AUDIT_MANAGED', 'AUDIT_TEMPLATE_OUTPUT',
+                      'AUDIT_DOCTOR_OUTPUT', 'AUDIT_DOCTOR_RC', 'CZ_AUDIT_STRICT_CHEZMOI_DOCTOR',
+                      'AUDIT_SYNTAX_RC', 'AUDIT_LINT_RC', 'CZ_AUDIT_STRICT',
+                      'CZ_AUDIT_STRICT_ANSIBLE_LINT'),
         )
 
     def test_classification_normalization_matches_posix_contract(self) -> None:

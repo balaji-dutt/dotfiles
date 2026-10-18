@@ -208,9 +208,15 @@ Dockerfile changes, and it builds only when Docker is available. It does not run
 when `cz-audit` starts, does not support Podman, and is not required for audit
 correctness because the audit now builds a missing image lazily.
 
-Both local Dockerfiles set `image_retention=retain`. Repository cleanup tooling
+The audit Dockerfiles set `image_retention=retain`. Repository cleanup tooling
 uses that label to preserve the images; Docker and Podman do not prevent manual
 deletion based on the label.
+
+The optional `local/powershell-tests:lts` image is separate test infrastructure,
+not an audit fallback. Its explicit build and fixture capability contract are
+documented in [the test runner guide](test-runner.md#optional-powershell-fixture-containers).
+Test runs never provision either PowerShell image; audit fallback provisioning
+remains as described above.
 
 ## Worktree Workflow
 
