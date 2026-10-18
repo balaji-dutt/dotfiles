@@ -160,17 +160,44 @@ would launch `plannotator` twice per plan approval, with both instances
 contending for the same hook stdin.
 
 From 0.28 the plugin also ships a Claude Code mod (a hooks module) that is on by
-default in interactive Claude Code 2.1.287 and later. The mod denies the first
-`ExitPlanMode` call, reviews without blocking, and returns the decision as a new
-prompt; it also takes over the `/plannotator-*` commands and registers a
-`plannotator` tool. This repo turns it off with `claudeCodeMod: false` in
-`~/.plannotator/config.json` and `PLANNOTATOR_CLAUDE_MOD=0` in the homelab
-container, so `ExitPlanMode` keeps the blocking `PermissionRequest` flow that
-`exitplan-freshness-guard.py` and the Beads plan-approval hook expect. The env
-var wins over the config key, and Claude Code reads both only at startup.
+default in interactive Claude Code 2.1.287 and later. This repo keeps it on:
+the host `~/.plannotator/config.json` template sets `claudeCodeMod: true`, and
+the homelab container leaves `PLANNOTATOR_CLAUDE_MOD` unset. With the mod on:
 
-The plugin does **not** supply the `/plannotator-*` slash commands. Those are
-vendored into this repo — see [Vendored slash commands](#vendored-slash-commands).
+1. The first `ExitPlanMode` call is denied with "Plan vN is open in
+   Plannotator ... NOT approved" while the review runs in the browser. Claude
+   is not blocked during the review.
+2. The decision (approve, changes requested, annotations) arrives as a new
+   `plannotator` plugin prompt in the session, including AoE/tmux panes.
+3. After approval, Claude calls `ExitPlanMode` again and the mod allows it.
+
+The mod also answers `/plannotator-review`, `/plannotator-annotate` and
+`/plannotator-last` itself, and registers a `plannotator` tool. The classic
+blocking `PermissionRequest` hook still runs for `claude -p` and SDK sessions,
+for Claude Code older than 2.1.287, and whenever `PLANNOTATOR_CLAUDE_MOD=0`
+(also `false`, `off`, `disabled`) is set. The env var wins over the config
+key, and Claude Code reads both only at startup, so restart sessions after
+changing either.
+
+The repo's `ExitPlanMode` hooks work with both flows. The Beads plan-approval
+hook (`PostToolUse`) fires only on the allowed call, never on the mod's denial.
+The mod's handler runs before the `exitplan-freshness-guard.py` `PreToolUse`
+hook, so the guard never sees the denied first call. It does run on the
+allowed call, and it also covers the classic flow and native-dialog approvals.
+
+Ask AI in a plan review behaves differently in remote mode
+(`PLANNOTATOR_REMOTE=1`, or an SSH session). That covers WSL2 and the homelab
+container. Plannotator disables "Ask this session" there, because anyone who
+can reach the review URL could otherwise type into the agent session
+(`createAIRuntime` in upstream `packages/server/ai-runtime.ts`). Ask AI then
+falls back to a separate Agent SDK assistant with no session history. On
+macOS, which does not set remote mode, Ask AI goes through the session.
+[backnotprop/plannotator#1983](https://github.com/backnotprop/plannotator/issues/1983)
+asks for a loopback-bound remote option that keeps the bridge.
+
+The plugin does **not** supply the `/plannotator-*` slash command files. Those
+are vendored into this repo — see
+[Vendored slash commands](#vendored-slash-commands).
 
 The managed marketplace registration follows the same `v<plannotator_version>`
 tag as the CLI, with `autoUpdate` disabled. The host refresh hook checks the
@@ -195,12 +222,19 @@ If Claude Code does not open the Plannotator UI on ExitPlan:
 
 1. Restart or reload Claude Code after plugin or settings changes.
 2. Confirm `plannotator` is on `PATH` in the Claude Code environment.
-3. Run `/hooks` and confirm `PermissionRequest > ExitPlanMode > plannotator`.
+3. Check which flow is active. With the mod, the first `ExitPlanMode` returns a
+   "Plan vN is open in Plannotator" denial. If the call blocks instead, the
+   classic hook is handling it; run `/hooks` and confirm
+   `PermissionRequest > ExitPlanMode > plannotator`.
 4. Check the Claude Code plugin errors view for Plannotator load errors.
+5. For mod problems, start Claude Code with `PLANNOTATOR_MOD_DEBUG=1` and read
+   `~/.plannotator/claude-code-mod/debug.log`.
 
-If Plannotator shows an older plan than the terminal, the model most likely
-edited the plan file and called `ExitPlanMode` in the same reply. Claude Code
-attaches the plan to that call before the edit runs
+The mod reads the plan from the plan file on disk, so it reviews the current
+text even when the plan file was edited in the same reply as `ExitPlanMode`.
+In the classic flow, if Plannotator shows an older plan than the terminal, the
+model most likely edited the plan file and called `ExitPlanMode` in the same
+reply. Claude Code attaches the plan to that call before the edit runs
 ([anthropics/claude-code#96553](https://github.com/anthropics/claude-code/issues/96553)),
 and Plannotator renders the attached copy. The `PreToolUse` hook
 `exitplan-freshness-guard.py`, declared in `dot_claude/settings-base.json`,
@@ -227,9 +261,12 @@ step never happens. Six tracked files stand in for it:
 | `dot_claude/skills/plannotator-*/SKILL.md` | `apps/skills/claude/plannotator-*/SKILL.md` |
 | `private_dot_config/opencode/commands/plannotator-*.md` | `apps/opencode-plugin/commands/plannotator-*.md` |
 
-Claude Code needs the full skill bodies because nothing intercepts the command —
-each skill runs `plannotator` itself and acts on the output. The OpenCode files
-are frontmatter-only stubs; there, the plugin intercepts the command at runtime.
+In the classic flow, Claude Code needs the full skill bodies because nothing
+intercepts the command — each skill runs `plannotator` itself and acts on the
+output. With the Claude Code mod on, the mod answers these commands before the
+skill body runs; the skills stay for sessions where the mod is off. The OpenCode
+files are frontmatter-only stubs; there, the plugin intercepts the command at
+runtime.
 Do not give the OpenCode stubs a body: it becomes a preamble message, and
 `/plannotator-last` would then annotate that preamble instead of the real reply.
 
@@ -299,12 +336,18 @@ inherit the new environment. Restart OpenCode and Claude Code after updating
 their plugins; existing sessions retain their loaded configuration.
 
 Chezmoi's `~/.plannotator/config.json` modify-template manages only
-`share: "disabled"`, `jina: false` and `claudeCodeMod: false`, preserving
-other Plannotator settings. Containers use `PLANNOTATOR_SHARE=disabled`,
-`PLANNOTATOR_JINA=false` and `PLANNOTATOR_CLAUDE_MOD=0`. An inherited
+`share: "disabled"`, `jina: false` and `claudeCodeMod: true`, preserving
+other Plannotator settings. Containers use `PLANNOTATOR_SHARE=disabled` and
+`PLANNOTATOR_JINA=false`, and leave `PLANNOTATOR_CLAUDE_MOD` unset so the mod
+stays on. They also set `PLANNOTATOR_DATA_DIR=/home/vscode/.plannotator`:
+without it, Plannotator uses `$XDG_DATA_HOME/plannotator` whenever
+`~/.plannotator` does not exist and `XDG_DATA_HOME` is set (the base image sets
+it), and approved plans would land outside the `~/.plannotator/plans/` root the
+Beads plan handoff accepts. An inherited
 `PLANNOTATOR_SHARE`, `PLANNOTATOR_JINA` or `PLANNOTATOR_CLAUDE_MOD` override
 can change effective behavior on the host, so check the runtime environment
-too. The `--runtime` check rejects each of these overrides. Sharing
+too. The `--runtime` check rejects each of these overrides, including a
+`PLANNOTATOR_CLAUDE_MOD` value that turns the mod off. Sharing
 disabled removes the sharing workflow; disabling Jina uses direct fetching
 instead of Jina's extraction. Neither setting is a network sandbox.
 
@@ -545,9 +588,11 @@ before editing:
 Enter plan mode and draft a plan for a tiny no-op change: add a temporary comment to README.md, then stop and ask for approval before editing anything.
 ```
 
-When Claude Code requests approval to exit plan mode, the Plannotator UI should
-open on one of `9014..9019` on host/WSL or `10014..10019` in the devcontainer.
-Do not approve the README edit unless a real edit is desired.
+When Claude Code calls `ExitPlanMode`, the mod denies the first call with
+"Plan vN is open in Plannotator" and the Plannotator UI should open on one of
+`9014..9019` on host/WSL or `10014..10019` in the devcontainer. The decision
+returns as a `plannotator` plugin prompt. Do not approve the README edit unless
+a real edit is desired.
 
 Plannotator slash commands are typed into the OpenCode or Claude Code input box.
 They are not shell commands.
