@@ -10,6 +10,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support.gitlab_ci import CI_PATH, top_level_block
 
@@ -126,6 +127,8 @@ class AmendmentFixture:
         for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
             self.env.pop(key, None)
         self.git("init", "-q")
+        self.git("config", "maintenance.auto", "false")
+        self.git("config", "gc.auto", "0")
         self.git("config", "user.name", "Fixture User")
         self.git("config", "user.email", "fixture@example.test")
         self.git("config", "core.hooksPath", "/dev/null")
@@ -168,6 +171,34 @@ class AmendmentFixture:
 
 
 class PlannotatorAmendTests(unittest.TestCase):
+    def test_fixture_disables_background_maintenance_before_any_commit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            trace = Path(temporary) / 'git-trace.json'
+            with mock.patch.dict(os.environ, {
+                'GIT_TRACE2_EVENT': str(trace),
+                'GIT_CONFIG_COUNT': '3',
+                'GIT_CONFIG_KEY_0': 'maintenance.loose-objects.enabled',
+                'GIT_CONFIG_VALUE_0': 'true',
+                'GIT_CONFIG_KEY_1': 'maintenance.loose-objects.auto',
+                'GIT_CONFIG_VALUE_1': '1',
+                'GIT_CONFIG_KEY_2': 'maintenance.gc.enabled',
+                'GIT_CONFIG_VALUE_2': 'false',
+            }):
+                fixture = AmendmentFixture('statusline-sync')
+                try:
+                    self.assertEqual(fixture.git('config', '--local', '--get', 'maintenance.auto').stdout, 'false\n')
+                    self.assertEqual(fixture.git('config', '--local', '--get', 'gc.auto').stdout, '0\n')
+                    result = fixture.run()
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                finally:
+                    fixture.close()
+            events = [json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
+            commits = [event for event in events
+                       if event.get('event') == 'cmd_name' and event.get('name') == 'commit']
+            self.assertGreaterEqual(len(commits), 3)
+            children = [event.get('argv', []) for event in events if event.get('event') == 'child_start']
+            self.assertFalse(any('maintenance' in argv or 'gc' in argv for argv in children), children)
+
     def fixture(self, *, legacy=False):
         manifest = json.loads((REPO_ROOT / "configs/plannotator-assets.json").read_text(encoding="utf-8"))
         canonical = tuple(artifact["path"] for artifact in manifest["artifacts"])

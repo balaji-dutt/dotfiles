@@ -164,33 +164,53 @@ class OrbStackSshAgentRelayTests(unittest.TestCase):
         *,
         mode: str = "0600",
     ) -> subprocess.Popen[str]:
-        try:
-            previous_socket = listen_path.stat()
-            previous_identity = (previous_socket.st_dev, previous_socket.st_ino)
-        except FileNotFoundError:
-            previous_identity = None
+        ready_path = listen_path.with_name(listen_path.name + '.ready')
+        ready_path.unlink(missing_ok=True)
+        code = (
+            "import runpy, signal, sys\n"
+            "from pathlib import Path\n"
+            "install_signal = signal.signal\n"
+            "pending = {signal.SIGTERM, signal.SIGINT}\n"
+            "def install(sig, handler):\n"
+            "    result = install_signal(sig, handler)\n"
+            "    pending.discard(sig)\n"
+            f"    if not pending: Path({str(ready_path)!r}).touch()\n"
+            "    return result\n"
+            "signal.signal = install\n"
+            f"sys.argv = {self.relay_argv(listen_path, upstream_path, mode=mode)[1:]!r}\n"
+            f"runpy.run_path({str(RELAY_PATH)!r}, run_name='__main__')\n"
+        )
         process = subprocess.Popen(
-            self.relay_argv(listen_path, upstream_path, mode=mode),
+            [sys.executable, '-c', code],
             env=self.fixture.env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if listen_path.exists():
-                current_socket = listen_path.stat()
-                current_identity = (current_socket.st_dev, current_socket.st_ino)
-                if previous_identity is None or current_identity != previous_identity:
-                    time.sleep(0.05)
-                    if process.poll() is None:
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    _, stderr = process.communicate(timeout=1)
+                    self.fail(f"relay exited before becoming ready: {stderr}")
+                if ready_path.exists():
+                    try:
+                        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                            probe.settimeout(0.1)
+                            probe.connect(str(listen_path))
+                    except (FileNotFoundError, ConnectionRefusedError, TimeoutError):
+                        pass
+                    else:
+                        self.addCleanup(self.stop_relay, process)
                         return process
-            if process.poll() is not None:
-                _, stderr = process.communicate(timeout=1)
-                self.fail(f"relay exited before creating its socket: {stderr}")
-            time.sleep(0.02)
-        self.stop_relay(process)
-        self.fail(f"relay did not create {listen_path}")
+                time.sleep(0.02)
+            _, stderr = self.stop_relay(process)
+            self.fail(f"relay did not become ready at {listen_path}: {stderr}")
+        except BaseException:
+            self.stop_relay(process)
+            raise
+        finally:
+            ready_path.unlink(missing_ok=True)
 
     def stop_relay(
         self,
@@ -308,7 +328,7 @@ class OrbStackSshAgentRelayTests(unittest.TestCase):
         with short_socket_directory() as directory:
             upstream_path = directory / "upstream.sock"
             listen_path = directory / "relay" / "agent.sock"
-            with UnixEchoServer(upstream_path, 4):
+            with UnixEchoServer(upstream_path, 5):
                 process = self.start_relay(listen_path, upstream_path, mode="0660")
                 failures: list[BaseException] = []
 
@@ -355,7 +375,7 @@ class OrbStackSshAgentRelayTests(unittest.TestCase):
     def test_stale_socket_is_replaced_and_signals_cleanup(self) -> None:
         with short_socket_directory() as directory:
             upstream_path = directory / "upstream.sock"
-            with UnixEchoServer(upstream_path, 0):
+            with UnixEchoServer(upstream_path, 2):
                 for sent_signal in (signal.SIGTERM, signal.SIGINT):
                     listen_path = directory / f"relay-{sent_signal.name}.sock"
                     stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -366,6 +386,51 @@ class OrbStackSshAgentRelayTests(unittest.TestCase):
                     _, stderr = self.stop_relay(process, sent_signal=sent_signal)
                     self.assertEqual(process.returncode, 0, stderr)
                     self.assertFalse(listen_path.exists())
+
+    def test_stale_socket_readiness_accepts_reused_inode(self) -> None:
+        with short_socket_directory() as directory:
+            listen_path = directory / 'agent.sock'
+            upstream_path = directory / 'upstream.sock'
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stale:
+                stale.bind(str(listen_path))
+            previous = listen_path.stat()
+            real_stat = Path.stat
+
+            def observed_stat(candidate, *args, **kwargs):
+                return previous if candidate == listen_path else real_stat(candidate, *args, **kwargs)
+
+            with UnixEchoServer(upstream_path, 1), mock.patch.object(Path, 'stat', observed_stat):
+                process = self.start_relay(listen_path, upstream_path)
+                self.assertIsNone(process.poll())
+                _, stderr = self.stop_relay(process)
+                self.assertEqual(process.returncode, 0, stderr)
+            self.assertFalse(listen_path.exists())
+
+    def test_readiness_reports_startup_failure_and_preserves_unsafe_path(self) -> None:
+        with short_socket_directory() as directory:
+            listen_path = directory / 'agent.sock'
+            listen_path.write_text('keep', encoding='utf-8')
+            with self.assertRaisesRegex(AssertionError, 'refusing to replace non-socket'):
+                self.start_relay(listen_path, directory / 'upstream.sock')
+            self.assertEqual(listen_path.read_text(encoding='utf-8'), 'keep')
+            self.assertFalse(listen_path.with_name('agent.sock.ready').exists())
+
+    def test_readiness_rejects_non_listening_socket_and_stops_at_deadline(self) -> None:
+        with short_socket_directory() as directory:
+            listen_path = directory / 'agent.sock'
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stale:
+                stale.bind(str(listen_path))
+            process = mock.Mock()
+            process.poll.return_value = None
+            process.communicate.return_value = ('', 'synthetic startup diagnostic')
+            with (mock.patch.object(subprocess, 'Popen', return_value=process),
+                  mock.patch.object(Path, 'exists', return_value=True),
+                  mock.patch.object(time, 'monotonic', side_effect=[0, 0, 6]),
+                  mock.patch.object(time, 'sleep')):
+                with self.assertRaisesRegex(AssertionError, 'did not become ready.*synthetic startup diagnostic'):
+                    self.start_relay(listen_path, directory / 'upstream.sock')
+            process.send_signal.assert_called_with(signal.SIGTERM)
+            self.assertTrue(listen_path.exists())
 
     def test_non_socket_listen_path_is_preserved(self) -> None:
         with short_socket_directory() as directory:
@@ -393,8 +458,13 @@ class OrbStackSshAgentRelayTests(unittest.TestCase):
             client = None
             try:
                 upstream.bind(str(upstream_path))
-                upstream.listen(1)
+                upstream.listen(2)
+                upstream.settimeout(5)
                 process = self.start_relay(listen_path, upstream_path)
+                readiness, _ = upstream.accept()
+                with readiness:
+                    readiness.settimeout(5)
+                    self.assertEqual(readiness.recv(1), b'')
                 client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 client.settimeout(5)
                 client.connect(str(listen_path))

@@ -205,6 +205,42 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.pids.append(path)
         return path
 
+    def test_group_cleanup_reaps_before_each_signal(self) -> None:
+        process = mock.Mock(pid=123, returncode=0)
+        pipes = mock.Mock()
+        pipes.abandon.return_value = False
+        events = []
+        process.poll.side_effect = lambda: events.append('poll') or 0
+        with mock.patch.object(RUN_TESTS.os, 'killpg',
+                               side_effect=lambda *args: events.append('signal')):
+            self.assertIsNone(RUN_TESTS._stop_step_group(process, pipes))
+        self.assertEqual(events, ['poll', 'signal', 'poll', 'signal', 'poll'])
+
+    def test_group_cleanup_retries_permission_error_only_after_parent_exit(self) -> None:
+        process = mock.Mock(pid=123)
+        process.poll.side_effect = [None, 0, 0, 0, 0]
+        pipes = mock.Mock()
+        pipes.abandon.return_value = False
+        with mock.patch.object(RUN_TESTS.os, 'killpg',
+                               side_effect=[PermissionError(errno.EPERM, 'denied'), None, None]) as kill:
+            self.assertIsNone(RUN_TESTS._stop_step_group(process, pipes))
+        self.assertEqual(kill.call_args_list, [mock.call(123, signal.SIGTERM),
+                                             mock.call(123, signal.SIGTERM),
+                                             mock.call(123, signal.SIGKILL)])
+
+    def test_group_cleanup_preserves_persistent_permission_errors(self) -> None:
+        for returncode in (None, 0):
+            with self.subTest(returncode=returncode):
+                process = mock.Mock(pid=123)
+                process.poll.return_value = returncode
+                pipes = mock.Mock()
+                pipes.abandon.return_value = False
+                with mock.patch.object(RUN_TESTS.os, 'killpg',
+                                       side_effect=PermissionError(errno.EPERM, 'denied')) as kill:
+                    error = RUN_TESTS._stop_step_group(process, pipes)
+                self.assertIn('cannot signal step group', error)
+                self.assertEqual(kill.call_count, 2)
+
     def assert_stopped(self, pid_file: Path) -> None:
         pid = int(pid_file.read_text(encoding="utf-8"))
         for _ in range(30):
@@ -1267,6 +1303,23 @@ class PowerShellSupportTests(unittest.TestCase):
     def setUp(self) -> None:
         powershell._PROBED_RUNTIMES.clear()
         self.addCleanup(powershell._PROBED_RUNTIMES.clear)
+
+    def test_fixture_paths_preserve_backend_namespace_and_containment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as external:
+            root = Path(temporary).resolve()
+            container = powershell.FixturePowerShell(engine='docker')
+            native = powershell.FixturePowerShell(executable='pwsh')
+            for relative, expected in (('.', '/fixture'),
+                                       ("nested space/test's.ps1", "/fixture/nested space/test's.ps1")):
+                with self.subTest(relative=relative):
+                    candidate = root / relative
+                    self.assertEqual(container.path(root, candidate), expected)
+                    self.assertEqual(container.quote(root, candidate),
+                                     "'" + expected.replace("'", "''") + "'")
+                    self.assertEqual(native.path(root, candidate), str(candidate))
+            for backend in (container, native):
+                with self.subTest(backend=backend.label), self.assertRaises(ValueError):
+                    backend.path(root, Path(external))
 
     def test_fixture_native_keeps_environment_and_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
