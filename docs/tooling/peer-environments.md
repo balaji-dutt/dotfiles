@@ -213,14 +213,39 @@ using a verified PID/start time and Linux pidfd. Legacy plain, single-quoted,
 or double-quoted relay paths and the listen form with or without `mode=600`
 are accepted; other arguments are refused.
 
-Prior-boot PID records are ignored; same-boot PID reuse, foreign ownership,
-symlinks, or ambiguous listeners are refused without broad `pkill`. Failed or
-incomplete diagnostics also refuse recovery. An unmatched live socket reports
+Private PID records are validated before use. Prior-boot records, absent or
+zombie processes, and different process start times are obsolete; the helper
+ignores them before inspecting the recorded PID's arguments. Ignoring a record
+grants no authority to stop a process or remove a socket: recovery still requires
+independent listener proof, or an absent or proven-stale socket. A current record
+with mismatching identity, unavailable boot/lifetime evidence, foreign ownership,
+symlinks, or ambiguous listeners is refused without broad `pkill`. Identity
+diagnostics identify the validation phase and mismatch category without printing
+argument values. Failed or incomplete diagnostics also refuse recovery. An
+unmatched live socket reports
 `socket has an unidentified live listener; refusing recovery`; inspect its
 ownership, configured relay path, and Linux diagnostic visibility rather than
 deleting the socket or killing another distro's relay to bypass the refusal.
 The helper does not start Windows Pageant, load keys, change trust/configuration,
 or retry remote validation.
+
+The homelab WSL devcontainer initializer uses the managed host helper's
+`--ensure --json`, explicitly selecting `/tmp/wsl2-ssh-agent/ssh-agent.sock`.
+Missing helpers, refusals, unhealthy or skipped results, and malformed JSON stop
+initialization before the independent browser relay starts. The whole agent
+directory is mounted read-only so host socket replacement remains visible.
+Container `sset` only checks the forwarded agent and refreshes the Ansible public
+key; it cannot repair the WSL host relay. On failure, run `sset` on the owning
+WSL host, then retry container `sset`. The OrbStack backend manages its separate
+container relay.
+
+Docker must resolve the bind source in the owning distro, and the effective
+container `vscode` UID mapping must permit access through the host's 0700
+directory and 0600 socket. Read-only mounting does not grant that access. A live
+deployment check must confirm connectivity as `vscode` before and after host
+socket replacement; report mapping or source-path failures rather than relaxing
+permissions or adding container-side repair. Foreign directory ownership remains
+a host-side refusal; the diagnostic reports expected and observed UIDs.
 
 ## Commands
 

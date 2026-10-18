@@ -43,6 +43,7 @@ class PageantTests(unittest.TestCase):
         self.add = self.iso.fake_bin / "ssh-add"
         write_executable(self.add, "#!/bin/sh\nexit 2\n")
         self.relay = self.module.Relay(self.socket_path, self.executable, self.env)
+        self.relay.boot = "fixture-boot"
 
     def bind(self) -> socket.socket:
         listener = socket.socket(socket.AF_UNIX)
@@ -296,6 +297,7 @@ class PageantTests(unittest.TestCase):
         with mock.patch.dict(os.environ, self.env, clear=True), \
              mock.patch.object(self.module, "eligible", return_value=True), \
              mock.patch.object(self.module, "RELAY", str(self.executable)), \
+             mock.patch.object(self.module, "Relay", return_value=self.relay), \
              mock.patch.object(self.module, "unix_listener_inodes", side_effect=TimeoutError("diagnostic timeout")), \
              mock.patch.object(self.module.subprocess, "Popen") as spawn, contextlib.redirect_stdout(output):
             self.assertEqual(self.module.main(["--reset", "--json"]), 1)
@@ -352,16 +354,52 @@ class PageantTests(unittest.TestCase):
             with self.assertRaisesRegex(self.module.Refused, "unsafe socket"):
                 self.relay.healthy()
 
-    def test_pid_reuse_and_unsafe_records_are_refused(self) -> None:
+    def test_obsolete_record_does_not_validate_or_signal_reused_process(self) -> None:
         self.module.secure_directory(self.relay.state)
         record = self.record()
         self.relay.write_record(record)
-        with mock.patch.object(self.relay, "identity", return_value=self.record(start="11")):
-            with self.assertRaisesRegex(self.module.Refused, "PID reuse"):
+        for current in (None, (os.getuid(), "11"), (os.getuid() + 1, "11")):
+            with self.subTest(current=current), \
+                 mock.patch.object(self.relay, "process_lifetime", return_value=current, create=True), \
+                 mock.patch.object(self.relay, "identity", side_effect=self.module.Refused("unrelated executable/arguments")) as identity, \
+                 mock.patch.object(self.relay, "stop") as stop:
+                self.assertIsNone(self.relay.recorded())
+                identity.assert_not_called()
+                stop.assert_not_called()
+
+    def test_current_record_still_requires_exact_identity(self) -> None:
+        self.module.secure_directory(self.relay.state)
+        self.relay.write_record(self.record())
+        with mock.patch.object(self.relay, "process_lifetime", return_value=(os.getuid(), "10"), create=True), \
+             mock.patch.object(self.relay, "identity", side_effect=self.module.Refused("pipe mismatch")):
+            with self.assertRaisesRegex(self.module.Refused, "saved record:.*pipe mismatch"):
+                self.relay.recorded()
+
+    def test_malformed_unsafe_and_unknown_boot_records_are_refused(self) -> None:
+        self.module.secure_directory(self.relay.state)
+        record = self.record()
+        for invalid in ([], None, {**record, "pid": True}, {**record, "pid": -1},
+                        {**record, "start": ""}, {**record, "boot": ""},
+                        {**record, "argv": "not an argv list"}):
+            with self.subTest(invalid=invalid):
+                self.relay.write_record(invalid)
+                with self.assertRaisesRegex(self.module.Refused, "invalid relay PID record"):
+                    self.relay.recorded()
+        self.relay.write_record(record)
+        with mock.patch.object(self.relay, "boot", ""):
+            with self.assertRaisesRegex(self.module.Refused, "boot identity unavailable"):
                 self.relay.recorded()
         self.relay.record_path.chmod(0o644)
         with self.assertRaisesRegex(self.module.Refused, "unsafe relay PID"):
             self.relay.recorded()
+
+    def test_unreadable_lifetime_does_not_discard_record(self) -> None:
+        self.module.secure_directory(self.relay.state)
+        self.relay.write_record(self.record())
+        with mock.patch.object(self.relay, "process_lifetime", side_effect=self.module.Refused("process lifetime unavailable"), create=True):
+            with self.assertRaisesRegex(self.module.Refused, "saved record:.*lifetime unavailable"):
+                self.relay.recorded()
+        self.assertTrue(self.relay.record_path.exists())
 
     def test_changed_pid_before_signal_is_refused(self) -> None:
         with mock.patch.object(self.module.os, "pidfd_open", return_value=99, create=True), \
@@ -408,6 +446,50 @@ class PageantTests(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaisesRegex(self.module.Refused, "different socket/relay"):
                 self.proc_identity(argv)
 
+    def test_identity_snapshot_requires_stable_start_time(self) -> None:
+        with mock.patch.object(self.relay, "process_lifetime", side_effect=[(os.getuid(), "10"), (os.getuid(), "11")], create=True):
+            with self.assertRaisesRegex(self.module.Refused, "lifetime changed"):
+                self.proc_identity(self.relay.command())
+
+    def test_identity_snapshot_allows_process_exit_during_inspection(self) -> None:
+        with mock.patch.object(self.relay, "process_lifetime", side_effect=[(os.getuid(), "10"), None]):
+            self.assertIsNone(self.proc_identity(self.relay.command()))
+
+    def test_shutdown_accepts_exit_during_identity_poll_without_escalation(self) -> None:
+        record = self.proc_identity(self.relay.command())
+        proc_root = self.iso.root / "proc"
+        lifetime = (os.getuid(), "10")
+        with mock.patch.object(self.module, "Path", side_effect=lambda value: proc_root if value == "/proc" else Path(value)), \
+             mock.patch.object(self.relay, "process_lifetime", side_effect=[lifetime, lifetime, lifetime, None]), \
+             mock.patch.object(self.module.signal, "pidfd_send_signal", create=True) as send:
+            self.relay.stop_verified(record, 99)
+        send.assert_called_once_with(99, self.module.signal.SIGTERM)
+
+    def test_lifetime_handles_zombies_and_refuses_unreadable_stat(self) -> None:
+        self.proc_identity(self.relay.command())
+        proc_root = self.iso.root / "proc"
+        (proc_root / "12345/stat").write_text("12345 (socat) Z " + "0 " * 18 + "10")
+        with mock.patch.object(self.module, "Path", side_effect=lambda value: proc_root if value == "/proc" else Path(value)):
+            self.assertIsNone(self.relay.process_lifetime(12345))
+            self.assertIsNone(self.relay.process_lifetime(99999))
+            with mock.patch.object(Path, "read_text", side_effect=PermissionError):
+                with self.assertRaisesRegex(self.module.Refused, "lifetime unavailable"):
+                    self.relay.process_lifetime(12345)
+
+    def test_mismatch_diagnostics_have_stage_and_category_without_argv(self) -> None:
+        command = self.relay.command()
+        command[1] = command[1].replace(self.module.PIPE, "//./pipe/private-other")
+        with self.assertRaisesRegex(self.module.Refused, "pipe mismatch") as failure:
+            self.proc_identity(command)
+        self.assertNotIn("private-other", str(failure.exception))
+        with mock.patch.object(self.module.os, "pidfd_open", return_value=99, create=True), \
+             mock.patch.object(self.module.signal, "pidfd_send_signal", create=True) as send, \
+             mock.patch.object(self.module.os, "close"), \
+             mock.patch.object(self.relay, "identity", side_effect=self.module.Refused("pipe mismatch")):
+            with self.assertRaisesRegex(self.module.Refused, "shutdown recheck:.*pipe mismatch"):
+                self.relay.stop(self.record())
+            send.assert_not_called()
+
     def test_prior_boot_record_does_not_trust_or_inspect_reused_pid(self) -> None:
         self.module.secure_directory(self.relay.state)
         self.relay.write_record({**self.record(), "boot": "prior-boot"})
@@ -449,6 +531,30 @@ class PageantTests(unittest.TestCase):
 
     def test_failed_restart_is_not_repeated(self) -> None:
         self.run_mocked_restart(fail=True)
+
+    def test_stale_metadata_requires_independent_listener_proof(self) -> None:
+        self.module.secure_directory(self.relay.state)
+        self.relay.write_record(self.record(pid=45678))
+        with mock.patch.object(self.relay, "process_lifetime", return_value=(os.getuid(), "11"), create=True):
+            self.run_mocked_restart(legacy=True)
+
+    def test_stale_metadata_does_not_bypass_unknown_listener_or_delete_record(self) -> None:
+        self.bind()
+        self.module.secure_directory(self.relay.state)
+        self.relay.write_record(self.record(pid=45678))
+        for reason in ("ambiguous ownership", "foreign listener", "unidentified live listener"):
+            with self.subTest(reason=reason), \
+                 mock.patch.object(self.relay, "process_lifetime", return_value=(os.getuid(), "11"), create=True), \
+                 mock.patch.object(self.relay, "healthy", return_value=False), \
+                 mock.patch.object(self.relay, "listener", side_effect=self.module.Refused(reason)), \
+                 mock.patch.object(self.relay, "stop") as stop, \
+                 mock.patch.object(self.module.subprocess, "Popen") as spawn:
+                with self.assertRaisesRegex(self.module.Refused, reason):
+                    self.relay.ensure(True)
+                stop.assert_not_called()
+                spawn.assert_not_called()
+                self.assertTrue(self.socket_path.exists())
+                self.assertTrue(self.relay.record_path.exists())
 
     def test_ambiguous_listener_does_not_spawn_or_unlink(self) -> None:
         self.bind()
