@@ -79,6 +79,10 @@ the ordinary formula installs its current published version, not an arbitrary
 historical version. Install only an approved stable v1 and pin immediately. If
 the formula no longer offers v1, stop and choose a reviewed packaging solution;
 the hook cannot prevent the Brewfile from installing an unsuitable release.
+Always name the tap formula in full. Homebrew Core's `opencode` formula is
+OpenCode 2 (2.0.32 on 2026-10-18), so a bare `brew install opencode` installs
+v2; the hook then refuses to pin it. Only the v1 release publishes the tap
+formula.
 On fresh Windows, install manually using an approved published exact version
 (`choco.exe install opencode --version=<approved-v1>`), then pin and verify.
 The export-only inventory does not provision this package. A missing package
@@ -88,7 +92,9 @@ Existing WSL installations and containers are not changed by editing a manifest.
 Run the normal WSL provisioning or container rebuild only when ready, then
 verify the selected `opencode --version`. Package publication can lag between
 GitHub, npm, Homebrew, and Chocolatey; do not substitute an unreviewed version
-because a particular channel is late.
+because a particular channel is late. Chocolatey community moderation can keep
+a version `Submitted` for days; until then a plain `choco upgrade` stops at the
+latest approved version.
 
 ## Reviewed updates without a seven-day wait
 
