@@ -1,4 +1,4 @@
-opencode-ai@1.19.3
+opencode-ai@1.19.4
 picomatch@4.0.7
 @fission-ai/openspec@1.14.1
 @beads/bd@1.3.1
