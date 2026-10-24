@@ -4,7 +4,7 @@
 # directly. A machine on an older bd minor targets a lower Dolt schema and
 # cannot read a migrated remote; see docs/beads.md "Schema migrations".
 beads_version: "1.3.1" # renovate: datasource=github-releases depName=gastownhall/beads extractVersion=^v(?<version>.*)$
-codebase_memory_mcp_version: "0.12.0" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
+codebase_memory_mcp_version: "0.12.1" # renovate: datasource=github-releases depName=DeusData/codebase-memory-mcp extractVersion=^v(?<version>.*)$
 dolt_version: "2.4.2" # renovate: datasource=github-releases depName=dolthub/dolt extractVersion=^v(?<version>.*)$
 lazygit_version: "0.66.2" # renovate: datasource=github-releases depName=jesseduffield/lazygit extractVersion=^v(?<version>.*)$
 # Native Windows runs Beads as a client of the WSL2 Dolt server (dots-to5).
