@@ -40,6 +40,7 @@
     pager = diff-so-fancy | less --tabs=4 -RFX
 {{- else if $isWindows }}
     excludesfile = {{ .chezmoi.homeDir | replace "\\" "/" }}/.gitignore_global
+    sshCommand = C:/Windows/System32/OpenSSH/ssh.exe
     editor = code --wait
     whitespace = -trailing-space
     preloadindex = true
@@ -175,6 +176,8 @@
     directory = /Volumes/devdrive/personalfiles-renovate
 
 {{- else if $isWindows }}
+[ssh]
+    variant = ssh
 [diff]
     mnemonicPrefix = true
     colorMoved = zebra
