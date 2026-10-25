@@ -50,12 +50,6 @@ unset _plannotator_pin_file _plannotator_pin_value
 : "${PLANNOTATOR_PORT:={{ .plannotator_port }}}"
 export PLANNOTATOR_PORT
 
-{{- if $isWSL }}
-: "${PLANNOTATOR_REMOTE:=1}"
-export PLANNOTATOR_REMOTE
-
-{{- end }}
-
 : "${PLANNOTATOR_PORTS_BUILD:={{ .plannotator_ports.host.build }}}"
 : "${PLANNOTATOR_PORTS_CLAUDE:={{ .plannotator_ports.host.claude }}}"
 : "${PLANNOTATOR_PORTS_CUSTOM:={{ .plannotator_ports.host.custom }}}"

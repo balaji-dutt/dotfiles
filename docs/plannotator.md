@@ -81,9 +81,9 @@ CLI or update the owning repository's metadata before starting that way.
 
 OpenCode Plannotator uses the CLI runtime in both host and devcontainer config.
 That keeps WSL/devcontainer ready messages inside OpenCode's logging path instead
-of letting the embedded runtime write directly to the terminal TUI. Keep
-`PLANNOTATOR_REMOTE=1` for remote browser forwarding behavior, and restart OpenCode
-after changing plugin config.
+of letting the embedded runtime write directly to the terminal TUI. Local WSL2
+desktop sessions leave `PLANNOTATOR_REMOTE` unset; the homelab devcontainer keeps
+its explicit `PLANNOTATOR_REMOTE=1`. Restart OpenCode after changing plugin config.
 
 For diagnostics:
 
@@ -186,14 +186,23 @@ hook, so the guard never sees the denied first call. It does run on the
 allowed call, and it also covers the classic flow and native-dialog approvals.
 
 Ask AI in a plan review behaves differently in remote mode
-(`PLANNOTATOR_REMOTE=1`, or an SSH session). That covers WSL2 and the homelab
-container. Plannotator disables "Ask this session" there, because anyone who
+(`PLANNOTATOR_REMOTE=1` or `true`, or SSH auto-detection when no recognized
+override is set). Plannotator disables "Ask this session" there, because anyone who
 can reach the review URL could otherwise type into the agent session
 (`createAIRuntime` in upstream `packages/server/ai-runtime.ts`). Ask AI then
-falls back to a separate Agent SDK assistant with no session history. On
-macOS, which does not set remote mode, Ask AI goes through the session.
+falls back to a separate Agent SDK assistant with no session history. Local
+mode permits the session bridge when the integration supplies it; the
+interactive Claude Code mod supports this flow.
+
 [backnotprop/plannotator#1983](https://github.com/backnotprop/plannotator/issues/1983)
-asks for a loopback-bound remote option that keeps the bridge.
+was answered with local-mode guidance, documented in merged
+[PR #1984](https://github.com/backnotprop/plannotator/pull/1984): local mode
+binds `127.0.0.1`, works with Windows localhost forwarding, and supports the
+same port ranges. On 2026-10-25, the user-reported local Windows desktop/WSL2 test with
+Plannotator 0.28.23 and Claude Code 2.1.310 opened the Windows host browser on
+port `9014` bound to `127.0.0.1`; an Ask AI question about a conversation-only
+phrase appeared in the originating Claude session. This is not SSH or container
+verification.
 
 The plugin does **not** supply the `/plannotator-*` slash command files. Those
 are vendored into this repo — see
@@ -210,9 +219,26 @@ Devcontainers render their own `~/.claude/settings.json` from the mirrored base
 and local settings instead of following a host settings symlink. They only report
 the plugin as aligned after local CLI and plugin readback.
 
-On WSL, shell startup exports `PLANNOTATOR_REMOTE=1` with the configured
-`PLANNOTATOR_PORT`. macOS keeps local browser behavior and does not set remote
-mode.
+On WSL2 and macOS, shell startup leaves `PLANNOTATOR_REMOTE` unset unless it is
+inherited or supplied by the trusted OpenCode env file. The configured
+`PLANNOTATOR_PORT` fallback and workflow ranges are unchanged. For a local
+Windows desktop launch (Windows Terminal, VS Code Remote WSL, or local AoE),
+leave remote mode unset. If SSH variables are present on a same-PC connection
+and Windows can reach the WSL loopback listener, explicitly opt into local mode
+with `PLANNOTATOR_REMOTE=0` (or `false`). Do not force local mode for genuine
+remote access: if the browser cannot reach loopback, keep the required remote
+mode/forwarding setup and expect no same-session bridge. The homelab container's
+remote mode, port publishing, and security boundaries are unchanged.
+
+Browser selection is separate from listener reachability: Plannotator honors
+`PLANNOTATOR_BROWSER` before `BROWSER`; the WSL `wsl-open` browser helper remains
+unchanged. A browser opening successfully does not prove it can reach the URL.
+
+Removing the startup default does not clear an inherited `PLANNOTATOR_REMOTE=1`
+from an existing terminal, AoE process, or tmux server. After applying the two
+managed shell targets, clear that value in the launching context or use a clean
+launcher, then check `printenv PLANNOTATOR_REMOTE` is absent before starting a
+new local session. The templates do not restart existing processes.
 
 Use `claude-plannotator` for concurrent Claude Code sessions. The wrapper gives
 the child process the Claude range, and Plannotator selects a port when review
@@ -580,6 +606,31 @@ All mapped ports for a profile share that Firefox container's cookie jar, so the
 settings apply across both host and devcontainer ranges.
 
 ## Manual smoke test
+
+### WSL2 local Ask AI session
+
+From the local Windows desktop, with interactive Claude Code and its mod enabled:
+
+1. Check `SSH_TTY` and `SSH_CONNECTION` are absent, then start
+   `env -u PLANNOTATOR_REMOTE claude-plannotator`. For a deliberate same-PC SSH
+   test with reachable loopback, use `PLANNOTATOR_REMOTE=0 claude-plannotator`.
+2. Tell the agent a unique phrase to remember only in the conversation. Ask for
+   a tiny no-op plan without including that phrase in the plan, and instruct it
+   not to edit files or implement anything.
+3. When the plan opens, confirm the listener is `127.0.0.1` on a port within
+   `9014-9019` (for example with `ss -ltnp`) and the Windows browser can load it.
+4. In Ask AI, ask for the remembered phrase. Confirm the question and answer
+   appear in the originating Claude session. A generic SDK answer without the
+   conversation history is not a same-session success.
+5. Close the review without approving implementation. Do not save the phrase or
+   transcript into tracked files.
+
+If the browser opens but cannot load the page, check localhost forwarding and
+the listener address separately from browser selection. If the page loads but
+Ask AI lacks the conversation, check the effective remote-mode value and the
+interactive mod flow. This procedure does not verify OpenCode or containers.
+
+### Review and slash-command smoke tests
 
 For Claude Code, start `claude-plannotator`, ask for a tiny plan, and stop
 before editing:
