@@ -846,6 +846,42 @@ If SSH agent forwarding stops working on macOS, reopen or rebuild the
 devcontainer to refresh the forwarded socket mount and recreate the in-container
 relay. No separate host LaunchAgent or host-side `socat` relay is required.
 
+For `homelab-IaC`, `postStart.sh` installs and runs the container-local `sset`.
+It exports the forwarded agent's public identity with the exact full comment
+`bitbucket-avggeek-2019` to `~/.ssh/public_averagegeek_2019-ed25519.pub`.
+Exactly one distinct valid identity must match; identical duplicates are allowed.
+The private key stays in the agent. Ansible selection is independent, retaining
+its preferred comments and first-key fallback for `~/.ssh/root_terraform_ansible.pub`;
+Git never uses that fallback.
+
+`sset` installs `~/.ssh/config.d/dotfiles-git.conf` with a leading include in
+`~/.ssh/config`. Only `gitlab.com`, `gitlab`, `github.com`, and `github` receive
+`User git`, `IdentitiesOnly yes`, and the shared public selector. Short aliases
+map to the real hostnames; Bitbucket and `github-balajidutt` are outside this block.
+Unrelated config is preserved. Unsafe write paths and unmanaged fragment content
+are refused; offline `ssh -G` checks report conflicting effective settings,
+including additive `IdentityFile` entries, rather than deleting user settings.
+
+An empty/unavailable agent, missing/ambiguous/malformed Git identity, or failed
+write makes `sset` return nonzero without replacing the last-known-good selector
+or printing raw keys/agent stderr. Restrictive Git config is installed even when
+the key is absent. Post-start warns without blocking startup, so a running
+container alone does not prove SSH provisioning succeeded. Check its warnings,
+ensure the required identity is available in the forwarded agent, and rerun the
+container's `sset`; resolve config conflicts explicitly before authenticating.
+
+Lifecycle changes must reach the canonical source mounted by the container
+before activation; rebuilding from a feature worktree does not publish them.
+Publish through the approved landing/deployment workflow, then obtain permission
+to interrupt the container and follow the workspace's agent/Dolt shutdown and
+backup guidance before `devcontainer-launch homelab-IaC rebuild`. Persistent
+volumes are not database backups. Inspect SSH lifecycle warnings, then use
+`devcontainer-launch homelab-IaC exec --existing -- ssh -G gitlab.com` to
+check the selected identity before bounded authentication and read-only
+`git ls-remote origin HEAD` checks. Keep strict host-key verification; stop for
+trusted verification of unknown or changed host keys. Broad render/sync commands
+are unnecessary for SSH-only lifecycle changes and can materialize unrelated secrets.
+
 For `homelab-IaC`, the platform defaults are:
 
 - macOS workspace: `/Users/balaji/Documents/development/homelab-IaC`

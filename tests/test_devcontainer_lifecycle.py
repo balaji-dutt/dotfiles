@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import base64
 import json
 import re
 import shutil
@@ -36,6 +37,12 @@ UNSLOP_SKILLS = (
     "unslop-help", "unslop-reasoning", "unslop-review",
 )
 CONTAINER_DOTFILES = REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles"
+
+
+def synthetic_agent_key(comment: str = "bitbucket-avggeek-2019", seed: int = 1) -> str:
+    kind = b"ssh-ed25519"
+    blob = len(kind).to_bytes(4, "big") + kind + (32).to_bytes(4, "big") + bytes([seed]) * 32
+    return "ssh-ed25519 " + base64.b64encode(blob).decode() + " " + comment
 
 
 @unittest.skipUnless(os.name != "nt" and BASH, "POSIX bash is required")
@@ -74,6 +81,16 @@ class DevcontainerLifecycleTests(unittest.TestCase):
         return helper
 
     def agent_fixture(self, platform: str = "wsl2") -> tuple[Path, dict[str, str]]:
+        if not shutil.which("ssh") or not shutil.which("ssh-keygen"):
+            self.skipTest("OpenSSH config evaluation and public-key validation are required")
+        real_ssh = shutil.which("ssh")
+        if not real_ssh:
+            self.skipTest("OpenSSH is required")
+        write_executable(self.fixture.fake_bin / "ssh", f"#!{sys.executable}\n"
+            "import os, sys\n"
+            "args = sys.argv[1:]\n"
+            "if '-F' not in args: args = ['-F', os.path.join(os.environ['HOME'], '.ssh/config')] + args\n"
+            f"os.execv({real_ssh!r}, [{real_ssh!r}] + args)\n")
         directory = tempfile.TemporaryDirectory(prefix="container-agent-", dir=Path("/tmp").resolve())
         self.addCleanup(directory.cleanup)
         parent = Path(directory.name)
@@ -84,6 +101,7 @@ class DevcontainerLifecycleTests(unittest.TestCase):
         sock.chmod(0o600)
         npiperelay = write_executable(self.fixture.fake_bin / "npiperelay.exe", "#!/bin/sh\nexit 99\n")
         env = {**self.env, "SSH_AUTH_SOCK": str(sock), "WSL_NPIPERELAY_PATH": str(npiperelay),
+               "AGENT_KEYS": "ssh-ed25519 AAAAFIXTURE root_terraform_ansible\n" + synthetic_agent_key(),
                "AGENT_PROBE_RC": "0", "AGENT_PROBE_STDOUT": "", "AGENT_PROBE_STDERR": ""}
         env.pop("ORBSTACK_HOST_SSH_AUTH_SOCK", None)
         if platform == "macos":
@@ -96,7 +114,9 @@ class DevcontainerLifecycleTests(unittest.TestCase):
             "    sys.stderr.write(os.environ['AGENT_PROBE_STDERR'])\n"
             "    sys.exit(int(os.environ['AGENT_PROBE_RC']))\n"
             "if os.environ['AGENT_PROBE_RC'] == '1': sys.exit(1)\n"
-            "print('ssh-ed25519 AAAAFIXTURE root_terraform_ansible')\n")
+            "sys.stderr.write(os.environ.get('AGENT_LIST_STDERR', ''))\n"
+            "print(os.environ['AGENT_KEYS'])\n"
+            "sys.exit(int(os.environ.get('AGENT_LIST_RC', '0')))\n")
         write_executable(self.fixture.fake_bin / "timeout", '#!/bin/sh\nshift\nexec "$@"\n')
         write_executable(self.fixture.fake_bin / "sleep", "#!/bin/sh\nexit 0\n")
         write_executable(self.fixture.fake_bin / "socat", "#!/bin/sh\nexit 99\n")
@@ -162,6 +182,164 @@ class DevcontainerLifecycleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("has no keys", result.stderr)
         self.assertNotIn("did not become ready", result.stderr)
+
+    def test_sset_git_selection_is_exact_order_independent_and_atomic(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture()
+        expected = synthetic_agent_key()
+        others = [synthetic_agent_key(f"other-{i}", i + 2) for i in range(6)]
+        others += [synthetic_agent_key("bitbucket-avggeek-2019-decoy", 8),
+                   "ssh-ed25519 AAAAFIXTURE terraform-ansible"]
+        target = self.fixture.home / ".ssh/public_averagegeek_2019-ed25519.pub"
+        for keys in (others + [expected], [expected] + list(reversed(others)),
+                     others + [expected, expected]):
+            with self.subTest(keys=keys):
+                previous = target.stat().st_ino if target.exists() else None
+                result = self.run_bash('"$1"', str(helper), env={**env, "AGENT_KEYS": "\n".join(keys)})
+                self.assert_success(result)
+                self.assertEqual(target.read_text(), expected + "\n")
+                self.assertNotEqual(target.stat().st_ino, previous)
+                self.assertNotIn(expected.split()[1], result.stdout + result.stderr)
+                self.assertIn("terraform-ansible", (target.parent / "root_terraform_ansible.pub").read_text())
+        for relpath, mode in (("", 0o700), ("config.d", 0o700), ("config", 0o600),
+                              ("config.d/dotfiles-git.conf", 0o600), (target.name, 0o600)):
+            self.assertEqual(stat.S_IMODE((target.parent / relpath).stat().st_mode), mode)
+        self.assertEqual(list(target.parent.glob(".sset-*")), [])
+
+    def test_sset_git_failures_preserve_selector_without_blocking_ansible(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture()
+        target = self.fixture.home / ".ssh/public_averagegeek_2019-ed25519.pub"
+        target.parent.mkdir()
+        original = synthetic_agent_key() + "\n"
+        failures = ("", synthetic_agent_key("prefix-bitbucket-avggeek-2019"),
+                    synthetic_agent_key() + "\n" + synthetic_agent_key(seed=9),
+                    "ssh-ed25519 invalid bitbucket-avggeek-2019",
+                    "ssh-ed25519 " + base64.b64encode(b"\0\0\0\x0bssh-ed25519invalid").decode()
+                    + " bitbucket-avggeek-2019")
+        for keys in failures:
+            with self.subTest(keys=keys):
+                target.write_text(original)
+                inode = target.stat().st_ino
+                result = self.run_bash('"$1"', str(helper), env={**env, "AGENT_KEYS":
+                    "ssh-ed25519 AAAAFIXTURE root_terraform_ansible\n" + keys})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(target.read_text(), original)
+                self.assertEqual(target.stat().st_ino, inode)
+                self.assertIn("exact comment", result.stderr)
+                self.assertNotIn("AAAAFIXTURE", result.stderr + result.stdout)
+                self.assertIn("AAAAFIXTURE", (target.parent / "root_terraform_ansible.pub").read_text())
+        for rc in (1, 2, 124):
+            with self.subTest(list_rc=rc):
+                result = self.run_bash('"$1"', str(helper), env={**env, "AGENT_LIST_RC": str(rc),
+                    "AGENT_LIST_STDERR": "PRIVATE-AGENT-DIAGNOSTIC"})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(target.read_text(), original)
+                self.assertNotIn("PRIVATE-AGENT-DIAGNOSTIC", result.stderr + result.stdout)
+
+    def test_sset_git_config_is_scoped_idempotent_and_detects_additive_identities(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture()
+        config = self.fixture.home / ".ssh/config"
+        config.parent.mkdir()
+        unrelated = "Host example.test\n    User other\nHost github-balajidutt\n    User alternate\n"
+        config.write_text(unrelated)
+        self.assert_success(self.run_bash('"$1"', str(helper), env=env))
+        installed = config.read_text()
+        self.assertTrue(installed.endswith(unrelated))
+        self.assert_success(self.run_bash('"$1"', str(helper), env=env))
+        self.assertEqual(config.read_text(), installed)
+        for host in ("gitlab", "gitlab.com", "github", "github.com", "example.test", "github-balajidutt", "bitbucket.org"):
+            result = subprocess.run(["ssh", "-G", "-F", str(config), host], env=env,
+                                    capture_output=True, text=True, check=False)
+            self.assert_success(result)
+            values = dict(line.split(" ", 1) for line in result.stdout.splitlines())
+            if host in ("gitlab", "gitlab.com", "github", "github.com"):
+                self.assertEqual(values["hostname"], host if "." in host else host + ".com")
+                self.assertEqual(values["user"], "git")
+                self.assertEqual(values["identitiesonly"], "yes")
+                self.assertEqual(values["identityfile"], "~/.ssh/public_averagegeek_2019-ed25519.pub")
+            else:
+                self.assertNotIn("public_averagegeek", result.stdout)
+                if host == "example.test":
+                    self.assertEqual(values["user"], "other")
+                if host == "github-balajidutt":
+                    self.assertEqual(values["user"], "alternate")
+        config.write_text(installed + "Host gitlab.com\n    IdentityFile /tmp/other.pub\n")
+        result = self.run_bash('"$1"', str(helper), env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicting SSH config", result.stderr)
+        self.assertIn("IdentityFile /tmp/other.pub", config.read_text())
+
+    def test_sset_git_config_installs_when_agent_empty_and_refuses_unsafe_paths(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture()
+        ssh_dir = self.fixture.home / ".ssh"
+        empty = self.run_bash('"$1"', str(helper), env={**env, "AGENT_PROBE_RC": "1",
+            "AGENT_PROBE_STDOUT": "The agent has no identities.\n"})
+        self.assertNotEqual(empty.returncode, 0)
+        self.assertIn("IdentitiesOnly yes", (ssh_dir / "config.d/dotfiles-git.conf").read_text())
+        protected = self.fixture.root / "protected"
+        protected.write_text("untouched\n")
+        for relpath in ("config", "public_averagegeek_2019-ed25519.pub", "root_terraform_ansible.pub",
+                        "config.d/dotfiles-git.conf", "config.d", "."):
+            with self.subTest(relpath=relpath):
+                candidate = ssh_dir if relpath == "." else ssh_dir / relpath
+                saved = self.fixture.root / "saved"
+                if candidate.exists():
+                    candidate.rename(saved)
+                candidate.symlink_to(protected)
+                result = self.run_bash('"$1"', str(helper), env=env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(protected.read_text(), "untouched\n")
+                candidate.unlink()
+                if saved.exists():
+                    saved.rename(candidate)
+        fragment = ssh_dir / "config.d/dotfiles-git.conf"
+        fragment.write_text("unmanaged config\n")
+        result = self.run_bash('"$1"', str(helper), env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(fragment.read_text(), "unmanaged config\n")
+
+    def test_sset_selector_write_failures_are_independent_and_preserve_old_files(self) -> None:
+        helper = self.generated_sset()
+        _, env = self.agent_fixture()
+        self.assert_success(self.run_bash('"$1"', str(helper), env=env))
+        ssh_dir = self.fixture.home / ".ssh"
+        (self.fixture.root / "sitecustomize.py").write_text(
+            "import os\n"
+            "original = os.replace\n"
+            "def replace(source, destination, *args, **kwargs):\n"
+            "    if str(destination).endswith(os.environ.get('FAIL_SELECTOR', 'never')):\n"
+            "        raise OSError('simulated write failure')\n"
+            "    return original(source, destination, *args, **kwargs)\n"
+            "os.replace = replace\n")
+        git = ssh_dir / "public_averagegeek_2019-ed25519.pub"
+        ansible = ssh_dir / "root_terraform_ansible.pub"
+        for failed, healthy in ((git, ansible), (ansible, git)):
+            with self.subTest(failed=failed.name):
+                old = failed.read_text()
+                inode = failed.stat().st_ino
+                healthy.write_text("stale\n")
+                result = self.run_bash('"$1"', str(helper), env={**env,
+                    "PYTHONPATH": str(self.fixture.root), "FAIL_SELECTOR": failed.name})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(failed.read_text(), old)
+                self.assertEqual(failed.stat().st_ino, inode)
+                self.assertNotEqual(healthy.read_text(), "stale\n")
+                self.assertEqual(list(ssh_dir.glob(".sset-*")), [])
+        git.unlink()
+        os.mkfifo(git)
+        result = self.run_bash('"$1"', str(helper), env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(stat.S_ISFIFO(git.lstat().st_mode))
+        git.unlink()
+        protected = self.fixture.root / "protected-key"
+        protected.write_text("untouched\n")
+        os.link(protected, git)
+        result = self.run_bash('"$1"', str(helper), env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(protected.read_text(), "untouched\n")
 
     def test_lifecycle_scripts_are_source_safe_and_dispatchable(self) -> None:
         cases = (

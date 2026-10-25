@@ -200,8 +200,149 @@ orbstack_host_sock="${ORBSTACK_HOST_SSH_AUTH_SOCK:-}"
 orbstack_relay_script="/tmp/host-homelab-devcontainer/orbstack_ssh_agent_relay.py"
 orbstack_relay_log="/tmp/orbstack-ssh-agent-relay.log"
 orbstack_relay_pid="${sock_dir}/relay.pid"
-ssh_pub_key_file="$HOME/.ssh/root_terraform_ansible.pub"
-ssh_key_comments=("root_terraform_ansible" "terraform-ansible")
+refresh_public_selectors() {
+  python3 - "$@" <<'PY'
+import base64
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+
+root = Path.home() / '.ssh'
+selector = root / 'public_averagegeek_2019-ed25519.pub'
+fragment = root / 'config.d/dotfiles-git.conf'
+config = root / 'config'
+include = 'Include "' + str(fragment).replace('\\', '\\\\').replace('"', '\\"') + '"'
+fragment_text = '''Host gitlab.com gitlab github.com github
+    User git
+    IdentitiesOnly yes
+    IdentityFile ~/.ssh/public_averagegeek_2019-ed25519.pub
+Host gitlab
+    HostName gitlab.com
+Host github
+    HostName github.com
+Host *
+'''
+
+def warn(message):
+    print('WARN: ' + message, file=sys.stderr)
+
+def safe_node(path, directory=False):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if directory:
+            path.mkdir(mode=0o700)
+            info = path.lstat()
+        else:
+            return
+    kind_ok = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not kind_ok or info.st_uid != os.getuid() or (not directory and info.st_nlink != 1):
+        raise ValueError('unsafe path')
+    path.chmod(0o700 if directory else 0o600)
+
+def atomic_write(path, text):
+    safe_node(path.parent, directory=True)
+    safe_node(path)
+    fd, name = tempfile.mkstemp(prefix='.sset-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            output.write(text)
+            output.flush()
+            os.fsync(output.fileno())
+        safe_node(path)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+def configure():
+    safe_node(root, directory=True)
+    safe_node(fragment.parent, directory=True)
+    for path in (selector, config, fragment):
+        safe_node(path)
+    if fragment.exists() and fragment.read_text() != fragment_text:
+        raise ValueError('unmanaged fragment')
+    existing = config.read_text() if config.exists() else ''
+    remaining = ''.join(line for line in existing.splitlines(keepends=True)
+                        if line.strip() != include)
+    atomic_write(fragment, fragment_text)
+    atomic_write(config, include + '\n' + remaining)
+    for host, hostname in (('gitlab', 'gitlab.com'), ('gitlab.com', 'gitlab.com'),
+                           ('github', 'github.com'), ('github.com', 'github.com')):
+        result = subprocess.run(['ssh', '-G', host],
+                                capture_output=True, text=True, timeout=5)
+        values = {}
+        for line in result.stdout.splitlines():
+            key, _, value = line.partition(' ')
+            values.setdefault(key, []).append(value)
+        if (result.returncode or values.get('hostname') != [hostname]
+                or values.get('user') != ['git']
+                or values.get('identitiesonly') != ['yes']
+                or values.get('identityfile') != ['~/.ssh/public_averagegeek_2019-ed25519.pub']):
+            raise ValueError('conflicting SSH config from effective host, user, or additive IdentityFile settings')
+
+def export_keys(source):
+    safe_node(root, directory=True)
+    lines = Path(source).read_text().splitlines()
+    ansible = next((line for comment in ('root_terraform_ansible', 'terraform-ansible')
+                    for line in lines if comment in line), None)
+    preferred = ansible is not None
+    ansible = ansible or next((line for line in lines if line.startswith('ssh-')), None)
+    failed = False
+    try:
+        if not ansible:
+            raise ValueError('missing Ansible key')
+        atomic_write(root / 'root_terraform_ansible.pub', ansible + '\n')
+        if not preferred:
+            warn('preferred key comments not found; using first SSH agent key instead.')
+        print('INFO: refreshed Ansible public selector.', file=sys.stderr)
+    except (OSError, ValueError):
+        warn('could not refresh Ansible public selector; keeping existing key file.')
+        failed = True
+    try:
+        candidates = set()
+        for line in lines:
+            fields = line.split(None, 2)
+            if len(fields) != 3 or fields[2] != 'bitbucket-avggeek-2019':
+                continue
+            blob = base64.b64decode(fields[1], validate=True)
+            if len(blob) < 4:
+                raise ValueError('invalid key')
+            length = int.from_bytes(blob[:4], 'big')
+            if blob[4:4 + length] != fields[0].encode():
+                raise ValueError('invalid key type')
+            candidates.add((fields[0], fields[1]))
+        if len(candidates) != 1:
+            raise ValueError('missing or ambiguous Git key')
+        kind, data = candidates.pop()
+        public = kind + ' ' + data + ' bitbucket-avggeek-2019\n'
+        check = subprocess.run(['ssh-keygen', '-l', '-f', '-'], input=public.encode(),
+                               capture_output=True, timeout=5)
+        if check.returncode:
+            raise ValueError('invalid public key')
+        atomic_write(selector, public)
+        print('INFO: refreshed Git public selector.', file=sys.stderr)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        warn('could not select one valid Git key with exact comment bitbucket-avggeek-2019; keeping existing Git selector.')
+        failed = True
+    return int(failed)
+
+try:
+    if sys.argv[1] == 'configure':
+        configure()
+        sys.exit(0)
+    sys.exit(export_keys(sys.argv[2]))
+except ValueError as error:
+    warn('Git/Ansible selector setup refused: ' + str(error) + '; inspect container-local ~/.ssh configuration.')
+    sys.exit(1)
+except (OSError, subprocess.SubprocessError):
+    warn('Git/Ansible selector setup failed; check container-local ~/.ssh permissions and SSH tools.')
+    sys.exit(1)
+PY
+}
 
 ensure_orbstack_relay() {
   local python_bin user_name group_name
@@ -282,7 +423,8 @@ agent_recovery_hint() {
   fi
 }
 
-mkdir -p "$HOME/.ssh"
+git_config_exit=0
+refresh_public_selectors configure || git_config_exit=$?
 if [[ -n "$orbstack_host_sock" ]]; then
   mkdir -p "$sock_dir"
   chmod 700 "$sock_dir" >/dev/null 2>&1 || true
@@ -306,7 +448,7 @@ for ((i=0; i<50; i++)); do
 done
 
 if [[ "$agent_ready" -ne 1 ]]; then
-  echo "WARN: SSH agent did not become ready; keeping existing key file." >&2
+  echo "WARN: SSH agent did not become ready; keeping existing Git and Ansible key files." >&2
   agent_recovery_hint
   exit 1
 fi
@@ -316,46 +458,16 @@ ssh_add_exit=0
 timeout 5 ssh-add -L >"$ssh_add_stdout" 2>"$ssh_add_stderr" || ssh_add_exit=$?
 
 if [[ "$ssh_add_exit" -eq 0 ]]; then
-  key_lines="$(<"$ssh_add_stdout")"
-  key_line=""
-  matched_comment=""
-
-  for ssh_key_comment in "${ssh_key_comments[@]}"; do
-    key_line="$(printf '%s\n' "$key_lines" | grep -m1 "$ssh_key_comment" || true)"
-    if [[ -n "$key_line" ]]; then
-      matched_comment="$ssh_key_comment"
-      break
-    fi
-  done
-
-  if [[ -z "$key_line" ]]; then
-    key_line="$(printf '%s\n' "$key_lines" | grep -m1 '^ssh-' || true)"
-  fi
-
-  if [[ -n "$key_line" ]]; then
-    printf '%s\n' "$key_line" >"$ssh_pub_key_file"
-    chmod 600 "$ssh_pub_key_file"
-    if [[ -z "$matched_comment" ]]; then
-      echo "WARN: preferred key comments not found; using first SSH agent key instead." >&2
-    fi
-    echo "INFO: refreshed $ssh_pub_key_file from SSH agent." >&2
-  else
-    echo "WARN: SSH agent returned no usable public keys for Ansible." >&2
-    exit 1
-  fi
+  refresh_public_selectors export "$ssh_add_stdout" || exit $?
+  exit "$git_config_exit"
 else
   if [[ "$ssh_add_exit" -eq 1 ]]; then
-    echo "WARN: SSH agent available but has no keys to export for Ansible." >&2
+    echo "WARN: SSH agent available but has no keys to export for Git or Ansible." >&2
   elif [[ "$ssh_add_exit" -eq 124 ]]; then
     echo "WARN: ssh-add -L timed out; SSH agent appears unhealthy." >&2
     agent_recovery_hint
   else
-    ssh_add_error="$(tr '\n' ' ' <"$ssh_add_stderr" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-    if [[ -n "$ssh_add_error" ]]; then
-      echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit): $ssh_add_error" >&2
-    else
-      echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit)." >&2
-    fi
+    echo "WARN: SSH agent socket is not usable (ssh-add -L exit $ssh_add_exit); Git and Ansible selectors retained." >&2
     agent_recovery_hint
   fi
   exit 1
@@ -466,7 +578,7 @@ post_start_check_host_relay() {
 
 post_start_refresh_ssh() {
   if ! "$HOME/.local/bin/sset"; then
-    echo "WARN: sset refresh failed; Ansible may not be able to use SSH keys." >&2
+    echo "WARN: sset refresh failed; Git or Ansible may not be able to use SSH keys." >&2
     echo "WARN: If this persists, rerun sset or reopen/rebuild the container." >&2
   fi
 }
