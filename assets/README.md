@@ -250,6 +250,23 @@ Windows has a separate PowerShell implementation inside
 `.chezmoiscripts/run_onchange_after_claude_mcp_servers.ps1.tmpl`. See
 `docs/automation/claude-mcp.md`.
 
+### Orphaned CBM index pruning
+
+`cbm-prune-orphans.py` deletes codebase-memory-mcp indexes whose repository
+root no longer exists, such as removed agent worktrees. The POSIX
+`zz-prune-codebase-memory-mcp` apply hook runs it with `--apply` on every
+`chezmoi apply` and protects the chezmoi working tree. An index is deleted only
+when its root is absent and the root's parent directory exists and is not
+empty, so indexes on an unmounted volume are kept. A root that cannot be
+checked is kept too. Without `--apply` it only reports:
+
+```sh
+python3 -I assets/cbm-prune-orphans.py
+python3 -I assets/cbm-prune-orphans.py --apply --keep "$(chezmoi source-path)"
+```
+
+Native Windows has no caller yet. See `docs/automation/claude-mcp.md`.
+
 ### Existing Git hook sync
 
 `git-template-hook-sync.py` copies the hooks from the managed Git template into

@@ -20,9 +20,9 @@ from tests.support.powershell import parse_powershell, powershell_parser_command
 class LifecycleRenderMatrixTests(unittest.TestCase):
     def test_inventory_includes_every_lifecycle_template(self) -> None:
         lifecycle = tuple((REPO_ROOT / ".chezmoiscripts").glob("*.tmpl"))
-        self.assertEqual(len(lifecycle), 50)
+        self.assertEqual(len(lifecycle), 51)
         self.assertEqual(sum(path.name.endswith(".ps1.tmpl") for path in lifecycle), 19)
-        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 31)
+        self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 32)
 
     def test_all_sources_render_for_each_fixture(self) -> None:
         matrix = render_matrix()

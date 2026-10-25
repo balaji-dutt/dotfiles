@@ -19,6 +19,7 @@
 .chezmoiscripts/run_after_windows-zz-register-startup-tasks.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_zz-configure-codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_zz-configure-codebase-memory-mcp.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
+.chezmoiscripts/run_after_zz-prune-codebase-memory-mcp.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_copy_win_gitignore.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_once_after_97-retire-codebase-memory-mcp-ubi.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
 .chezmoiscripts/run_once_after_97-retire-macos-beads-dolt-links.sh.tmpl	chezmoi-lifecycle,script-extension,shebang
@@ -87,6 +88,7 @@ assets/agent-wt-merge	executable-mode,shebang
 assets/beads-sync	executable-mode,shebang
 assets/beads-sync.ps1	script-extension
 assets/beads-sync.sh	executable-mode,script-extension,shebang
+assets/cbm-prune-orphans.py	script-extension,shebang
 assets/check-ai-tooling.py	script-extension,shebang
 assets/check-automation-provenance.py	executable-mode,script-extension,shebang
 assets/check-automation-test-inventory.py	script-extension,shebang

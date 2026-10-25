@@ -1,0 +1,23 @@
+{{- if ne .chezmoi.os "windows" -}}
+#!/bin/bash
+set -euo pipefail
+
+helper={{ printf "%s/assets/cbm-prune-orphans.py" .chezmoi.sourceDir | quote }}
+repo_root={{ .chezmoi.workingTree | quote }}
+
+python_command=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1 &&
+      "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+    python_command="$candidate"
+    break
+  fi
+done
+
+if [ -z "$python_command" ]; then
+  echo "WARNING: Python 3.9 or newer is unavailable; orphaned codebase-memory-mcp indexes were not pruned." >&2
+  exit 0
+fi
+
+"$python_command" -I "$helper" --apply --keep "$repo_root"
+{{- end -}}
