@@ -240,6 +240,52 @@ class DirectRunSandboxTests(unittest.TestCase):
         runner = load_script_module(REPO_ROOT / "assets" / "run-tests.py", "_marker_runner")
         self.assertEqual(runner.SANDBOX_MARKER, tests.SANDBOX_MARKER)
 
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_direct_import_resolves_node_for_outer_and_nested_sandboxes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="node fixture ") as temp_dir:
+            root = Path(temp_dir).resolve()
+            shim_bin = root / "custom-shims"
+            shim_bin.mkdir()
+            host = root / "host"
+            host.mkdir()
+            sentinel = host / "trust-state"
+            sentinel.write_text("unchanged", encoding="utf-8")
+            runtime = root / "installed-node"
+            runtime.write_text("#!/bin/sh\nprintf 'installed-node'\n", encoding="utf-8")
+            runtime.chmod(0o755)
+            mise = shim_bin / "mise"
+            mise.write_text(
+                f"#!{sys.executable}\nimport os, pathlib, sys\n"
+                "assert sys.argv[1:] == ['which', 'node']\n"
+                f"assert os.environ['HOME'] == {str(host)!r}\n"
+                f"assert os.environ['XDG_STATE_HOME'] == {str(host)!r}\n"
+                f"print({str(runtime)!r})\n",
+                encoding="utf-8",
+            )
+            mise.chmod(0o755)
+            (shim_bin / "node").symlink_to(mise)
+            env = {key: value for key, value in os.environ.items() if key != "DOTFILES_TEST_SANDBOX"}
+            env.update({"PATH": str(shim_bin), "HOME": str(host), "XDG_STATE_HOME": str(host),
+                        "MISE_TRUSTED_CONFIG_PATHS": str(host), "FIXTURE_SECRET_TOKEN": "host-only"})
+            probe = (
+                "import os, pathlib, shutil, subprocess, tests\n"
+                "from tests.support.fixtures import isolated_environment\n"
+                "assert subprocess.check_output(['node'], text=True) == 'installed-node'\n"
+                f"assert pathlib.Path(shutil.which('node')).resolve() == pathlib.Path({str(runtime)!r})\n"
+                "assert pathlib.Path(os.environ['XDG_STATE_HOME']).is_relative_to(pathlib.Path.home())\n"
+                "assert 'FIXTURE_SECRET_TOKEN' not in os.environ\n"
+                "assert not any(key.startswith('MISE_') for key in os.environ)\n"
+                "with isolated_environment() as fixture:\n"
+                "    assert fixture.env['HOME'] != os.environ['HOME']\n"
+                "    assert subprocess.check_output(['node'], env=fixture.env, text=True) == 'installed-node'\n"
+                "    for command in ('bd', 'dolt'):\n"
+                "        assert subprocess.run([command], env=fixture.env, capture_output=True).returncode == 97\n"
+            )
+            result = subprocess.run([sys.executable, "-c", probe], cwd=REPO_ROOT, env=env,
+                                    capture_output=True, text=True, timeout=60, check=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
+
 
 if __name__ == "__main__":
     unittest.main()

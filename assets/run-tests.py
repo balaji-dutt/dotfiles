@@ -287,13 +287,55 @@ def _write_guard_shims(directory: Path) -> None:
         )
 
 
+def _node_lookup_path(lookup_path: str, sandbox: Path, repo_root: Path) -> str:
+    if IS_WINDOWS:
+        return lookup_path
+    selected = shutil.which("node", path=lookup_path)
+    if selected is None:
+        return lookup_path
+    try:
+        node = Path(selected)
+        resolved = node.resolve()
+        mise = shutil.which("mise", path=lookup_path)
+        if not ((node.is_symlink() and resolved.name == "mise")
+                or (mise and resolved == Path(mise).resolve())):
+            return lookup_path
+        result = subprocess.run(
+            [str(resolved), "which", "node"], check=False, text=True,
+            cwd=repo_root, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+        )
+        output = result.stdout.strip()
+        if result.returncode != 0:
+            raise ValueError(f"mise which node exited {result.returncode}")
+        if not output or len(output.splitlines()) != 1 or "\0" in output:
+            raise ValueError("mise which node returned an invalid path")
+        runtime = Path(output)
+        if not runtime.is_absolute():
+            raise ValueError("mise which node returned a relative path")
+        runtime = runtime.resolve(strict=True)
+        if (runtime == resolved or runtime.name == "mise"
+                or not runtime.is_file() or not os.access(runtime, os.X_OK)):
+            raise ValueError("mise which node did not identify an installed executable")
+        runtime_bin = sandbox / "node-bin"
+        runtime_bin.mkdir()
+        (runtime_bin / "node").symlink_to(runtime)
+        return f"{runtime_bin}{os.pathsep}{lookup_path}"
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+        print(f"WARN: Node shim resolution failed ({type(error).__name__}); "
+              "retaining the inherited Node selection", file=sys.stderr)
+        return lookup_path
+
+
 def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
+    lookup_path = _node_lookup_path(os.environ.get("PATH", os.defpath), sandbox, repo_root)
     env = {name: value for name, value in os.environ.items() if name.upper() in PASSTHROUGH_ENV}
     home = sandbox / "home"
     tmp = sandbox / "tmp"
     xdg_config = home / ".config"
     xdg_cache = home / ".cache"
     xdg_data = home / ".local" / "share"
+    xdg_state = home / ".local" / "state"
     app_data = home / "AppData" / "Roaming"
     local_app_data = home / "AppData" / "Local"
     program_data = sandbox / "ProgramData"
@@ -304,6 +346,7 @@ def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
         xdg_config,
         xdg_cache,
         xdg_data,
+        xdg_state,
         app_data,
         local_app_data,
         program_data,
@@ -312,10 +355,9 @@ def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
     git_config.write_text("", encoding="utf-8")
     guard_bin = sandbox / "guard-bin"
     _write_guard_shims(guard_bin)
-    original_path = env.get("PATH", os.defpath)
     env.update(
         {
-            "PATH": f"{guard_bin}{os.pathsep}{original_path}",
+            "PATH": f"{guard_bin}{os.pathsep}{lookup_path}",
             "HOME": str(home),
             "USERPROFILE": str(home),
             "APPDATA": str(app_data),
@@ -324,6 +366,7 @@ def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
             "XDG_CONFIG_HOME": str(xdg_config),
             "XDG_CACHE_HOME": str(xdg_cache),
             "XDG_DATA_HOME": str(xdg_data),
+            "XDG_STATE_HOME": str(xdg_state),
             "TMPDIR": str(tmp),
             "TMP": str(tmp),
             "TEMP": str(tmp),
@@ -678,7 +721,7 @@ def run_steps(
     try:
         with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
             env = isolated_environment(repo_root, Path(temp_dir))
-            lookup_path = os.environ.get("PATH", os.defpath)
+            lookup_path = env["PATH"].split(os.pathsep, 1)[1]
             capability_cache: dict[str, tuple[str | None, str | None]] = {}
             for index, step in enumerate(steps):
                 current = index

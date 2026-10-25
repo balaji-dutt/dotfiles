@@ -185,8 +185,8 @@ python3 assets/check-test-selection.py
 
 Capabilities name one executable with `command`, or ordered alternatives with
 `commands`, and may include a non-interactive probe. The first executable found
-on the runner's inherited `PATH` runs the probe by absolute path with a
-30-second timeout; a failed probe leaves the capability unavailable. The
+on the runner's inherited `PATH`, with the Node normalization described below,
+runs the probe by absolute path with a 30-second timeout; a failed probe leaves the capability unavailable. The
 runner's guard shims do not satisfy capability checks. Capability commands and
 probes support the same `{python}` and `{repo}` placeholders as step argv
 arrays. For example:
@@ -315,13 +315,26 @@ skips rather than treating a passing registration step as full coverage.
 ## Isolation contract
 
 Each invocation gets a temporary sandbox. Child processes receive synthetic
-`HOME`, `USERPROFILE`, XDG, and temporary directories. Git global/system config
+`HOME`, `USERPROFILE`, temporary directories, and all four XDG roots
+(`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`). Git global/system config
 points at an empty sandbox file, interactive Git prompts are disabled, and
 credential/service variables are not copied wholesale from the parent process.
 The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are the
 only live-smoke settings passed through. The command timeout defaults to 180
 seconds and accepts values from 30 through 900. No similarly prefixed credential
 or secret variables are allowed.
+
+On POSIX, when the selected `node` resolves to a mise executable, the runner
+queries `mise which node` before replacing the parent environment. Discovery
+uses the repository root as its working directory, closes stdin, and has a
+10-second timeout. The installed executable is exposed through a Node-only
+symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
+`PATH`; capability lookup uses this normalized path without the guards.
+Children receive no parent mise variables or real mise config/state roots.
+Other Node selections and native Windows runtime selection are unchanged;
+`npm` and `npx` shims are not normalized. Failed discovery prints a bounded
+warning and retains the inherited shim, so Node execution failures remain
+visible rather than becoming capability skips or selecting another runtime.
 
 On POSIX, each step runs in its own process group. A timed-out step receives
 `SIGTERM`, then `SIGKILL` if needed; output draining and parent cleanup are
@@ -375,7 +388,8 @@ Run a module directly from the repository root as
 `python3 -m unittest tests.test_name` (`py -3 -m unittest ...` on native
 Windows). Importing the `tests` package applies the runner's own
 `isolated_environment` to that process: the same environment allowlist,
-synthetic home, empty Git config, and `bd`/`dolt` guards. The sandbox directory
+synthetic home/XDG roots, Node normalization, empty Git config, and `bd`/`dolt`
+guards. Nested fixtures inherit the resolved Node path. The sandbox directory
 is removed at exit. Inside the runner, `DOTFILES_TEST_SANDBOX=1` is already set
 and the package leaves the environment alone. Running a test file as a script
 (`python3 tests/test_name.py`) is not supported.

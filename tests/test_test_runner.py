@@ -866,6 +866,162 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn("FAIL alpha: missing capability bd (bd)", strict.stdout)
         self.assertNotIn("RUN  alpha", strict.stdout)
 
+    def test_windows_node_lookup_preserves_path_without_discovery(self) -> None:
+        with mock.patch.object(RUN_TESTS, "IS_WINDOWS", True), \
+                mock.patch.object(RUN_TESTS.shutil, "which") as which:
+            self.assertEqual(RUN_TESTS._node_lookup_path("inherited", self.fixture.root, REPO_ROOT), "inherited")
+        which.assert_not_called()
+
+    def test_absent_node_remains_optional_unless_required(self) -> None:
+        self.fixture.capabilities = {"node": {"command": "node"}}
+        self.fixture.steps[0]["requires"] = ["node"]
+        self.fixture.write_registry()
+        env = {**os.environ, "PATH": str(self.fixture.root / "empty-bin")}
+        local = self.fixture.run(env=env)
+        self.assertEqual(local.returncode, 0, local.stderr)
+        self.assertIn("SKIP alpha: missing capability node", local.stdout)
+        required = self.fixture.run("--require-capability", "node", env=env)
+        self.assertEqual(required.returncode, 1, required.stderr)
+        self.assertIn("FAIL alpha: missing capability node", required.stdout)
+
+    def _mise_node_fixture(self) -> tuple[dict[str, str], Path, Path]:
+        root = (self.fixture.root / "mise fixture with spaces").resolve()
+        shim_bin = root / "custom-shims"
+        install_bin = root / "installed" / "bin"
+        host = root / "host"
+        for directory in (shim_bin, install_bin, host):
+            directory.mkdir(parents=True)
+        (host / "trust-state").write_text("unchanged", encoding="utf-8")
+        runtime = install_bin / "node"
+        runtime.write_text(
+            f"#!{sys.executable}\nimport json, os\nprint(json.dumps(dict(os.environ)))\n",
+            encoding="utf-8",
+        )
+        runtime.chmod(0o755)
+        mise = shim_bin / "mise"
+        mise.write_text(
+            f"#!{sys.executable}\nimport json, os, pathlib, sys\n"
+            "if pathlib.Path(sys.argv[0]).name == 'node': raise SystemExit(89)\n"
+            "assert sys.argv[1:] == ['which', 'node']\n"
+            f"assert os.environ['HOME'] == {str(host)!r}\n"
+            f"assert pathlib.Path.cwd() == pathlib.Path({str(self.fixture.root.resolve())!r})\n"
+            f"pathlib.Path({str(host / 'discovery.json')!r}).write_text(json.dumps(dict(os.environ)))\n"
+            f"print({str(runtime)!r})\n",
+            encoding="utf-8",
+        )
+        mise.chmod(0o755)
+        (shim_bin / "node").symlink_to(mise)
+        for name in ("bd", "dolt"):
+            sibling = install_bin / name
+            sibling.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            sibling.chmod(0o755)
+        env = {**os.environ, "PATH": str(shim_bin), "HOME": str(host),
+               "XDG_STATE_HOME": str(host), "MISE_TRUSTED_CONFIG_PATHS": str(host),
+               "FIXTURE_SECRET_TOKEN": "host-only"}
+        return env, runtime, host
+
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_mise_node_resolves_before_isolation_and_capability_probe(self) -> None:
+        env, runtime, host = self._mise_node_fixture()
+        self.fixture.capabilities = {"node": {"command": "node", "probe": ["node", "--version"]}}
+        self.fixture.steps[0]["requires"] = ["node"]
+        self.fixture.write_script(
+            "pass.py",
+            "import json, os, pathlib, shutil, subprocess\n"
+            "child = json.loads(subprocess.check_output(['node'], text=True))\n"
+            "assert child['HOME'] == os.environ['HOME']\n"
+            f"assert pathlib.Path(shutil.which('node')).resolve() == pathlib.Path({str(runtime)!r})\n"
+            "for key in ('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME'):\n"
+            "    assert pathlib.Path(child[key]).is_relative_to(pathlib.Path(child['HOME']))\n"
+            "    assert pathlib.Path(child[key]).is_dir()\n"
+            "assert not any(key.startswith('MISE_') for key in child)\n"
+            "assert 'FIXTURE_SECRET_TOKEN' not in child\n"
+            "assert pathlib.Path(os.environ['PATH'].split(os.pathsep)[0]).name == 'guard-bin'\n"
+            "for command in ('bd', 'dolt'):\n"
+            "    assert subprocess.run([command], capture_output=True).returncode == 97\n",
+        )
+        self.fixture.write_registry()
+        result = subprocess.run(
+            self.fixture.command("--require-capability", "node"), env=env,
+            cwd=self.fixture.root.parent, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS alpha", result.stdout)
+        discovery = json.loads((host / "discovery.json").read_text(encoding="utf-8"))
+        self.assertEqual(discovery["HOME"], str(host))
+        self.assertEqual(discovery["XDG_STATE_HOME"], str(host))
+        self.assertEqual(discovery["FIXTURE_SECRET_TOKEN"], "host-only")
+        self.assertEqual((host / "trust-state").read_text(encoding="utf-8"), "unchanged")
+
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_node_resolution_failures_retain_shim_with_bounded_diagnostic(self) -> None:
+        env, runtime, _ = self._mise_node_fixture()
+        not_executable = runtime.parent / "not-executable"
+        not_executable.write_text("data", encoding="utf-8")
+        mise = Path(env["PATH"]) / "mise"
+        cases = [
+            subprocess.CompletedProcess([], 7, "", "secret-error"),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "relative/node\n", ""),
+            subprocess.CompletedProcess([], 0, f"{runtime}\nextra\n", ""),
+            subprocess.CompletedProcess([], 0, "bad\0path", ""),
+            subprocess.CompletedProcess([], 0, str(runtime.parent / "missing"), ""),
+            subprocess.CompletedProcess([], 0, str(not_executable), ""),
+            subprocess.CompletedProcess([], 0, str(runtime.parent), ""),
+            subprocess.CompletedProcess([], 0, str(mise), ""),
+            subprocess.TimeoutExpired("mise", 10),
+            OSError("secret-error"),
+        ]
+        for index, outcome in enumerate(cases):
+            with self.subTest(outcome=outcome), \
+                    mock.patch.object(RUN_TESTS.subprocess, "run") as run, \
+                    contextlib.redirect_stderr(io.StringIO()) as diagnostic:
+                if isinstance(outcome, Exception):
+                    run.side_effect = outcome
+                else:
+                    run.return_value = outcome
+                actual = RUN_TESTS._node_lookup_path(env["PATH"], self.fixture.root / str(index), REPO_ROOT)
+                self.assertEqual(actual, env["PATH"])
+                self.assertIn("retaining the inherited Node selection", diagnostic.getvalue())
+                self.assertNotIn("secret-error", diagnostic.getvalue())
+                self.assertLess(len(diagnostic.getvalue()), 200)
+                self.assertEqual(run.call_args.args[0], [str(mise), "which", "node"])
+                self.assertEqual(run.call_args.kwargs["timeout"], 10)
+                self.assertEqual(run.call_args.kwargs["cwd"], REPO_ROOT)
+                self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_failed_mise_lookup_does_not_skip_node_execution(self) -> None:
+        env, _, _ = self._mise_node_fixture()
+        mise = Path(env["PATH"]) / "mise"
+        mise.write_text("#!/bin/sh\nexit 89\n", encoding="utf-8")
+        self.fixture.capabilities = {"node": {"command": "node"}}
+        self.fixture.steps[0]["requires"] = ["node"]
+        self.fixture.write_script(
+            "pass.py", "import subprocess\nraise SystemExit(subprocess.call(['node']))\n",
+        )
+        self.fixture.write_registry()
+        result = self.fixture.run(env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("RUN  alpha", result.stdout)
+        self.assertIn("FAIL alpha: exit 89", result.stdout)
+        self.assertIn("Node shim resolution failed", result.stderr)
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
+    def test_ordinary_or_absent_node_does_not_invoke_mise(self) -> None:
+        env, runtime, _ = self._mise_node_fixture()
+        for lookup_path in (str(runtime.parent), str(self.fixture.root / "empty-bin")):
+            with self.subTest(lookup_path=lookup_path), \
+                    mock.patch.object(RUN_TESTS.subprocess, "run") as run:
+                self.assertEqual(RUN_TESTS._node_lookup_path(lookup_path, self.fixture.root, REPO_ROOT), lookup_path)
+                run.assert_not_called()
+        shim_bin = Path(env["PATH"])
+        (shim_bin / "node").unlink()
+        (shim_bin / "node").symlink_to(runtime)
+        with mock.patch.object(RUN_TESTS.subprocess, "run") as run:
+            self.assertEqual(RUN_TESTS._node_lookup_path(str(shim_bin), self.fixture.root, REPO_ROOT), str(shim_bin))
+            run.assert_not_called()
+
     @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
     def test_isolated_beads_step_receives_real_executable_without_unblocking_path(self) -> None:
         fake_bin = self.fixture.root / "fake-bin"
@@ -1128,7 +1284,7 @@ class TestRunnerTests(unittest.TestCase):
             "'git_system': os.environ['GIT_CONFIG_SYSTEM'], "
             "'git_config_size': os.path.getsize(os.environ['GIT_CONFIG_GLOBAL']), "
             "'xdg': [os.environ[name] for name in "
-            "('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME')], "
+            "('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME')], "
             "'bd_exit': result.returncode, 'bd_error': result.stderr, "
             "'dolt_exit': dolt.returncode, 'dolt_error': dolt.stderr}), encoding='utf-8')\n",
         )
