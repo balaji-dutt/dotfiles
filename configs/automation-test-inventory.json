@@ -259,14 +259,14 @@
       "paths": ["assets/cbm-prune-orphans.py"],
       "owner": {"kind": "repository", "name": "codebase-memory-mcp orphaned index pruner"},
       "languages": ["python"],
-      "platforms": ["linux", "macos", "wsl2"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "critical",
       "side_effects": ["filesystem", "process"],
       "test_layers": ["integration", "unit"],
       "coverage": {
         "status": "covered",
-        "work_item": "dots-pbib",
-        "test_paths": ["tests/test_cbm_prune_orphans.py"],
+        "work_item": "dots-arn5",
+        "test_paths": ["tests/test_cbm_prune_orphans.py", "tests/test_cbm_prune_orphans_windows.py"],
         "behavior_requirements": [
           {"id": "failure-cbm-prune-cli-error", "kind": "failure", "description": "Fail with the underlying diagnostic when the CBM CLI fails and no CBM session explains it.", "status": "covered"},
           {"id": "failure-cbm-prune-hung-cli", "kind": "failure", "description": "Turn a CBM CLI call that outlives its timeout into a reported CBM error instead of stalling the apply.", "status": "covered"},
@@ -279,11 +279,14 @@
           {"id": "safety-cbm-prune-protected-root", "kind": "safety", "description": "Never delete a root passed with --keep.", "status": "covered"},
           {"id": "safety-cbm-prune-unreadable-root", "kind": "safety", "description": "Keep a root that cannot be checked because of a permission error instead of treating it as missing.", "status": "covered"},
           {"id": "safety-cbm-prune-windows-binary", "kind": "safety", "description": "Reject .exe and /mnt/<drive>/ CBM binaries on WSL2 so only the native Linux cache is pruned.", "status": "covered"},
+          {"id": "safety-cbm-prune-windows-process-probe", "kind": "safety", "description": "Require an exact task-list image match and reap the failed CLI child before probing; failed or timed-out probes cannot excuse a CLI failure.", "status": "covered"},
+          {"id": "safety-cbm-prune-windows-volumes", "kind": "safety", "description": "Keep Windows drive/share roots, incompletely qualified paths, unavailable mapped or UNC parents, and case-insensitive protected roots.", "status": "covered"},
           {"id": "success-cbm-prune-orphan-deletion", "kind": "success", "description": "Delete each orphan whose root is missing under a populated parent exactly once.", "status": "covered"},
-          {"id": "success-cbm-prune-pagination", "kind": "success", "description": "Page through every listed project before deciding what to delete.", "status": "covered"}
+          {"id": "success-cbm-prune-pagination", "kind": "success", "description": "Page through every listed project before deciding what to delete.", "status": "covered"},
+          {"id": "success-cbm-prune-windows-resolution", "kind": "success", "description": "Prefer the Windows-managed binary, fall back to native PATH, and honor an explicit override.", "status": "covered"}
         ]
       },
-      "rationale": "Fixture tests drive a fake CBM binary through every deletion guard, the gate and timeout paths, and pagination without touching the real cache."
+      "rationale": "POSIX fixtures drive a fake CBM binary; native Windows tests use synthetic CLI state, real local paths, injected offline-volume errors, and a real timed-out Python child. They cover deletion guards, process probes, failures, and pagination without touching the real cache."
     },
     {
       "id": "ci-automation",
@@ -627,16 +630,18 @@
       "coverage": {
         "status": "partial",
         "work_item": "dots-4jy.10.5.4",
-        "test_paths": ["tests/test_chezmoi_lifecycle_render.py", "tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py", "tests/test_opencode_v1.py", "tests/test_powershell_lifecycle.py", "tests/test_windows_lifecycle_boundaries.py"],
+        "test_paths": ["tests/test_cbm_prune_orphans_windows.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_codebase_memory_mcp_installer_windows.py", "tests/test_host_ai_plugin_refresh_windows.py", "tests/test_opencode_v1.py", "tests/test_powershell_lifecycle.py", "tests/test_windows_lifecycle_boundaries.py"],
         "behavior_requirements": [
           {"id": "failure-cbm-auto-index-gate", "kind": "failure", "description": "Skip with a warning and zero status when the CBM CLI will not start, or outlives its wait budget, while CBM sessions hold the daemon admission gate, or when the installer deferred and left no binary to reconcile, and throw with the underlying diagnostic when no live session explains the failure.", "status": "covered"},
           {"id": "failure-cbm-installer-agent-deferral", "kind": "failure", "description": "Warn and skip with zero status when a coding-agent process blocks a codebase-memory-mcp download, binary replacement, or stale-process cleanup, when that process state cannot be inspected, or when the installed version cannot be read, leaving the installed binary in place for the next always-run apply to retry.", "status": "covered"},
+          {"id": "failure-cbm-prune-hook", "kind": "failure", "description": "Skip with a warning without a usable Python 3.9+ interpreter, propagate helper errors, and accept successful contention skips.", "status": "covered"},
           {"id": "failure-claude-git-transport-diagnostics", "kind": "failure", "description": "Fail before launch when OpenSSH is unavailable and report fingerprint-verification and known_hosts remediation for SSH host-key failures.", "status": "covered"},
           {"id": "failure-claude-mutation-timeout-retry", "kind": "failure", "description": "Preserve timeout classification through cleanup, stop later Claude mutations after the first timeout, continue OpenCode work, and return nonzero for a later retry.", "status": "covered"},
           {"id": "failure-lifecycle-command-boundaries", "kind": "failure", "description": "Propagate PowerShell template rendering, invalid path, and scheduled-task registration failures without writing fallback or destination state for unrelated errors; reject missing tokens and unusable WSL ports without external mutation.", "status": "covered"},
           {"id": "failure-opencode-hold", "kind": "failure", "description": "Reject unsupported installed versions, PATH conflicts, command failures, and unverified Chocolatey holds in PowerShell fixtures.", "status": "covered"},
           {"id": "failure-plannotator-claude-pin", "kind": "failure", "description": "Reject a mismatched Claude Plannotator marketplace tag or installed version before reporting success; qualify against an isolated Windows fixture.", "status": "planned"},
           {"id": "failure-selected-installer-errors", "kind": "failure", "description": "Propagate selected installer, parser, and refresh failures without reporting success.", "status": "covered"},
+          {"id": "safety-cbm-prune-hook-arguments", "kind": "safety", "description": "Dispatch the shared helper with isolated Python, --apply, and the protected working tree, preserving spaces and apostrophes in source and working-tree paths.", "status": "covered"},
           {"id": "safety-claude-noninteractive-git-transport", "kind": "safety", "description": "Override interactive Git SSH transport only in Claude mutation children with strict OpenSSH host-key checking and no terminal prompts, without changing caller environment.", "status": "covered"},
           {"id": "safety-claude-process-tree-containment", "kind": "safety", "description": "Contain each Claude mutation, reap descendants after normal exit or timeout, fail closed before an uncontained launch, and preserve unrelated processes.", "status": "covered"},
           {"id": "safety-host-and-secret-boundaries", "kind": "safety", "description": "Keep broad lifecycle tests from mutating the real Windows profile, installers, or production secrets.", "status": "covered"},
@@ -646,6 +651,7 @@
           {"id": "safety-plannotator-marketplace-bootstrap", "kind": "safety", "description": "Qualify absent-marketplace registration, mismatched-tag rejection, and timeout containment on Windows without touching a real profile; the timeout branch still needs an isolated fixture.", "status": "planned"},
           {"id": "safety-selected-lifecycle-boundaries", "kind": "safety", "description": "Exercise PATH, profile, file-sync, cleanup, and scheduled-task behavior through temporary paths and mocked persistence or task boundaries without mutating the host.", "status": "covered"},
           {"id": "success-bounded-claude-mutations", "kind": "success", "description": "Complete bounded Claude mutation commands with compatible output, exit status, and child-local environment behavior.", "status": "covered"},
+          {"id": "success-cbm-prune-hook-python", "kind": "success", "description": "Probe python3, python, then py -3 and dispatch only a usable interpreter from the Windows-only, whitelisted pruning hook after CBM configuration.", "status": "covered"},
           {"id": "success-opencode-hold", "kind": "success", "description": "Establish and reassert stable-v1 Chocolatey pins idempotently using a local PowerShell runtime or retained Linux audit image with mocked Windows discovery and elevation.", "status": "covered"},
           {"id": "success-plannotator-marketplace-bootstrap", "kind": "success", "description": "Register an absent pinned Plannotator marketplace and verify CLI readback before refreshing plugins on Windows; a fixture exists in tests/test_host_ai_plugin_refresh_windows.py but skips without a Windows PowerShell runtime and still needs qualification.", "status": "planned"},
           {"id": "success-render-platform-fixtures", "kind": "success", "description": "Render all lifecycle templates with synthetic Windows data and parse non-empty PowerShell outputs without host mutation.", "status": "covered"},

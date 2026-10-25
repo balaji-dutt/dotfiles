@@ -152,6 +152,7 @@ rendered hook targets:
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |
 | `zz-configure-codebase-memory-mcp.ps1` | `run_after_zz-configure-codebase-memory-mcp.ps1.tmpl` | after | Reconcile and verify cache-local CBM auto-index configuration |
+| `zz-prune-codebase-memory-mcp.ps1` | `run_after_zz-prune-codebase-memory-mcp.ps1.tmpl` | after | Prune absent-root CBM indexes through the shared Python helper |
 
 The browser-policy hook imports registry files only when the feature is enabled.
 A non-elevated apply skips the import with a command for running it separately
@@ -203,6 +204,17 @@ exits 0 instead of failing the apply. With no CBM process running, both a CLI
 failure and a timeout are still fatal. It intentionally does not restart the
 daemon; the next OpenCode or Claude Code MCP process starts normally and reads
 the setting.
+
+The always-run `zz-prune-codebase-memory-mcp.ps1` hook follows configuration.
+It probes `python3`, `python`, then `py -3` for Python 3.9+ and runs
+`assets/cbm-prune-orphans.py` with `-I`, `--apply`, and the protected chezmoi
+working tree. The helper prefers `~/.local/codebase-memory-mcp.exe`; a missing
+interpreter or binary skips pruning. It deletes only absent roots under a
+populated parent. Unavailable mapped/UNC parents, drive/share roots, incomplete
+paths, access errors, and case-insensitive `--keep` matches are retained.
+CLI failures and 180-second timeouts warn and skip when another exact-name
+`codebase-memory-mcp.exe` process is found; otherwise they fail the apply.
+Manual helper runs without `--apply` only report candidates.
 
 `windows-bootstrap.ps1` owns `~/.local` in the persistent user `PATH`. Restart
 OpenCode, Claude Code, and any terminal that predates the installation before

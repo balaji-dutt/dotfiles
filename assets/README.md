@@ -253,9 +253,9 @@ Windows has a separate PowerShell implementation inside
 ### Orphaned CBM index pruning
 
 `cbm-prune-orphans.py` deletes codebase-memory-mcp indexes whose repository
-root no longer exists, such as removed agent worktrees. The POSIX
-`zz-prune-codebase-memory-mcp` apply hook runs it with `--apply` on every
-`chezmoi apply` and protects the chezmoi working tree. An index is deleted only
+root no longer exists, such as removed agent worktrees. The POSIX and Windows
+`zz-prune-codebase-memory-mcp` apply hooks run it with `--apply` on every
+`chezmoi apply` and protect the chezmoi working tree. An index is deleted only
 when its root is absent and the root's parent directory exists and is not
 empty, so indexes on an unmounted volume are kept. A root that cannot be
 checked is kept too. Without `--apply` it only reports:
@@ -265,7 +265,12 @@ python3 -I assets/cbm-prune-orphans.py
 python3 -I assets/cbm-prune-orphans.py --apply --keep "$(chezmoi source-path)"
 ```
 
-Native Windows has no caller yet. See `docs/automation/claude-mcp.md`.
+The Windows hook probes `python3`, `python`, then `py -3` for Python 3.9+ and
+prefers `~/.local/codebase-memory-mcp.exe`. Windows drive/share roots and
+incompletely qualified paths are kept; `--keep` is case-insensitive there.
+A missing interpreter or binary skips pruning. A CLI error or 180-second
+timeout warns and skips while another CBM process runs, otherwise it fails.
+See `docs/automation/claude-mcp.md`.
 
 ### Existing Git hook sync
 

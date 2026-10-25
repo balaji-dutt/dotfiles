@@ -50,6 +50,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_zz-configure-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL cache-local CBM auto-index configuration |
 | `run_after_zz-configure-codebase-memory-mcp.ps1.tmpl` | after | Windows cache-local CBM auto-index configuration |
 | `run_after_zz-prune-codebase-memory-mcp.sh.tmpl` | after | POSIX/WSL deletion of CBM indexes whose repository root is gone |
+| `run_after_zz-prune-codebase-memory-mcp.ps1.tmpl` | after | Windows deletion of CBM indexes whose repository root is gone |
 | `run_onchange_after_claude_mcp_servers.sh.tmpl` | onchange | Claude MCP server registration |
 | `run_onchange_after_claude_mcp_servers.ps1.tmpl` | onchange | Windows Claude MCP server registration |
 | `run_onchange_after_host_ai_plugin_refresh.sh.tmpl` | onchange | Claude/OpenCode host plugin refresh |
@@ -84,7 +85,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   still fatal. The Windows hook additionally bounds each call at 150 seconds and
   classifies that timeout the same way; the POSIX hook stays unbounded because
   CBM ends its own startup wait within roughly 130 seconds.
-- The POSIX CBM prune hook runs after the configure hook and calls
+- The POSIX and Windows CBM prune hooks run after their configure hooks and call
   `assets/cbm-prune-orphans.py --apply`, protecting the chezmoi working tree.
   It deletes an index only when the indexed root is absent and its parent
   directory exists and is not empty. An unmounted NFS share or external disk
@@ -92,7 +93,10 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   root that cannot be checked. It applies the same active-session rule as the
   configure hooks: a CLI failure or a CLI call past its 180-second timeout is
   a warning while CBM sessions run, otherwise an error. Missing Python or a
-  missing CBM binary is a skip.
+  missing CBM binary is a skip. The Windows hook probes `python3`, `python`,
+  then `py -3` for Python 3.9+ and uses the managed binary under `~/.local`
+  before PATH. Drive/share roots and incompletely qualified Windows paths
+  are retained, and protected-root matching is case-insensitive on Windows.
 - The CBM UBI retirement hook requires an inactive UBI backend and a healthy
   GitHub-backed CBM before uninstalling each fully qualified UBI version it
   discovers. It never prunes mise or deletes install directories directly.
