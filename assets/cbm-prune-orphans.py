@@ -2,9 +2,8 @@
 """Delete codebase-memory-mcp indexes whose repository root no longer exists.
 
 Repo-only helper. It is never applied to a chezmoi target and is never
-templated. .chezmoiscripts/run_after_zz-prune-codebase-memory-mcp.sh.tmpl
-runs it with --apply on macOS, Linux, and WSL2 applies. Native Windows has no
-caller yet.
+templated. The run_after_zz-prune-codebase-memory-mcp shell and PowerShell
+hooks run it with --apply on macOS, Linux, WSL2, and native Windows applies.
 
 A project is deleted only when its root path is absent and the root's parent
 directory exists and is not empty. An unmounted volume leaves either no
@@ -21,6 +20,7 @@ Without --apply the helper only reports what it would delete.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import platform
@@ -28,7 +28,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 PAGE_SIZE = 500
 SESSION_PROBE = "codebase-memory"
@@ -69,6 +69,12 @@ def is_native_candidate(candidate: str | None, wsl: bool) -> bool:
 
 
 def resolve_cbm() -> str | None:
+    if sys.platform == "win32":
+        managed = str(Path.home() / ".local" / "codebase-memory-mcp.exe")
+        if is_native_candidate(managed, False):
+            return managed
+        found = shutil.which("codebase-memory-mcp.exe")
+        return found if is_native_candidate(found, False) else None
     wsl = is_wsl()
     mise = shutil.which("mise")
     if is_native_candidate(mise, wsl):
@@ -152,6 +158,12 @@ class Verdict:
 
 def classify(project: Project, kept: set[str]) -> Verdict:
     root = project.root
+    if sys.platform == "win32":
+        windows_root = PureWindowsPath(root)
+        if not windows_root.is_absolute():
+            return Verdict(False, "root path is not fully qualified")
+        if windows_root == PureWindowsPath(windows_root.anchor):
+            return Verdict(False, "root is a volume or share root", report=True)
     if not root or not os.path.isabs(root):
         return Verdict(False, "root path is not absolute")
     try:
@@ -177,6 +189,25 @@ def classify(project: Project, kept: set[str]) -> Verdict:
 
 
 def sessions_active() -> bool:
+    if sys.platform == "win32":
+        tasklist = shutil.which("tasklist.exe")
+        if tasklist is None:
+            return False
+        try:
+            probe = subprocess.run(
+                [tasklist, "/FI", "IMAGENAME eq codebase-memory-mcp.exe", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, errors="replace", check=False,
+                timeout=LOOKUP_TIMEOUT_SECONDS,
+            )
+            if probe.returncode != 0:
+                return False
+            return any(
+                len(row) == 5 and row[0].casefold() == "codebase-memory-mcp.exe"
+                and row[1].isdigit()
+                for row in csv.reader(probe.stdout.splitlines(), strict=True)
+            )
+        except (OSError, subprocess.TimeoutExpired, csv.Error):
+            return False
     pgrep = shutil.which("pgrep")
     if pgrep is None:
         return False

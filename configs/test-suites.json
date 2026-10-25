@@ -202,12 +202,26 @@
       "requires": ["bash"]
     },
     {
+      "id": "cbm-prune-hook-powershell",
+      "suites": ["platform", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_cbm_prune_orphans_windows.WindowsCbmPruneHookTests"],
+      "covers": ["tests/test_cbm_prune_orphans_windows.py"],
+      "requires": ["pwsh-fixture", "chezmoi"]
+    },
+    {
       "id": "cbm-prune-orphans",
       "suites": ["fast", "integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_cbm_prune_orphans"],
       "covers": ["tests/test_cbm_prune_orphans.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["bash"]
+    },
+    {
+      "id": "cbm-prune-orphans-windows",
+      "suites": ["fast", "integration", "platform"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_cbm_prune_orphans_windows.WindowsCbmPruneOrphansTests"],
+      "covers": ["tests/test_cbm_prune_orphans_windows.py"],
+      "platforms": ["windows"]
     },
     {
       "id": "claude-review-gate",

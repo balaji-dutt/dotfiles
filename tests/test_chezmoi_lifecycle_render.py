@@ -20,8 +20,8 @@ from tests.support.powershell import parse_powershell, powershell_parser_command
 class LifecycleRenderMatrixTests(unittest.TestCase):
     def test_inventory_includes_every_lifecycle_template(self) -> None:
         lifecycle = tuple((REPO_ROOT / ".chezmoiscripts").glob("*.tmpl"))
-        self.assertEqual(len(lifecycle), 51)
-        self.assertEqual(sum(path.name.endswith(".ps1.tmpl") for path in lifecycle), 19)
+        self.assertEqual(len(lifecycle), 52)
+        self.assertEqual(sum(path.name.endswith(".ps1.tmpl") for path in lifecycle), 20)
         self.assertEqual(sum(path.name.endswith(".sh.tmpl") for path in lifecycle), 32)
 
     def test_all_sources_render_for_each_fixture(self) -> None:
@@ -63,6 +63,15 @@ class LifecycleRenderMatrixTests(unittest.TestCase):
         for platform in ("linux", "macos", "windows"):
             self.assertEqual(matrix[(platform, wsl_gitignore)], b"")
         self.assertIn(b"cp /fixture/source/", matrix[("wsl2", wsl_gitignore)])
+
+        windows_prune = ".chezmoiscripts/run_after_zz-prune-codebase-memory-mcp.ps1.tmpl"
+        for platform in ("linux", "macos", "wsl2"):
+            self.assertEqual(matrix[(platform, windows_prune)], b"")
+        self.assertIn(b"cbm-prune-orphans.py", matrix[("windows", windows_prune)])
+        ignore = render_template(".chezmoiignore", "windows")
+        self.assertIn("!.chezmoiscripts/zz-prune-codebase-memory-mcp.ps1", ignore.splitlines())
+        self.assertLess("run_after_zz-configure-codebase-memory-mcp.ps1.tmpl",
+                        windows_prune.rsplit("/", 1)[1])
 
 
 @unittest.skipUnless(CHEZMOI and shutil.which("bash") and shutil.which("zsh"), "Bash and Zsh are required")

@@ -158,15 +158,19 @@ reads the reconciled cache setting.
 CBM never removes an index when its repository disappears, so every removed
 agent worktree leaves one behind (about 60 MB each for this repo). On macOS,
 Linux, and WSL2, `run_after_zz-prune-codebase-memory-mcp.sh.tmpl` runs
-`assets/cbm-prune-orphans.py --apply` on every apply. It deletes a project
+`assets/cbm-prune-orphans.py --apply` on every apply. Native Windows uses the
+matching `.ps1.tmpl` hook and the same Python 3.9+ helper. It deletes a project
 only when its root is gone and the root's parent directory still exists and is
 not empty, and never deletes the chezmoi working tree. An orphan whose parent
 is empty or missing, such as the last removed worktree in a directory, stays
 until that directory has other entries again; delete it by hand with
 `codebase-memory-mcp cli delete_project --project <name>` if it never does.
 This hook is the one deliberate exception to the `delete_project` deny below:
-it runs as you during an apply, not as an agent tool call. Native Windows does
-not prune yet.
+it runs as you during an apply, not as an agent tool call. Windows drive/share
+roots and incompletely qualified paths are retained, and `--keep` matching is
+case-insensitive there. Missing Python or CBM skips pruning. A CLI error or
+180-second timeout warns and skips when another CBM process is running;
+without one, it fails the apply.
 
 `dot_claude/settings-base.json` allows the nine read-only cbm tools outright and
 denies `mcp__cbm__delete_project`. `index_repository`, `query_graph`,
