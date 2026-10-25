@@ -116,6 +116,8 @@ class BashStartupTests(ShellStartupHarness):
         self.assertEqual(result.stderr, "")
 
     def test_wsl_interactive_environment_and_missing_pageant_tools_are_safe(self) -> None:
+        for key in ("PLANNOTATOR_REMOTE", "SSH_TTY", "SSH_CONNECTION"):
+            self.fixture.env.pop(key, None)
         calls = self.fixture.root / "calls.log"
         write_executable(
             self.fixture.fake_bin / "direnv",
@@ -125,7 +127,7 @@ class BashStartupTests(ShellStartupHarness):
         write_executable(self.fixture.fake_bin / "visudo", "#!/bin/sh\nexit 0\n")
         bashrc = self.write_home(".bashrc", render_template("dot_bashrc.tmpl", "wsl2"))
         result = self.run_bash(
-            f'source "{bashrc}"; printf "%s\\n" "$LANG|$EDITOR|$SSH_AUTH_SOCK|$PLANNOTATOR_REMOTE"',
+            f'source "{bashrc}"; printf "%s\\n" "$LANG|$EDITOR|$SSH_AUTH_SOCK|${{PLANNOTATOR_REMOTE-unset}}"',
             interactive=True,
             env_updates={"TERM": "dumb"},
         )
@@ -135,7 +137,7 @@ class BashStartupTests(ShellStartupHarness):
         self.assertEqual(values[0], "en_GB.UTF-8")
         self.assertNotEqual(values[1], "")
         self.assertEqual(values[2], "/tmp/wsl2-ssh-agent/ssh-agent.sock")
-        self.assertEqual(values[3], "1")
+        self.assertEqual(values[3], "unset")
         self.assertEqual(calls.read_text(encoding="utf-8"), "direnv:hook bash\n")
 
     def test_mise_shims_are_prepended_once(self) -> None:
@@ -334,7 +336,12 @@ class FixtureInteractiveStartupTests(ShellStartupHarness):
             "WSL_DISTRO_NAME": "FixtureDistro",
         }
 
-    def run_startup(self, shell: str, command: str) -> subprocess.CompletedProcess[str]:
+    def run_startup(
+        self, shell: str, command: str, *, env_updates: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        env = self.startup_env()
+        if env_updates:
+            env.update(env_updates)
         if shell == BASH:
             arguments = [shell, "--noprofile", "-ic", command]
         else:
@@ -342,7 +349,7 @@ class FixtureInteractiveStartupTests(ShellStartupHarness):
         return subprocess.run(
             arguments,
             cwd=self.fixture.root,
-            env=self.startup_env(),
+            env=env,
             capture_output=True,
             text=True,
             timeout=8,
@@ -355,6 +362,60 @@ class FixtureInteractiveStartupTests(ShellStartupHarness):
             "#!/bin/sh\n"
             'printf "direnv:%s\\n" "$*" >> "$STARTUP_LOG"\n',
         )
+
+    def check_plannotator_remote_overrides(self, shell: str) -> None:
+        self.install_direnv()
+        self.write_home(".config/dotfiles/versions/plannotator", "0.28.23\n")
+        command = (
+            'printf "remote:%s|%s|%s|%s\\n" "${PLANNOTATOR_REMOTE+x}" '
+            '"${PLANNOTATOR_REMOTE-}" "$PLANNOTATOR_PORT" "$PLANNOTATOR_PORTS_CLAUDE"'
+        )
+        for platform in ("wsl2", "macos"):
+            if shell == BASH:
+                self.write_home(".bashrc", render_template("dot_bashrc.tmpl", platform))
+            else:
+                self.write_home(".zshrc", render_template("dot_zshrc.tmpl", platform))
+                self.write_home(
+                    ".local/share/zsh/30-opencode-env.zsh",
+                    render_template("dot_local/share/zsh/30-opencode-env.zsh.tmpl", platform),
+                )
+            for source in ("inherited", "env-file"):
+                for value in (None, "", "1", "0", "true", "false"):
+                    with self.subTest(platform=platform, source=source, value=value):
+                        env_updates = {}
+                        env_file = ""
+                        if value is not None:
+                            if source == "inherited":
+                                env_updates["PLANNOTATOR_REMOTE"] = value
+                            else:
+                                env_file = f"PLANNOTATOR_REMOTE={shlex.quote(value)}\n"
+                        self.write_home(".config/opencode/opencode.env", env_file)
+                        result = self.run_startup(shell, command, env_updates=env_updates)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        presence = "" if value is None else "x"
+                        self.assertEqual(
+                            result.stdout,
+                            f"remote:{presence}|{value or ''}|8999|9014-9019\n",
+                        )
+            self.write_home(".config/opencode/opencode.env", "")
+            with self.subTest(platform=platform, source="ssh-environment"):
+                result = self.run_startup(
+                    shell, command,
+                    env_updates={
+                        "SSH_TTY": "/dev/pts/fixture",
+                        "SSH_CONNECTION": "192.0.2.1 12345 192.0.2.2 22",
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "remote:||8999|9014-9019\n")
+
+    @unittest.skipUnless(BASH, "bash is required")
+    def test_bash_preserves_plannotator_remote_overrides(self) -> None:
+        self.check_plannotator_remote_overrides(BASH)
+
+    @unittest.skipUnless(ZSH, "zsh is required")
+    def test_zsh_preserves_plannotator_remote_overrides(self) -> None:
+        self.check_plannotator_remote_overrides(ZSH)
 
     @unittest.skipUnless(BASH, "bash is required")
     def test_bash_discovers_rc_and_loads_synthetic_environment(self) -> None:
@@ -375,13 +436,13 @@ class FixtureInteractiveStartupTests(ShellStartupHarness):
         result = self.run_startup(
             BASH,
             'printf "startup:%s|%s|%s|%s\\n" '
-            '"$SYNTHETIC_STARTUP_VALUE" "$PLANNOTATOR_REMOTE" '
+            '"$SYNTHETIC_STARTUP_VALUE" "${PLANNOTATOR_REMOTE-unset}" '
             '"$LANG" "$SSH_AUTH_SOCK"',
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            "startup:bash-fixture|1|en_GB.UTF-8|/tmp/wsl2-ssh-agent/ssh-agent.sock\n",
+            "startup:bash-fixture|unset|en_GB.UTF-8|/tmp/wsl2-ssh-agent/ssh-agent.sock\n",
             result.stdout,
         )
         self.assertEqual(
@@ -417,12 +478,12 @@ class FixtureInteractiveStartupTests(ShellStartupHarness):
 
         result = self.run_startup(
             ZSH,
-            'print -r -- "startup:$SYNTHETIC_STARTUP_VALUE|$PLANNOTATOR_REMOTE|$LANG|$HISTFILE"',
+            'print -r -- "startup:$SYNTHETIC_STARTUP_VALUE|${PLANNOTATOR_REMOTE-unset}|$LANG|$HISTFILE"',
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            f"startup:zsh-fixture|1|en_GB.UTF-8|{self.fixture.home}/.debianwsl2_zsh_history\n",
+            f"startup:zsh-fixture|unset|en_GB.UTF-8|{self.fixture.home}/.debianwsl2_zsh_history\n",
             result.stdout,
         )
         self.assertEqual(
