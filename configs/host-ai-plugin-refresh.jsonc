@@ -18,7 +18,7 @@
       {
         "id": "plannotator@plannotator",
         "scope": "user",
-        "version": "0.28.23" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
+        "version": "0.28.25" // renovate: datasource=github-releases depName=backnotprop/plannotator extractVersion=^v?(?<version>.*)$
       },
       {
         "id": "cc-safety-net@cc-marketplace",
@@ -43,7 +43,7 @@
       },
       {
         "package": "@plannotator/opencode",
-        "version": "0.28.23" // renovate: datasource=npm depName=@plannotator/opencode
+        "version": "0.28.25" // renovate: datasource=npm depName=@plannotator/opencode
       },
       {
         "package": "@gotgenes/opencode-agent-identity",
@@ -55,7 +55,7 @@
       },
       {
         "package": "envsitter-guard",
-        "version": "0.0.4" // renovate: datasource=npm depName=envsitter-guard
+        "version": "0.1.0" // renovate: datasource=npm depName=envsitter-guard
       },
       {
         "package": "opencode-claude-bridge",
@@ -63,7 +63,7 @@
       },
       {
         "package": "@slkiser/opencode-quota",
-        "version": "4.10.9" // renovate: datasource=npm depName=@slkiser/opencode-quota
+        "version": "4.10.10" // renovate: datasource=npm depName=@slkiser/opencode-quota
       }
     ]
   }
