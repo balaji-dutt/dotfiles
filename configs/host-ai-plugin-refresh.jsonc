@@ -55,7 +55,7 @@
       },
       {
         "package": "envsitter-guard",
-        "version": "0.0.4" // renovate: datasource=npm depName=envsitter-guard
+        "version": "0.1.0" // renovate: datasource=npm depName=envsitter-guard
       },
       {
         "package": "opencode-claude-bridge",
