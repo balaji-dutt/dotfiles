@@ -159,6 +159,8 @@ if [ "${1:-}" = version ]; then
   exit 0
 fi
 if [ "${1:-}" = init ]; then
+  cat .beads/config.local.yaml >"$BD_SYNC_TEST_LOG.init-local-config" 2>/dev/null ||
+    printf 'absent\n' >"$BD_SYNC_TEST_LOG.init-local-config"
   [ "${BD_INIT_RC:-0}" = 0 ] || exit "$BD_INIT_RC"
   mkdir -p .beads/dolt/dots
   exit 0
@@ -454,6 +456,52 @@ class BeadsSyncPosixTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unittest.T
             text=True,
             check=False,
         )
+
+    def prepare_pinned_init(self, *, listener_port: str = "") -> str:
+        shutil.rmtree(self.repo / ".beads/dolt", ignore_errors=True)
+        local_config = 'remote: "https://example.invalid/sync"\ndolt.port: 31234\n'
+        (self.repo / ".beads/config.local.yaml").write_text(local_config, encoding="utf-8")
+        write_executable(
+            self.fixture.fake_bin / "ss",
+            "#!/bin/sh\n"
+            "printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port\\n'\n"
+            f"[ -z '{listener_port}' ] || "
+            f"printf 'LISTEN 0 128 127.0.0.1:{listener_port} 0.0.0.0:*\\n'\n",
+        )
+        return local_config
+
+    def test_init_keeps_only_the_port_pin_visible_to_bd_init(self) -> None:
+        local_config = self.prepare_pinned_init()
+        result = self.run_sync(
+            "init", env_updates={"BEADS_DOLT_SERVER_PORT": "", "DOLT_FKS_PRESENT": ""}
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        seen = Path(f"{self.call_log}.init-local-config").read_text(encoding="utf-8")
+        self.assertEqual(seen, "dolt.port: 31234\n")
+        restored = (self.repo / ".beads/config.local.yaml").read_text(encoding="utf-8")
+        self.assertEqual(restored, local_config)
+        self.assertFalse((self.repo / ".beads/config.local.yaml.init-hold").exists())
+
+    def test_failed_init_restores_the_held_config_over_the_stand_in(self) -> None:
+        local_config = self.prepare_pinned_init()
+        result = self.run_sync(
+            "init", env_updates={"BEADS_DOLT_SERVER_PORT": "", "BD_INIT_RC": "19"}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        seen = Path(f"{self.call_log}.init-local-config").read_text(encoding="utf-8")
+        self.assertEqual(seen, "dolt.port: 31234\n")
+        restored = (self.repo / ".beads/config.local.yaml").read_text(encoding="utf-8")
+        self.assertEqual(restored, local_config)
+        self.assertFalse((self.repo / ".beads/config.local.yaml.init-hold").exists())
+
+    def test_init_refuses_a_foreign_listener_on_the_pinned_port(self) -> None:
+        local_config = self.prepare_pinned_init(listener_port="31234")
+        result = self.run_sync("init", env_updates={"BEADS_DOLT_SERVER_PORT": ""})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("port 31234 still has a listener", result.stderr)
+        self.assertNotIn(["init"], [arguments[:1] for _, arguments in self.calls("bd")])
+        restored = (self.repo / ".beads/config.local.yaml").read_text(encoding="utf-8")
+        self.assertEqual(restored, local_config)
 
     def test_conflicting_pull_relinks_after_the_abort(self) -> None:
         result = self.run_sync(

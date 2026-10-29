@@ -13,20 +13,27 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
 
 - **Backend:** Dolt. `bd` auto-starts and manages a project-local `dolt
   sql-server` (`dolt.shared-server: false`, `dolt.mode: server`) on
-  `127.0.0.1`. No `dolt.port` is tracked in git. On non-WSL2 POSIX hosts, `bd`
-  chooses a per-project runtime port. In WSL2 the port has to stay put, because
+  `127.0.0.1`. No `dolt.port` is tracked in git. With no port configured, `bd`
+  binds a free port the OS assigns, so on non-WSL2 POSIX hosts the port can
+  change after every `bd dolt stop`. In WSL2 the port has to stay put, because
   the native-Windows client dials it: `.envrc` derives a stable per-checkout
-  value, exports it as `BEADS_DOLT_SERVER_PORT`, **and** pins it as `dolt.port`
-  in gitignored `.beads/config.local.yaml`. `bd` records the active port in
-  `.beads/dolt-server.port` in both cases.
+  value and pins it as `dolt.port` in gitignored `.beads/config.local.yaml`.
+  `bd` records the active port in `.beads/dolt-server.port` in both cases.
 
-  The pin is what actually fixes the port; exporting the variable alone does
-  not, because `bd` does not reliably bind the per-project port its own
-  `bd dolt start --help` describes. Do not move the pin into `.beads/config.yaml`
-  or `.beads/metadata.json` — both are tracked, and every host needs a different
-  port. `.envrc` writes the pin only when the key is absent, so a fresh clone
-  self-heals on the first `cd`; an existing pin wins and is exported as-is, so
-  the file and the variable cannot drift apart.
+  `.envrc` writes the pin only when the key is absent, so a fresh clone
+  self-heals on the first `cd` and an existing pin is never rewritten. It does
+  not export the value as `BEADS_DOLT_SERVER_PORT`: newer `bd` treats that
+  variable as an externally managed server and stops auto-starting it. Do not
+  move the pin into `.beads/config.yaml` or `.beads/metadata.json` (both are
+  tracked, and every host needs a different port), and do not use
+  `bd dolt set port`, which writes `metadata.json` and also marks the server
+  external.
+
+  `bd dolt show` prints the port sources in priority order: the variable, the
+  port file, `listener.port` in the data dir's `.beads/dolt/config.yaml`, then
+  `dolt.port`, then `metadata.json`. A `listener.port` that disagrees with the
+  pin therefore wins; keep the two equal or delete `listener.port` with the
+  server stopped.
 - **Data dir:** `<repo>/.beads/dolt/` (the `dots` database lives at
   `.beads/dolt/dots/`). The whole `dolt/` tree and the `dolt-server.*` runtime
   files are git-ignored (`.beads/.gitignore`). `.beads/config.yaml` and
@@ -387,13 +394,12 @@ rather than the binary, and `wsl --cd <linux-path>` fails with
 `Wsl/ERROR_PATH_NOT_FOUND`. The working form exports the pageant socket and the
 mise shims explicitly, then runs the command under `direnv exec`.
 
-`direnv exec` is not cosmetic. `beads-sync.sh push` restarts the Dolt server, and
-without `.envrc` loaded the restart binds a fresh port instead of the
-deterministic per-checkout one — leaving the client chasing drift after every
-push. The `bd` preflight recovers from that by re-reading
-`.beads/dolt-server.port`, but the delegation should not cause it in the first
-place. If `direnv` is missing or the `.envrc` is not allowed, the command still
-runs, just without the pinned port.
+`direnv exec` supplies `BEADS_DOLT_CLI_DIR`, which points the `dolt` CLI at this
+checkout's data dir. The port does not depend on it: `beads-sync.sh push`
+restarts the Dolt server, and `bd` reads the `dolt.port` pin from
+`.beads/config.local.yaml` with or without `.envrc` loaded. If the port does
+move (a missing pin, or a `listener.port` that disagrees with it), the `bd`
+preflight recovers by re-reading `.beads/dolt-server.port`.
 
 **When WSL2 is down there is no Windows fallback, by design.** Wait, or work in
 WSL2. Do not stand up a local database and reconcile it later: two environments
@@ -829,12 +835,12 @@ exactly, so nothing re-runs.
 
 The command automates the four traps the manual run hit:
 
-- **Wrong-server attach.** `.envrc` exports a per-checkout
-  `BEADS_DOLT_SERVER_PORT`, WSL2 distros share `127.0.0.1`, and `bd init`
-  adopts whatever answers on that port (2026-08-01: it stamped a live
-  database with a scratch project identity). init stops this checkout's
-  server, aborts if the port (when `BEADS_DOLT_SERVER_PORT` is set) still
-  has a listener, forces
+- **Wrong-server attach.** WSL2 pins a per-checkout `dolt.port`, WSL2
+  distros share `127.0.0.1`, and `bd init` adopts whatever answers on that
+  port (2026-08-01: it stamped a live database with a scratch project
+  identity). init stops this checkout's server, aborts if the pinned port
+  (`BEADS_DOLT_SERVER_PORT` when set, otherwise `dolt.port` from
+  `.beads/config.local.yaml`) still has a listener, forces
   `BEADS_DOLT_CLI_DIR` to this checkout, and verifies the new server is
   serving the database it just created before touching anything.
 - **Remote-derived init.** If `bd init` can see a git `origin` or a
@@ -843,13 +849,15 @@ The command automates the four traps the manual run hit:
   (caught by the script's own assertion in a test clone, 2026-08-01). init
   temporarily renames `origin` and hides `.beads/config.local.yaml` /
   `BD_SYNC_REMOTE` while `bd init` runs, restoring them immediately after
-  (even on failure). The same visibility also feeds the
-  [#5068](https://github.com/gastownhall/beads/issues/5068) push hazard: bd
-  derives Dolt remotes from the git origin — in this repo, the PUBLIC
-  dotfiles repo. After init, the script removes every Dolt remote that does
-  not match `sync.remote` and re-adds the private one as `origin`. It also
-  restores `.beads/config.yaml` if bd leaked `sync.remote` into it, and warns
-  (without auto-resetting) if bd created unsolicited git commits.
+  (even on failure). A stand-in `config.local.yaml` holding only the
+  `dolt.port` pin stays visible, so the new server binds the pinned port
+  rather than one Dolt might record as `listener.port`. The same visibility
+  also feeds the [#5068](https://github.com/gastownhall/beads/issues/5068)
+  push hazard: bd derives Dolt remotes from the git origin — in this repo, the
+  PUBLIC dotfiles repo. After init, the script removes every Dolt remote that
+  does not match `sync.remote` and re-adds the private one as `origin`. It
+  also restores `.beads/config.yaml` if bd leaked `sync.remote` into it, and
+  warns (without auto-resetting) if bd created unsolicited git commits.
 - **Identity mismatch.** The tracked `metadata` table rides in with the
   reset, so the DB then carries the shared project identity while
   `.beads/metadata.json` still holds the throwaway one from init — bd refuses
