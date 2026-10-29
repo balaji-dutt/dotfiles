@@ -79,15 +79,12 @@ class EnvrcPortTests(EnvrcHarness):
             with self.subTest(wsl_distro=wsl_distro):
                 self.assertEqual(self.source_envrc(wsl_distro=wsl_distro), "unset")
 
-    def test_wsl_generates_stable_high_port(self) -> None:
-        first = self.source_envrc(wsl_distro="Debian")
-        second = self.source_envrc(wsl_distro="Debian")
+    def test_wsl_does_not_export_port(self) -> None:
+        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
 
-        self.assertTrue(first.startswith("set:"), first)
-        self.assertEqual(first, second)
-        port = int(first.removeprefix("set:"))
-        self.assertGreaterEqual(port, 20000)
-        self.assertLessEqual(port, 39999)
+        (self.workdir / ".beads").mkdir()
+        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
+        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
 
     def test_explicit_port_is_preserved(self) -> None:
         for wsl_distro in (None, "Debian"):
@@ -100,31 +97,53 @@ class EnvrcPortTests(EnvrcHarness):
 
 @unittest.skipUnless(BASH, "bash is required to evaluate .envrc")
 class EnvrcDoltPortPinTests(EnvrcHarness):
+    def pinned_port(self) -> int:
+        lines = [
+            line
+            for line in self.local_config.read_text(encoding="utf-8").splitlines()
+            if line.startswith("dolt.port:")
+        ]
+        self.assertEqual(len(lines), 1, lines)
+        return int(lines[0].removeprefix("dolt.port:").strip())
+
     def test_pin_is_written_when_beads_dir_exists(self) -> None:
         (self.workdir / ".beads").mkdir()
 
-        result = self.source_envrc(wsl_distro="Debian")
+        self.source_envrc(wsl_distro="Debian")
 
-        port = result.removeprefix("set:")
+        port = self.pinned_port()
         self.assertEqual(
             self.local_config.read_text(encoding="utf-8"),
             f"dolt.port: {port}\n",
         )
+        self.assertGreaterEqual(port, 20000)
+        self.assertLessEqual(port, 39999)
 
-    def test_existing_pin_wins_over_the_computed_port(self) -> None:
-        self.write_local_config('sync:\n  remote: "git+ssh://example"\ndolt.port: 31234\n')
+    def test_pin_is_stable_for_a_checkout(self) -> None:
+        (self.workdir / ".beads").mkdir()
+        self.source_envrc(wsl_distro="Debian")
+        first = self.pinned_port()
 
-        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "set:31234")
+        self.local_config.unlink()
+        self.source_envrc(wsl_distro="Debian")
+
+        self.assertEqual(self.pinned_port(), first)
+
+    def test_existing_pin_is_kept(self) -> None:
+        original = 'sync:\n  remote: "git+ssh://example"\ndolt.port: 31234\n'
+        self.write_local_config(original)
+
+        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
+        self.assertEqual(self.local_config.read_text(encoding="utf-8"), original)
 
     def test_pin_is_not_duplicated_on_repeated_evaluation(self) -> None:
         (self.workdir / ".beads").mkdir()
 
-        first = self.source_envrc(wsl_distro="Debian")
-        second = self.source_envrc(wsl_distro="Debian")
+        self.source_envrc(wsl_distro="Debian")
+        first = self.pinned_port()
+        self.source_envrc(wsl_distro="Debian")
 
-        self.assertEqual(first, second)
-        contents = self.local_config.read_text(encoding="utf-8")
-        self.assertEqual(contents.count("dolt.port:"), 1, contents)
+        self.assertEqual(self.pinned_port(), first)
 
     def test_existing_content_is_preserved(self) -> None:
         original = 'sync:\n  remote: "git+ssh://example"\n'
@@ -137,7 +156,7 @@ class EnvrcDoltPortPinTests(EnvrcHarness):
         self.assertEqual(contents.count("dolt.port:"), 1, contents)
 
     def test_no_pin_without_a_beads_dir(self) -> None:
-        self.assertTrue(self.source_envrc(wsl_distro="Debian").startswith("set:"))
+        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
         self.assertFalse(self.local_config.exists())
 
     def test_non_wsl_never_writes_a_pin(self) -> None:

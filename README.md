@@ -155,12 +155,13 @@ grep -q "Beads fork protection" .git/info/exclude && \
 bd list                                    # should show issues
 ```
 
-On non-WSL2 POSIX hosts, `bd` manages a per-project runtime port. In WSL2,
-`.envrc` instead exports a stable per-checkout `BEADS_DOLT_SERVER_PORT` for the
-native-Windows client. `bd` records the active port in
-`.beads/dolt-server.port` in both cases. If an old clone keeps trying to use
-`3318`, stop its Dolt server, remove stale `.beads/dolt-server.port` /
-`.beads/dolt-server.pid`, then reload direnv or the shell.
+On non-WSL2 POSIX hosts, `bd` binds a free port the OS assigns. In WSL2,
+`.envrc` instead pins a stable per-checkout `dolt.port` in
+`.beads/config.local.yaml` for the native-Windows client. `bd` records the
+active port in `.beads/dolt-server.port` in both cases. If an old clone keeps
+trying to use `3318`, stop its Dolt server, remove stale
+`.beads/dolt-server.port` / `.beads/dolt-server.pid`, then reload direnv or the
+shell.
 
 The steps above do not apply to native Windows. That machine hosts no database
 of its own: `chezmoi apply` points `BEADS_DOLT_SERVER_PORT` at the Dolt server

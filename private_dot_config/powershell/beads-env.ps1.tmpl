@@ -96,10 +96,8 @@ function Test-BeadsServerPort {
 # empty and resolves `bd` to the beads-helpers shell function rather than the
 # binary, and `wsl --cd <linux-path>` fails with Wsl/ERROR_PATH_NOT_FOUND.
 #
-# `direnv exec` supplies what the rc files would have: the deterministic
-# per-checkout BEADS_DOLT_SERVER_PORT and BEADS_DOLT_CLI_DIR from .envrc.
-# Without it `beads-sync.sh push` restarts the Dolt server on a fresh port and
-# this client has to chase the drift.
+# `direnv exec` supplies what the rc files would have: BEADS_DOLT_CLI_DIR from
+# .envrc.
 function Get-BeadsWslBashPayload {
   param([Parameter(Mandatory)][string]$Command)
 

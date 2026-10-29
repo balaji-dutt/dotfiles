@@ -951,8 +951,12 @@ cmd_init() {
 
   local db_prefix="${PREFIX_OVERRIDE:-$DB}"
 
+  local pinned_port guard_port
+  pinned_port="$(sed -n 's/^dolt\.port:[[:space:]]*\([0-9][0-9]*\).*/\1/p' .beads/config.local.yaml 2>/dev/null | head -n 1 || true)"
+  guard_port="${BEADS_DOLT_SERVER_PORT:-$pinned_port}"
+
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    info "[dry-run] would: bd dolt stop; assert BEADS_DOLT_SERVER_PORT (if set) has no other listener"
+    info "[dry-run] would: bd dolt stop; assert the pinned port (BEADS_DOLT_SERVER_PORT or dolt.port, if set) has no other listener"
     info "[dry-run] would: bd init --server --non-interactive --skip-agents --skip-hooks --prefix ${db_prefix}"
     info "[dry-run] would: assert new server serves the database init just created (project id match)"
     info "[dry-run] would: replace any auto-derived dolt remote with the private sync remote"
@@ -961,14 +965,13 @@ cmd_init() {
     return 0
   fi
 
-  # Trap 1: wrong-server attach. direnv exports a per-checkout port, WSL2
-  # distros share 127.0.0.1, and bd init happily adopts whatever answers on
-  # the advertised port (2026-08-01: that stamped a live database with a
-  # scratch project identity). Stop this checkout's server, then refuse to
-  # continue if the port still has a listener - it belongs to someone else.
+  # Trap 1: wrong-server attach. WSL2 pins a per-checkout port, WSL2 distros
+  # share 127.0.0.1, and bd init happily adopts whatever answers on that
+  # port. Stop this checkout's server, then refuse to continue if the port
+  # still has a listener - it belongs to someone else.
   "$BD_EXE" dolt stop >/dev/null 2>&1 || true
-  if [[ -n "${BEADS_DOLT_SERVER_PORT:-}" ]] && port_in_use "$BEADS_DOLT_SERVER_PORT"; then
-    die "port ${BEADS_DOLT_SERVER_PORT} still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server or unset BEADS_DOLT_SERVER_PORT."
+  if [[ -n "$guard_port" ]] && port_in_use "$guard_port"; then
+    die "port ${guard_port} still has a listener after 'bd dolt stop'; another checkout or distro owns it. Stop that server, or change BEADS_DOLT_SERVER_PORT / dolt.port in .beads/config.local.yaml."
   fi
   # Never trust an inherited data-dir override from another checkout's direnv.
   export BEADS_DOLT_CLI_DIR="$ROOT/.beads/dolt"
@@ -983,8 +986,12 @@ cmd_init() {
   # failure mode is a checkout left with its origin renamed.
   trap restore_init_holds EXIT
   trap 'restore_init_holds; exit 130' INT
+  # Without the pin, bd init's OS-assigned port can stick as listener.port.
   if [[ -f .beads/config.local.yaml ]]; then
     mv .beads/config.local.yaml .beads/config.local.yaml.init-hold
+    if [[ -n "$pinned_port" ]]; then
+      printf 'dolt.port: %s\n' "$pinned_port" > .beads/config.local.yaml
+    fi
   fi
   if git remote get-url origin >/dev/null 2>&1; then
     git remote get-url beads-init-hold >/dev/null 2>&1 &&
