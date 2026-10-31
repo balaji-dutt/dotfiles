@@ -299,6 +299,13 @@ unusable engines produce skips with build guidance; execution failures after
 backend selection fail the test. `fast` requires none of these capabilities.
 Fixture routes exclude WSL Windows interop and print their selected backend.
 
+`python3 -B -m unittest tests.test_agent_attestation` also runs staged PowerShell
+commit-wrapper lifecycle fixtures through this backend, independently of Node.
+Both wrappers check environment-over-state precedence, failed-commit state
+consumption, Git exit status and handoff stripping, and retry fallback. These
+cases exercise the built-in JSON parser with jq hidden and the inherited parser
+selection; optional jq-present coverage is reported separately when unavailable.
+
 The shared launcher mounts only one staged fixture at `/fixture`, translates
 declared fixture paths, forwards an explicit environment allowlist, disables
 networking, and runs as the invoking UID/GID (rootless Podman uses keep-id).
@@ -324,16 +331,16 @@ only live-smoke settings passed through. The command timeout defaults to 180
 seconds and accepts values from 30 through 900. No similarly prefixed credential
 or secret variables are allowed.
 
-On POSIX, when the selected `node` resolves to a mise executable, the runner
-queries `mise which node` before replacing the parent environment. Discovery
+On POSIX, when the selected `node` or `jq` resolves to a mise executable, the
+runner queries `mise which <tool>` before replacing the parent environment. Discovery
 uses the repository root as its working directory, closes stdin, and has a
-10-second timeout. The installed executable is exposed through a Node-only
+10-second timeout per tool. Each installed executable is exposed through a tool-only
 symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
 `PATH`; capability lookup uses this normalized path without the guards.
 Children receive no parent mise variables or real mise config/state roots.
-Other Node selections and native Windows runtime selection are unchanged;
+Other selections and native Windows runtime selection are unchanged;
 `npm` and `npx` shims are not normalized. Failed discovery prints a bounded
-warning and retains the inherited shim, so Node execution failures remain
+warning and independently retains the inherited shim, so execution failures remain
 visible rather than becoming capability skips or selecting another runtime.
 
 On POSIX, each step runs in its own process group. A timed-out step receives

@@ -744,10 +744,10 @@
           {"id": "safety-merge-command-recognition", "kind": "safety", "description": "Recognize only literal no-ff helper invocations for the matching harness actor, rejecting unrelated commands, dynamic shells and caller-supplied handoffs.", "status": "covered"},
           {"id": "safety-session-and-source-evidence", "kind": "safety", "description": "Keep session trees and explicit payloads isolated, omit unverified source fields and persist metadata only.", "status": "covered"},
           {"id": "success-live-harness-provenance", "kind": "success", "description": "Live WSL and native Windows plugin/delegate verification is manual, not automated coverage; Claude source-pair emission is explicitly deferred.", "status": "planned"},
-          {"id": "success-native-wrapper-handoff", "kind": "success", "description": "Feed runtime provenance through real POSIX and native PowerShell wrappers with exit and environment preservation.", "status": "covered"}
+          {"id": "success-native-wrapper-handoff", "kind": "success", "description": "Feed runtime provenance through real POSIX and PowerShell wrappers with exit and environment preservation. Fixture-backed PowerShell cases check environment-over-state precedence, failed-commit state consumption and retry fallback with jq hidden and with inherited parser selection; optional jq-present availability is reported separately.", "status": "covered"}
         ]
       },
-      "rationale": "Offline fixtures exercise both producers and real wrapper commits; live harness acceptance is tracked in dots-qt9."
+      "rationale": "Offline fixtures exercise both producers and real wrapper commits. PowerShell lifecycle fixtures prefer native PowerShell or use the retained Linux test image; container success is not native Windows proof. Live harness acceptance is tracked in dots-qt9."
     },
     {
       "id": "mirrored-attestation-shared",
@@ -1006,7 +1006,7 @@
         "test_paths": ["tests/test_case_report.py", "tests/test_runner_windows_interop.py", "tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
         "behavior_requirements": [
           {"id": "failure-incomplete-run-evidence", "kind": "failure", "description": "Leave a v2 report with completed, interrupted, and not-run steps and an interrupted or crashed run state when a run stops early, and write a v1 report only at the end.", "status": "covered"},
-          {"id": "failure-node-shim-resolution", "kind": "failure", "description": "Retain the selected Node shim with a bounded diagnostic when mise discovery fails, times out, or returns an invalid executable, without installing, granting trust, selecting another runtime, or hiding Node execution failures as skips.", "status": "covered"},
+          {"id": "failure-node-shim-resolution", "kind": "failure", "description": "Independently retain the selected Node or jq shim with a bounded diagnostic when mise discovery fails, times out, or returns an invalid executable, without installing, granting trust, selecting another runtime, or hiding execution failures as skips.", "status": "covered"},
           {"id": "failure-report-write-exit", "kind": "failure", "description": "Exit 2 when the final v1 or v2 report cannot be written.", "status": "covered"},
           {"id": "failure-step-outcomes", "kind": "failure", "description": "Fail a step with an explicit outcome on timeout, launch error, signal crash, Windows NTSTATUS exit, or missing required capability, and run later steps after a timeout, launch error, or missing capability.", "status": "covered"},
           {"id": "safety-bounded-step-output", "kind": "safety", "description": "Keep only the last 1 MiB of each step's stdout and stderr and report the omitted byte count.", "status": "covered"},
@@ -1014,7 +1014,7 @@
           {"id": "safety-owned-tree-termination", "kind": "safety", "description": "Stop the step's own POSIX process group, including TERM-resistant and pipe-holding descendants, on timeout and SIGINT, SIGTERM, or SIGHUP while an unrelated process survives, and kill only the step's Windows PID tree on timeout under WSL2 interop.", "status": "covered"},
           {"id": "safety-synthetic-sandbox", "kind": "safety", "description": "Give every step synthetic home, XDG, and temp directories, an empty global and system Git config, and no parent secrets; block real bd and dolt with guard shims, and sandbox directly imported tests the same way.", "status": "covered"},
           {"id": "success-case-report-adapter", "kind": "success", "description": "Match python -m unittest exit codes in the case-report adapter, record per-case outcomes and subtests in report v2, and leave report v1 unchanged.", "status": "covered"},
-          {"id": "success-posix-node-shim-isolation", "kind": "success", "description": "Resolve the selected POSIX mise Node shim before replacing HOME and all four XDG roots, expose only the installed Node executable behind the command guards, and preserve runtime selection through capability probes, direct imports, and nested fixtures without passing host mise state to children.", "status": "covered"},
+          {"id": "success-posix-node-shim-isolation", "kind": "success", "description": "Resolve selected POSIX mise Node and jq shims before replacing HOME and all four XDG roots, expose only the installed tool executables behind the command guards, and preserve runtime selection through capability probes, direct imports, and nested fixtures without passing host mise state to children. Native Windows selection is unchanged.", "status": "covered"},
           {"id": "success-suite-and-capability-selection", "kind": "success", "description": "Select suites deterministically, skip missing capabilities locally, fail them under --require-capabilities or --require-capability, reject unknown required capabilities with exit 2, keep platform mismatches as skips, and never let a guard shim satisfy bd.", "status": "covered"},
           {"id": "success-test-selection-completeness", "kind": "success", "description": "Account for every concrete unittest class once per platform or as a reviewed exception, and reject class definitions the selection check cannot resolve.", "status": "covered"},
           {"id": "success-wrapper-delegation", "kind": "success", "description": "Pass arguments and exit status from run-tests.sh and run-tests.ps1 through to run-tests.py.", "status": "covered"}
@@ -1113,10 +1113,10 @@
       "coverage": {
         "status": "partial",
         "work_item": "dots-4jy.10.5.5",
-        "test_paths": ["tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_ffpwa_refresh.py", "tests/test_guarded_main_sync.py", "tests/test_windows_shell.py"],
+        "test_paths": ["tests/test_agent_attestation.py", "tests/test_ai_wt.py", "tests/test_chezmoi_lifecycle_render.py", "tests/test_ffpwa_refresh.py", "tests/test_guarded_main_sync.py", "tests/test_windows_shell.py"],
         "behavior_requirements": []
       },
-      "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Native Pester covers profile and fragment loading, drive mapping retries, and Pageant input, process, quoting, and rerun boundaries with disposable files and mocked host integrations. Registered native-Windows cases also cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state. Live SMB mappings, Pageant IPC, scheduled profile startup, and other host integrations remain explicit platform-smoke gaps."
+      "rationale": "Synthetic Windows fixtures render and AST-parse PowerShell sources. Native Pester covers profile and fragment loading, drive mapping retries, and Pageant input, process, quoting, and rerun boundaries with disposable files and mocked host integrations. Registered native-Windows cases also cover guarded gpls dispatch and commit-wrapper identity, arguments, attestation, fallback, and one-shot state. Agent-attestation lifecycle fixtures additionally execute PowerShell wrappers with native PowerShell or the retained Linux image, checking precedence, failed-commit state consumption, retry fallback, and handoff stripping; Linux container results do not verify native Windows. Live SMB mappings, Pageant IPC, scheduled profile startup, and other host integrations remain explicit platform-smoke gaps."
     },
     {
       "id": "wsl-provisioning",
