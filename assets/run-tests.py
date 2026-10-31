@@ -287,48 +287,51 @@ def _write_guard_shims(directory: Path) -> None:
         )
 
 
-def _node_lookup_path(lookup_path: str, sandbox: Path, repo_root: Path) -> str:
+def _runtime_lookup_path(tool: str, lookup_path: str, sandbox: Path, repo_root: Path) -> str:
     if IS_WINDOWS:
         return lookup_path
-    selected = shutil.which("node", path=lookup_path)
+    selected = shutil.which(tool, path=lookup_path)
     if selected is None:
         return lookup_path
     try:
-        node = Path(selected)
-        resolved = node.resolve()
+        executable = Path(selected)
+        resolved = executable.resolve()
         mise = shutil.which("mise", path=lookup_path)
-        if not ((node.is_symlink() and resolved.name == "mise")
+        if not ((executable.is_symlink() and resolved.name == "mise")
                 or (mise and resolved == Path(mise).resolve())):
             return lookup_path
         result = subprocess.run(
-            [str(resolved), "which", "node"], check=False, text=True,
+            [str(resolved), "which", tool], check=False, text=True,
             cwd=repo_root, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
         )
         output = result.stdout.strip()
         if result.returncode != 0:
-            raise ValueError(f"mise which node exited {result.returncode}")
+            raise ValueError(f"mise which {tool} exited {result.returncode}")
         if not output or len(output.splitlines()) != 1 or "\0" in output:
-            raise ValueError("mise which node returned an invalid path")
+            raise ValueError(f"mise which {tool} returned an invalid path")
         runtime = Path(output)
         if not runtime.is_absolute():
-            raise ValueError("mise which node returned a relative path")
+            raise ValueError(f"mise which {tool} returned a relative path")
         runtime = runtime.resolve(strict=True)
         if (runtime == resolved or runtime.name == "mise"
                 or not runtime.is_file() or not os.access(runtime, os.X_OK)):
-            raise ValueError("mise which node did not identify an installed executable")
-        runtime_bin = sandbox / "node-bin"
+            raise ValueError(f"mise which {tool} did not identify an installed executable")
+        runtime_bin = sandbox / f"{tool}-bin"
         runtime_bin.mkdir()
-        (runtime_bin / "node").symlink_to(runtime)
+        (runtime_bin / tool).symlink_to(runtime)
         return f"{runtime_bin}{os.pathsep}{lookup_path}"
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
-        print(f"WARN: Node shim resolution failed ({type(error).__name__}); "
-              "retaining the inherited Node selection", file=sys.stderr)
+        label = "Node" if tool == "node" else tool
+        print(f"WARN: {label} shim resolution failed ({type(error).__name__}); "
+              f"retaining the inherited {label} selection", file=sys.stderr)
         return lookup_path
 
 
 def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
-    lookup_path = _node_lookup_path(os.environ.get("PATH", os.defpath), sandbox, repo_root)
+    lookup_path = os.environ.get("PATH", os.defpath)
+    for tool in ("node", "jq"):
+        lookup_path = _runtime_lookup_path(tool, lookup_path, sandbox, repo_root)
     env = {name: value for name, value in os.environ.items() if name.upper() in PASSTHROUGH_ENV}
     home = sandbox / "home"
     tmp = sandbox / "tmp"
