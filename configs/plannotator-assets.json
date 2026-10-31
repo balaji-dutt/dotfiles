@@ -19,7 +19,7 @@
     {
       "path": "dot_claude/skills/plannotator-review/SKILL.md",
       "source_path": "apps/skills/claude/plannotator-review/SKILL.md",
-      "sha256": "7d99acb415d6e1f188e7a52f350b3149765479decd7cb2df2682723ff60b43c4"
+      "sha256": "cd4631c42e8cf75ea80b829501bd78a2cf0a7e333e3d97500e6ac2cea8cbc8a5"
     },
     {
       "path": "private_dot_config/opencode/commands/plannotator-annotate.md",
