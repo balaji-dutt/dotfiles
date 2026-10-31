@@ -278,7 +278,7 @@
       "source": {
         "source": "github",
         "repo": "backnotprop/plannotator",
-        "ref": "v0.28.29"
+        "ref": "v0.28.30"
       },
       "autoUpdate": false
     }
