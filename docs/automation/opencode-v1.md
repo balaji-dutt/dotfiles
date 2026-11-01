@@ -39,6 +39,14 @@ message, not proof of protection. Non-v1, ambiguous versions, PATH conflicts,
 query failures, and failed pin verification stop the hook. Resolve those
 conditions before retrying. Native Windows needs Chocolatey 2.x list semantics.
 
+The Windows hook accepts one complete `opencode|1.x.y` installed-package record
+alongside non-record diagnostics, which it displays as warnings. Blank lines
+are ignored; diagnostic-only output, malformed records, duplicates, and other
+package records fail. Lines containing `|` or starting with a standalone
+`opencode` token are treated as record candidates, not diagnostics. Initial and
+final queries compare the package record, so differing diagnostics do not imply
+a version change. Native command failures still stop the hook.
+
 Chocolatey writes pins under `C:\ProgramData\chocolatey\lib\<package>`, where
 `BUILTIN\Users` holds only read and execute rights, so the pin write needs an
 elevated session. A non-elevated apply therefore skips the write, reports
@@ -68,11 +76,20 @@ choco.exe list --exact opencode --limit-output
 choco.exe pin list --limit-output
 ```
 
+An access-denied warning about `C:\ProgramData\chocolatey\choco.exe.old` concerns
+Chocolatey's own upgrade backup, not OpenCode. Manual deletion is not required.
+Optionally run the same `choco.exe list --exact opencode --limit-output` once in
+elevated profile-free PowerShell so Chocolatey can attempt its startup cleanup,
+then check again non-elevated. This requests no package or pin changes, but
+Chocolatey may remove its backup and write logs. Do not force-delete the file,
+change ACLs, or elevate the entire apply. Persistent cleanup failures need
+separate investigation.
+
 For an installed, verified stable v1, establish the host hold manually with
 `command brew pin opencode` or `choco.exe pin add --name=opencode --yes`, then
-repeat the read-only checks. Run only that pin command in elevated profile-free
-PowerShell, then verify again. Do not run an entire chezmoi apply elevated just
-to establish a hold.
+repeat the read-only checks. For pinning, run only that command in elevated
+profile-free PowerShell, then verify again. Do not run an entire chezmoi apply
+elevated just to establish a hold.
 
 On a fresh Mac, inspect `brew info anomalyco/tap/opencode` before installing;
 the ordinary formula installs its current published version, not an arbitrary
@@ -165,18 +182,21 @@ a pin alone is temporary: the next apply recreates it.
 
 `tests/test_opencode_v1.py` covers extraction, rule precedence, manifest parity,
 platform rendering, and pin-only behavior using fake managers and executables.
-PowerShell fixtures run locally or in the retained Linux audit image; they mock
-Windows command discovery and elevation. Native Chocolatey shim resolution,
-permissions, prompting behavior, and end-to-end host rollout still need a
-Windows smoke check under `dots-6f8z`. No test installs/upgrades OpenCode or
-mutates real package-manager pins.
+`WindowsInstalledOutputTests` runs on native Windows or a supported PowerShell
+fixture backend and tests rendered, dot-sourced parsing with synthetic output.
+Full hold fixtures mock Windows command discovery and elevation, and use POSIX
+executables with local PowerShell or the retained Linux audit image. Native
+Chocolatey shim resolution, permissions, prompting behavior, and end-to-end
+host rollout still need a Windows smoke check under `dots-6f8z`.
+No test installs/upgrades OpenCode or mutates real package-manager pins.
 
 The fixtures cannot reach real Chocolatey, so they prove which arguments the
 hook passes and which branch it takes, not that Chocolatey accepts them. The
 fake Chocolatey matches argument strings exactly and exits 99 otherwise, which
-is what pins `--yes` in place. `WindowsHoldTests` needs a POSIX PowerShell: it
-ignores a Windows `pwsh.exe`, which can neither read `/tmp` nor execute the
-`/bin/sh` fakes, and uses a local `pwsh` or the retained Linux audit
-image, skipping when neither is available. The harness writes a sentinel before
+is what pins `--yes` in place. `WindowsHoldTests` is POSIX-only because its
+`/bin/sh` fakes cannot execute under native Windows. It uses a local `pwsh` or
+the retained Linux audit image, skipping when neither is available. These cases
+cover noisy initial/final queries, changed or invalid readback, and nonzero
+queries with valid records. The harness writes a sentinel before
 calling the hook, so a run where PowerShell never executed the harness fails
 rather than passing.

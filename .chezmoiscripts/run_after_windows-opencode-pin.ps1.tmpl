@@ -25,21 +25,38 @@ function Invoke-OpenCodePinNative {
   return ($output -join "`n").Trim()
 }
 
+function ConvertFrom-OpenCodeInstalledOutput {
+  [CmdletBinding()]
+  param([AllowEmptyString()][string] $Output)
+  if ([string]::IsNullOrWhiteSpace($Output)) { return '' }
+  $records = @(
+    foreach ($line in ($Output -split '\r?\n')) {
+      if ([string]::IsNullOrWhiteSpace($line)) { continue }
+      if ($line -match '\|' -or $line -match '^opencode(?:\W|$)') {
+        $line
+      } else {
+        Write-Warning "Chocolatey list diagnostic: $line"
+      }
+    }
+  )
+  if ($records.Count -ne 1 -or $records[0] -cnotmatch '\Aopencode\|1\.[0-9]+\.[0-9]+\z') {
+    throw "Expected one stable v1 Chocolatey OpenCode version; found: $Output"
+  }
+  return $records[0]
+}
+
 function Set-OpenCodeV1Hold {
   $choco = Get-Command choco.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $choco) {
     Write-Host 'INFO: Chocolatey absent; OpenCode hold not established. See docs/automation/opencode-v1.md.'
     return
   }
-  $installed = Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output')
+  $installed = ConvertFrom-OpenCodeInstalledOutput (Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output'))
   if ([string]::IsNullOrWhiteSpace($installed)) {
     Write-Host 'INFO: Chocolatey OpenCode absent; hold not established. See docs/automation/opencode-v1.md.'
     return
   }
-  if ($installed -cnotmatch '\Aopencode\|(1\.[0-9]+\.[0-9]+)\z') {
-    throw "Expected one stable v1 Chocolatey OpenCode version; found: $installed"
-  }
-  $version = $Matches[1]
+  $version = $installed.Split('|')[1]
   $expected = Join-Path (Split-Path $choco.Source -Parent) 'opencode.exe'
   $executables = @(Get-Command opencode -All -CommandType Application -ErrorAction SilentlyContinue)
   if ($executables.Count -eq 0) { throw 'OpenCode is missing from PATH' }
@@ -81,7 +98,7 @@ function Set-OpenCodeV1Hold {
   if ($matchesForPackage.Count -ne 1 -or $matchesForPackage[0] -cne "opencode|$version") {
     throw 'Chocolatey OpenCode hold was not established'
   }
-  $current = Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output')
+  $current = ConvertFrom-OpenCodeInstalledOutput (Invoke-OpenCodePinNative $choco.Source @('list', '--exact', 'opencode', '--limit-output'))
   if ($current -cne $installed) { throw 'OpenCode changed during pinning; inspect the installation and hold manually' }
   Write-Host "INFO: Chocolatey OpenCode $version is held; upgrades remain manual."
 }

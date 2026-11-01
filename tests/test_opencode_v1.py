@@ -285,7 +285,14 @@ CHOCO = '''#!/bin/sh
 printf '%s\n' "$*" >> "$FIXTURE/calls"
 [ "$*" != "$FAIL_QUERY" ] || exit 7
 case "$*" in
-  'list --exact opencode --limit-output') printf '%s\n' "$INSTALLED" ;;
+  'list --exact opencode --limit-output')
+    if [ -f "$FIXTURE/list-ran" ]; then
+      printf '%s\n' "$LIST_DIAGNOSTICS_AFTER" "${INSTALLED_AFTER-$INSTALLED}"
+    else
+      printf '%s\n' "$LIST_DIAGNOSTICS" "$INSTALLED"
+      : > "$FIXTURE/list-ran"
+    fi
+    exit "$LIST_RC" ;;
   'pin list --limit-output') /bin/cat "$FIXTURE/pins" ;;
   'pin add --name=opencode --yes')
     [ "$PIN_RC" = 0 ] || [ "$PIN_RC" = 2 ] || exit "$PIN_RC"
@@ -299,6 +306,91 @@ CLI = '''#!/bin/sh
 printf '%s\n' "$ACTUAL"
 exit "$CLI_RC"
 '''
+
+
+CLEANUP_DIAGNOSTICS = r'''This is try 1/3. Retrying after 300 milliseconds.
+Error converted to warning:
+Access to the path 'C:\ProgramData\chocolatey\choco.exe.old' is denied.
+This is try 2/3. Retrying after 400 milliseconds.
+Error converted to warning:
+Access to the path 'C:\ProgramData\chocolatey\choco.exe.old' is denied.
+Maximum tries of 3 reached. Throwing error.'''
+
+
+@unittest.skipUnless(shutil.which('chezmoi'), 'chezmoi is unavailable')
+class WindowsInstalledOutputTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='opencode-list-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'hook.ps1').write_text(render(WINDOWS, 'windows'))
+        (self.root / 'harness.ps1').write_text(r'''
+. "$PSScriptRoot/hook.ps1"
+$cases = Get-Content -Raw -LiteralPath "$PSScriptRoot/cases.json" | ConvertFrom-Json
+$results = @(
+  foreach ($text in $cases) {
+    $warnings = @()
+    try {
+      $value = @(ConvertFrom-OpenCodeInstalledOutput $text -WarningVariable warnings)
+      @{ accepted = $true; value = $value; warnings = @($warnings | ForEach-Object { $_.ToString() }) }
+    } catch {
+      @{ accepted = $false; error = $_.ToString(); warnings = @($warnings | ForEach-Object { $_.ToString() }) }
+    }
+  }
+)
+ConvertTo-Json -InputObject $results -Depth 5 | Set-Content -LiteralPath "$PSScriptRoot/results.json"
+''')
+
+    def parse_cases(self, cases):
+        (self.root / 'cases.json').write_text(json.dumps(cases))
+        result = self.backend.run(self.root, script=self.root / 'harness.ps1', timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads((self.root / 'results.json').read_text(encoding='utf-8-sig')), result
+
+    def test_clean_and_noisy_records_return_only_canonical_data(self):
+        record = 'opencode|1.19.5'
+        cases = [record, f'{CLEANUP_DIAGNOSTICS}\n{record}',
+                 f'{record}\n{CLEANUP_DIAGNOSTICS}',
+                 f'\n \n{CLEANUP_DIAGNOSTICS}\n\n{record}\n \n']
+        cases += [text.replace('\n', '\r\n') for text in cases]
+        results, process = self.parse_cases(cases)
+        for text, parsed in zip(cases, results, strict=True):
+            with self.subTest(text=text):
+                self.assertTrue(parsed['accepted'], parsed)
+                self.assertEqual(parsed['value'], [record])
+                self.assertEqual(bool(parsed['warnings']), CLEANUP_DIAGNOSTICS in text.replace('\r\n', '\n'))
+        self.assertIn('Chocolatey list diagnostic:', process.stdout)
+        self.assertIn('choco.exe.old', process.stdout)
+
+    def test_empty_output_means_absent(self):
+        results, _ = self.parse_cases(['', '\n \r\n\t'])
+        for parsed in results:
+            self.assertTrue(parsed['accepted'], parsed)
+            self.assertEqual(parsed['value'], [''])
+            self.assertEqual(parsed['warnings'], [])
+
+    def test_diagnostic_only_output_is_not_absence(self):
+        results, _ = self.parse_cases([CLEANUP_DIAGNOSTICS, 'unparseable output'])
+        for parsed in results:
+            self.assertFalse(parsed['accepted'], parsed)
+            self.assertIn('Expected one stable v1', parsed['error'])
+            self.assertTrue(parsed['warnings'])
+
+    def test_reject_unsupported_malformed_and_ambiguous_records(self):
+        invalid = ['opencode|2.0.12', 'opencode|1.2.3-beta.1', 'opencode|unknown',
+                   'opencode|', 'opencode', 'opencode 1.2.3', 'opencode|1.2.3|extra',
+                   'OpenCode|1.2.3', 'other|1.2.3', ' opencode|1.2.3',
+                   'opencode|1.2.3\nopencode|1.2.3', 'opencode|1.2.3\nopencode|1.2.4']
+        cases = invalid + [f'opencode|1.19.5\n{text}' for text in invalid]
+        results, _ = self.parse_cases(cases)
+        for text, parsed in zip(cases, results, strict=True):
+            with self.subTest(text=text):
+                self.assertFalse(parsed['accepted'], parsed)
+                self.assertIn('Expected one stable v1', parsed['error'])
 
 
 class FixtureTests(unittest.TestCase):
@@ -403,6 +495,7 @@ class WindowsHoldTests(FixtureTests):
 
     def setUp(self):
         super().setUp()
+        self.env.update(LIST_DIAGNOSTICS='', LIST_DIAGNOSTICS_AFTER='', LIST_RC='0')
         self.executable('bin/choco.exe', CHOCO)
         self.executable('bin/opencode.exe', CLI)
         (self.root / 'hook.ps1').write_text(render(WINDOWS, 'windows'))
@@ -419,15 +512,17 @@ function Get-Command {
   } else { throw "Unexpected command lookup: $Name" }
 }
 Set-Content -LiteralPath "$env:FIXTURE/harness-ran" -Value ''
-Set-OpenCodeV1Hold
+try { Set-OpenCodeV1Hold } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
 ''')
 
     def run_hook(self):
+        (self.root / 'list-ran').unlink(missing_ok=True)
         sentinel = self.root / 'harness-ran'
         sentinel.unlink(missing_ok=True)
         result = self.backend.run(
             self.root, script=self.root / 'harness.ps1', environ=self.env,
-            env_keys=('FIXTURE', 'INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED'),
+            env_keys=('FIXTURE', 'INSTALLED', 'ACTUAL', 'FAIL_QUERY', 'PIN_RC', 'NO_PIN', 'CLI_RC', 'SHADOW', 'ELEVATED',
+                      'LIST_DIAGNOSTICS', 'LIST_DIAGNOSTICS_AFTER', 'INSTALLED_AFTER', 'LIST_RC'),
             path_keys=('FIXTURE',), timeout=60,
         )
         self.assertTrue(sentinel.exists(),
@@ -463,8 +558,36 @@ Set-OpenCodeV1Hold
         self.assert_result(False)
         self.assertNotIn('pin add --name=opencode --yes', self.calls())
 
+    def test_cleanup_diagnostics_can_differ_between_queries(self):
+        self.env.update(LIST_DIAGNOSTICS=CLEANUP_DIAGNOSTICS,
+                        LIST_DIAGNOSTICS_AFTER='A different Chocolatey diagnostic')
+        result = self.assert_result()
+        self.assertIn('is held', result.stdout)
+        self.assertIn('choco.exe.old', result.stdout)
+        self.assertIn('A different Chocolatey diagnostic', result.stdout)
+        self.assertEqual(self.calls().count('list --exact opencode --limit-output'), 2)
+        self.assertEqual(self.calls().count('pin add --name=opencode --yes'), 1)
+
+    def test_changed_installed_record_during_pinning_fails(self):
+        self.env.update(LIST_DIAGNOSTICS=CLEANUP_DIAGNOSTICS, INSTALLED_AFTER='opencode|1.19.5')
+        self.assertIn('changed during pinning', self.assert_result(False).stderr)
+
+    def test_nonzero_list_with_valid_record_fails_before_pinning(self):
+        self.env.update(LIST_DIAGNOSTICS=CLEANUP_DIAGNOSTICS, LIST_RC='7')
+        self.assertIn('failed (exit 7)', self.assert_result(False).stderr)
+        self.assertEqual(self.calls(), ['list --exact opencode --limit-output'])
+
+    def test_invalid_final_list_cannot_claim_a_hold(self):
+        for text in ('opencode|1.18.31\nopencode|1.18.31', 'opencode|2.0.0',
+                     CLEANUP_DIAGNOSTICS, ''):
+            with self.subTest(text=text):
+                self.env['INSTALLED_AFTER'] = text
+                result = self.assert_result(False)
+                self.assertNotIn('is held', result.stdout)
+
     def test_unelevated_missing_pin_hands_off_instead_of_writing(self):
         self.env['ELEVATED'] = ''
+        self.env['LIST_DIAGNOSTICS'] = CLEANUP_DIAGNOSTICS
         result = self.assert_result()
         self.assertFalse(any(call.startswith('pin add') for call in self.calls()), self.calls())
         self.assertEqual((self.root / 'pins').read_text(), 'unrelated|4.0.0\n')
@@ -479,6 +602,7 @@ Set-OpenCodeV1Hold
 
     def test_unelevated_established_pin_needs_no_handoff(self):
         self.env['ELEVATED'] = ''
+        self.env['LIST_DIAGNOSTICS'] = CLEANUP_DIAGNOSTICS
         (self.root / 'pins').write_text('unrelated|4.0.0\nopencode|1.18.31\n')
         result = self.assert_result()
         self.assertFalse(any(call.startswith('pin add') for call in self.calls()), self.calls())
@@ -487,6 +611,7 @@ Set-OpenCodeV1Hold
 
     def test_unelevated_conflicting_pin_still_fails(self):
         self.env['ELEVATED'] = ''
+        self.env['LIST_DIAGNOSTICS'] = CLEANUP_DIAGNOSTICS
         (self.root / 'pins').write_text('unrelated|4.0.0\nopencode|1.18.30\n')
         result = self.assert_result(False)
         self.assertNotIn('-EncodedCommand', result.stdout)
