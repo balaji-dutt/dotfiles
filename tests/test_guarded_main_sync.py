@@ -9,8 +9,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from tests.support.fixtures import run_git, write_executable
+from tests.support.fixtures import load_script_module, run_git, write_executable
 from tests.support.git_worktree import GitFixture, HELPER_LAUNCH_PREFIX
 from tests.support.powershell import resolve_powershell_runtime
 
@@ -97,12 +98,96 @@ class GuardedMainSyncFixture(GitFixture):
         self.helper.chmod(0o755)
 
 
+class PollDeadlineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.helper = load_script_module(SOURCE_HELPER, "guarded_poll_test", add_parent_to_path=True)
+        cls.runtime = sys.modules["gitlab_pipeline_runtime"]
+
+    def test_retry_boundaries_and_publication_share_one_budget(self) -> None:
+        for delay, publication, initial_time, timeout, expected_checks, success in (
+            (2, 0, 0, 3, 2, True), (3, 0, 0, 3, 1, False),
+            (1650, 0, 0, 3, 1, False), (0, 3, 0, 3, 1, False),
+            (0, 0, 1.5, 2, 1, False), (0, 0, 0, 60, 60, False),
+        ):
+            with self.subTest(delay=delay, publication=publication, initial_time=initial_time, timeout=timeout):
+                clock = [0.0]
+                calls = []
+                phases = []
+                sleeps = []
+                policy = self.runtime.PipelineRuntime(Path("policy"), Path("checker"), "origin", "refs/heads/main", "linux-fast")
+
+                def check(*args, **kwargs):
+                    self.assertLess(clock[0], timeout)
+                    self.assertAlmostEqual(kwargs["time_budget"], timeout - clock[0])
+                    calls.append(clock[0])
+                    if len(calls) == 1:
+                        clock[0] += initial_time
+                    return {"outcome": "success" if success and len(calls) == 2 else "retryable",
+                            "detail": "HTTP 429", "retry_after_seconds": delay, "http_status": 429}
+
+                def publish(*args):
+                    clock[0] += publication
+                    return "refs/heads/ci/main/sha", True
+
+                def sleep(seconds):
+                    sleeps.append(seconds)
+                    clock[0] += seconds
+
+                with mock.patch.object(self.helper.time, "monotonic", side_effect=lambda: clock[0]), mock.patch.object(self.helper.time, "sleep", side_effect=sleep), mock.patch.object(self.helper, "check_pipeline", side_effect=check), mock.patch.object(self.helper, "publish_main_ci_ref", side_effect=publish), mock.patch.object(self.helper, "set_phase", side_effect=lambda _p, _s, phase, **kw: phases.append(phase)):
+                    if success:
+                        self.helper.poll_pipeline(REPO_ROOT, policy, Path("state"), {"rewritten_sha": "sha", "branch": "main"}, poll_interval=1, poll_timeout=timeout)
+                    else:
+                        with self.assertRaisesRegex(Exception, "budget exhausted"):
+                            self.helper.poll_pipeline(REPO_ROOT, policy, Path("state"), {"rewritten_sha": "sha", "branch": "main"}, poll_interval=1, poll_timeout=timeout)
+                self.assertEqual(len(calls), expected_checks)
+                self.assertEqual(phases[-1], "ci-verified" if success else "ci-timeout")
+                if delay == 2:
+                    self.assertEqual(sleeps, [2])
+
+    def test_optional_metadata_validation(self) -> None:
+        self.runtime.validate_retry_metadata({})
+        self.runtime.validate_retry_metadata({"transport": "glab", "http_status": 429, "retry_after_seconds": 0, "retry_at": "2026-11-01T10:00:00Z"})
+        for metadata in ({"retry_after_seconds": True}, {"retry_after_seconds": -1},
+                         {"retry_after_seconds": float("nan")}, {"retry_after_seconds": float("inf")},
+                         {"http_status": True}, {"http_status": 429.0}, {"transport": "unknown"},
+                         {"retry_at": "tomorrow"}, {"retry_at": "2026-99-01T00:00:00Z"}):
+            with self.subTest(metadata=metadata), self.assertRaises(self.runtime.PipelineRuntimeError):
+                self.runtime.validate_retry_metadata(metadata)
+
+
 class GuardedMainSyncCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = GuardedMainSyncFixture()
 
     def tearDown(self) -> None:
         self.fixture.cleanup()
+
+    def test_throttle_budget_retains_exact_stash_state_and_owned_ref(self) -> None:
+        self.assert_failed_ci_retains_stash("retryable,success", {"FAKE_RETRY_AFTER": "1650"}, "ci-timeout", 1)
+
+    def test_subsequent_throttle_retains_exact_stash_state_and_owned_ref(self) -> None:
+        self.assert_failed_ci_retains_stash("retryable,retryable,success", {"FAKE_RETRY_AFTER": "1650", "FAKE_RETRY_AFTER_ON_INDEX": "1"}, "ci-timeout", 2)
+
+    def test_subsequent_error_retains_exact_stash_state_and_owned_ref(self) -> None:
+        self.assert_failed_ci_retains_stash("retryable,error", {}, "ci-error", 2)
+
+    def assert_failed_ci_retains_stash(self, sequence, metadata, phase, checks) -> None:
+        _local, remote = self.fixture.diverge()
+        (self.fixture.main / "stashed.txt").write_text("keep\n", encoding="utf-8")
+        self.fixture.git(self.fixture.main, "stash", "push", "-u", "-m", "gpls throttle")
+        stash = self.fixture.output(self.fixture.main, "rev-parse", "stash@{0}")
+        counter = self.fixture.root / "throttle count"
+        result = self.fixture.run_sync("sync", "--stash-oid", stash, "--poll-timeout", "3", "--poll-interval", "1", extra_env={"FAKE_PIPELINE_SEQUENCE": sequence, "FAKE_PIPELINE_COUNTER": str(counter), **metadata})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("budget exhausted" if phase == "ci-timeout" else "fake error", result.stderr)
+        state = json.loads(self.fixture.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["phase"], phase)
+        self.assertEqual(counter.read_text(encoding="utf-8"), str(checks))
+        self.assertEqual(state["stash_oid"], stash)
+        self.assertEqual(self.fixture.output(self.fixture.main, "rev-parse", "stash@{0}"), stash)
+        self.assertEqual(self.fixture.remote_ref_sha(state["ci_ref"]), state["rewritten_sha"])
+        self.assertEqual(self.fixture.remote_ref_sha("refs/heads/main"), remote)
 
     def test_sync_rebases_validates_ci_and_waits_for_finalize(self) -> None:
         local_sha, remote_sha = self.fixture.diverge()

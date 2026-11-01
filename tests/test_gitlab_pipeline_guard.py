@@ -14,8 +14,9 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterator
+from unittest import mock
 
-from tests.support.fixtures import init_git_repository, run_git, write_executable, write_json
+from tests.support.fixtures import init_git_repository, load_script_module, run_git, write_executable, write_json
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +56,7 @@ class ApiState:
         self.requests: list[str] = []
         self.available_shas: set[str] | None = None
         self.ci_remote: Path | None = None
+        self.error_status = 429
 
 
 @contextmanager
@@ -63,6 +65,13 @@ def gitlab_api(state: ApiState) -> Iterator[str]:
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             state.requests.append(self.path)
             parsed = urllib.parse.urlparse(self.path)
+            if state.pipeline_mode == "throttled":
+                self.send_response(state.error_status)
+                self.send_header("Retry-After", "1650")
+                self.send_header("ratelimit-name", "unauthenticated_traffic_per_ip")
+                self.end_headers()
+                self.wfile.write(b"<html>Cloudflare</html>")
+                return
             if state.pipeline_mode == "http-error":
                 self.send_error(503)
                 return
@@ -122,6 +131,167 @@ def gitlab_api(state: ApiState) -> Iterator[str]:
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+class TransportContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.checker = load_script_module(HELPER, "gitlab_transport_test")
+
+    def setUp(self) -> None:
+        self.sha = "a" * 40
+        self.policy = self.checker.Policy("https://gitlab.example:8443/custom/api/v4", 1, "origin", "refs/heads/main", "linux-fast", 2)
+        self.calls: list[list[str]] = []
+
+    def invoke(self, *, source="keyring", state="success", auth_code=0, auth_raw=None,
+               status=200, headers="", body=None, api_code=None, job_error=False,
+               envelope=None, budget=None):
+        def run(arguments, **kwargs):
+            self.calls.append(arguments)
+            self.assertEqual(kwargs["cwd"], REPO_ROOT)
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertLessEqual(kwargs["timeout"], 2)
+            self.assertNotIn("GLAB_DEBUG_HTTP", kwargs["env"])
+            self.assertNotIn("DEBUG", kwargs["env"])
+            self.assertIn("gitlab.example:8443", arguments)
+            if arguments[1:3] == ["auth", "status"]:
+                payload = {"hosts": [{"host": "gitlab.example:8443", "state": state,
+                                      "token_source": source, "api_endpoint": self.policy.api_url,
+                                      "new_field": "accepted"}], "version": "99.0.0"}
+                raw = json.dumps(payload).encode() if auth_raw is None else auth_raw
+                code = auth_code
+            else:
+                self.assertIn("--include", arguments)
+                self.assertIn("--method", arguments)
+                self.assertTrue(arguments[-1].startswith(self.policy.api_url + "/projects/1/"))
+                is_jobs = "/jobs?" in arguments[-1]
+                effective_status = status if not job_error or is_jobs else 200
+                content = ([{"name": "linux-fast", "status": "success"}] if is_jobs
+                           else [{"id": 41, "sha": self.sha, "web_url": "https://gitlab.example/pipelines/41"}])
+                raw_body = json.dumps(content).encode() if body is None or (job_error and not is_jobs) else body
+                raw = envelope if envelope is not None else (
+                    f"HTTP/2.0 {effective_status} Status\nX-Extra: okay\r\n{headers}\r\n".encode() + raw_body)
+                code = (0 if effective_status == 200 else 1) if api_code is None else api_code
+            kwargs["stdout"].write(raw)
+            kwargs["stderr"].write(b"synthetic-secret-must-not-appear")
+            return subprocess.CompletedProcess(arguments, code)
+
+        with mock.patch.object(self.checker.shutil, "which", return_value="fake-glab"), mock.patch.object(self.checker.subprocess, "run", side_effect=run), mock.patch.dict(os.environ, {"GLAB_DEBUG_HTTP": "true", "DEBUG": "true"}):
+            return self.checker.check_job(self.policy, self.sha, REPO_ROOT, budget)
+
+    def test_authenticated_success_and_probe_failure_with_known_credentials(self) -> None:
+        for source in ("keyring", "environment", "config_file"):
+            with self.subTest(source=source):
+                self.calls.clear()
+                result = self.invoke(source=source, state="error", auth_code=1)
+                self.assertEqual(result.outcome, "success")
+                self.assertEqual(result.metadata["transport"], "glab")
+                self.assertEqual(len(self.calls), 3)
+                self.assertEqual(self.calls[0][1:3], ["auth", "status"])
+                self.assertNotIn("-t", self.calls[0])
+
+    def test_http_errors_preserve_headers_even_with_html_and_nonzero_exit(self) -> None:
+        for status in (429, 502, 503, 401, 403):
+            with self.subTest(status=status):
+                result = self.invoke(status=status, headers="rEtRy-AfTeR: 1650\r\nratelimit-name: unauthenticated_traffic_per_ip\r\n", body=b"<html>Cloudflare synthetic-secret</html>", job_error=True)
+                self.assertEqual(result.outcome, "retryable" if status in (429, 502, 503) else "error")
+                self.assertEqual(result.metadata["http_status"], status)
+                self.assertEqual(result.metadata["retry_after_seconds"], 1650)
+                self.assertIn("UTC (in 27m 30s)", result.detail)
+                self.assertIn("unauthenticated_traffic_per_ip", result.detail)
+                self.assertEqual(result.pipeline_url, "https://gitlab.example/pipelines/41")
+                self.assertNotIn("synthetic-secret", result.detail)
+
+    def test_absent_login_falls_back_but_ambiguous_probe_does_not(self) -> None:
+        missing = b"no GitLab instances have been authenticated with glab; run `glab auth login` to authenticate"
+        with mock.patch.object(self.checker.ApiTransport, "request", return_value=[]):
+            result = self.invoke(source="none", state="error", auth_code=1)
+            self.assertEqual(result.metadata["transport"], "urllib")
+            self.assertIn("no glab login", result.metadata["transport_reason"])
+        for raw, source in ((b"not json", "keyring"), (None, "unknown"), (None, None)):
+            with self.subTest(raw=raw, source=source):
+                result = self.invoke(source=source, auth_raw=raw, state="error", auth_code=1)
+                self.assertEqual(result.outcome, "error")
+                self.assertEqual(result.metadata["transport"], "glab")
+                self.assertNotIn("synthetic-secret", result.detail)
+        transport = self.checker.ApiTransport(self.policy, REPO_ROOT)
+        with mock.patch.object(self.checker.shutil, "which", return_value="fake"), mock.patch.object(transport, "glab", return_value=(1, b"", missing.decode())):
+            transport.select()
+        self.assertEqual(transport.metadata["transport"], "urllib")
+
+    def test_structured_missing_login_errors_fall_back(self) -> None:
+        messages = (
+            "no GitLab instances have been authenticated with glab; run `glab auth login` to authenticate",
+            "✗ gitlab.example:8443 has not been authenticated with glab; run `glab auth login --hostname gitlab.example:8443` to authenticate",
+        )
+        for message in messages:
+            with self.subTest(message=message), mock.patch.object(self.checker.ApiTransport, "request", return_value=[]):
+                result = self.invoke(auth_code=1, auth_raw=json.dumps({"error": {"message": message}}).encode())
+                self.assertEqual(result.metadata["transport"], "urllib")
+        for message in ("keyring locked", "HTTP 429", "unknown error"):
+            result = self.invoke(auth_code=1, auth_raw=json.dumps({"error": {"message": message}}).encode())
+            self.assertEqual(result.outcome, "error")
+            self.assertEqual(result.metadata["transport"], "glab")
+
+    def test_unexecutable_glab_fails_with_structured_error(self) -> None:
+        with mock.patch.object(self.checker.shutil, "which", return_value="fake"), mock.patch.object(self.checker.subprocess, "run", side_effect=PermissionError("private diagnostic")):
+            result = self.checker.check_job(self.policy, self.sha, REPO_ROOT)
+        self.assertEqual(result.outcome, "error")
+        self.assertEqual(result.metadata["transport"], "glab")
+        self.assertNotIn("private diagnostic", result.detail)
+
+    def test_missing_binary_and_plaintext_policy_need_no_real_glab(self) -> None:
+        transport = self.checker.ApiTransport(self.policy, REPO_ROOT)
+        with mock.patch.object(self.checker.shutil, "which", return_value=None):
+            transport.select()
+        self.assertEqual(transport.metadata["transport_reason"], "glab binary unavailable")
+        policy = self.checker.Policy("http://127.0.0.1/api/v4", 1, "origin", "refs/heads/main", "linux-fast", 2)
+        transport = self.checker.ApiTransport(policy, REPO_ROOT)
+        with mock.patch.object(self.checker.shutil, "which", side_effect=AssertionError("must not discover glab")):
+            transport.select()
+        self.assertEqual(transport.metadata["transport_reason"], "plaintext HTTP policy")
+
+    def test_incompatible_malformed_oversized_and_zero_exit_errors_block(self) -> None:
+        for options in ({"envelope": b"{}"}, {"body": b"not JSON"},
+                        {"body": b"x" * (self.checker.MAX_RESPONSE_BYTES + 1)},
+                         {"status": 401, "api_code": 0}, {"status": 100, "api_code": 0}):
+            with self.subTest(options=list(options)):
+                result = self.invoke(**options)
+                self.assertEqual(result.outcome, "error")
+                self.assertEqual(result.metadata["transport"], "glab")
+
+    def test_conflicting_auth_routing_blocks(self) -> None:
+        raw = json.dumps({"hosts": [{"host": "gitlab.example:8443", "state": "success", "token_source": "keyring", "api_endpoint": "https://other.example/api/v4"}]}).encode()
+        result = self.invoke(auth_raw=raw)
+        self.assertEqual(result.outcome, "error")
+        self.assertIn("routing conflicts", result.detail)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_child_timeout_is_bounded_and_redacted(self) -> None:
+        with mock.patch.object(self.checker.shutil, "which", return_value="fake"), mock.patch.object(self.checker.subprocess, "run", side_effect=subprocess.TimeoutExpired("fake", 1)) as run:
+            result = self.checker.check_job(self.policy, self.sha, REPO_ROOT, 0.25)
+        self.assertEqual(result.outcome, "error")
+        self.assertIn("timed out", result.detail)
+        self.assertLessEqual(run.call_args.kwargs["timeout"], 0.25)
+
+    def test_real_timed_out_child_is_reaped_by_subprocess_runner(self) -> None:
+        transport = self.checker.ApiTransport(self.policy, REPO_ROOT, 0.1)
+        transport.binary = sys.executable
+        transport.metadata = {"transport": "glab"}
+        with self.assertRaisesRegex(self.checker.ApiFailure, "timed out"):
+            transport.glab(["-c", "import time; time.sleep(5)"])
+
+    def test_retry_dates_seconds_and_invalid_values(self) -> None:
+        with mock.patch.object(self.checker.time, "time", return_value=1761991200):
+            for value in ("1650", "Sat, 01 Nov 2025 10:27:30 GMT"):
+                metadata = self.checker.retry_metadata(value)
+                self.assertEqual(metadata["retry_after_seconds"], 1650)
+                self.assertEqual(metadata["retry_at"], "2025-11-01T10:27:30Z")
+            for value in (None, "nonsense", "-1", "Sat, 01 Nov 2025 09:00:00 GMT"):
+                self.assertEqual(self.checker.retry_metadata(value), {})
+                self.assertIn("no usable retry time", self.checker.retry_hint({}))
+            self.assertEqual(self.checker.retry_metadata("0")["retry_after_seconds"], 0)
+            self.assertGreater(self.checker.retry_metadata("9" * 500)["retry_after_seconds"], 1e50)
 
 
 class PipelineGuardTests(unittest.TestCase):
@@ -367,7 +537,7 @@ class PipelineGuardTests(unittest.TestCase):
 
     def test_api_and_policy_errors_block(self) -> None:
         tip = self.commit("feature\n", "feature")
-        for mode, expected in (("malformed", "malformed JSON"), ("http-error", "API request failed")):
+        for mode, expected in (("malformed", "malformed JSON"), ("http-error", "HTTP 503")):
             with self.subTest(mode=mode):
                 state = ApiState()
                 state.pipeline_mode = mode
@@ -509,7 +679,7 @@ class PipelineGuardTests(unittest.TestCase):
                     state.available_shas.discard(main_sha)
                     state.job_status = "success"
                     state.ci_remote = fixture.remote
-                    prepared = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci", "--poll-interval", "1", "--poll-timeout", "1")
+                    prepared = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci", "--poll-interval", "1", "--poll-timeout", "3")
                     self.assertEqual(prepared.returncode, 0, prepared.stderr)
                     self.assertIn("Temporary CI ref: deleted", prepared.stdout)
                     self.assertIn(main_sha, state.available_shas)
@@ -546,6 +716,36 @@ class PipelineGuardTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn(expected, result.stderr)
             self.assertEqual(state.requests, [])
+
+    def test_urllib_throttling_is_retryable_and_pre_push_never_sleeps(self) -> None:
+        state = ApiState()
+        state.pipeline_mode = "throttled"
+        with gitlab_api(state) as api_url:
+            policy = self.policy(api_url)
+            result, payload = self.run_direct(self.base_sha, policy)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(payload["outcome"], "retryable")
+            self.assertEqual(payload["http_status"], 429)
+            self.assertEqual(payload["retry_after_seconds"], 1650)
+            self.assertEqual(payload["transport"], "urllib")
+            record = f"refs/heads/main {self.base_sha} refs/heads/main {ZERO_SHA}\n"
+            result = self.run_guard(record, policy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("UTC (in 27m 30s)", result.stderr)
+        self.assertEqual(len(state.requests), 2)
+
+    def test_urllib_service_unavailable_headers_are_retryable(self) -> None:
+        for status in (502, 503):
+            with self.subTest(status=status):
+                state = ApiState()
+                state.pipeline_mode = "throttled"
+                state.error_status = status
+                with gitlab_api(state) as api_url:
+                    result, payload = self.run_direct(self.base_sha, self.policy(api_url))
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(payload["outcome"], "retryable")
+                self.assertEqual(payload["http_status"], status)
+                self.assertEqual(payload["retry_after_seconds"], 1650)
 
     def test_common_dir_override_bypasses_policy_and_network(self) -> None:
         tip = self.commit("feature\n", "feature")

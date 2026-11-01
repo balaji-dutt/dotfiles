@@ -603,7 +603,7 @@ Commands:
         for outcome, timeout, expected in (
             ("terminal", "3", "feature CI blocked"),
             ("error", "3", "fake error"),
-            ("retryable", "1", "timed out after 1s"),
+            ("retryable", "1", "CI polling budget exhausted (1s)"),
         ):
             with self.subTest(outcome=outcome):
                 fixture = self.fixture()
@@ -645,6 +645,23 @@ Commands:
         self.assertIn("more than 60 checks", result.stderr)
         self.assertIsNone(fixture.remote_feature_sha())
         self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), main_sha)
+
+    def test_throttling_initial_result_stops_both_pollers_without_early_retry(self) -> None:
+        for command in ("prepare-ci", "prepare-main-ci"):
+            with self.subTest(command=command):
+                fixture = self.fixture()
+                fixture.set_override(False)
+                main_sha = fixture.commit_main("main.txt", "local\n", "local main")
+                remote_main = fixture.remote_ref_sha("refs/heads/main")
+                counter = fixture.root / "throttle counter"
+                cwd = fixture.feature if command == "prepare-ci" else fixture.main
+                result = fixture.run_helper(fixture.main_helper, cwd, command, "--poll-interval", "1", "--poll-timeout", "3", extra_env={"FAKE_PIPELINE_SEQUENCE": "retryable,success", "FAKE_PIPELINE_COUNTER": str(counter), "FAKE_RETRY_AFTER": "1650"})
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("budget exhausted", result.stderr)
+                self.assertEqual(counter.read_text(encoding="utf-8"), "1")
+                self.assertEqual(fixture.remote_ref_sha("refs/heads/main"), remote_main)
+                if command == "prepare-main-ci":
+                    self.assertEqual(fixture.remote_ref_sha(f"refs/heads/ci/main/{main_sha}"), main_sha)
 
     def test_prepare_main_ci_reuses_existing_success_without_publication(self) -> None:
         fixture = self.fixture()
@@ -700,7 +717,7 @@ Commands:
         for override, outcome, expected in (
             (False, "terminal", "main CI blocked"),
             (False, "error", "fake error"),
-            (False, "retryable", "timed out after 1s"),
+            (False, "retryable", "CI polling budget exhausted (1s)"),
             (True, "success", "BYPASS main CI"),
         ):
             with self.subTest(override=override, outcome=outcome):
@@ -716,7 +733,7 @@ Commands:
                     "--poll-interval",
                     "1",
                     "--poll-timeout",
-                    "1",
+                    "1" if outcome == "retryable" else "3",
                     extra_env={"FAKE_PIPELINE_OUTCOME": outcome},
                 )
 

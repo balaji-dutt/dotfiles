@@ -260,6 +260,9 @@ payload = {
     "detail": f"fake {outcome}",
     "pipeline_url": "https://gitlab.example/pipeline/1" if outcome == "success" else None,
 }
+retry_on_index = os.environ.get("FAKE_RETRY_AFTER_ON_INDEX")
+if outcome == "retryable" and os.environ.get("FAKE_RETRY_AFTER") and (not retry_on_index or retry_on_index == str(index)):
+    payload.update(http_status=429, retry_after_seconds=float(os.environ["FAKE_RETRY_AFTER"]), transport="urllib")
 print(json.dumps(payload, sort_keys=True))
 raise SystemExit(0 if outcome in {"success", "bypass"} else 1)
 """,

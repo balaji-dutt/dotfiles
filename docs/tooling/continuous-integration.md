@@ -355,8 +355,8 @@ Beads (`dots-4jy.10.21` tracks the spike).
 ## Main-push guard
 
 `configs/gitlab-pipeline-guard.json` opts this repository into the managed
-`pre-push` hook. The standard-library helper queries the public GitLab API for
-project `44618209` and requires an exact successful `linux-fast` job.
+`pre-push` hook. The Python helper queries the GitLab API for project `44618209`
+and requires an exact successful `linux-fast` job.
 
 - A linear `main` tip checks the pushed tip SHA.
 - A normal no-ff merge whose first parent is the advertised remote `main` checks
@@ -376,16 +376,58 @@ The check fails closed when the pipeline is absent, pending, failed, or
 unreachable. A non-successful main-tip job reports the required SHA and points
 to explicit `prepare-main-ci` from main, followed by a separate retry of the
 original push. Failed jobs still require investigation; preparation does not
-turn failure into success. The helper uses no token because the project is
-public; making it private requires a separate authentication design rather than
-silently weakening the guard.
+turn failure into success.
+
+SSH authentication for Git fetch/push does not authenticate REST requests. For
+HTTPS policies, the checker prefers `glab` with credentials for the explicit
+policy hostname, including its port. It runs a bounded, token-free
+`glab auth status --hostname HOST --output json` probe once per check. A known
+credential source selects glab even if that probe's API request failed; an
+ambiguous result, timeout, credential-store failure, or conflicting API routing
+blocks rather than downgrading to anonymous access. The checker never extracts
+tokens, reads glab configuration files, or prints raw CLI diagnostics. API
+requests use absolute policy URLs, not the remote's default GitLab context.
+
+A missing glab binary or recognized missing host login uses anonymous urllib.
+Plaintext HTTP policies also use urllib without sending stored glab credentials.
+Structured results report the transport and fallback reason; PASS/error messages
+identify the transport. glab 1.124.0 is
+the inspected output-contract baseline, not a version pin: additive metadata is
+accepted, while incompatible output fails closed. Tests do not require glab,
+and this guard does not install it on native Windows or other platforms.
 
 The same checker exposes a machine-readable exact-SHA mode to the shared
 pipeline runtime used by `agent-wt-merge` and `guarded-main-sync`. Its outcomes
-are `success`, `retryable`, `terminal`, `error`, and `bypass`. Only a missing or
-active required job is retryable. The pre-push arguments and stdin protocol do
-not authorize publication or polling; the guard performs one evidence check
-per selected SHA.
+are `success`, `retryable`, `terminal`, `error`, and `bypass`. Missing/active
+required jobs and HTTP 429, 502, and 503 are retryable; authentication failures,
+malformed responses, and other request errors block. Status and retry headers
+are read before parsing the body, including HTML rate-limit responses. Known
+pipeline URLs remain available when a later jobs request fails.
+
+Valid `Retry-After` seconds or HTTP dates produce an earliest-retry UTC instant
+and duration, such as `Retry no earlier than 2026-11-01 14:30:00 UTC (in 27m 30s)`.
+This is the server's retry floor, not a promise of passing CI. Missing, invalid,
+or past values supply no usable server retry time. Pre-push checks once per
+selected SHA and blocks promptly: it does not sleep, publish a CI ref, initiate
+login, or bypass the gate.
+
+Explicit `guarded-main-sync`, `prepare-ci`, and `prepare-main-ci` polling waits
+at least the greater of the poll interval and the server retry delay, reporting
+both when applicable. The initial check counts toward the 60-check cap.
+`--poll-timeout` is one monotonic CI-phase budget covering login/API checks,
+waits, and CI-ref publication; publication does not reset it. No further check
+starts at/after the deadline. If the next legal retry cannot fit, polling stops
+early with a budget-exhausted message rather than waiting out the whole budget.
+`timeout_seconds` remains the per-request limit, shortened by the remaining
+budget. This is not a whole-script watchdog: prior fetch/rebase and subsequent
+cleanup/finalization are outside it, Git publication is not forcibly terminated,
+and OS/network timeouts are not hard real-time guarantees.
+
+CI failure or budget exhaustion retains existing guarded-sync recovery state,
+the recorded stash, and any published owned CI ref; it does not push main/tags
+or finalize recovery. The non-diverged exit-20 path creates no recovery state.
+An empty recovery directory alone does not establish state loss; the historical
+empty-directory incident has not been reproduced or explained.
 
 For a deliberate temporary bypass, create the fixed override in the Git common
 directory. It applies to all linked worktrees and remains active until removed:

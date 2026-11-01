@@ -1041,12 +1041,14 @@ def check_pipeline(
     runtime: PipelineRuntime,
     sha: str,
     source_ref: str,
+    *,
+    time_budget: float | None = None,
 ) -> dict[str, Any]:
     shared = pipeline_module()
     try:
         if getattr(runtime, "provider", None) == "github":
             return shared.check_pipeline(repo_root, runtime, sha, source_ref)
-        return shared.check_pipeline(repo_root, runtime, sha)
+        return shared.check_pipeline(repo_root, runtime, sha, time_budget=time_budget)
     except shared.PipelineRuntimeError as exc:
         die(str(exc))
 
@@ -1104,8 +1106,21 @@ def positive_seconds(value: str) -> int:
     return parsed
 
 
+def wait_for_retry(latest: dict[str, Any], deadline: float, interval: float) -> bool:
+    try:
+        import gitlab_pipeline_runtime as shared
+    except (ImportError, SyntaxError) as exc:
+        die(f"cannot load polling runtime; restore assets/gitlab_pipeline_runtime.py: {exc}")
+    try:
+        return shared.wait_for_retry(latest, deadline, interval)
+    except shared.PipelineRuntimeError as exc:
+        die(str(exc))
+
+
 def print_workflow_evidence(result: dict[str, Any]) -> None:
     if result.get("provider") != "github":
+        if result.get("transport"):
+            print(f"GitLab transport: {result['transport']}" + (f" ({result['transport_reason']})" if result.get("transport_reason") else ""))
         return
     print(f"GitHub evidence: {result['host']}/{result['repository']} {result['source_ref']} at {result['sha']}")
     for workflow in result["workflows"]:
@@ -1133,6 +1148,7 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
     ctx = build_context(fetch=False, helper=helper)
     runtime = load_pipeline_runtime(helper, ctx.main_branch)
     feature_sha = ctx.feature_sha
+    deadline = time.monotonic() + parsed.poll_timeout
     published = publish_feature(ctx, runtime, feature_sha)
     action = "Published" if published else "Reusing already published"
     print(
@@ -1140,12 +1156,16 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
         f"{runtime.remote_name}/{ctx.feature_branch}"
     )
 
-    deadline = time.monotonic() + parsed.poll_timeout
     latest: dict[str, Any] | None = None
     for attempt in range(1, maximum_checks + 1):
-        if attempt > 1 and time.monotonic() >= deadline:
+        if time.monotonic() >= deadline:
             break
-        latest = check_pipeline(ctx.original_worktree, runtime, feature_sha, feature_remote_ref(ctx.feature_branch))
+        if latest is not None and not wait_for_retry(latest, deadline, parsed.poll_interval):
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        latest = check_pipeline(ctx.original_worktree, runtime, feature_sha, feature_remote_ref(ctx.feature_branch), time_budget=remaining)
         print_workflow_evidence(latest)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
@@ -1155,6 +1175,7 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
             suffix = f" ({pipeline_url})" if pipeline_url else ""
             print(
                 f"PASS feature CI: {runtime.required_job} succeeded for {feature_sha}{suffix}"
+                + (f" (transport={latest['transport']})" if latest.get("transport") else "")
             )
             return 0
         if outcome == "bypass":
@@ -1168,18 +1189,9 @@ def cmd_prepare_ci(raw_args: list[str], *, helper: HelperProvenance) -> int:
             f"Waiting for {runtime.required_job} on {feature_sha} "
             f"({attempt}/{maximum_checks}): {detail}"
         )
-        if attempt < maximum_checks:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(parsed.poll_interval, remaining))
-
-    remaining = deadline - time.monotonic()
-    if remaining > 0:
-        time.sleep(remaining)
     detail = str((latest or {}).get("detail") or "no successful job observed")
     die(
-        f"timed out after {parsed.poll_timeout}s waiting for {runtime.required_job} "
+        f"CI polling budget exhausted ({parsed.poll_timeout}s); timed out waiting for {runtime.required_job} "
         f"on {feature_sha}: {detail}; feature remains published and main was not changed"
     )
 
@@ -1292,9 +1304,10 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
         )
 
     ci_ref = main_ci_remote_ref(main_branch, main_sha)
-    initial = check_pipeline(repo_root, runtime, main_sha, ci_ref)
+    deadline = time.monotonic() + parsed.poll_timeout
+    initial = check_pipeline(repo_root, runtime, main_sha, ci_ref, time_budget=deadline - time.monotonic())
     print_workflow_evidence(initial)
-    if getattr(runtime, "provider", None) == "github" and initial["outcome"] in {"terminal", "error"}:
+    if getattr(runtime, "provider", "gitlab") == "github" and initial["outcome"] in {"terminal", "error"}:
         die(f"main CI blocked for {main_sha}: {initial.get('detail', 'no detail')}; no ref was published")
     if initial["outcome"] == "success":
         ensure_main_ci_state_unchanged(
@@ -1309,6 +1322,7 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
         print(
             f"PASS main CI: {runtime.required_job} already succeeded for {main_sha}; "
             "no temporary ref was published"
+            + (f" (transport={initial['transport']})" if initial.get("transport") else "")
         )
         return 0
 
@@ -1325,12 +1339,14 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
         )
         return 0
 
-    deadline = time.monotonic() + parsed.poll_timeout
     latest = initial
-    for attempt in range(1, maximum_checks + 1):
-        if attempt > 1 and time.monotonic() >= deadline:
+    for attempt in range(2, maximum_checks + 1):
+        if not wait_for_retry(latest, deadline, parsed.poll_interval):
             break
-        latest = check_pipeline(repo_root, runtime, main_sha, ci_ref)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        latest = check_pipeline(repo_root, runtime, main_sha, ci_ref, time_budget=remaining)
         print_workflow_evidence(latest)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
@@ -1351,18 +1367,10 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
             f"Waiting for {runtime.required_job} on rewritten main {main_sha} "
             f"({attempt}/{maximum_checks}): {detail}"
         )
-        if attempt < maximum_checks:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(parsed.poll_interval, remaining))
     if latest.get("outcome") != "success":
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
         detail = str(latest.get("detail") or "no successful job observed")
         die(
-            f"timed out after {parsed.poll_timeout}s waiting for {runtime.required_job} "
+            f"CI polling budget exhausted ({parsed.poll_timeout}s); timed out waiting for {runtime.required_job} "
             f"on {main_sha}: {detail}; temporary CI ref {remote_ref} was retained and "
             "main/tags were not pushed"
         )
@@ -1385,7 +1393,7 @@ def cmd_prepare_main_ci(raw_args: list[str], *, helper: HelperProvenance) -> int
         print("- Main/tags pushed: no")
         return 1
     qualifier = "already absent" if cleanup.get("already_absent") else "deleted"
-    print(f"PASS main CI: {runtime.required_job} succeeded for {main_sha}")
+    print(f"PASS main CI: {runtime.required_job} succeeded for {main_sha}" + (f" (transport={latest['transport']})" if latest.get("transport") else ""))
     print(f"- Temporary CI ref: {qualifier} ({remote_ref})")
     print("- Main/tags pushed: no")
     return 0

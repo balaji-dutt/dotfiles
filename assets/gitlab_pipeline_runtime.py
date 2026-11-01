@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +153,8 @@ def check_pipeline(
     repo_root: Path,
     runtime: PipelineRuntime,
     sha: str,
+    *,
+    time_budget: float | None = None,
 ) -> dict[str, Any]:
     """Invoke the read-only checker and validate its structured contract."""
     result = subprocess.run(
@@ -163,6 +168,7 @@ def check_pipeline(
             "--check-sha",
             sha,
             "--json",
+            *(["--time-budget", str(time_budget)] if time_budget is not None else []),
         ],
         cwd=str(repo_root),
         text=True,
@@ -202,7 +208,50 @@ def check_pipeline(
         raise PipelineRuntimeError(
             "pipeline checker returned a blocking outcome with a passing exit status"
         )
+    validate_retry_metadata(payload)
     return payload
+
+
+def validate_retry_metadata(payload: dict[str, Any]) -> None:
+    for name in ("retry_after_seconds", "http_status"):
+        if name not in payload:
+            continue
+        value = payload[name]
+        try:
+            valid = (not isinstance(value, bool) and isinstance(value, (int, float))
+                     and math.isfinite(value) and value >= 0)
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise PipelineRuntimeError(f"pipeline checker returned invalid {name}")
+        if name == "http_status" and (not isinstance(value, int) or not 100 <= value <= 599):
+            raise PipelineRuntimeError("pipeline checker returned invalid http_status")
+    for name in ("retry_at", "transport", "transport_reason", "rate_limit_name"):
+        if name in payload and (not isinstance(payload[name], str) or not payload[name]):
+            raise PipelineRuntimeError(f"pipeline checker returned invalid {name}")
+    if "transport" in payload and payload["transport"] not in {"glab", "urllib"}:
+        raise PipelineRuntimeError("pipeline checker returned invalid transport")
+    if "retry_at" in payload:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", payload["retry_at"]):
+                raise ValueError
+            datetime.strptime(payload["retry_at"], "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            raise PipelineRuntimeError("pipeline checker returned invalid retry_at") from None
+
+
+def wait_for_retry(latest: dict[str, Any], deadline: float, interval: float) -> bool:
+    validate_retry_metadata(latest)
+    delay = max(interval, latest.get("retry_after_seconds", 0))
+    if delay >= deadline - time.monotonic():
+        return False
+    if "retry_after_seconds" in latest:
+        print(
+            f"Next CI check in {delay:g}s (poll interval {interval:g}s; "
+            f"server retry minimum {latest['retry_after_seconds']:g}s)."
+        )
+    time.sleep(delay)
+    return time.monotonic() < deadline
 
 
 def main_ci_remote_ref(main_branch: str, main_sha: str) -> str:

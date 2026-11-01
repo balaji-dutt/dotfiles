@@ -66,6 +66,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-ci-retry-budget",
+            "kind": "safety",
+            "description": "Count initial checks toward the cap and honor API retry delays in feature and main preparation without pushing main or tags when no legal retry fits.",
+            "status": "covered"
+          },
+          {
             "id": "safety-unchanged-merge-actors",
             "kind": "safety",
             "description": "Preserve fast-forward feature commits and actor-specific no-ff messages and identities without adding OpenCode attribution to Claude commits.",
@@ -303,12 +309,15 @@
         "work_item": "dots-4jy.10.1.3",
         "test_paths": ["tests/test_gitlab_ci.py", "tests/test_gitlab_pipeline_guard.py", "tests/test_renovate_ci_amend.py"],
         "behavior_requirements": [
+          {"id": "failure-ambiguous-glab-auth", "kind": "failure", "description": "Block ambiguous login metadata, incompatible CLI output, auth failures and malformed or oversized responses without anonymous downgrade or secret diagnostics.", "status": "covered"},
           {"id": "failure-plannotator-publication", "kind": "failure", "description": "Stop Plannotator amendments and pushes after sync/config failure, missing tokens, or unexpected tracked changes; accept a no-diff result without a token.", "status": "covered"},
           {"id": "failure-untrusted-pipeline-state", "kind": "failure", "description": "Fail closed for terminal, malformed, unreachable, non-ancestor or octopus history, invalid-policy, and missing guarded tracking states; batch tips require their own successful CI evidence.", "status": "covered"},
           {"id": "safety-exact-sha-selection", "kind": "safety", "description": "Select the exact linear or batch tip, or the feature parent of a single no-ff merge directly based on advertised main; preserve the pre-push contract and block guarded local-ahead rebases even with an override.", "status": "covered"},
           {"id": "safety-pinned-ci-runtimes", "kind": "safety", "description": "Install pinned Node and chezmoi downloads only after strict SHA-256 verification, retaining the Linux fast lane's required-capability gate.", "status": "covered"},
           {"id": "safety-plannotator-check-dispatch", "kind": "safety", "description": "Keep MR and standalone dependency push pipelines read-only even with a token, and stop on failed checks without staging or publishing.", "status": "covered"},
           {"id": "safety-renovate-amend-lease", "kind": "safety", "description": "Keep Renovate amendment pushes behind branch, change, and token guards with a scoped staging set and an explicit source SHA lease.", "status": "covered"},
+          {"id": "safety-throttled-pre-push", "kind": "safety", "description": "Classify HTTP 429/502/503 before error-body parsing, preserve safe retry time diagnostics, and block pre-push promptly without sleeping or bypassing exact-SHA evidence.", "status": "covered"},
+          {"id": "success-host-bound-gitlab-transport", "kind": "success", "description": "Use host-specific credential-source metadata and policy-pinned glab requests, with urllib fallback for missing binary/login and plaintext policies; preserve transport and pipeline URLs.", "status": "covered"},
           {"id": "success-pipeline-dispatch", "kind": "success", "description": "Dispatch the automatic Linux fast lane and manual platform lanes with their registered suite contracts.", "status": "covered"},
           {"id": "success-plannotator-amend", "kind": "success", "description": "Run the matching Plannotator push job against isolated Git commits, staging canonical and mirror outputs while preserving author and message and using the exact input SHA lease; register its regressions in the policy job.", "status": "covered"},
           {"id": "success-renovate-amend-identity", "kind": "success", "description": "Exercise the CI amendment scripts against isolated Git commits to preserve selected and legacy authors and trailers while setting the service-account committer.", "status": "covered"},
@@ -550,6 +559,7 @@
         "test_paths": ["tests/test_agent_wt_merge.py", "tests/test_guarded_main_sync.py"],
         "behavior_requirements": [
           {"id": "failure-actionable-recovery", "kind": "failure", "description": "Retain collision-safe recovery state, the exact gpls stash, and any owned CI evidence ref across rebase, CI, remote-movement, cleanup, and finalization failures.", "status": "covered"},
+          {"id": "safety-monotonic-ci-budget", "kind": "safety", "description": "Validate optional retry metadata, include initial checks and publication in one monotonic deadline, count at most 60 checks, and retain state/stash/ref when retry delays cannot fit.", "status": "covered"},
           {"id": "safety-no-main-or-tag-push", "kind": "safety", "description": "Publish only the SHA-derived reserved CI ref, lease-delete only unchanged evidence, and never push guarded main or tags.", "status": "covered"},
           {"id": "success-reconcile-and-validate", "kind": "success", "description": "Rebase a clean ahead-and-behind guarded main onto a pinned remote tip, obtain exact-SHA CI, restore any exact stash, and leave main ahead and ready for a separate push.", "status": "covered"}
         ]

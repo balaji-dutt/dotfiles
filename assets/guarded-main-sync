@@ -49,6 +49,7 @@ from gitlab_pipeline_runtime import (  # noqa: E402
     main_ci_remote_ref,
     publish_main_ci_ref,
     remote_ref_sha,
+    wait_for_retry,
 )
 
 
@@ -361,9 +362,10 @@ def poll_pipeline(
             "--poll-interval or reduce --poll-timeout"
         )
     rewritten_sha = str(state["rewritten_sha"])
-    initial = check_pipeline(root, runtime, rewritten_sha)
+    deadline = time.monotonic() + poll_timeout
+    initial = check_pipeline(root, runtime, rewritten_sha, time_budget=deadline - time.monotonic())
     if initial["outcome"] == "success":
-        set_phase(state_path, state, "ci-verified", ci_detail=initial.get("detail"))
+        set_phase(state_path, state, "ci-verified", ci_detail=initial.get("detail"), ci_transport=initial.get("transport"))
         return
     if initial["outcome"] == "bypass":
         set_phase(
@@ -400,18 +402,18 @@ def poll_pipeline(
         f"{action} rewritten main at {rewritten_sha} through "
         f"{runtime.remote_name}/{remote_ref.removeprefix('refs/heads/')}"
     )
-    deadline = time.monotonic() + poll_timeout
     latest = initial
     for attempt in range(2, maximum_checks + 1):
+        if not wait_for_retry(latest, deadline, poll_interval):
+            break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        time.sleep(min(poll_interval, remaining))
-        latest = check_pipeline(root, runtime, rewritten_sha)
+        latest = check_pipeline(root, runtime, rewritten_sha, time_budget=remaining)
         outcome = latest["outcome"]
         detail = str(latest.get("detail") or "no detail")
         if outcome == "success":
-            set_phase(state_path, state, "ci-verified", ci_detail=detail)
+            set_phase(state_path, state, "ci-verified", ci_detail=detail, ci_transport=latest.get("transport"))
             return
         if outcome == "bypass":
             set_phase(state_path, state, "ci-bypass", last_error=detail)
@@ -429,13 +431,10 @@ def poll_pipeline(
             f"Waiting for {runtime.required_job} on rewritten main {rewritten_sha} "
             f"({attempt}/{maximum_checks}): {detail}"
         )
-    remaining = deadline - time.monotonic()
-    if remaining > 0:
-        time.sleep(remaining)
     detail = str(latest.get("detail") or "no successful job observed")
     set_phase(state_path, state, "ci-timeout", last_error=detail)
     fail(
-        f"timed out after {poll_timeout}s waiting for {runtime.required_job} on "
+        f"CI polling budget exhausted ({poll_timeout}s); timed out waiting for {runtime.required_job} on "
         f"{rewritten_sha}: {detail}; temporary CI ref {remote_ref} and recovery state were retained"
     )
 
@@ -551,7 +550,7 @@ def continue_after_rebase(
             f"{state.get('last_error')}"
         )
     set_phase(state_path, state, "ready-to-finalize", last_error=None)
-    print(f"PASS main CI: {runtime.required_job} succeeded for {state['rewritten_sha']}")
+    print(f"PASS main CI: {runtime.required_job} succeeded for {state['rewritten_sha']}" + (f" (transport={state['ci_transport']})" if state.get("ci_transport") else ""))
     print("- Main/tags pushed: no")
 
 

@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -58,6 +64,7 @@ class JobCheck:
     required_job: str
     detail: str
     pipeline_url: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +74,7 @@ class JobCheck:
             "required_job": self.required_job,
             "detail": self.detail,
             "pipeline_url": self.pipeline_url or None,
+            **self.metadata,
         }
 
 
@@ -129,6 +137,15 @@ def load_policy(path: Path) -> Policy:
     parsed_url = urllib.parse.urlparse(api_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
         fail("pipeline guard policy api_url must be an absolute HTTP(S) URL")
+    if (parsed_url.username is not None or parsed_url.password is not None
+            or parsed_url.query or parsed_url.fragment
+            or any(ord(char) <= 32 or ord(char) == 127 for char in api_url)):
+        fail("pipeline guard policy api_url contains unsafe URL components")
+    try:
+        if not parsed_url.hostname or parsed_url.port == 0:
+            fail("pipeline guard policy api_url has an invalid host or port")
+    except ValueError:
+        fail("pipeline guard policy api_url has an invalid host or port")
     project_id = payload.get("project_id")
     if not isinstance(project_id, int) or isinstance(project_id, bool) or project_id <= 0:
         fail("pipeline guard policy project_id must be a positive integer")
@@ -206,32 +223,216 @@ def validation_sha(repo_root: Path, record: PushRecord) -> str | None:
     )
 
 
-def _request_json(url: str, timeout: int) -> object:
-    request = urllib.request.Request(
-        url,
-        headers={"Accept": "application/json", "User-Agent": "dotfiles-pipeline-guard/1"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
-    except (OSError, urllib.error.HTTPError, urllib.error.URLError) as error:
-        fail(f"GitLab API request failed for {url}: {error}")
-    if len(raw) > MAX_RESPONSE_BYTES:
-        fail(f"GitLab API response exceeded {MAX_RESPONSE_BYTES} bytes")
-    try:
-        return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        fail(f"GitLab API returned malformed JSON for {url}: {error}")
+class ApiFailure(GuardError):
+    def __init__(self, detail: str, metadata: dict[str, Any], *, retryable: bool = False):
+        super().__init__(detail)
+        self.metadata = metadata
+        self.retryable = retryable
 
 
-def check_job(policy: Policy, sha: str) -> JobCheck:
+def retry_metadata(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    now = time.time()
+    try:
+        if re.fullmatch(r"[0-9]+", value.strip()):
+            delay = int(value.strip())
+            instant = now + delay
+        else:
+            instant = parsedate_to_datetime(value).timestamp()
+            delay = max(0.0, instant - now)
+        if not math.isfinite(delay) or instant < now:
+            return {}
+        stamp = datetime.fromtimestamp(instant, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, TypeError, OverflowError, OSError):
+        # Unrepresentable delays must not permit an early retry.
+        if value.strip().isdigit():
+            return {"retry_after_seconds": 1e100}
+        return {}
+    return {"retry_after_seconds": delay, "retry_at": stamp}
+
+
+def retry_hint(metadata: dict[str, Any]) -> str:
+    delay = metadata.get("retry_after_seconds")
+    if delay is None:
+        return "Server supplied no usable retry time."
+    stamp = metadata.get("retry_at")
+    if not stamp:
+        return "Server retry delay exceeds the supported calendar range."
+    seconds = math.ceil(delay)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    duration = f"{hours}h {minutes}m {seconds}s" if hours else f"{minutes}m {seconds}s"
+    return f"Retry no earlier than {stamp.replace('T', ' ').replace('Z', ' UTC')} (in {duration})."
+
+
+class ApiTransport:
+    def __init__(self, policy: Policy, repo_root: Path, budget: float | None = None):
+        self.policy = policy
+        self.repo_root = repo_root
+        self.deadline = time.monotonic() + budget if budget is not None else None
+        self.metadata: dict[str, Any] = {}
+        self.binary: str | None = None
+        self.pipeline_url = ""
+
+    def timeout(self) -> float:
+        remaining = self.policy.timeout_seconds
+        if self.deadline is not None:
+            remaining = min(remaining, self.deadline - time.monotonic())
+        if remaining <= 0:
+            raise ApiFailure("CI polling budget exhausted before API request", self.metadata)
+        return remaining
+
+    def glab(self, arguments: list[str]) -> tuple[int, bytes, str]:
+        environment = os.environ.copy()
+        for key in ("GLAB_DEBUG_HTTP", "DEBUG", "GLAB_DEBUG"):
+            environment.pop(key, None)
+        environment.update({"NO_COLOR": "1", "CLICOLOR": "0", "GLAB_CHECK_UPDATE": "false", "GIT_TERMINAL_PROMPT": "0"})
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            try:
+                result = subprocess.run(
+                    [str(self.binary), *arguments], cwd=self.repo_root,
+                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                    env=environment, timeout=self.timeout(), check=False,
+                )
+            except subprocess.TimeoutExpired:
+                raise ApiFailure("glab request timed out (transport=glab)", self.metadata) from None
+            stdout.seek(0)
+            raw = stdout.read(MAX_RESPONSE_BYTES + 65537)
+            stderr.seek(0)
+            diagnostic = stderr.read(4096).decode("utf-8", errors="replace")
+        if len(raw) > MAX_RESPONSE_BYTES + 65536:
+            raise ApiFailure("glab response exceeded size limit (transport=glab)", self.metadata)
+        return result.returncode, raw, diagnostic
+
+    def select(self) -> None:
+        parsed = urllib.parse.urlsplit(self.policy.api_url)
+        self.binary = shutil.which("glab") if parsed.scheme == "https" else None
+        reason = "plaintext HTTP policy" if parsed.scheme == "http" else "glab binary unavailable"
+        if self.binary and parsed.scheme == "https":
+            self.metadata = {"transport": "glab"}
+            try:
+                code, raw, diagnostic = self.glab(["auth", "status", "--hostname", parsed.netloc, "--output", "json"])
+            except FileNotFoundError:
+                reason = "glab binary unavailable"
+            except OSError:
+                raise ApiFailure("glab login check could not run (transport=glab)", self.metadata) from None
+            else:
+                missing = (
+                    "no GitLab instances have been authenticated with glab; run `glab auth login` to authenticate",
+                    f"{parsed.netloc} has not been authenticated with glab; run `glab auth login --hostname {parsed.netloc}` to authenticate",
+                )
+                try:
+                    payload = json.loads(raw)
+                except (ValueError, UnicodeDecodeError):
+                    clean = re.sub(r"\x1b\[[0-9;]*m", "", diagnostic).strip()
+                    if code and any(clean.removeprefix("x ").removeprefix("✗ ") == item for item in missing):
+                        reason = "no glab login for policy host"
+                    else:
+                        raise ApiFailure("glab login check returned unsupported output; check glab compatibility (transport=glab)", self.metadata) from None
+                else:
+                    error = payload.get("error") if isinstance(payload, dict) else None
+                    message = error.get("message") if isinstance(error, dict) else None
+                    if code and isinstance(message, str) and message.removeprefix("x ").removeprefix("✗ ") in missing:
+                        self.metadata = {"transport": "urllib", "transport_reason": "no glab login for policy host"}
+                        return
+                    hosts = payload.get("hosts") if isinstance(payload, dict) else None
+                    if not isinstance(hosts, list) or len(hosts) != 1 or not isinstance(hosts[0], dict):
+                        raise ApiFailure("glab login check returned invalid host metadata (transport=glab)", self.metadata)
+                    host = hosts[0]
+                    if host.get("host") != parsed.netloc or host.get("state") not in {"success", "error"}:
+                        raise ApiFailure("glab login check returned mismatched host/state (transport=glab)", self.metadata)
+                    endpoint = host.get("api_endpoint")
+                    if endpoint and (not isinstance(endpoint, str) or endpoint.rstrip("/") != self.policy.api_url):
+                        raise ApiFailure("glab API routing conflicts with policy URL (transport=glab)", self.metadata)
+                    source = host.get("token_source")
+                    if source in {"keyring", "environment", "config_file"}:
+                        return
+                    if source == "none":
+                        reason = "no glab login for policy host"
+                    else:
+                        raise ApiFailure("glab login check could not establish credential availability (transport=glab)", self.metadata)
+        self.metadata = {"transport": "urllib", "transport_reason": reason}
+
+    def request(self, url: str) -> object:
+        headers: Any
+        try:
+            if self.metadata["transport"] == "glab":
+                code, envelope, _diagnostic = self.glab([
+                    "api", "--hostname", urllib.parse.urlsplit(self.policy.api_url).netloc,
+                    "--method", "GET", "--include", url,
+                ])
+                match = re.match(rb"HTTP/\S+ ([0-9]{3})[^\r\n]*\r?\n", envelope)
+                if not match:
+                    raise ApiFailure(f"glab API returned no HTTP status for {url} (transport=glab)", self.metadata)
+                separator = re.search(rb"\r?\n\r?\n", envelope)
+                if not separator:
+                    raise ApiFailure(f"glab API returned malformed HTTP headers for {url} (transport=glab)", self.metadata)
+                status_code = int(match[1])
+                headers = {}
+                for line in envelope[match.end():separator.start()].splitlines():
+                    key, colon, value = line.partition(b":")
+                    if not colon:
+                        raise ApiFailure(f"glab API returned malformed HTTP headers for {url} (transport=glab)", self.metadata)
+                    headers[key.decode("ascii").lower()] = value.decode("latin-1").strip()
+                raw = envelope[separator.end():]
+                if code and status_code < 400:
+                    raise ApiFailure(f"glab API failed despite HTTP {status_code} for {url} (transport=glab)", self.metadata)
+            else:
+                request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "dotfiles-pipeline-guard/1"})
+                try:
+                    response = urllib.request.urlopen(request, timeout=self.timeout())
+                except urllib.error.HTTPError as error:
+                    response = error
+                with response:
+                    status_code = response.code
+                    headers = response.headers
+                    raw = response.read(MAX_RESPONSE_BYTES + 1) if status_code < 400 else b""
+        except ApiFailure:
+            raise
+        except (OSError, urllib.error.URLError, UnicodeError):
+            raise ApiFailure(f"GitLab API request failed for {url} (transport={self.metadata['transport']})", self.metadata) from None
+        metadata = {**self.metadata, "http_status": status_code}
+        if not 200 <= status_code < 300:
+            metadata.update(retry_metadata(headers.get("retry-after")))
+            limit = headers.get("ratelimit-name", "")
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,100}", limit):
+                metadata["rate_limit_name"] = limit
+            detail = f"GitLab API HTTP {status_code} for {url} (transport={self.metadata['transport']})"
+            if limit and "rate_limit_name" in metadata:
+                detail += f"; rate limit: {limit}"
+            detail += f". {retry_hint(metadata)}"
+            raise ApiFailure(detail, metadata, retryable=status_code in {429, 502, 503})
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise ApiFailure(f"GitLab API response exceeded {MAX_RESPONSE_BYTES} bytes for {url} (transport={self.metadata['transport']})", metadata)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ApiFailure(f"GitLab API returned malformed JSON for {url} (transport={self.metadata['transport']})", metadata) from None
+
+
+def check_job(policy: Policy, sha: str, repo_root: Path | None = None, budget: float | None = None) -> JobCheck:
+    transport = ApiTransport(policy, repo_root or Path.cwd(), budget)
+    try:
+        transport.select()
+        return _check_job(policy, sha, transport)
+    except ApiFailure as error:
+        return JobCheck("retryable" if error.retryable else "error", sha, policy.required_job,
+                        f"{error}; API {policy.api_url}", transport.pipeline_url, error.metadata)
+    except GuardError as error:
+        return JobCheck("error", sha, policy.required_job,
+                        f"{error} (transport={transport.metadata['transport']})",
+                        transport.pipeline_url, transport.metadata)
+
+
+def _check_job(policy: Policy, sha: str, transport: ApiTransport) -> JobCheck:
     query = urllib.parse.urlencode(
         {"sha": sha, "per_page": 100, "order_by": "id", "sort": "desc"}
     )
     pipelines_url = (
         f"{policy.api_url}/projects/{policy.project_id}/pipelines?{query}"
     )
-    pipelines = _request_json(pipelines_url, policy.timeout_seconds)
+    pipelines = transport.request(pipelines_url)
     if not isinstance(pipelines, list):
         fail("GitLab pipelines response must be an array")
     observations: list[tuple[int, str]] = []
@@ -246,11 +447,12 @@ def check_job(policy: Policy, sha: str) -> JobCheck:
         web_url = pipeline.get("web_url")
         if isinstance(web_url, str) and web_url:
             pipeline_urls.append(web_url)
+            transport.pipeline_url = pipeline_urls[0]
         jobs_url = (
             f"{policy.api_url}/projects/{policy.project_id}/pipelines/"
             f"{pipeline_id}/jobs?per_page=100"
         )
-        jobs = _request_json(jobs_url, policy.timeout_seconds)
+        jobs = transport.request(jobs_url)
         if not isinstance(jobs, list):
             fail("GitLab jobs response must be an array")
         for job in jobs:
@@ -269,6 +471,7 @@ def check_job(policy: Policy, sha: str) -> JobCheck:
                     required_job=policy.required_job,
                     detail=f"pipeline {pipeline_id}: success",
                     pipeline_url=web_url if isinstance(web_url, str) else "",
+                    metadata=transport.metadata,
                 )
     detail = (
         "; ".join(f"pipeline {pipeline_id}: {status}" for pipeline_id, status in observations)
@@ -286,13 +489,14 @@ def check_job(policy: Policy, sha: str) -> JobCheck:
         required_job=policy.required_job,
         detail=detail,
         pipeline_url=latest_url,
+        metadata=transport.metadata,
     )
 
 
-def require_successful_job(policy: Policy, sha: str, *, main_tip: bool = False) -> str:
-    check = check_job(policy, sha)
+def require_successful_job(policy: Policy, sha: str, *, main_tip: bool = False, repo_root: Path | None = None) -> JobCheck:
+    check = check_job(policy, sha, repo_root)
     if check.outcome == "success":
-        return check.pipeline_url
+        return check
     url_hint = f" Latest pipeline: {check.pipeline_url}" if check.pipeline_url else ""
     remedy = (
         "From the guarded main worktree, run ./assets/agent-wt-merge prepare-main-ci "
@@ -300,9 +504,10 @@ def require_successful_job(policy: Policy, sha: str, *, main_tip: bool = False) 
         "Later commits require evidence for the new SHA."
         if main_tip else "Retry after the pipeline passes or use the documented override."
     )
+    transport_hint = "" if "(transport=" in check.detail else f" (transport={check.metadata.get('transport')})"
     fail(
         f"required GitLab job {policy.required_job!r} has not succeeded for {sha}: "
-        f"{check.detail}.{url_hint} {remedy}"
+        f"{check.detail}{transport_hint}.{url_hint} {remedy}"
     )
 
 
@@ -405,6 +610,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--check-rebase", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--rebase-branch", help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--time-budget", type=float, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
@@ -442,7 +648,9 @@ def direct_check(args: argparse.Namespace, repo_root: Path) -> int:
             )
             return 0
         policy = load_policy(policy_path_for(args, repo_root))
-        check = check_job(policy, sha)
+        if args.time_budget is not None and (not math.isfinite(args.time_budget) or args.time_budget <= 0):
+            fail("time budget must be finite and positive")
+        check = check_job(policy, sha, repo_root, args.time_budget)
         print(json.dumps(check.as_dict(), sort_keys=True))
         return 0 if check.outcome == "success" else 1
     except GuardError as error:
@@ -491,10 +699,10 @@ def main(argv: list[str] | None = None) -> int:
             if sha is not None
         }
         for sha, main_tip in sorted(validation_shas):
-            pipeline_url = require_successful_job(policy, sha, main_tip=main_tip)
-            suffix = f" ({pipeline_url})" if pipeline_url else ""
+            check = require_successful_job(policy, sha, main_tip=main_tip, repo_root=repo_root)
+            suffix = f" ({check.pipeline_url})" if check.pipeline_url else ""
             print(
-                f"PASS pipeline-guard: {policy.required_job} succeeded for {sha}{suffix}"
+                f"PASS pipeline-guard: {policy.required_job} succeeded for {sha}{suffix} (transport={check.metadata['transport']})"
             )
         return 0
     except GuardError as error:

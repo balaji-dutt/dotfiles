@@ -392,7 +392,7 @@
     {
       "id": "guarded-main-sync",
       "suites": ["integration"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_guarded_main_sync.EntryPointTests", "tests.test_guarded_main_sync.GuardedMainSyncCoreTests", "tests.test_guarded_main_sync.HelpOutputTests", "tests.test_guarded_main_sync.PythonResolverTests"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_guarded_main_sync.EntryPointTests", "tests.test_guarded_main_sync.GuardedMainSyncCoreTests", "tests.test_guarded_main_sync.HelpOutputTests", "tests.test_guarded_main_sync.PollDeadlineTests", "tests.test_guarded_main_sync.PythonResolverTests"],
       "covers": ["tests/test_guarded_main_sync.py"],
       "requires": ["git", "sh"]
     },

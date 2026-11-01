@@ -84,7 +84,7 @@ class GitHubWorktreeMergeTests(unittest.TestCase):
         responses = responses_for(run)
         responses[runs_endpoint(run)] = [{"total_count": 0, "workflow_runs": []}, {"total_count": 1, "workflow_runs": [run]}]
         write_state(api, responses)
-        prepared = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci", "--poll-interval", "1", "--poll-timeout", "1")
+        prepared = fixture.run_helper(fixture.main_helper, fixture.main, "prepare-main-ci", "--poll-interval", "1", "--poll-timeout", "3")
         self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
         self.assertIn("Temporary CI ref: deleted", prepared.stdout)
         self.assertIsNone(fixture.remote_ref_sha(main_ref))
