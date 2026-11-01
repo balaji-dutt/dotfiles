@@ -331,8 +331,8 @@ only live-smoke settings passed through. The command timeout defaults to 180
 seconds and accepts values from 30 through 900. No similarly prefixed credential
 or secret variables are allowed.
 
-On POSIX, when the selected `node` or `jq` resolves to a mise executable, the
-runner queries `mise which <tool>` before replacing the parent environment. Discovery
+On POSIX, when the selected `node`, `jq`, or `bd` resolves to a mise executable,
+the runner queries `mise which <tool>` before replacing the parent environment. Discovery
 uses the repository root as its working directory, closes stdin, and has a
 10-second timeout per tool. Each installed executable is exposed through a tool-only
 symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
@@ -340,8 +340,10 @@ symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
 Children receive no parent mise variables or real mise config/state roots.
 Other selections and native Windows runtime selection are unchanged;
 `npm` and `npx` shims are not normalized. Failed discovery prints a bounded
-warning and independently retains the inherited shim, so execution failures remain
-visible rather than becoming capability skips or selecting another runtime.
+warning and independently retains the inherited shim without selecting another
+runtime. Capability probes preserve the absolute invocation path without
+dereferencing symlinks, so name-dispatched shims run as the requested command.
+A failed probe skips the step, or fails it when the capability is required.
 
 On POSIX, each step runs in its own process group. A timed-out step receives
 `SIGTERM`, then `SIGKILL` if needed; output draining and parent cleanup are
@@ -380,7 +382,7 @@ therefore cannot reach this checkout's real Beads database. Tests that need
 those commands normally prepend their own fake-bin fixture, which takes
 precedence over the guards. The POSIX `beads-isolated-worktree` integration
 step is the exception: after a successful `bd --version` probe, the runner
-passes the resolved real executable as `DOTFILES_TEST_BD` to that step only.
+passes the probed absolute executable path as `DOTFILES_TEST_BD` to that step only.
 The step uses a temporary repository and still runs with the guarded `PATH`;
 if `bd` is missing or its probe fails, the step is skipped (or fails when the
 capability is required). Tests must still avoid live networks, GUI automation,
@@ -395,9 +397,10 @@ Run a module directly from the repository root as
 `python3 -m unittest tests.test_name` (`py -3 -m unittest ...` on native
 Windows). Importing the `tests` package applies the runner's own
 `isolated_environment` to that process: the same environment allowlist,
-synthetic home/XDG roots, Node normalization, empty Git config, and `bd`/`dolt`
-guards. Nested fixtures inherit the resolved Node path. The sandbox directory
-is removed at exit. Inside the runner, `DOTFILES_TEST_SANDBOX=1` is already set
+synthetic home/XDG roots, Node/jq/Beads normalization, empty Git config, and
+`bd`/`dolt` guards. Nested fixtures inherit the normalized runtime paths behind
+the guards. The sandbox directory is removed at exit. Inside the runner,
+`DOTFILES_TEST_SANDBOX=1` is already set
 and the package leaves the environment alone. Running a test file as a script
 (`python3 tests/test_name.py`) is not supported.
 

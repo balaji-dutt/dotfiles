@@ -330,7 +330,7 @@ def _runtime_lookup_path(tool: str, lookup_path: str, sandbox: Path, repo_root: 
 
 def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
     lookup_path = os.environ.get("PATH", os.defpath)
-    for tool in ("node", "jq"):
+    for tool in ("node", "jq", "bd"):
         lookup_path = _runtime_lookup_path(tool, lookup_path, sandbox, repo_root)
     env = {name: value for name, value in os.environ.items() if name.upper() in PASSTHROUGH_ENV}
     home = sandbox / "home"
@@ -405,7 +405,7 @@ def capability_reason(
     )
     if executable is None:
         return f"missing capability {capability.name} ({' or '.join(commands)})", None
-    executable = str(Path(executable).resolve())
+    executable = str(Path(executable).absolute())
     if not capability.probe:
         return None, executable
     probe = [value.format(**replacements) for value in capability.probe]
