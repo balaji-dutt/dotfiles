@@ -219,6 +219,7 @@ exit "${AUDIT_LINT_RC:-0}"
             "apply" in call or "diff" in call for call in _read_calls(self.call_log)
         ))
 
+class AnsibleAuditCases:
     def test_ansible_task_dispatch_and_lint_subject(self) -> None:
         self.prepare_ansible()
         for relsrc in ("ansible/tasks/example.yml", "ansible/tasks/sub dir/it's a task.yaml"):
@@ -343,7 +344,7 @@ exit "${AUDIT_LINT_RC:-0}"
                 self.assertEqual(other.read_text(encoding="utf-8"), "other invocation\n")
 
 
-class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
+class CzAuditPosixTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCase):
     def test_real_ansible_task_syntax_without_execution(self) -> None:
         validator = shutil.which("ansible-playbook")
         if validator:
@@ -599,7 +600,61 @@ class CzAuditPosixTests(CzAuditFixture, unittest.TestCase):
         self.assertTrue(all(call[:2] == ["--source", resolved_repo] for call in calls[1:]))
 
 
-class CzAuditPowerShellTests(CzAuditFixture, unittest.TestCase):
+class CzAuditParserSelectionTests(CzAuditFixture, unittest.TestCase):
+    run_audit = CzAuditPosixTests.run_audit
+
+    def test_wsl_host_launch_probe_and_parser_failure_do_not_mask_each_other(self) -> None:
+        audit = self.repo / "assets/cz-audit.sh"
+        audit.write_text(audit.read_text().replace(
+            '[[ -r /proc/sys/kernel/osrelease ]] || return 1', ':', 1
+        ))
+        hook = self.repo / ".chezmoiscripts/hook.ps1"
+        hook.parent.mkdir()
+        hook.write_text("Write-Output 'fixture'\n", encoding="utf-8")
+        tools = self.fixture.root / "parser-tools"
+        tools.mkdir()
+        for command in ("cat", "cp", "dirname", "mkdir", "mktemp", "rm", "tr"):
+            resolved = shutil.which(command)
+            self.assertIsNotNone(resolved, command)
+            (tools / command).symlink_to(resolved)
+        host = self.fixture.fake_bin / "pwsh.exe"
+        real_grep = shutil.which("grep")
+        self.assertIsNotNone(real_grep)
+        write_executable(self.fixture.fake_bin / "grep", '#!/bin/sh\n'
+                         '[ "$*" != "-qi microsoft /proc/sys/kernel/osrelease" ] || exit 0\n'
+                         f'exec {shlex.quote(real_grep)} "$@"\n')
+        write_executable(
+            self.fixture.fake_bin / "timeout",
+            '#!/bin/sh\n[ "$1" = 10 ] || exit 99\nshift\n'
+            '[ "$1" = "$AUDIT_HOST_PWSH" ] || exit 126\nexec "$@"\n',
+        )
+        write_executable(host, '#!/bin/sh\ncase "$*" in *"exit 0"*) exit "$AUDIT_HOST_RC";; esac\n'
+                         'cat >"$AUDIT_PARSER_INPUT"\necho fixture-parser-diagnostic >&2\nexit "$AUDIT_PARSER_RC"\n')
+        write_executable(
+            self.fixture.fake_bin / "docker",
+            '#!/bin/sh\n[ "$1" != image ] || exit 0\nprintf "%s\\n" "$@" >"$AUDIT_CONTAINER_CALL"\n'
+            'cat >"$AUDIT_PARSER_INPUT"\necho fixture-parser-diagnostic >&2\nexit "$AUDIT_PARSER_RC"\n',
+        )
+        self.env.update({
+            "PATH": f"{self.fixture.fake_bin}{os.pathsep}{tools}",
+            "AUDIT_HOST_PWSH": str(host),
+            "AUDIT_PARSER_INPUT": str(self.fixture.root / "parser-input"),
+            "AUDIT_CONTAINER_CALL": str(self.fixture.root / "container-call"),
+        })
+        container_call = Path(self.env["AUDIT_CONTAINER_CALL"])
+        for host_rc, parser_rc in ((126, 0), (126, 1), (0, 1)):
+            with self.subTest(host_rc=host_rc, parser_rc=parser_rc):
+                container_call.unlink(missing_ok=True)
+                self.env.update(AUDIT_HOST_RC=str(host_rc), AUDIT_PARSER_RC=str(parser_rc))
+                result = self.run_audit("check", ".chezmoiscripts/hook.ps1")
+                self.assertEqual(result.returncode == 0, parser_rc == 0, result.stderr)
+                self.assertEqual(container_call.exists(), host_rc != 0, result.stderr)
+                self.assertEqual(Path(self.env["AUDIT_PARSER_INPUT"]).read_text(), hook.read_text())
+                if parser_rc:
+                    self.assertIn("fixture-parser-diagnostic", result.stderr)
+
+
+class CzAuditPowerShellTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
@@ -668,6 +723,63 @@ class CzAuditPowerShellTests(CzAuditFixture, unittest.TestCase):
         strict = self.run_audit("check", ".chezmoiignore", env=strict_env)
         self.assertNotEqual(strict.returncode, 0)
         self.assertIn("fixture doctor warning", strict.stderr)
+
+    @unittest.skipUnless(os.name == 'nt', 'native Windows Python reminder invocation')
+    def test_native_peer_reminders_are_executable_and_nonblocking(self) -> None:
+        config = self.fixture.home / '.config/dotfiles/peer-envs.json'
+        config.parent.mkdir(parents=True)
+        config.write_text('{}', encoding='utf-8')
+        helper = self.repo / "assets/peer 'fixture.py"
+        helper.write_text(
+            "import os,sys\nprint(os.environ.get('AUDIT_PEER_PAYLOAD', '{}'))\n"
+            "sys.exit(int(os.environ.get('AUDIT_PEER_CODE', '0')))\n", encoding='utf-8')
+        env = dict(self.env, CZ_AUDIT_PEER_ENV_CMD=str(helper))
+        payload = {'schema_version': 1, 'peers': {
+            'macos': {'platform': 'macos', 'status': 'reachable', 'restricted': True},
+            'wsl2': {'platform': 'wsl2', 'status': 'auth-failed', 'restricted': None},
+            'linux': {'platform': 'linux', 'status': 'reachable', 'restricted': False}}}
+        env['AUDIT_PEER_PAYLOAD'] = json.dumps(payload)
+        result = self.run_audit('check', "assets/a 'quoted.py", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("'./assets/peer-env' audit all 'assets/a ''quoted.py'", result.stderr)
+        self.assertIn("'./assets/peer-env' test all fast", result.stderr)
+        self.assertIn('not verified on wsl2: peer unreachable', result.stderr)
+        self.assertIn('not verified on linux: peer unreachable (unrestricted key)', result.stderr)
+        self.assertIn('run & ', result.stderr)
+
+        for command, relsrc in [('classify', 'assets/tool.py'), ('dryrun-if-managed', 'assets/tool.py'),
+                                ('check', 'docs/guide.md'), ('check', 'AGENTS.md'),
+                                ('check', 'private_Library/file'), ('check', 'AppData/file')]:
+            with self.subTest(command=command, relsrc=relsrc):
+                silent = self.run_audit(command, relsrc, env=env)
+                self.assertEqual(silent.returncode, 0, silent.stderr)
+                self.assertNotIn('INFO: peer-env:', silent.stderr)
+        for extension in ('.ps1', '.ps1.tmpl'):
+            script = self.repo / ('assets/fixture' + extension)
+            script.write_text("Write-Output 'fixture'\n", encoding='utf-8')
+            silent = self.run_audit('check', 'assets/' + script.name, env=env)
+            self.assertEqual(silent.returncode, 0, silent.stderr)
+            self.assertNotIn('INFO: peer-env:', silent.stderr)
+
+        disabled = self.run_audit('check', 'assets/tool.py', env=dict(env, CZ_AUDIT_PEER_ENV='0'))
+        self.assertNotIn('INFO: peer-env:', disabled.stderr)
+        for code, output, expected in [('3', json.dumps({'schema_version': 1, 'peers': {}}), 'no peer configured'),
+                                       ('2', '{}', 'peer-env probe failed'),
+                                       ('0', 'not json', 'peer-env probe failed'),
+                                       ('0', '{"schema_version":1,"peers":[]}', 'peer-env probe failed')]:
+            with self.subTest(code=code, output=output):
+                failure = self.run_audit('check', 'assets/tool.py', env=dict(env, AUDIT_PEER_CODE=code, AUDIT_PEER_PAYLOAD=output))
+                self.assertEqual(failure.returncode, 0, failure.stderr)
+                self.assertIn(expected, failure.stderr)
+        invalid = self.repo / '.chezmoiscripts/hook.ps1'
+        invalid.parent.mkdir()
+        invalid.write_text("'unterminated\n", encoding='utf-8')
+        failed = self.run_audit('check', '.chezmoiscripts/hook.ps1', env=env)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertNotIn('INFO: peer-env:', failed.stderr)
+        config.unlink()
+        silent = self.run_audit('check', 'assets/tool.py', env=env)
+        self.assertNotIn('INFO: peer-env:', silent.stderr)
 
 
 if __name__ == "__main__":

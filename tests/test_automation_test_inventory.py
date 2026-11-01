@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -228,6 +229,34 @@ class AutomationInventoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("tools/no-suffix\texecutable-mode", result.stdout)
 
+    def test_long_tracked_path_preserves_content_signals(self) -> None:
+        relative = "/".join(["deep", *(["segment" * 10] * 4), "extensionless"])
+        file_path = self.fixture.root / relative
+        if os.name == "nt":
+            file_path = Path("\\\\?\\" + str(file_path.absolute()))
+        file_path.parent.mkdir(parents=True)
+        file_path.write_text("#!/bin/sh\nprintf ok\\n\n", encoding="utf-8")
+        self.fixture.git("-c", "core.longpaths=true", "add", "--", relative)
+
+        try:
+            result = self.fixture.run("--list-candidates")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(relative + "\tshebang", result.stdout)
+        finally:
+            deep = self.fixture.root / "deep"
+            if os.name == "nt":
+                deep = Path("\\\\?\\" + str(deep.absolute()))
+            shutil.rmtree(deep)
+
+    def test_unreadable_tracked_sample_fails_instead_of_losing_signals(self) -> None:
+        (self.fixture.root / "scripts/tool.py").unlink()
+        for arguments in ((), ("--list-candidates",), ("--update-candidates",)):
+            with self.subTest(arguments=arguments):
+                result = self.fixture.run(*arguments)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("cannot sample tracked file 'scripts/tool.py'", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
     def test_new_tracked_candidate_fails_drift_check(self) -> None:
         self.fixture.write("scripts/new.sh", "#!/bin/sh\n")
         result = self.fixture.run()
@@ -288,7 +317,7 @@ class AutomationInventoryTests(unittest.TestCase):
         result = self.fixture.run()
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("automation-candidates.txt: cannot read file", result.stderr)
+        self.assertIn("cannot sample tracked file 'configs/automation-candidates.txt'", result.stderr)
 
     def test_malformed_candidate_list_fails(self) -> None:
         cases = {

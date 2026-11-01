@@ -409,7 +409,7 @@ function Invoke-AnsibleContainerSyntax([string]$fileRel) {
   $image = 'local/ansible-syntax:repo'
   $ready = Ensure-ContainerImage -Runtime $rt -Image $image -Dockerfile 'assets/Dockerfile.ansible-syntax'
   if (-not $ready) { return }
-  & $rt run --rm -v "$($script:ROOT):/work" -w /work $image ansible-playbook -i localhost, --syntax-check $fileRel
+  & $rt run --rm -v "$($script:ROOT):/work" -w /work $image ansible-playbook -i 'localhost,' --syntax-check $fileRel
 }
 
 function Invoke-AnsibleContainerLint([string]$fileRel) {
@@ -450,7 +450,7 @@ function Invoke-AnsibleSyntax([string]$fileRel) {
     }
 
     if (HaveCmd 'ansible-playbook') {
-      ansible-playbook -i localhost, --syntax-check $syntaxFile
+      ansible-playbook -i 'localhost,' --syntax-check $syntaxFile
     } else {
       Invoke-AnsibleContainerSyntax $syntaxFile
     }
@@ -479,17 +479,36 @@ function Invoke-AnsibleLint([string]$fileRel) {
 # app-execution alias for python3 is a real executable in PATH, but running it
 # prints "Python was not found; run without arguments to install from the
 # Microsoft Store" and exits 49. Execute each candidate before accepting it.
+function Invoke-BoundedPython([string]$Exe, [string[]]$Arguments, [int]$Seconds) {
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo.FileName = $Exe
+  $process.StartInfo.UseShellExecute = $false
+  $process.StartInfo.CreateNoWindow = $true
+  $process.StartInfo.RedirectStandardOutput = $true
+  $process.StartInfo.RedirectStandardError = $true
+  foreach ($argument in $Arguments) { [void]$process.StartInfo.ArgumentList.Add($argument) }
+  try {
+    [void]$process.Start()
+    $out = $process.StandardOutput.ReadToEndAsync()
+    $err = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($Seconds * 1000)) { throw 'Python deadline exceeded' }
+    if (-not ($out.Wait(2000) -and $err.Wait(2000))) { throw 'Python output did not close' }
+    return @{ Code = $process.ExitCode; Output = $out.Result }
+  } finally {
+    try {
+      if ($process.Id -and -not $process.HasExited) {
+        $process.Kill($true)
+        [void]$process.WaitForExit(10000)
+      }
+    } finally { $process.Dispose() }
+  }
+}
+
 function Test-PythonRuns([string]$Exe, [string[]]$PreArgs, [int]$MinMinor) {
   try {
-    & $Exe @PreArgs -c "import sys; sys.exit(0 if sys.version_info >= (3, $MinMinor) else 1)" *> $null
-    return ($LASTEXITCODE -eq 0)
-  } catch {
-    # Reachable: $ErrorActionPreference = 'Stop' (top of file) turns a failed
-    # launch into a throw. A non-zero exit does not throw by default
-    # ($PSNativeCommandUseErrorActionPreference is False through PS 7.6), so
-    # the $LASTEXITCODE check above is what rejects the WindowsApps alias.
-    return $false
-  }
+    $result = Invoke-BoundedPython $Exe @($PreArgs + @('-c', "import sys; sys.exit(0 if sys.version_info >= (3, $MinMinor) else 1)")) 3
+    return ($result.Code -eq 0)
+  } catch { return $false }
 }
 
 # Candidates are whitespace-separated invocations so the Windows launcher can
@@ -816,6 +835,60 @@ function Check([string]$relsrc) {
   Write-Info 'Repo-only file; no chezmoi apply/diff required.'
 }
 
+function Quote-PowerShellArgument([string]$Value) {
+  return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Write-PeerEnvHint([string]$relsrc) {
+  if ($env:CZ_AUDIT_PEER_ENV -eq '0' -or (Classify $relsrc).StartsWith('docs:')) { return }
+  if ($relsrc -like '*.md' -or $relsrc -like '*.ps1' -or $relsrc -like '*.ps1.tmpl' -or
+      $relsrc -like 'private_Library/*' -or $relsrc -like 'AppData/*') { return }
+  $helper = if ($env:CZ_AUDIT_PEER_ENV_CMD) { $env:CZ_AUDIT_PEER_ENV_CMD } else { './assets/peer-env' }
+  if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { return }
+  $homePath = if ($IsWindows) { $env:USERPROFILE } else { $HOME }
+  $configRoot = if (-not $IsWindows -and $env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $homePath '.config' }
+  if (-not (Test-Path -LiteralPath (Join-Path $configRoot 'dotfiles/peer-envs.json') -PathType Leaf)) { return }
+  try {
+    $py = Resolve-PythonCmd @('python3', 'python', 'py -3') 10
+    if (-not $py) { throw 'working Python 3.10+ unavailable' }
+    $exe = @(Get-Command $py[0] -CommandType Application -ErrorAction Stop)[0].Source
+    $pre = @($py | Select-Object -Skip 1)
+    $result = Invoke-BoundedPython $exe @($pre + @($helper, 'probe', '--json')) 90
+    if ($result.Code -notin @(0, 3)) { throw "probe exit $($result.Code)" }
+    $payload = ConvertFrom-Json -AsHashtable -InputObject $result.Output -ErrorAction Stop
+    if ($payload.schema_version -ne 1 -or $payload.peers -isnot [System.Collections.IDictionary]) { throw 'invalid probe schema' }
+    $peers = $payload.peers
+    foreach ($name in $peers.Keys) {
+      $peer = $peers[$name]
+      if ($name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or
+          $peer -isnot [System.Collections.IDictionary] -or $peer.platform -notin @('linux', 'macos', 'wsl2') -or
+          $peer.status -notin @('reachable', 'unreachable', 'auth-failed', 'serve-missing', 'protocol-mismatch', 'platform-mismatch', 'tools-missing') -or
+          ($null -ne $peer.restricted -and $peer.restricted -isnot [bool]) -or
+          ($peer.status -eq 'reachable' -and $peer.restricted -isnot [bool])) { throw 'invalid probe peer' }
+    }
+    $prefix = '& ' + ((@($exe) + $pre + @('./assets/peer-env') | ForEach-Object { Quote-PowerShellArgument $_ }) -join ' ')
+    if ($peers.Count -eq 0) {
+      Write-Info 'peer-env: no peer configured for another platform; report "not verified on other platforms: no peer configured"'
+    }
+    $reachable = @($peers.Keys | Sort-Object | Where-Object { $peers[$_].status -eq 'reachable' -and $peers[$_].restricted })
+    if ($reachable.Count) {
+      $names = $reachable -join ', '
+      Write-Info "peer-env: $names reachable; run $prefix audit all $(Quote-PowerShellArgument $relsrc)"
+      Write-Info "peer-env: $names reachable; run $prefix test all fast"
+    }
+    foreach ($name in ($peers.Keys | Sort-Object)) {
+      $peer = $peers[$name]
+      if ($peer.status -eq 'reachable' -and -not $peer.restricted) {
+        Write-Info "peer-env: $name reachable (unrestricted); report `"not verified on $($peer.platform): peer unreachable (unrestricted key)`"; only the owner sets allow_unrestricted"
+      } elseif ($peer.status -ne 'reachable') {
+        Write-Info "peer-env: $name $($peer.status); report `"not verified on $($peer.platform): peer unreachable`""
+      }
+    }
+  } catch {
+    Write-Info "peer-env: probe failed ($($_.Exception.Message)); report `"not verified on other platforms: peer-env probe failed`" and leave the peer config to the owner"
+  }
+}
+
 $script:ROOT = Get-RepoRoot
 Push-Location -LiteralPath $script:ROOT
 try {
@@ -827,7 +900,7 @@ try {
   switch ($Command) {
     'classify' { Classify $RelSrc | Write-Output }
     'dryrun-if-managed' { DryRun-IfManaged $RelSrc }
-    'check' { Check $RelSrc }
+    'check' { Check $RelSrc; Write-PeerEnvHint $RelSrc }
   }
 } finally {
   Pop-Location
