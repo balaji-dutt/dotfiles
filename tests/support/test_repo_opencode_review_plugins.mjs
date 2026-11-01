@@ -30,6 +30,42 @@ async function writeGate(filePath, files = ["src/a.js"]) {
   await writeFile(filePath, JSON.stringify({ timestamp: 1, files }) + "\n");
 }
 
+async function waitForAssertion(description, assertion, timeoutMs = 5000) {
+  const deadline = performance.now() + timeoutMs;
+  while (true) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      if (!(error instanceof assert.AssertionError) && !(error instanceof SyntaxError) && error.code !== "ENOENT") {
+        throw error;
+      }
+      if (performance.now() >= deadline) {
+        throw new Error(`Timed out waiting for ${description}`, { cause: error });
+      }
+    }
+    await wait(20);
+  }
+}
+
+async function assertEnforcerState(statePath, gatePath) {
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  assert.equal(state.lastGatePath, gatePath);
+  assert.equal(state.lastHandledGateMtimeMs, (await stat(gatePath)).mtimeMs);
+  assert.equal(state.lastTrigger, "session.idle");
+}
+
+test("enforcement wait reports a missing completion with the last assertion", async () => {
+  await assert.rejects(
+    waitForAssertion("missing enforcement", () => assert.fail("prompt not observed"), 50),
+    (error) => {
+      assert.match(error.message, /Timed out waiting for missing enforcement/);
+      assert.match(error.cause.message, /prompt not observed/);
+      return true;
+    }
+  );
+});
+
 function git(root, ...args) {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
 }
@@ -289,22 +325,26 @@ test("enforcer prompts once for each scoped gate version", async (t) => {
   await writeGate(gate, ["space name.js", "quote'name.js"]);
   await hooks.event({ event: { type: "file.edited" } });
   await hooks.event({ event: { type: "session.idle" } });
-  await wait(650);
-  assert.equal(prompts.length, 1);
+  const statePath = fixture.path(".opencode", ".dotfiles_review_enforcer_state.session-1.json");
+  await waitForAssertion("first scoped prompt and state", async () => {
+    assert.equal(prompts.length, 1);
+    await assertEnforcerState(statePath, gate);
+  });
   const text = prompts[0].body.parts[0].text;
   assert.match(text, /'space name\.js'/);
   assert.match(text, /'quote'\\''name\.js'/);
-  const statePath = fixture.path(".opencode", ".dotfiles_review_enforcer_state.session-1.json");
-  assert.equal(JSON.parse(await readFile(statePath, "utf8")).lastGatePath, gate);
 
+  await wait(550);
   await hooks.event({ event: { type: "session.idle" } });
   await wait(650);
   assert.equal(prompts.length, 1);
   const future = new Date(Date.now() + 2000);
   await utimes(gate, future, future);
   await hooks.event({ event: { type: "session.idle" } });
-  await wait(650);
-  assert.equal(prompts.length, 2);
+  await waitForAssertion("updated scoped prompt and state", async () => {
+    assert.equal(prompts.length, 2);
+    await assertEnforcerState(statePath, gate);
+  });
 });
 
 test("enforcer handles legacy gates, malformed state, and prompt failures", async (t) => {
@@ -316,7 +356,7 @@ test("enforcer handles legacy gates, malformed state, and prompt failures", asyn
     worktree: fixture.root,
     client: {
       tui: {
-        showToast: async () => {},
+        showToast: async () => { await wait(250); },
         clearPrompt: async () => {},
         appendPrompt: async (request) => inserted.push(request),
       },
@@ -326,43 +366,52 @@ test("enforcer handles legacy gates, malformed state, and prompt failures", asyn
   await writeGate(legacy);
   await writeFile(fixture.path(".opencode", ".dotfiles_review_enforcer_state.json"), "not json");
   await hooks.event({ event: { type: "session.idle" } });
-  await wait(650);
-  assert.equal(inserted.length, 1);
-  assert.equal(await exists(fixture.path(".opencode", ".dotfiles_review_enforcer_state.json")), true);
+  await waitForAssertion("legacy prompt after delayed toast and recovered state", async () => {
+    assert.equal(inserted.length, 1);
+    await assertEnforcerState(fixture.path(".opencode", ".dotfiles_review_enforcer_state.json"), legacy);
+  });
 
   const failingFixture = await createPluginFixture([enforcerName]);
   t.after(() => failingFixture.cleanup());
+  let failedPrompts = 0;
   const { default: failingEnforcer } = await failingFixture.importPlugin(enforcerName);
   const failingHooks = await failingEnforcer({
     worktree: failingFixture.root,
     client: {
       session: {
         get: async ({ path: requestPath }) => ({ id: requestPath.id, parentID: null }),
-        prompt: async () => { throw new Error("prompt failed"); },
+        prompt: async () => { failedPrompts++; throw new Error("prompt failed"); },
       },
     },
   });
   await failingHooks.event({ event: { type: "message.updated", properties: { sessionID: "top", info: { sessionID: "top", role: "user", agent: "build" } } } });
-  await writeGate(failingFixture.path(".opencode", ".needs_dotfiles_review.top"));
+  const failingGate = failingFixture.path(".opencode", ".needs_dotfiles_review.top");
+  await writeGate(failingGate);
   await failingHooks.event({ event: { type: "session.idle" } });
-  await wait(650);
-  assert.equal(await exists(failingFixture.path(".opencode", ".dotfiles_review_enforcer_state.top.json")), true);
+  await waitForAssertion("failed session prompt and persisted state", async () => {
+    assert.equal(failedPrompts, 1);
+    await assertEnforcerState(failingFixture.path(".opencode", ".dotfiles_review_enforcer_state.top.json"), failingGate);
+  });
 
   const tuiFixture = await createPluginFixture([enforcerName]);
   t.after(() => tuiFixture.cleanup());
+  let failedClears = 0;
   const { default: tuiEnforcer } = await tuiFixture.importPlugin(enforcerName);
   const tuiHooks = await tuiEnforcer({
     worktree: tuiFixture.root,
     client: { tui: {
       showToast: async () => { throw new Error("toast failed"); },
-      clearPrompt: async () => { throw new Error("clear failed"); },
+      clearPrompt: async () => { failedClears++; throw new Error("clear failed"); },
       appendPrompt: async () => { throw new Error("append failed"); },
     } },
   });
-  await writeGate(tuiFixture.path(".claude", ".needs_dotfiles_review"));
+  const tuiGate = tuiFixture.path(".claude", ".needs_dotfiles_review");
+  await writeGate(tuiGate);
   await tuiHooks.event({ event: { type: "session.idle" } });
-  await wait(650);
-  assert.equal(await exists(tuiFixture.path(".opencode", ".dotfiles_review_enforcer_state.json")), true);
+  await waitForAssertion("failed TUI callback and persisted state", async () => {
+    assert.equal(failedClears, 1);
+    await assertEnforcerState(tuiFixture.path(".opencode", ".dotfiles_review_enforcer_state.json"), tuiGate);
+  });
 });
 
 test("enforcer skips reviewer and child sessions", async (t) => {

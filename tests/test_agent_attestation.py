@@ -56,7 +56,17 @@ class PowerShellCommitWrapperTests(unittest.TestCase):
                     self.assertEqual(report["parser"], "jq")
                     self.assertTrue(report["jq_probe"])
 
-    def run_lifecycle(self, wrapper, tool, *, hide_jq):
+    def test_lifecycle_with_multiple_jq_matches(self):
+        for wrapper, tool in (("oc", "opencode"), ("cc", "claude-code")):
+            with self.subTest(wrapper=wrapper, backend=self.backend.label):
+                report = self.run_lifecycle(wrapper, tool, hide_jq=False, add_jq_match=True)
+                if report["jq"] is None:
+                    self.skipTest(f"{self.backend.label}: optional multiple-jq case unavailable; inherited .NET parser passed")
+                self.assertGreater(report["jq_matches"], 1)
+                self.assertEqual(report["parser"], "jq")
+                self.assertTrue(report["jq_probe"])
+
+    def run_lifecycle(self, wrapper, tool, *, hide_jq, add_jq_match=False):
         with isolated_environment(prefix="attestation-pwsh-") as fixture:
             root = fixture.root
             source = Path(__file__).resolve().parents[1] / "dot_local" / f"executable_{wrapper}-commit.ps1"
@@ -74,7 +84,7 @@ $ErrorActionPreference = 'Stop'
 if ($HideJq -eq 'yes') {
     $sentinel = Join-Path $PSScriptRoot 'jq-sentinel'
     $env:PATH = $sentinel + [System.IO.Path]::PathSeparator + $env:PATH
-    $selected = Microsoft.PowerShell.Core\Get-Command jq -CommandType Application -ErrorAction Stop
+    $selected = @(Microsoft.PowerShell.Core\Get-Command jq -CommandType Application -ErrorAction Stop)[0]
     if ((Split-Path $selected.Source) -ne $sentinel) { throw 'jq sentinel not selected' }
 }
 function global:Get-Command {
@@ -83,7 +93,7 @@ function global:Get-Command {
     if ($Name.Count -eq 1 -and $Name[0] -eq 'jq') {
         $selected = $null
         if ($HideJq -ne 'yes') { $selected = Microsoft.PowerShell.Core\Get-Command @PSBoundParameters }
-        $selection = if ($selected) { $selected.Source } else { '.NET' }
+        $selection = if ($selected) { @($selected)[0].Source } else { '.NET' }
         [System.IO.File]::AppendAllText((Join-Path $PSScriptRoot 'jq-lookups'), $selection + "`n")
         return $selected
     }
@@ -99,7 +109,7 @@ exit $LASTEXITCODE
 ''', encoding="utf-8", newline="\n")
             driver = root / "driver.ps1"
             driver.write_text(r'''
-param([string]$Wrapper, [string]$StateName, [string]$DefaultTool, [string]$HideJq)
+param([string]$Wrapper, [string]$StateName, [string]$DefaultTool, [string]$HideJq, [string]$AddJqMatch)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 Remove-Item Env:AI_ATTESTATION_JSON -ErrorAction SilentlyContinue
@@ -111,7 +121,16 @@ function Run-Git([string[]]$GitArgs) {
     if ($LASTEXITCODE -ne 0) { throw "git failed: $GitArgs ($LASTEXITCODE)" }
 }
 $root = $PSScriptRoot
-$jq = Get-Command jq -CommandType Application -ErrorAction SilentlyContinue
+$jqMatches = @(Get-Command jq -CommandType Application -ErrorAction SilentlyContinue)
+$jq = $jqMatches[0]
+if ($jq -and $AddJqMatch -eq 'yes') {
+    $sentinel = Join-Path $root 'jq-sentinel'
+    $env:PATH = $env:PATH + [System.IO.Path]::PathSeparator + $sentinel
+    $jqMatches = @(Get-Command jq -CommandType Application -ErrorAction Stop)
+    Assert ($jqMatches.Count -gt 1) 'multiple jq matches unavailable'
+    Assert ($jqMatches[0].Source -eq $jq.Source) 'poison entry changed inherited jq selection'
+    Assert (@($jqMatches | Where-Object { (Split-Path $_.Source) -eq $sentinel }).Count -gt 0) 'poison jq match missing'
+}
 $jqProbe = $false
 if ($jq -and $HideJq -ne 'yes') {
     $parsed = '{"schemaVersion":1,"participants":[{"tool":"environment-tool"}]}' | & $jq.Source -c .
@@ -184,13 +203,13 @@ Assert ((Invoke-Wrapper $false 'retry') -eq 0) 'retry failed'
 $message = (Run-Git @('log', '-1', '--format=%B')) -join "`n"
 Assert ($message -match "(?m)^AI-Participant: tool=$DefaultTool`r?$") 'retry fallback missing'
 Assert ($message -notmatch 'environment-tool|state-tool') 'retry replayed participant'
-@{ jq = $(if ($jq) { $jq.Source } else { $null }); parser = $script:parser; jq_probe = $jqProbe } |
+@{ jq = $(if ($jq) { $jq.Source } else { $null }); jq_matches = $jqMatches.Count; parser = $script:parser; jq_probe = $jqProbe } |
     ConvertTo-Json -Compress | Set-Content (Join-Path $root 'report.json')
 ''', encoding="utf-8", newline="\n")
             result = self.backend.run(
                 root, script=driver,
                 args=(self.backend.path(root, staged), f"ai-attestation-{tool}.json", tool,
-                      "yes" if hide_jq else "no"),
+                      "yes" if hide_jq else "no", "yes" if add_jq_match else "no"),
                 environ=fixture.env,
                 env_keys=("HOME", "USERPROFILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                           "GIT_TERMINAL_PROMPT", "TMPDIR", "TMP", "TEMP"),
@@ -201,7 +220,8 @@ Assert ($message -notmatch 'environment-tool|state-tool') 'retry replayed partic
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             report = json.loads((root / "report.json").read_text(encoding="utf-8-sig"))
             print(f"PowerShell lifecycle: {wrapper}-commit; backend={self.backend.label}; "
-                  f"hide_jq={hide_jq}; parser={report['parser']}; jq={report['jq'] or 'absent'}", file=sys.stderr)
+                  f"hide_jq={hide_jq}; add_jq_match={add_jq_match}; parser={report['parser']}; "
+                  f"jq={report['jq'] or 'absent'}; jq_matches={report['jq_matches']}", file=sys.stderr)
             if hide_jq:
                 self.assertEqual(report["parser"], ".NET")
             return report
