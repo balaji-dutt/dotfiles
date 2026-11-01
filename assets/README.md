@@ -190,7 +190,7 @@ feature-push workflow are documented in `docs/tooling/continuous-integration.md`
 
 ### Peer environments
 
-Runs this repo's audit and test suites on the other machine (macOS <-> WSL2)
+Runs this repo's audit and test suites on POSIX peers (macOS, Linux, WSL2)
 against a snapshot of the current working tree, when that machine is awake.
 `all` means every reachable other environment; agents should always use it,
 and `fast` is the suite unless the changed test lives only in another one.
@@ -207,6 +207,13 @@ tool needs a longer budget (at least 25 minutes for one peer).
 ./assets/peer-env clean all
 ./assets/peer-env config
 ```
+
+Native Windows is a client only. From PowerShell, use Python 3.10+:
+`py -3 ./assets/peer-env probe`, `py -3 ./assets/peer-env audit all <path>`,
+and `py -3 ./assets/peer-env test all fast`. The helper explicitly uses Windows
+OpenSSH, not Git's MSYS SSH. Native destinations, Pageant pipe selection, and
+host-key trust must already be configured; see the Windows prerequisites in
+`docs/tooling/peer-environments.md`. Windows serving and `via` hops remain refused.
 
 Peers are listed in `~/.config/dotfiles/peer-envs.json`, which the private
 dotfiles repo applies. The peer side is `peer-env serve`, pinned as the forced

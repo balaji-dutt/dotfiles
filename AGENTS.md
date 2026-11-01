@@ -254,6 +254,15 @@ worktree on the peer. Full contract: `docs/tooling/peer-environments.md`.
 Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
 `cd ... &&` prefixes fall outside the permission allow rules.
 
+On native Windows, use `py -3 ./assets/peer-env ...` (or a working Python 3.10+
+`python ./assets/peer-env ...`) from the checkout root. Follow the executable,
+quoted PowerShell commands emitted by `cz-audit.ps1`; they may require normal
+harness approval. Windows is a client for POSIX peers, not a serving peer.
+The helper pins native Windows OpenSSH, not Git's MSYS SSH. Native destinations,
+identity selection, Pageant pipe selection, and host-key trust are owner-managed
+prerequisites; do not inspect or rewrite private SSH setup to satisfy a probe.
+See `docs/tooling/peer-environments.md` for the Windows prerequisite checklist.
+
 - Runs remove their owned detached worktree and namespace ref on success and
   failure, preserving private diagnostics separately. `--keep-worktree` is
   for explicit debugging; `--rm` remains a cleanup alias. Report incomplete
@@ -290,9 +299,15 @@ Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
   `ssh`, `scp`, or `rsync`. Copy the quoted `report "..."` statement from the
   INFO line verbatim into the final response.
 - Exit codes: 0 verified. 1 the audit or tests failed on the peer; fix the
-  change and rerun. 2 the client or peer refused (invalid path,
+  change and rerun. A local Windows process/OS or shutdown-verification failure
+  also exits 1; report it rather than retrying validation.
+  2 the client or peer refused (invalid path,
   secret-looking untracked file, config): rerun with `--tracked-only` or
   correct the path; never delete the listed files or edit the config.
+  On native Windows, unsafe private state or missing OpenSSH/Git prerequisites
+  also exit 2. Do not repair permissions or SSH setup; report
+  `not verified on other platforms: peer-env prerequisite refused` and leave
+  the prerequisite to the owner.
   3 nothing ran; report the statement. 75 another session holds the peer's
   per-run slug lock; run the command once more after your own earlier `peer-env`
   command has finished, and if it exits 75 again report

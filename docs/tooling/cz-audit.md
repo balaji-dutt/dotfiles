@@ -75,9 +75,14 @@ The reminder is silent when `~/.config/dotfiles/peer-envs.json` does not exist,
 when `assets/peer-env` or `python3` is missing, when the path is a Markdown
 file, a `.ps1`, or under `docs/`, `private_Library/`, or `AppData/`, or when
 `CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD=<path>` substitutes another
-helper for tests. A probe failure never changes the audit's exit code. The
-PowerShell entrypoint does not print the reminder; native Windows is not a
-peer-env client. See `docs/tooling/peer-environments.md`.
+helper for tests. A probe failure never changes the audit's exit code.
+PowerShell prints equivalent reminders after successful `check`, using a
+bounded working-Python 3.10+ probe and quoted executable PowerShell commands
+such as `& '<python.exe>' './assets/peer-env' test all fast`. On Windows it uses
+`%USERPROFILE%\.config\dotfiles\peer-envs.json`; unavailable Python or malformed
+probe output produces the nonblocking `peer-env probe failed` statement.
+The `python3`-missing silence above applies to the shell entrypoint only.
+See `docs/tooling/peer-environments.md` for native OpenSSH and agent prerequisites.
 
 ### Ansible task files and playbooks
 
@@ -152,6 +157,12 @@ The POSIX wrapper chooses a PowerShell parser in this order:
 1. local POSIX `pwsh`;
 2. on WSL only, `pwsh.exe` from `PATH` or the standard PowerShell 7 host path;
 3. Docker or Podman with `local/powershell-audit:lts`.
+
+Each WSL host candidate must pass a launch probe bounded by `timeout 10`.
+If `timeout` is missing or the host cannot execute (including in an sshd session
+without working Windows interop), the wrapper reports `INFO:` and uses the
+container fallback. Once a parser is selected, a real syntax failure remains
+blocking; it does not trigger another parser attempt.
 
 Templates are rendered by the current, worktree-aware `chezmoi` invocation.
 The rendered or raw source is then sent to `Parser.ParseInput` over stdin. No

@@ -12,7 +12,8 @@ worktree, and streams the result back. When the other machine is asleep the
 helper says so within a few seconds and the agent reports the platform as not
 verified.
 
-Native Windows is not a peer yet. See [Not yet: native Windows](#not-yet-native-windows).
+Native Windows can initiate verification against macOS, Linux, and WSL2 peers.
+It cannot serve requests; see [Not yet: Windows serving](#not-yet-windows-serving).
 
 ## The boundary
 
@@ -106,7 +107,7 @@ matches the running machine is dropped as "self".
 | `ssh_host` | What is passed to `ssh`: a `Host` alias from `~/.ssh/config` or `user@host`. Defaults to the label. |
 | `platform` | `linux`, `macos`, or `wsl2`. Compared against the detected local platform and against what the peer reports. `windows` is rejected for now. |
 | `repo` | The peer's checkout. Must start with `~/` or `/`; no spaces or colons. |
-| `identity_file` | Optional. The dedicated key, passed with `IdentitiesOnly=yes`. Use the `.pub` path when the private key lives only in an agent. |
+| `identity_file` | Optional. The dedicated key, passed with `IdentitiesOnly=yes`. Use the `.pub` path when the private key lives only in an agent. Leave unset when the native `ssh_host` alias already pins `IdentityFile` and `IdentitiesOnly yes`; this applies on every client OS. |
 | `connect_timeout` | Optional, 1 to 60 seconds; default 3. |
 | `allow_unrestricted` | Optional, default `false`. Lets `audit`/`test` use a peer reached through an ordinary key. |
 | `via` | Reserved for the Windows hop; any non-null value is rejected with `windows via wsl2 is not supported yet`. |
@@ -147,8 +148,9 @@ key can do either way.
      keys directory, and add its filename as a line in the allowlist file; the
      script refuses to start while a listed file is missing. WSL2 then sees
      the key through the forwarded agent socket; export only the public half
-     and manage that file through the private repo (see the `.pub` note
-     below).
+     and manage that file through the private repo. The bridge also exposes
+     `\\.\pipe\ssh-pageant` through `wsl-ssh-pageant --winssh ssh-pageant` for
+     native Windows OpenSSH; see the Windows prerequisites below.
 
 2. On each peer, add one line to `~/.ssh/authorized_keys` (managed by the
    private repo):
@@ -160,12 +162,13 @@ key can do either way.
    Use that peer's absolute checkout path (`/home/<user>/...` on WSL2);
    `restrict` turns off pty, agent forwarding, port forwarding, X11, and
    `~/.ssh/rc`.
-3. Point the peer's config entry at the key with `identity_file`.
+3. Select the key with `identity_file`, or pin `IdentityFile` and
+   `IdentitiesOnly yes` in the client's SSH alias.
 4. Accept the peer's host key once with an interactive `ssh <alias> true`.
    The helper runs with `StrictHostKeyChecking=yes` and `BatchMode=yes`, so
    an unknown host key reads as `unreachable`.
 
-When the private key lives only in an agent (Pageant forwarded through
+On POSIX clients, when the private key lives only in an agent (Pageant forwarded through
 `wsl2-ssh-agent`, for example), `identity_file` must name the public key
 file. With `IdentitiesOnly=yes` and no such file, ssh never offers the agent
 key and the probe reports `auth-failed`. Create the file once from
@@ -179,6 +182,63 @@ ssh-add -L | grep ' peer-env$' >| ~/.ssh/peer-env.pub.new \
 
 The macOS sshd drop-in from `docs/automation/macos-home-ssh.md` already
 limits logins to the chezmoi user with key-only authentication.
+
+### Native Windows client prerequisites
+
+Use 64-bit Python 3.10 or newer, Git for Windows, and Windows OpenSSH Client.
+Run from PowerShell in the checkout root:
+
+```powershell
+py -3 ./assets/peer-env probe --json
+py -3 ./assets/peer-env audit all assets/peer-env
+py -3 ./assets/peer-env test all fast
+```
+
+`python ./assets/peer-env ...` also works with a suitable interpreter. The
+PowerShell audit prints commands using the interpreter it successfully probes.
+These Python invocations may require the harness's normal permission prompt;
+they do not broaden its SSH permissions. `clean` still requires explicit approval.
+
+#### Which SSH client
+
+Both direct requests and Git publication use
+`%SystemRoot%\System32\OpenSSH\ssh.exe`, matching `dot_gitconfig.tmpl`'s
+`core.sshCommand`, not the first `ssh` on `PATH`. Git's MSYS
+`C:\Program Files\Git\usr\bin\ssh.exe` cannot use the Pageant named pipe;
+`Device or resource busy` from that client's `ssh-add` is not a peer failure.
+Windows multiplexing is disabled, and strict host-key checks, batch mode,
+one connection attempt, and disabled forwarding remain in force.
+
+Pageant and its existing bridge must already be running. Set the native pipe
+once for future user processes, and select it in the current PowerShell session:
+
+```powershell
+[Environment]::SetEnvironmentVariable('SSH_AUTH_SOCK','\\.\pipe\ssh-pageant','User')
+$env:SSH_AUTH_SOCK = '\\.\pipe\ssh-pageant'
+& "$env:SystemRoot\System32\OpenSSH\ssh-add.exe" -l
+```
+
+Chezmoi does not manage this variable. Keep the Windows `ssh-agent` service
+disabled: its separate `openssh-ssh-agent` pipe can select a second, empty agent.
+Do not put the pipe path in `IdentityAgent`; Windows OpenSSH 9.5p2's config
+tokenizer collapses its backslashes. The helper does not start agents, load
+keys, edit startup files, or retry authentication.
+
+Each `ssh_host` must resolve through the **native Windows** SSH configuration,
+or be a usable `user@host` destination. WSL aliases and PuTTY saved sessions
+are not imported. Windows-to-WSL verification uses direct SSH to the distro's
+existing endpoint, even on the same machine; it does not invoke `wsl.exe` or
+use a `via` hop. Keep destinations and aliases in the private repo.
+
+The private repo deploys the dedicated `.pub` file on Windows; no public-key
+export procedure is needed here. Select it with `identity_file` or the pinned
+alias so Pageant's other keys do not exhaust the server's `MaxAuthTries`.
+Accept the host key interactively once using the same native executable:
+`& "$env:SystemRoot\System32\OpenSSH\ssh.exe" <alias> true`.
+A forced-command key may refuse `true` after trust is recorded. Trust is stored
+in `%USERPROFILE%\.ssh\known_hosts`, independently of PuTTY/Plink's registry
+cache; see `docs/inventory/windows.md`. Agents leave missing prerequisites to
+the owner rather than inspecting or rewriting private SSH files.
 
 ### Local WSL2 relay recovery
 
@@ -265,8 +325,9 @@ use; a peer label targets one. For `all`, peers that are not `reachable`
 and the command exits 0 when at least one peer ran and passed, 3 when nothing
 ran. Client messages are prefixed `peer-env:`; peer messages
 `peer-env serve:`. Invoke the helper as `./assets/peer-env` from the checkout
-root: the permission allow rules match that form, and absolute paths or
-`cd ... &&` prefixes prompt in Claude Code.
+root on POSIX: the permission allow rules match that form, and absolute paths or
+`cd ... &&` prefixes prompt in Claude Code. On native Windows use the Python
+invocation above, including the executable PowerShell form emitted by the audit.
 
 ```text
 $ ./assets/peer-env probe
@@ -276,7 +337,8 @@ wsl2     reachable                WSL2Debian       Linux 6.18.33.2-microsoft-sta
 ```
 
 Exit codes: `0` ok; `1` or the remote entrypoint's own code; `2` configuration,
-usage, refused request, or secret-pattern refusal; `3` no reachable peer; `75`
+usage, refused request, unsafe Windows state, missing Windows client prerequisites,
+or secret-pattern refusal; `3` no reachable peer; `75`
 the per-run slug is busy with another request; `124` a bounded helper phase or
 the whole execution hit its deadline (900 seconds by default for execution).
 A remote entrypoint's own exit code is passed through and announced as
@@ -344,6 +406,20 @@ connections reuse a control socket under
 and multiplexing is skipped when the directory is not private to the user or
 the socket path would exceed the OS limit (OpenSSH needs 17 spare characters
 for its temporary name while binding).
+
+On Windows, state is `%USERPROFILE%\.local\state\dotfiles\peer-env`, regardless
+of XDG variables. New private directories and atomic cache files have a protected
+DACL limited to the current user, SYSTEM, and Administrators. Cache reads, writes,
+deletion, and temporary snapshot indexes validate ownership and access rules.
+Unsafe existing permissions are refused, not repaired. Reparse points, hard-linked
+files, UNC or non-local-fixed-drive paths, and untrusted ancestor replacement permissions are refused;
+Windows paths are not resolved through junctions before these checks.
+
+Local Windows commands start behind a gate in a kill-on-close Job Object before
+Git or SSH can execute. Success, timeout, and cancellation account for and stop
+remaining descendants with bounded waits. Local process shutdown does not prove
+remote cleanup: the peer's independent deadline, guarded removal, and incomplete
+cleanup reporting still apply. Windows never uses POSIX UID or process-group APIs.
 
 ### Statuses
 
@@ -416,10 +492,14 @@ an ad hoc ssh session. A platform a test declares but no peer provides (native
 Windows today) is reported as `not verified on <platform>: no peer configured`.
 
 `cz-audit` itself stays quiet when the config file does not exist, when
-`assets/peer-env` or `python3` is missing, when the path is a Markdown file,
+`assets/peer-env` is missing (or `python3` is missing on POSIX), when the path is a Markdown file,
 a `.ps1`, under `docs/`, `private_Library/`, or `AppData/`, or when
 `CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD` points the audit at another
-helper path for tests. Probe failures never change the audit's exit code.
+helper path for tests. PowerShell resolves a working Python 3.10+ interpreter,
+rejecting nonworking Store aliases, and bounds discovery and the JSON probe.
+Unavailable Python, malformed JSON, and probe failures produce a nonblocking
+`peer-env probe failed` statement. Reminders appear only after successful `check`,
+not classification, dry runs, or failed checks, and never run remote validation.
 
 ## Cleanup and diagnostics
 
@@ -484,7 +564,7 @@ files 0600; no symlinks or snapshot contents are copied. Each run has a shared
 The 20 most recent completed runs with verified child shutdown are retained;
 active, incomplete, and unverified-child records are not pruned.
 
-The configured state root (`XDG_STATE_HOME` or `~/.local/state`) is canonicalized
+On POSIX, the configured state root (`XDG_STATE_HOME` or `~/.local/state`) is canonicalized
 before appending `dotfiles/peer-env`. Symlinked ancestors of that root are
 accepted; symlinks within the helper-owned subtree remain refused during cleanup.
 
@@ -499,9 +579,10 @@ state/worktree reconciliation. Incomplete diagnostics need the same inspection;
 their retention is not a claim that the crashed run is still active. Agents
 must not clear markers or infer ownership from a leftover's basename.
 
-## Not yet: native Windows
+## Not yet: Windows serving
 
-Reaching native Windows means a second hop: ssh into WSL2, then run
+Native Windows is supported as a client, not as a serving peer. A possible
+Windows serving design would use a second hop: ssh into WSL2, then run
 `pwsh.exe` through WSL interop against a separate Windows clone of this repo.
 Two constraints apply:
 
@@ -516,8 +597,8 @@ Two constraints apply:
 - The config schema reserves `via` for this: a Windows entry would say
   `"platform": "windows", "via": "wsl2"` and name the Windows clone path.
   Until the hop exists, both are rejected with `windows via wsl2 is not
-  supported yet`, and `windows` is absent from the helper's platform list in
-  `configs/test-suites.json` and `configs/automation-test-inventory.json`.
+  supported yet`. Windows client test registration and inventory coverage do
+  not enable Windows peer entries or serving.
 
 If interop proves unreliable inside sshd sessions, the alternative is an
 OpenSSH server on Windows itself, reached directly with the same forced
@@ -548,7 +629,16 @@ the local clone through `serve`. Stub `cz-audit.sh` and `run-tests.sh` scripts
 record their arguments and environment inside the peer worktree. The suite is
 registered as `peer-env` in `configs/test-suites.json` for `fast` and
 `integration` on linux, macos, and wsl2; Windows cannot shadow `ssh.exe` with
-a PATH shim.
+a PATH shim for the explicitly selected native executable.
+
+`tests/test_peer_env_windows.py` runs native DACL, junction, hard-link, atomic
+cache, Job Object, descendant shutdown, timeout, cancellation, SSH selection,
+quoting, and Git snapshot checks in isolated temporary directories. The
+`peer-env-windows` step registers it and the portable classification tests for
+`fast` and `integration` on Windows. `tests/test_cz_audit.py` covers native
+PowerShell reminders with synthetic config and probe output. These tests do not
+use live credentials or establish remote cleanup; that requires a live native
+client audit and fast run against at least one configured POSIX peer.
 
 Lifecycle tests also cover aggregate deadlines, cooperative signals, cleanup
 failure, legacy compatibility, capability refusal, retained unverified
