@@ -223,10 +223,17 @@ def _script_suffix(path: str) -> str:
 def _read_sample(repo_root: Path, tracked: TrackedFile) -> str:
     if tracked.mode not in {"100644", "100755"}:
         return ""
+    sample_path = repo_root / tracked.path
+    if sys.platform == "win32":
+        absolute = str(sample_path.absolute())
+        if not absolute.startswith("\\\\?\\"):
+            absolute = "\\\\?\\UNC\\" + absolute[2:] if absolute.startswith("\\\\") else "\\\\?\\" + absolute
+        sample_path = Path(absolute)
     try:
-        return (repo_root / tracked.path).read_bytes()[:65536].decode("utf-8", "ignore")
-    except OSError:
-        return ""
+        with sample_path.open("rb") as handle:
+            return handle.read(65536).decode("utf-8", "ignore")
+    except OSError as error:
+        raise CheckFailure(f"cannot sample tracked file {tracked.path!r}: {error}") from error
 
 
 def candidate_reasons(repo_root: Path, tracked: TrackedFile) -> tuple[str, ...]:
@@ -479,9 +486,9 @@ def check_repository(
 
     try:
         tracked = tracked_files(root)
+        candidates = discover_candidates(root, tracked)
     except CheckFailure as error:
         return CheckResult((str(error),), (), ())
-    candidates = discover_candidates(root, tracked)
     candidate_paths = {candidate.path for candidate in candidates}
     tracked_paths = {item.path for item in tracked}
     errors: list[str] = []

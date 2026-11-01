@@ -107,6 +107,7 @@ assets/github_pipeline.py	script-extension
 assets/gitlab_pipeline_runtime.py	script-extension,shebang
 assets/guarded-main-sync	executable-mode,shebang
 assets/peer-env	executable-mode,shebang
+assets/peer_env_windows.py	script-extension
 assets/pipeline_evidence.py	script-extension
 assets/pipeline_guard.py	script-extension
 assets/pipeline_policy.py	script-extension

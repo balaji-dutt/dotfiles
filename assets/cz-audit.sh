@@ -315,17 +315,21 @@ parse_powershell_content() {
   fi
 
   if is_wsl; then
-    local host_pwsh=""
-    if have pwsh.exe; then
-      host_pwsh="$(command -v pwsh.exe)"
-    elif [[ -x "/mnt/c/Program Files/PowerShell/7/pwsh.exe" ]]; then
-      host_pwsh="/mnt/c/Program Files/PowerShell/7/pwsh.exe"
-    fi
-
-    if [[ -n "$host_pwsh" ]]; then
-      "$host_pwsh" -NoLogo -NoProfile -NonInteractive -Command "$parser" <"$content_file"
-      return
-    fi
+    local host_pwsh path_pwsh=""
+    have pwsh.exe && path_pwsh="$(command -v pwsh.exe)"
+    for host_pwsh in "$path_pwsh" "/mnt/c/Program Files/PowerShell/7/pwsh.exe"; do
+      [[ -n "$host_pwsh" && -x "$host_pwsh" ]] || continue
+      if ! have timeout; then
+        info "Host PowerShell launch probe requires timeout; trying parser fallback."
+        break
+      fi
+      if timeout 10 "$host_pwsh" -NoLogo -NoProfile -NonInteractive -Command 'exit 0' </dev/null >/dev/null 2>&1; then
+        "$host_pwsh" -NoLogo -NoProfile -NonInteractive -Command "$parser" <"$content_file"
+        return
+      fi
+      info "Host PowerShell cannot execute within 10 seconds: $host_pwsh; trying parser fallback."
+      [[ "$path_pwsh" == "/mnt/c/Program Files/PowerShell/7/pwsh.exe" ]] && break
+    done
   fi
 
   local rt

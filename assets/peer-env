@@ -47,6 +47,11 @@ from typing import Callable
 
 sys.dont_write_bytecode = True
 
+if os.name == "nt":
+    import peer_env_windows as windows
+
+WINDOWS_REFUSALS = (windows.Refused,) if os.name == "nt" else ()
+
 SCRIPT_NAME = "peer-env"
 PROTOCOL = "peer-env/1"
 SCHEMA_VERSION = 1
@@ -152,6 +157,9 @@ def run_timeout(value: str | float) -> float:
 
 
 def private_directory(directory: Path) -> None:
+    if os.name == "nt":
+        windows.private_directory(directory)
+        return
     if directory.is_symlink():
         raise Refused(f"symlinked state directory: {directory}")
     if not directory.exists():
@@ -167,6 +175,8 @@ def private_directory(directory: Path) -> None:
 
 
 def capture(argv: list[str], *, timeout: float, input_text: str | None = None, **kwargs) -> subprocess.CompletedProcess[str]:
+    if os.name == "nt":
+        return windows.capture(argv, timeout=timeout, input_text=input_text, **kwargs)
     process = subprocess.Popen(argv, start_new_session=True, **kwargs)
     try:
         output, error = process.communicate(input_text, timeout=timeout)
@@ -269,7 +279,7 @@ def config_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path
 def state_dir(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
     base = environ.get("XDG_STATE_HOME") if os.name != "nt" else None
     root = Path(base) if base else home_dir(environ) / ".local" / "state"
-    return root.resolve() / "dotfiles" / "peer-env"
+    return (root if os.name == "nt" else root.resolve()) / "dotfiles" / "peer-env"
 
 
 def cache_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
@@ -277,7 +287,7 @@ def cache_path(environ: dict[str, str] | os._Environ[str] = os.environ) -> Path:
 
 
 def expand_user_path(value: str, environ: dict[str, str] | os._Environ[str]) -> str:
-    if value == "~" or value.startswith("~/"):
+    if value == "~" or value.startswith("~/") or (os.name == "nt" and value.startswith("~\\")):
         return str(home_dir(environ)) + value[1:]
     return value
 
@@ -433,6 +443,8 @@ def ssh_options(
     ]
     if peer.identity_file:
         options += ["-o", "IdentitiesOnly=yes", "-i", expand_user_path(peer.identity_file, environ)]
+    if os.name == "nt":
+        options += ["-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
     path = control_path()
     if path is not None:
         options += [
@@ -465,7 +477,7 @@ def ssh_argv(
     connect_timeout: int | None = None,
 ) -> list[str]:
     return [
-        "ssh",
+        windows.ssh_executable(environ) if os.name == "nt" else "ssh",
         "-T",
         *ssh_options(peer, environ, connect_timeout=connect_timeout),
         "--",
@@ -513,6 +525,12 @@ def ssh_stream(
     argv = ssh_argv(peer, request, environ)
     sys.stdout.flush()
     sys.stderr.flush()
+    if os.name == "nt":
+        try:
+            return capture(argv, env=dict(environ), stdin=subprocess.DEVNULL, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            print(f"{SCRIPT_NAME}: timed out after {int(timeout)}s on {peer.name}", file=sys.stderr)
+            return EXIT_TIMEOUT
     process = subprocess.Popen(argv, env=dict(environ), stdin=subprocess.DEVNULL, start_new_session=True)
     try:
         return process.wait(timeout=timeout)
@@ -636,9 +654,28 @@ def probe_all(
 ) -> dict[str, ProbeResult]:
     if not peers:
         return {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(peers)) as pool:
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(peers))
+    try:
         futures = {pool.submit(probe_peer, peer, environ, connect_timeout): peer for peer in peers}
-        results = {futures[future].name: future.result() for future in futures}
+        if os.name == "nt":
+            results = {}
+            pending = set(futures)
+            while pending:
+                done, pending = concurrent.futures.wait(
+                    pending, timeout=0.05, return_when=concurrent.futures.FIRST_COMPLETED
+                )
+                for future in done:
+                    results[futures[future].name] = future.result()
+        else:
+            results = {futures[future].name: future.result() for future in futures}
+    except BaseException:
+        if os.name == "nt":
+            windows.CANCEL.set()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+        if os.name == "nt":
+            windows.CANCEL.clear()
     return {name: results[name] for name in sorted(results)}
 
 
@@ -649,8 +686,12 @@ def load_cache(
 ) -> tuple[dict[str, ProbeResult], float, dict] | None:
     path = cache_path(environ)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        payload = json.loads(windows.read_private(path) if os.name == "nt" else path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return None
+    except OSError:
+        if os.name == "nt":
+            raise
         return None
     if not isinstance(payload, dict) or payload.get("cache_version") != CACHE_VERSION:
         return None
@@ -659,13 +700,14 @@ def load_cache(
     if payload.get("config_fingerprint") != config.fingerprint:
         return None
     checked_at = payload.get("checked_at")
-    if not isinstance(checked_at, (int, float)) or time.time() - checked_at >= ttl:
+    if (not isinstance(checked_at, (int, float)) or isinstance(checked_at, bool)
+            or not math.isfinite(checked_at) or not 0 <= time.time() - checked_at < ttl):
         return None
     try:
         results = {
             name: ProbeResult.from_json(entry) for name, entry in payload.get("peers", {}).items()
         }
-    except TypeError:
+    except (TypeError, AttributeError):
         return None
     return results, float(checked_at), payload.get("agent", {})
 
@@ -688,6 +730,9 @@ def save_cache(
         "peers": {name: result.to_json() for name, result in results.items()},
         "agent": agent or {},
     }
+    if os.name == "nt":
+        windows.atomic_write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return
     handle = tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8")
     with handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
@@ -763,8 +808,9 @@ def git(
     deadline = LOCAL_DEADLINE.get()
     if deadline is not None:
         timeout = min(timeout, max(0.001, deadline - time.monotonic()))
+    executable = windows.git_executable(env if env is not None else os.environ) if os.name == "nt" else "git"
     result = capture(
-        ["git", "-C", str(root), *args],
+        [executable, "-C", str(root), *args],
         env=env,
         stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
         input_text=stdin_text,
@@ -809,7 +855,9 @@ def snapshot_tree(root: Path, environ: dict[str, str] | os._Environ[str], *, tra
                 "refusing to ship untracked files that look like secrets:\n  "
                 f"{listing}\nignore them, remove them, or pass --tracked-only"
             )
-    with tempfile.TemporaryDirectory(prefix="peer-env-index-") as temp:
+    temporary = (windows.private_tempdir(state_dir(environ)) if os.name == "nt"
+                 else tempfile.TemporaryDirectory(prefix="peer-env-index-"))
+    with temporary as temp:
         env = dict(base_env)
         env["GIT_INDEX_FILE"] = str(Path(temp) / "index")
         env.update(SNAPSHOT_IDENTITY)
@@ -848,7 +896,16 @@ def publish(
     environ: dict[str, str] | os._Environ[str],
 ) -> None:
     env = dict(environ)
-    env["GIT_SSH_COMMAND"] = shlex.join(["ssh", *ssh_options(peer, environ)])
+    ssh = windows.ssh_executable(environ) if os.name == "nt" else "ssh"
+    options = ssh_options(peer, environ)
+    if os.name == "nt":
+        ssh = ssh.replace("\\", "/")
+        env["MSYS_NO_PATHCONV"] = "1"
+        env["MSYS2_ARG_CONV_EXCL"] = "*"
+        options = [item.replace("\\", "/") if index and options[index - 1] == "-i" else item
+                   for index, item in enumerate(options)]
+    env["GIT_SSH_COMMAND"] = shlex.join([ssh, *options])
+    env["GIT_SSH_VARIANT"] = "ssh"
     env["GIT_TERMINAL_PROMPT"] = "0"
     receive_pack = f"{remote_helper(peer)} serve {PROTOCOL} receive-pack"
     result = git(
@@ -1049,7 +1106,7 @@ def _run_on_peers(
                 try:
                     remote_request(peer, [PROTOCOL, "remove", slug, sha], environ,
                                    timeout=CLEANUP_TIMEOUT, action="cleanup")
-                except (ConfigError, PeerUnavailable, PeerBusy) as error:
+                except (ConfigError, PeerUnavailable, PeerBusy, OSError) as error:
                     emit(f"{peer.name}: cleanup incomplete for {slug}: {error}")
                     if code == EXIT_OK:
                         code = EXIT_FAILED
@@ -1100,7 +1157,10 @@ def cmd_clean(args: argparse.Namespace, environ: dict[str, str] | os._Environ[st
             emit(str(error))
             exit_code = EXIT_FAILED
     try:
-        cache_path(environ).unlink()
+        if os.name == "nt":
+            windows.unlink_private(cache_path(environ))
+        else:
+            cache_path(environ).unlink()
     except FileNotFoundError:
         pass
     return exit_code
@@ -1951,14 +2011,20 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     environ = os.environ
     if argv and argv[0] == "serve":
+        if os.name == "nt":
+            emit("native Windows serving is not supported")
+            return EXIT_CONFIG
         return serve_main(argv[1:], environ)
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         return args.func(args, environ)
-    except ConfigError as error:
+    except (ConfigError, *WINDOWS_REFUSALS) as error:
         emit(str(error))
         return EXIT_CONFIG
+    except OSError as error:
+        emit(str(error))
+        return EXIT_FAILED
     except PeerUnavailable as error:
         emit(str(error))
         return EXIT_UNREACHABLE

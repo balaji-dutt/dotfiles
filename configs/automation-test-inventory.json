@@ -158,11 +158,13 @@
         "test_paths": ["tests/test_cz_audit.py"],
         "behavior_requirements": [
           {"id": "failure-ansible-task-syntax", "kind": "failure", "description": "Block task syntax failures and unavailable validators in normal and strict modes.", "status": "covered"},
-          {"id": "failure-blocking-diagnostics", "kind": "failure", "description": "Return nonzero and preserve actionable ERROR diagnostics for required audit failures.", "status": "covered"},
+           {"id": "failure-blocking-diagnostics", "kind": "failure", "description": "Return nonzero and preserve actionable ERROR diagnostics for required audit failures.", "status": "covered"},
+           {"id": "failure-wsl-host-parser-fallback", "kind": "failure", "description": "Bound WSL host PowerShell launch probes to 10 seconds, select the container fallback when the host cannot launch, and preserve real host and fallback parser failures.", "status": "covered"},
           {"id": "safety-ansible-task-wrapper", "kind": "safety", "description": "Use syntax-only static imports without executing tasks or changing sources, and clean per-invocation wrappers on success and failure.", "status": "covered"},
           {"id": "safety-dry-run-boundary", "kind": "safety", "description": "Keep managed-target validation dry-run only and avoid applying repository or host changes.", "status": "covered"},
           {"id": "success-ansible-task-dispatch", "kind": "success", "description": "Wrap ansible/tasks YAML for local and container syntax checks on both entrypoints while checking playbooks directly and linting original inputs.", "status": "covered"},
-          {"id": "success-cross-platform-dispatch", "kind": "success", "description": "Dispatch managed, repository-only, template, shell, PowerShell, and config checks consistently.", "status": "covered"}
+          {"id": "success-cross-platform-dispatch", "kind": "success", "description": "Dispatch managed, repository-only, template, shell, PowerShell, and config checks consistently.", "status": "covered"},
+          {"id": "success-windows-peer-reminder", "kind": "success", "description": "Emit executable PowerShell Python invocations for reachable restricted peers and verbatim unverified statements after successful eligible checks, preserving exemptions, disable controls, missing-config silence, and nonblocking probe failures.", "status": "covered"}
         ]
       },
       "rationale": "Isolated POSIX and PowerShell fixtures cover classification, worktree routing, template and parser failures, advisory controls, and the managed-target dry-run boundary."
@@ -798,17 +800,17 @@
     {
       "id": "peer-env",
       "classification": "owned",
-      "paths": ["assets/peer-env"],
+      "paths": ["assets/peer-env", "assets/peer_env_windows.py"],
       "owner": {"kind": "repository", "name": "cross-platform peer verification helper"},
       "languages": ["python", "shell"],
-      "platforms": ["linux", "macos", "wsl2"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
       "risk": "critical",
       "side_effects": ["filesystem", "git", "network", "process"],
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {
         "status": "covered",
-        "work_item": "dots-egir",
-        "test_paths": ["tests/test_peer_env.py", "tests/test_test_runner.py"],
+        "work_item": "dots-c2my",
+        "test_paths": ["tests/test_peer_env.py", "tests/test_peer_env_windows.py", "tests/test_test_runner.py"],
         "behavior_requirements": [
           {
             "id": "failure-lifecycle-deadline-and-cancellation",
@@ -865,6 +867,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-windows-private-state-and-contained-children",
+            "kind": "safety",
+            "description": "Exercise native Windows protected DACL creation, unsafe cache reuse and ancestor ACL refusals, junctions, hard links, atomic replacement failure, and gated Job Object child-tree shutdown on success, timeout, and concurrent probe cancellation.",
+            "status": "covered"
+          },
+          {
             "id": "safety-writes-confined-to-worktree-and-state",
             "kind": "safety",
             "description": "Confine helper writes to unique detached worktrees, peer-env refs, and private state. Remove only canonical registered owned worktrees with matching SHAs under locks, preserving busy and unrelated worktrees and ordinary branches; entrypoints run from the snapshot and are not confined.",
@@ -881,10 +889,16 @@
             "kind": "success",
             "description": "Probe every other-platform peer concurrently with BatchMode and a connect timeout, cache results for the TTL, and honour --fresh and --ttl.",
             "status": "covered"
+          },
+          {
+            "id": "success-windows-client-transport-and-snapshot",
+            "kind": "success",
+            "description": "Use the explicit native Windows OpenSSH binary for direct requests and Git shell commands, preserve identity path quoting and snapshot HEAD/index/modes, and keep Windows serving and via hops refused.",
+            "status": "covered"
           }
         ]
       },
-      "rationale": "The helper lets an agent execute on a second machine, so the ADR 0002 boundary claims (forced-command verbs only, scrubbed environment, confined refs and serve's own writes, no shell) are proven by tests that drive the real client and serve code through a fake ssh against a local clone."
+      "rationale": "POSIX tests drive the real restricted client and serve code through fake SSH against a local clone. Native Windows tests exercise protected DACLs, unsafe state refusals, Job Object shutdown, cancellation, fixed OpenSSH selection, quoting, and temporary-index snapshots without live credentials. Windows coverage is client-only; Windows serving and via hops remain refused. Live destination readiness and remote cleanup require separate peer verification."
     },
     {
       "id": "provenance-policy",
