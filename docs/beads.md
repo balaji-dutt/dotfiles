@@ -20,6 +20,13 @@ database (`hliac`) with its own remote — see `docs/devcontainers.md`.
   value and pins it as `dolt.port` in gitignored `.beads/config.local.yaml`.
   `bd` records the active port in `.beads/dolt-server.port` in both cases.
 
+  Fresh pins use `20000 + (checksum % 12768)` to stay in `20000–32767`.
+  This stays below Windows' default dynamic range and the WinNAT reservation
+  blocks observed at or above `32768`, as well as Linux's usual ephemeral-range
+  floor of `32768`. Check the host's actual Windows exclusions with
+  `netsh int ipv4 show excludedportrange protocol=tcp` from native Windows;
+  other exclusions can occur below that boundary.
+
   `.envrc` writes the pin only when the key is absent, so a fresh clone
   self-heals on the first `cd` and an existing pin is never rewritten. It does
   not export the value as `BEADS_DOLT_SERVER_PORT`: newer `bd` treats that

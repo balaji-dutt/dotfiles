@@ -39,12 +39,15 @@ class EnvrcHarness(unittest.TestCase):
         wsl_distro: str | None = None,
         port: str | None = None,
         cwd: Path | None = None,
+        checksum: int | None = None,
     ) -> str:
         env = {"PATH": os.environ["PATH"]}
         if wsl_distro is not None:
             env["WSL_DISTRO_NAME"] = wsl_distro
         if port is not None:
             env["BEADS_DOLT_SERVER_PORT"] = port
+        if checksum is not None:
+            env["ENVRC_TEST_CHECKSUM"] = str(checksum)
 
         result = subprocess.run(
             [
@@ -52,6 +55,12 @@ class EnvrcHarness(unittest.TestCase):
                 "-c",
                 """
                 PATH_add() { :; }
+                if [ -n "${ENVRC_TEST_CHECKSUM:-}" ]; then
+                  cksum() {
+                    cat >/dev/null
+                    printf '%s 0\n' "$ENVRC_TEST_CHECKSUM"
+                  }
+                fi
                 source "$1"
                 if [ "${BEADS_DOLT_SERVER_PORT+x}" = x ]; then
                   printf 'set:%s\n' "$BEADS_DOLT_SERVER_PORT"
@@ -117,7 +126,18 @@ class EnvrcDoltPortPinTests(EnvrcHarness):
             f"dolt.port: {port}\n",
         )
         self.assertGreaterEqual(port, 20000)
-        self.assertLessEqual(port, 39999)
+        self.assertLessEqual(port, 32767)
+
+    def test_pin_checksum_boundaries(self) -> None:
+        (self.workdir / ".beads").mkdir()
+
+        for checksum, expected in ((0, 20000), (12767, 32767), (12768, 20000), (19999, 27231)):
+            with self.subTest(checksum=checksum):
+                self.local_config.unlink(missing_ok=True)
+
+                self.source_envrc(wsl_distro="Debian", checksum=checksum)
+
+                self.assertEqual(self.pinned_port(), expected)
 
     def test_pin_is_stable_for_a_checkout(self) -> None:
         (self.workdir / ".beads").mkdir()
@@ -130,11 +150,13 @@ class EnvrcDoltPortPinTests(EnvrcHarness):
         self.assertEqual(self.pinned_port(), first)
 
     def test_existing_pin_is_kept(self) -> None:
-        original = 'sync:\n  remote: "git+ssh://example"\ndolt.port: 31234\n'
-        self.write_local_config(original)
+        for port in (31234, 36647):
+            with self.subTest(port=port):
+                original = f'sync:\n  remote: "git+ssh://example"\ndolt.port: {port}\n'
+                self.write_local_config(original)
 
-        self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
-        self.assertEqual(self.local_config.read_text(encoding="utf-8"), original)
+                self.assertEqual(self.source_envrc(wsl_distro="Debian"), "unset")
+                self.assertEqual(self.local_config.read_text(encoding="utf-8"), original)
 
     def test_pin_is_not_duplicated_on_repeated_evaluation(self) -> None:
         (self.workdir / ".beads").mkdir()
