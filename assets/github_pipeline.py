@@ -267,13 +267,19 @@ def check_workflows(repo_root: Path, policy: GitHubPolicy, sha: str, source_ref:
             run_identity(current, policy, repo_id, workflow_id, path, sha, source_ref) != (run_id, attempt)
             or latest is None
             or run_identity(latest, policy, repo_id, workflow_id, path, sha, source_ref) != (run_id, attempt)
-            or (current["status"], current["conclusion"]) != (pinned["status"], pinned["conclusion"])
-            or (latest["status"], latest["conclusion"]) != (pinned["status"], pinned["conclusion"])
         ):
+            raise PipelineError("GitHub evidence changed during inspection; check again")
+        state_changed = (
+            (current["status"], current["conclusion"]) != (pinned["status"], pinned["conclusion"])
+            or (latest["status"], latest["conclusion"]) != (pinned["status"], pinned["conclusion"])
+        )
+        if state_changed and state(pinned) != "retryable":
             raise PipelineError("GitHub evidence changed during inspection; check again")
         checks.append({"workflow_id": workflow_id, "path": path, "run_id": run_id,
                        "run_attempt": attempt, "outcome": state(pinned),
                        "status": pinned["status"], "conclusion": pinned["conclusion"], "jobs": diagnostics})
+        if state_changed:
+            checks[-1]["detail"] = "run state changed during inspection"
     if len(checks) > 1:
         for item in checks:
             latest = newest_run(client, repo_id, item["workflow_id"], item["path"], sha, source_ref)
@@ -283,9 +289,12 @@ def check_workflows(repo_root: Path, policy: GitHubPolicy, sha: str, source_ref:
             elif (
                 latest is None
                 or run_identity(latest, policy, repo_id, item["workflow_id"], item["path"], sha, source_ref) != (item["run_id"], item["run_attempt"])
-                or (latest["status"], latest["conclusion"]) != (item["status"], item["conclusion"])
             ):
                 raise PipelineError("GitHub evidence changed across required workflows; check again")
+            elif (latest["status"], latest["conclusion"]) != (item["status"], item["conclusion"]):
+                if state(item) != "retryable":
+                    raise PipelineError("GitHub evidence changed across required workflows; check again")
+                item["detail"] = "run state changed across required workflows"
     outcomes = {item["outcome"] for item in checks}
     outcome = "terminal" if "terminal" in outcomes else "retryable" if "retryable" in outcomes else "success"
     return {"schema_version": 2, "provider": "github", "host": policy.host,
