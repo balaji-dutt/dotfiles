@@ -869,12 +869,12 @@ class TestRunnerTests(unittest.TestCase):
     def test_windows_runtime_lookup_preserves_path_without_discovery(self) -> None:
         with mock.patch.object(RUN_TESTS, "IS_WINDOWS", True), \
                 mock.patch.object(RUN_TESTS.shutil, "which") as which:
-            for tool in ("node", "jq"):
+            for tool in ("node", "jq", "bd"):
                 self.assertEqual(RUN_TESTS._runtime_lookup_path(tool, "inherited", self.fixture.root, REPO_ROOT), "inherited")
         which.assert_not_called()
 
     def test_absent_runtime_remains_optional_unless_required(self) -> None:
-        for tool in ("node", "jq"):
+        for tool in ("node", "jq", "bd"):
             with self.subTest(tool=tool):
                 self.fixture.capabilities = {tool: {"command": tool}}
                 self.fixture.steps[0]["requires"] = [tool]
@@ -905,6 +905,7 @@ class TestRunnerTests(unittest.TestCase):
         mise.write_text(
             f"#!{sys.executable}\nimport json, os, pathlib, sys\n"
             f"if pathlib.Path(sys.argv[0]).name == {tool!r}: raise SystemExit(89)\n"
+            "if sys.argv[1:] == ['--version']: print('mise fixture'); raise SystemExit(0)\n"
             f"assert sys.argv[1:] == ['which', {tool!r}]\n"
             f"assert os.environ['HOME'] == {str(host)!r}\n"
             f"assert pathlib.Path.cwd() == pathlib.Path({str(self.fixture.root.resolve())!r})\n"
@@ -915,6 +916,8 @@ class TestRunnerTests(unittest.TestCase):
         mise.chmod(0o755)
         (shim_bin / tool).symlink_to(mise)
         for name in ("bd", "dolt"):
+            if name == tool:
+                continue
             sibling = install_bin / name
             sibling.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             sibling.chmod(0o755)
@@ -964,7 +967,7 @@ class TestRunnerTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
     def test_runtime_resolution_failures_retain_shim_with_bounded_diagnostic(self) -> None:
-        for tool in ("node", "jq"):
+        for tool in ("node", "jq", "bd"):
             with self.subTest(tool=tool):
                 self._assert_runtime_resolution_failures(tool)
 
@@ -1030,7 +1033,7 @@ class TestRunnerTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
     def test_ordinary_or_absent_runtime_does_not_invoke_mise(self) -> None:
-        for tool in ("node", "jq"):
+        for tool in ("node", "jq", "bd"):
             with self.subTest(tool=tool):
                 self._assert_ordinary_or_absent_runtime(tool)
 
@@ -1072,6 +1075,117 @@ class TestRunnerTests(unittest.TestCase):
                                      (Path(fixtures[tool][0]["PATH"]) / "mise") if tool == failed_tool
                                      else fixtures[tool][1])
 
+    @unittest.skipIf(os.name == "nt", "POSIX symlink dispatch fixture")
+    def test_capability_preserves_absolute_invocation_path(self) -> None:
+        shim_bin = self.fixture.root / "command shims with spaces"
+        shim_bin.mkdir()
+        dispatcher = shim_bin / "dispatcher"
+        dispatcher.write_text(
+            f"#!{sys.executable}\nimport pathlib, sys\n"
+            "assert pathlib.Path(sys.argv[0]).name == 'tool'\n"
+            "assert sys.argv[1:] == ['--version']\n",
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o755)
+        invocation = shim_bin / "tool"
+        invocation.symlink_to(dispatcher)
+        nested = shim_bin / "nested"
+        nested.mkdir()
+        alias = self.fixture.root / "alias"
+        alias.symlink_to(nested, target_is_directory=True)
+        for lookup in (str(shim_bin), os.path.relpath(shim_bin), str(alias / "..")):
+            for probe in ((), ("tool", "--version")):
+                with self.subTest(lookup=lookup, probe=probe):
+                    reason, selected = RUN_TESTS.capability_reason(
+                        RUN_TESTS.Capability("tool", ("tool",), probe),
+                        env=dict(os.environ), repo_root=self.fixture.root,
+                        lookup_path=lookup,
+                    )
+                    self.assertIsNone(reason)
+                    self.assertEqual(selected, str((Path(lookup) / "tool").absolute()))
+                    subprocess.run([selected, "--version"], cwd=self.fixture.root, check=True)
+
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_mise_beads_handoff_preserves_isolation_and_guards(self) -> None:
+        env, runtime, host = self._mise_runtime_fixture("bd")
+        runtime.write_text(
+            f"#!{sys.executable}\nimport json, os, sys\n"
+            "assert sys.argv[1:] in (['--version'], ['init'])\n"
+            "print(json.dumps(dict(os.environ)))\n",
+            encoding="utf-8",
+        )
+        self.fixture.write_script(
+            "pass.py",
+            "import json, os, pathlib, shutil, subprocess\n"
+            "bd = os.environ['DOTFILES_TEST_BD']\n"
+            "assert pathlib.Path(bd).is_absolute() and pathlib.Path(bd).name == 'bd'\n"
+            f"assert pathlib.Path(bd).resolve() == pathlib.Path({str(runtime)!r})\n"
+            "assert set(pathlib.Path(bd).parent.iterdir()) == {pathlib.Path(bd)}\n"
+            "project = pathlib.Path(os.environ['TMPDIR']) / 'project'\n"
+            "project.mkdir()\n"
+            "child = json.loads(subprocess.check_output([bd, 'init'], cwd=project, text=True))\n"
+            "assert child['HOME'] == os.environ['HOME']\n"
+            "for key in ('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME'):\n"
+            "    assert pathlib.Path(child[key]).is_relative_to(pathlib.Path(child['HOME']))\n"
+            "    assert pathlib.Path(child[key]).is_dir()\n"
+            "assert not any(key.startswith('MISE_') for key in child)\n"
+            "assert 'FIXTURE_SECRET_TOKEN' not in child\n"
+            "assert pathlib.Path(os.environ['PATH'].split(os.pathsep)[0]).name == 'guard-bin'\n"
+            "for command in ('bd', 'dolt'):\n"
+            "    assert 'guard-bin' in shutil.which(command)\n"
+            "    assert subprocess.run([command], capture_output=True).returncode == 97\n",
+        )
+        self.fixture.write_script(
+            "other.py",
+            "import os, subprocess\n"
+            "assert 'DOTFILES_TEST_BD' not in os.environ\n"
+            "for command in ('bd', 'dolt'):\n"
+            "    assert subprocess.run([command], capture_output=True).returncode == 97\n",
+        )
+        self.fixture.capabilities = {"bd": {"command": "bd", "probe": ["bd", "--version"]}}
+        self.fixture.steps = [
+            self.fixture.step("beads-isolated-worktree", ["fast"], "pass.py", requires=["bd"]),
+            self.fixture.step("other", ["fast"], "other.py", requires=["bd"]),
+        ]
+        self.fixture.write_registry()
+        result = subprocess.run(
+            self.fixture.command("--require-capability", "bd"), env=env,
+            cwd=self.fixture.root.parent, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS beads-isolated-worktree", result.stdout)
+        self.assertIn("PASS other", result.stdout)
+        discovery = json.loads((host / "discovery.json").read_text(encoding="utf-8"))
+        self.assertEqual(discovery["HOME"], str(host))
+        self.assertEqual(discovery["XDG_STATE_HOME"], str(host))
+        self.assertEqual(discovery["FIXTURE_SECRET_TOKEN"], "host-only")
+        self.assertEqual((host / "trust-state").read_text(encoding="utf-8"), "unchanged")
+
+    @unittest.skipIf(os.name == "nt", "POSIX mise symlink fixture")
+    def test_failed_mise_beads_discovery_probes_shim_not_mise(self) -> None:
+        env, _, _ = self._mise_runtime_fixture("bd")
+        mise = Path(env["PATH"]) / "mise"
+        mise.write_text(
+            f"#!{sys.executable}\nimport pathlib, sys\n"
+            "if pathlib.Path(sys.argv[0]).name == 'bd': raise SystemExit(89)\n"
+            "if sys.argv[1:] == ['--version']: raise SystemExit(0)\n"
+            "raise SystemExit(7)\n",
+            encoding="utf-8",
+        )
+        self.fixture.capabilities = {"bd": {"command": "bd", "probe": ["bd", "--version"]}}
+        self.fixture.steps = [
+            self.fixture.step("beads-isolated-worktree", ["fast"], "pass.py", requires=["bd"])
+        ]
+        self.fixture.write_registry()
+        for required in (False, True):
+            with self.subTest(required=required):
+                result = self.fixture.run(*(["--require-capability", "bd"] if required else []), env=env)
+                self.assertEqual(result.returncode, 1 if required else 0, result.stdout + result.stderr)
+                label = "FAIL" if required else "SKIP"
+                self.assertIn(f"{label} beads-isolated-worktree: capability probe failed for bd (exit 89)", result.stdout)
+                self.assertNotIn("RUN  beads-isolated-worktree", result.stdout)
+                self.assertIn("bd shim resolution failed", result.stderr)
+
     @unittest.skipIf(os.name == "nt", "POSIX executable fixture")
     def test_isolated_beads_step_receives_real_executable_without_unblocking_path(self) -> None:
         fake_bin = self.fixture.root / "fake-bin"
@@ -1102,7 +1216,7 @@ class TestRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS beads-isolated-worktree", result.stdout)
         actual = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(actual["bd"], str(fake_bd.resolve()))
+        self.assertEqual(actual["bd"], str(fake_bd.absolute()))
         self.assertEqual(actual["bd_exit"], 0)
         self.assertEqual(actual["guard_exit"], 97)
         self.assertNotEqual(actual["guard"], actual["bd"])
