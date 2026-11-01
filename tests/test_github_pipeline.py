@@ -115,6 +115,110 @@ class GitHubPipelineTests(unittest.TestCase):
                 with self.assertRaises(policy.PipelineError):
                     self.check()
 
+    def test_active_state_movement_is_retryable(self):
+        prefix = "repos/sample/project/actions/runs/41"
+        for initial, later, conclusion in (("queued", "in_progress", None), ("in_progress", "completed", "success"), ("in_progress", "completed", "failure")):
+            for endpoint in ("current", "latest", "both"):
+                with self.subTest(initial=initial, later=later, conclusion=conclusion, endpoint=endpoint):
+                    pinned = run_data(status=initial, conclusion=None)
+                    advanced = run_data(status=later, conclusion=conclusion)
+                    self.responses = responses_for(pinned)
+                    if endpoint in {"current", "both"}:
+                        self.responses[prefix] = advanced
+                    if endpoint in {"latest", "both"}:
+                        self.responses[runs_endpoint(pinned)] = [
+                            {"total_count": 1, "workflow_runs": [pinned]},
+                            {"total_count": 1, "workflow_runs": [advanced]},
+                        ]
+                    self.log_path.unlink(missing_ok=True)
+                    result = self.check(expected_runs=[{"workflow_id": 17, "run_id": 41, "run_attempt": 1}])
+                    self.assertEqual(result["outcome"], "retryable")
+                    item = result["workflows"][0]
+                    self.assertEqual(item["outcome"], "retryable")
+                    self.assertEqual((item["status"], item["conclusion"]), (initial, None))
+                    self.assertEqual((item["run_id"], item["run_attempt"]), (41, 1))
+                    self.assertEqual(item["detail"], "run state changed during inspection")
+                    self.assertEqual(item["jobs"][0]["id"], 51)
+                    self.responses = responses_for(advanced)
+                    self.log_path.unlink(missing_ok=True)
+                    self.assertEqual(self.check()["outcome"], github.state(advanced))
+
+    def test_state_movement_does_not_hide_invalid_evidence(self):
+        prefix = "repos/sample/project/actions/runs/41"
+        for initial, initial_conclusion in (("in_progress", None), ("completed", "success")):
+            for endpoint in ("current", "latest"):
+                cases = [{"run_id": 43}, {"attempt": 2}, {"status": "invalid"}, {"status": "completed", "conclusion": None}]
+                if endpoint == "latest":
+                    cases.append({"missing": True})
+                if initial == "completed":
+                    cases.extend([{"status": "completed", "conclusion": "failure"}, {"status": "queued", "conclusion": None}])
+                for changes in cases:
+                    with self.subTest(initial=initial, endpoint=endpoint, changes=changes):
+                        pinned = run_data(status=initial, conclusion=initial_conclusion)
+                        self.responses = responses_for(pinned)
+                        advanced = run_data()
+                        self.responses[prefix] = advanced
+                        self.responses[runs_endpoint(pinned)] = [
+                            {"total_count": 1, "workflow_runs": [pinned]},
+                            {"total_count": 1, "workflow_runs": [advanced]},
+                        ]
+                        if endpoint == "current":
+                            self.responses[prefix] = run_data(**changes)
+                        else:
+                            missing = changes == {"missing": True}
+                            self.responses[runs_endpoint(pinned)][1] = {
+                                "total_count": 0 if missing else 1,
+                                "workflow_runs": [] if missing else [run_data(**changes)],
+                            }
+                        self.log_path.unlink(missing_ok=True)
+                        with self.assertRaises(policy.PipelineError):
+                            self.check()
+
+    def test_cross_workflow_state_movement(self):
+        write_json(self.policy_path, policy_data(workflows=[17, 18]))
+        second = run_data(workflow=18, run_id=42, path=".github/workflows/package.yml")
+        for initial, initial_conclusion in (("queued", None), ("in_progress", None), ("completed", "success")):
+            for changes in ({"status": "in_progress", "conclusion": None}, {"conclusion": "success"}, {"conclusion": "failure"}, {"run_id": 43}, {"attempt": 2}, {"status": "invalid"}, {"missing": True}, {"appeared": True}):
+                with self.subTest(initial=initial, changes=changes):
+                    pinned = run_data(status=initial, conclusion=initial_conclusion)
+                    self.responses = {**responses_for(pinned), **responses_for(second)}
+                    missing = changes == {"missing": True}
+                    appeared = changes == {"appeared": True}
+                    advanced = run_data(**changes) if not (missing or appeared) else run_data()
+                    listing = {"total_count": 1, "workflow_runs": [pinned]}
+                    self.responses[runs_endpoint(pinned)] = [
+                        {"total_count": 0, "workflow_runs": []} if appeared else listing,
+                        {"total_count": 1, "workflow_runs": [advanced]} if appeared else listing,
+                        {"total_count": 0 if missing else 1, "workflow_runs": [] if missing else [advanced]},
+                    ]
+                    self.log_path.unlink(missing_ok=True)
+                    if missing or appeared or "run_id" in changes or "attempt" in changes or changes.get("status") == "invalid" or (initial == "completed" and advanced != pinned):
+                        with self.assertRaises(policy.PipelineError):
+                            self.check()
+                    else:
+                        result = self.check()
+                        self.assertEqual(result["outcome"], "success" if initial == "completed" else "retryable")
+                        item = result["workflows"][0]
+                        self.assertEqual((item["status"], item["conclusion"]), (initial, initial_conclusion))
+                        if advanced != pinned:
+                            self.assertEqual(item["detail"], "run state changed across required workflows")
+
+    def test_retryable_workflow_does_not_skip_later_validation(self):
+        write_json(self.policy_path, policy_data(workflows=[17, 18]))
+        pinned = run_data(status="in_progress", conclusion=None)
+        second = run_data(workflow=18, run_id=42, path=".github/workflows/package.yml")
+        self.responses = {**responses_for(pinned), **responses_for(second)}
+        for run, advanced in ((pinned, run_data()), (second, dict(second, run_attempt=2))):
+            listing = {"total_count": 1, "workflow_runs": [run]}
+            self.responses[runs_endpoint(run)] = [listing, listing, {"total_count": 1, "workflow_runs": [advanced]}]
+        with self.assertRaisesRegex(policy.PipelineError, "changed across required workflows"):
+            self.check()
+        self.responses[runs_endpoint(second)] = {"total_count": 1, "workflow_runs": [dict(second, conclusion="failure")]}
+        self.responses["repos/sample/project/actions/runs/42"] = dict(second, conclusion="failure")
+        self.responses["repos/sample/project/actions/runs/42/attempts/1"] = dict(second, conclusion="failure")
+        self.log_path.unlink(missing_ok=True)
+        self.assertEqual(self.check()["outcome"], "terminal")
+
     def test_disabled_duplicate_and_mismatched_workflows(self):
         for mode in ("disabled", "mismatch", "duplicate"):
             with self.subTest(mode=mode):

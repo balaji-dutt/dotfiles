@@ -513,8 +513,9 @@
         "work_item": "dots-tk8b",
         "test_paths": ["tests/test_github_pipeline.py", "tests/test_github_worktree_merge.py", "tests/test_pipeline_evidence.py", "tests/test_pipeline_guard.py"],
         "behavior_requirements": [
-          {"id": "failure-identity-policy-and-records", "kind": "failure", "description": "Fail closed for invalid or conflicting policy, wrong repository/ref/SHA/workflow, superseded attempts, unavailable APIs, corrupt or stale receipts, and unsafe store ownership.", "status": "covered"},
+          {"id": "failure-identity-policy-and-records", "kind": "failure", "description": "Fail closed for invalid or conflicting policy, wrong repository/ref/SHA/workflow, superseded runs or attempts even during active-state movement, changed completed snapshots, unavailable APIs, corrupt or stale receipts, and unsafe store ownership.", "status": "covered"},
           {"id": "safety-auth-evidence-and-pruning", "kind": "safety", "description": "Isolate account pins without exposing tokens or switching global auth; remotely revalidate receipts; never publish from pre-push; persist before ref cleanup and prune only explicitly with fresh remote ancestry and concurrency checks.", "status": "covered"},
+          {"id": "success-active-state-polling", "kind": "success", "description": "Keep same-identity active snapshots retryable when state changes during inspection or cross-workflow rechecks, validate every required workflow, and persist success only after a stable poll.", "status": "covered"},
           {"id": "success-workflow-owned-landing", "kind": "success", "description": "Accept all selected successful workflow conclusions with dynamic job diagnostics, prepare feature and exact batch-main identities, and share receipts across human and agent worktrees after feature cleanup.", "status": "covered"}
         ]
       },

@@ -47,6 +47,35 @@ class GitHubWorktreeMergeTests(unittest.TestCase):
         self.assertIn("Workflow evidence record", merged.stdout)
         self.assertEqual(list(store.glob(".active-*")), [])
 
+    def test_feature_preparation_polls_after_mid_inspection_completion(self):
+        fixture, api, log = self.fixture()
+        before = fixture.output(fixture.main, "rev-parse", "HEAD")
+        sha = fixture.commit_feature("feature.txt", "feature\n", "feature")
+        completed = run_data(sha=sha, ref="refs/heads/feature")
+        active = dict(completed, status="in_progress", conclusion=None)
+        responses = responses_for(completed)
+        attempt_endpoint = "repos/sample/project/actions/runs/41/attempts/1"
+        responses[attempt_endpoint] = [active, completed]
+        responses[runs_endpoint(completed)] = [
+            {"total_count": 1, "workflow_runs": [active]},
+            {"total_count": 1, "workflow_runs": [completed]},
+        ]
+        write_state(api, responses)
+        prepared = fixture.run_helper(fixture.main_helper, fixture.feature, "prepare-ci", "--poll-interval", "1", "--poll-timeout", "15")
+        self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
+        self.assertIn("Waiting for", prepared.stdout)
+        self.assertIn("PASS feature CI", prepared.stdout)
+        self.assertLess(prepared.stdout.index("attempt 1, retryable"), prepared.stdout.index("attempt 1, success"))
+        calls = [json.loads(line)["argv"] for line in log.read_text().splitlines()]
+        self.assertEqual(sum(attempt_endpoint in call for call in calls), 2)
+        common = Path(fixture.output(fixture.main, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+        receipt = read_json(next((common / "agent-wt-merge/evidence/v1").glob("*.json")))
+        item = receipt["workflows"][0]
+        self.assertEqual((item["run_id"], item["run_attempt"]), (41, 1))
+        self.assertEqual(receipt["sha"], sha)
+        self.assertEqual(fixture.output(fixture.main, "rev-parse", "HEAD"), before)
+        self.assertEqual(fixture.remote_feature_sha(), sha)
+
     def test_main_preparation_reuses_only_reserved_ref_identity(self):
         fixture, api, _ = self.fixture()
         sha = fixture.commit_main("main-change.txt", "batch\n", "batch tip")
