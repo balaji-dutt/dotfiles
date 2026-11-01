@@ -329,6 +329,19 @@
       "rationale": "Offline contract suites cover job dispatch, exact-SHA status reporting, and the fail-closed feature-pipeline guard."
     },
     {
+      "id": "claude-no-email-mod",
+      "classification": "owned",
+      "paths": ["dot_claude/skills/no-email/hooks/**", "dot_claude/skills/no-email/tests/**"],
+      "owner": {"kind": "repository", "name": "Claude Code userEmail context filter, forked from AlexErrant/claude-code-no-email"},
+      "languages": ["typescript"],
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "risk": "medium",
+      "side_effects": ["none"],
+      "test_layers": ["contract", "unit"],
+      "coverage": {"status": "covered", "work_item": "dots-lrhd", "test_paths": ["tests/test_no_email_plugin.py"], "behavior_requirements": []},
+      "rationale": "The contract test pins the manifest, hook module wiring, and userEmail filter. When the Claude Code CLI is present, the suite validates a temporary copy of the plugin and runs its bundled mod tests, which check that userEmail is dropped and the other blocks keep their order."
+    },
+    {
       "id": "claude-review-hooks",
       "classification": "owned",
       "paths": [".claude/hooks/**"],

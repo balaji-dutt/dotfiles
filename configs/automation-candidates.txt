@@ -163,6 +163,8 @@ dot_claude/skills/agent-attestation/lib/shared/source.mjs	script-extension
 dot_claude/skills/agent-attestation/lib/shared/storage.mjs	script-extension
 dot_claude/skills/agent-attestation/lib/transcript.mjs	script-extension
 dot_claude/skills/agent-attestation/scripts/attest.mjs	script-extension
+dot_claude/skills/no-email/hooks/register.ts	script-extension
+dot_claude/skills/no-email/tests/register.test.ts	script-extension
 dot_claude/skills/prompt-evaluator/references/install-promptfoo.ps1	script-extension
 dot_claude/skills/prompt-evaluator/references/install-promptfoo.sh	script-extension,shebang
 dot_claude/skills/unslop-file/scripts/__init__.py	script-extension
@@ -232,6 +234,8 @@ private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/agen
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/agent-attestation/lib/shared/storage.mjs	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/agent-attestation/lib/transcript.mjs	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/agent-attestation/scripts/attest.mjs	script-extension
+private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/no-email/hooks/register.ts	script-extension
+private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/no-email/tests/register.test.ts	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/prompt-evaluator/references/install-promptfoo.ps1	script-extension
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/prompt-evaluator/references/install-promptfoo.sh	script-extension,shebang
 private_Documents/development/container-dotfiles/dotfiles/dot_claude/skills/unslop-file/scripts/__init__.py	script-extension
