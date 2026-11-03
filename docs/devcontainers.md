@@ -73,6 +73,15 @@ uses its npm manager for the Promptfoo runtime manifest. Do not add comments to
 the package list; the installer loop treats each non-blank line as an npm
 package spec.
 
+The list pins global `pnpm` and `markdownlint-cli2` for `postCreate.sh` to
+install. In homelab-IaC, `.opencode/bin/markdownlint-safe.sh` prefers its local
+`.opencode/node_modules/.bin/markdownlint-cli2`, then the global CLI on `PATH`,
+before falling back to `npx`. Keep versions in `npm_packages.txt`; Renovate
+proposes patch, minor, and major updates through the existing container npm
+groups. Source pin changes, including Renovate updates, take effect on the
+next container rebuild after reaching the canonical source mounted by the
+container; they do not update an already-running container.
+
 Promptfoo and its three provider SDKs are grouped into the dedicated
 `~/.local/share/promptfoo-runtime` package root instead of being installed
 globally. `postCreate.sh` copies the devcontainer-owned manifest and lockfile

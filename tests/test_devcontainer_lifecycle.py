@@ -4,6 +4,7 @@ import os
 import base64
 import json
 import re
+import runpy
 import shutil
 import socket
 import stat
@@ -37,6 +38,7 @@ UNSLOP_SKILLS = (
     "unslop-help", "unslop-reasoning", "unslop-review",
 )
 CONTAINER_DOTFILES = REPO_ROOT / "private_Documents/development/container-dotfiles/dotfiles"
+NPM_PACKAGES = RUNTIME_DIR.parent / "configs/npm_packages.txt"
 
 
 def synthetic_agent_key(comment: str = "bitbucket-avggeek-2019", seed: int = 1) -> str:
@@ -959,6 +961,54 @@ retire_mnemo_persistence_link "$6" "$7"
         self.assertNotIn("OPENCODE_PROFILE=new", env_target.read_text())
         self.assertEqual(stat.S_IMODE(env_target.stat().st_mode), 0o600)
         self.assertFalse(mnemo_link.exists())
+
+    def homelab_npm_tool_specs(self) -> list[str]:
+        entries = NPM_PACKAGES.read_text(encoding="utf-8").splitlines()
+        specs = []
+        for name in ("pnpm", "markdownlint-cli2"):
+            matching = [entry for entry in entries if entry.split("@", 1)[0] == name]
+            self.assertEqual(len(matching), 1, (name, matching))
+            self.assertRegex(matching[0], rf"^{re.escape(name)}@\d+\.\d+\.\d+$")
+            specs.append(matching[0])
+        return specs
+
+    def test_homelab_npm_tools_install_globally_without_script_approvals(self) -> None:
+        specs = self.homelab_npm_tool_specs()
+        npm_log = self.fixture.root / "npm-args.jsonl"
+        write_executable(self.fixture.fake_bin / "npm", f"#!{sys.executable}\n"
+                         "import json, os, sys\n"
+                         "with open(os.environ['NPM_ARG_LOG'], 'a') as log:\n"
+                         "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n")
+        result = self.run_bash(
+            'set -e; source "$1"; shift; for spec do install_global_npm_package "$spec"; done',
+            str(POST_CREATE), *specs,
+            env={**self.env, "NPM_ARG_LOG": str(npm_log)},
+        )
+        self.assert_success(result)
+        self.assertEqual(
+            [json.loads(line) for line in npm_log.read_text(encoding="utf-8").splitlines()],
+            [["install", "-g", spec] for spec in specs],
+        )
+
+    def test_renovate_extracts_homelab_npm_tools(self) -> None:
+        specs = self.homelab_npm_tool_specs()
+        load_json = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
+        config = load_json(REPO_ROOT / "renovate.json5", jsonc=True)
+        relative = NPM_PACKAGES.relative_to(REPO_ROOT).as_posix()
+        text = NPM_PACKAGES.read_text(encoding="utf-8")
+        occurrences = []
+        for manager in config["customManagers"]:
+            if manager["customType"] != "regex" or not any(
+                re.search(pattern[1:-1], relative) for pattern in manager["managerFilePatterns"]
+            ):
+                continue
+            for expression in manager["matchStrings"]:
+                pattern = re.sub(r"\(\?<([A-Za-z_]+)>", r"(?P<\1>", expression)
+                for match in re.finditer(pattern, text):
+                    if match.groupdict().get("depName") in ("pnpm", "markdownlint-cli2"):
+                        occurrences.append((match.group("depName"), match.group("currentValue"),
+                                            manager.get("datasourceTemplate")))
+        self.assertCountEqual(occurrences, [(*spec.split("@"), "npm") for spec in specs])
 
     def test_global_npm_install_timing_preserves_failures(self) -> None:
         fake_bin = self.fixture.root / "fake bin"
