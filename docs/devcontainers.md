@@ -114,9 +114,19 @@ next rebuild repopulates it.
 
 Claude Code is the exception: it is pinned by `CLAUDE_CODE_VERSION` in
 `devcontainer.json.tmpl` and installed from Anthropic's signed apt repository,
-not from `npm_packages.txt`. Renovate still tracks the upstream release with an
-inline `datasource=npm` comment because the npm package version matches the
-Claude Code release version.
+not from `npm_packages.txt`. Renovate uses `datasource=deb` to discover packages
+in that repository's arm64 index. The pin contains the upstream version
+(`x.y.z`); the installer requests `x.y.z-1`, where `1` is the Debian packaging
+revision. Renovate accepts only revision `-1`, so other packaging revisions are
+not selected. Supporting them requires changing the pin format and installer
+together.
+
+The Debian datasource supplies no release timestamps. Claude apt updates use
+`minimumReleaseAgeBehaviour: timestamp-optional`, so the seven-day release-age
+delay cannot be enforced for them. Patch updates retain automerge in standalone
+PRs; minor and major updates remain manual. Publication can differ between
+architectures, and packages can disappear after selection; the installer checks
+the native architecture's exact pin before removing an existing npm install.
 
 Host plugin refreshes are separate from container lifecycle updates; see
 [Host AI Plugin Refresh](automation/chezmoi-scripts.md#host-ai-plugin-refresh).
@@ -361,9 +371,14 @@ failed applier logs a `WARN:` and never fails the hook. Full schema and
 behaviour: `docs/automation/claude-mcp.md`.
 
 `postCreate.sh` installs the Claude Code CLI from Anthropic's signed apt repo at
-the `CLAUDE_CODE_VERSION` pin from `devcontainer.json.tmpl`. It removes any old
-global npm `@anthropic-ai/claude-code` install first so an npm shim cannot shadow
-the apt-managed binary. `dot_claude/settings-base.json` sets
+the `CLAUDE_CODE_VERSION` pin from `devcontainer.json.tmpl`. After refreshing apt
+metadata, it checks exact native-architecture package availability before
+removing any old global npm `@anthropic-ai/claude-code` install. An unavailable
+pin reports the requested version, architecture, repository, and available
+versions without removing npm. The later apt install is not transactional: if
+it fails, npm may already have been removed. Successful installation requires
+matching package and CLI versions so an npm shim cannot silently shadow the
+apt-managed binary. `dot_claude/settings-base.json` sets
 `DISABLE_UPDATES=1` so Claude sessions do not drift away from the devcontainer
 pin through background or manual updates.
 

@@ -289,27 +289,60 @@ install_terraform_mcp_server() {
 
 install_claude_code_apt_package() {
   local claude_code_version apt_keyring apt_source_list installed_version
-  local claude_version_output
+  local claude_version_output requested_version architecture available_versions
+  local _package_name package_version _package_source version_available
 
   claude_code_version="${CLAUDE_CODE_VERSION:-}"
   if [[ -z "$claude_code_version" ]]; then
     echo "ERROR: CLAUDE_CODE_VERSION is not set." >&2
     return 1
   fi
+  if [[ ! "$claude_code_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo "ERROR: CLAUDE_CODE_VERSION must be an upstream x.y.z version, got $claude_code_version." >&2
+    return 1
+  fi
+  requested_version="${claude_code_version}-1"
+  architecture="$(dpkg --print-architecture)" || {
+    echo "ERROR: Could not determine the native architecture for Claude Code." >&2
+    return 1
+  }
+  if [[ -z "$architecture" ]]; then
+    echo "ERROR: Native architecture is empty for Claude Code." >&2
+    return 1
+  fi
 
   apt_keyring="/etc/apt/keyrings/claude-code.asc"
   apt_source_list="/etc/apt/sources.list.d/claude-code.list"
 
-  sudo install -d -m 0755 /etc/apt/keyrings
-  curl -fsSL "https://downloads.claude.ai/keys/claude-code.asc" \
-    | sudo tee "$apt_keyring" >/dev/null
-  sudo chmod 0644 "$apt_keyring"
+  sudo install -d -m 0755 /etc/apt/keyrings || return 1
+  (
+    set -o pipefail
+    curl -fsSL "https://downloads.claude.ai/keys/claude-code.asc" \
+      | sudo tee "$apt_keyring" >/dev/null
+  ) || return 1
+  sudo chmod 0644 "$apt_keyring" || return 1
 
   printf '%s\n' \
     "deb [signed-by=$apt_keyring] https://downloads.claude.ai/claude-code/apt/latest latest main" \
-    | sudo tee "$apt_source_list" >/dev/null
+    | sudo tee "$apt_source_list" >/dev/null || return 1
 
-  sudo apt-get update
+  sudo apt-get update || return 1
+  available_versions="$(apt-cache madison "claude-code:$architecture")" || {
+    echo "ERROR: Could not query claude-code=$requested_version for $architecture from https://downloads.claude.ai/claude-code/apt/latest." >&2
+    return 1
+  }
+  version_available=false
+  while IFS='|' read -r _package_name package_version _package_source; do
+    if [[ "$(trim_whitespace "$package_version")" == "$requested_version" ]]; then
+      version_available=true
+      break
+    fi
+  done <<< "$available_versions"
+  if [[ "$version_available" != true ]]; then
+    echo "ERROR: claude-code=$requested_version is unavailable for $architecture from https://downloads.claude.ai/claude-code/apt/latest." >&2
+    printf 'Available claude-code versions:\n%s\n' "${available_versions:-<none>}" >&2
+    return 1
+  fi
 
   if command -v npm >/dev/null 2>&1 \
     && npm list -g @anthropic-ai/claude-code >/dev/null 2>&1; then
@@ -318,18 +351,24 @@ install_claude_code_apt_package() {
       echo "WARN: npm uninstall of @anthropic-ai/claude-code failed; continuing to apt install." >&2
   fi
 
-  sudo apt-get install -y "claude-code=${claude_code_version}-1"
+  sudo apt-get install -y "claude-code=$requested_version" || return 1
 
-  installed_version="$(dpkg-query -W -f='${Version}' claude-code 2>/dev/null || true)"
-  if [[ "$installed_version" != "${claude_code_version}-1" ]]; then
-    echo "ERROR: claude-code package version mismatch: expected ${claude_code_version}-1, got ${installed_version:-<missing>}." >&2
+  installed_version="$(dpkg-query -W -f='${Version}' claude-code 2>/dev/null)" || {
+    echo "ERROR: Could not verify installed claude-code=$requested_version." >&2
+    return 1
+  }
+  if [[ "$installed_version" != "$requested_version" ]]; then
+    echo "ERROR: claude-code package version mismatch: expected $requested_version, got ${installed_version:-<missing>}." >&2
     return 1
   fi
 
   hash -r
-  claude_version_output="$(claude --version 2>/dev/null || true)"
-  if [[ "$claude_version_output" != "$claude_code_version"* ]]; then
-    echo "ERROR: claude --version mismatch: expected prefix ${claude_code_version}, got ${claude_version_output:-<missing>}." >&2
+  claude_version_output="$(claude --version 2>/dev/null)" || {
+    echo "ERROR: Could not run claude --version after installing $requested_version." >&2
+    return 1
+  }
+  if [[ "${claude_version_output%%[[:space:]]*}" != "$claude_code_version" ]]; then
+    echo "ERROR: claude --version mismatch: expected $claude_code_version, got ${claude_version_output:-<missing>}." >&2
     return 1
   fi
 

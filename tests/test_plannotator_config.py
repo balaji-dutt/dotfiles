@@ -75,6 +75,7 @@ class PlannotatorConfigTests(unittest.TestCase):
                 selectors = {
                     "matchManagers": "custom.regex", "matchFileNames": relative,
                     "matchDepNames": dep_name, "matchUpdateTypes": update_type,
+                    "matchDatasources": "npm" if dep_name == "@plannotator/opencode" else "github-releases",
                 }
                 for rule in config["packageRules"]:
                     self.assertFalse({key for key in rule if key.startswith("match")} - selectors.keys())

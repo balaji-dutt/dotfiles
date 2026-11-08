@@ -417,7 +417,6 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
-        "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
@@ -428,7 +427,6 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
-        "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
@@ -439,13 +437,26 @@
     {
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
-        "@anthropic-ai/claude-code",
         "uv",
         "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["major"],
       "groupName": "fast moving tools (major)"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["deb"],
+      "matchDepNames": ["claude-code"],
+      "matchFileNames": [
+        "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl"
+      ],
+      "registryUrls": [
+        "https://downloads.claude.ai/claude-code/apt/latest?suite=latest&components=main&binaryArch=arm64"
+      ],
+      "versioning": "semver",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "groupName": null
     },
     {
       "matchManagers": ["npm"],

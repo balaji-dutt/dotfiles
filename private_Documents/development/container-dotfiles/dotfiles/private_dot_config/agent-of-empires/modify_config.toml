@@ -82,6 +82,13 @@ row_tag = "none"
 claude = "claude-plannotator"
 opencode = "opencode-plannotator"
 
+[session.agent_execution_as]
+claude = "claude"
+
+# Keep literal; an expanded path exports CLAUDE_CONFIG_DIR.
+[session.agent_config_dir]
+claude = "~/.claude"
+
 [session.agent_detect_as]
 opencode-custom = "opencode"
 
