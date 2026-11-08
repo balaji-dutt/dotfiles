@@ -549,3 +549,4 @@ Keep entries short and factual. Prefer links to files/paths over prose.
 - gotcha: OAuth-backed OpenCode `openai` provider exposes limited models; `gpt-4.1*` not available there.
 - convention: Use `openai/gpt-5.1-codex-mini` as `small_model` for `~/.config/opencode/opencode.jsonc` when OAuth-only.
 - decision: Commit `.opencode/journal.md` as repo-scoped persistent context.
+- decision: Cap OpenCode Go models at `limit.context` 200000 in `private_dot_config/opencode/opencode.jsonc`. The Go catalog advertises 1M windows, so compaction otherwise waits until ~850k tokens and cache reads dominate metered cost; a 2026-11-08 session reached 485k context and 3.60 USD in one 5-hour window.

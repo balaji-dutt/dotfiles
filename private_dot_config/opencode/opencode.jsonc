@@ -404,6 +404,15 @@
         "baseURL": "https://opencode.ai/zen/go/v1",
         "apiKey": "{env:OPENCODE_API_KEY}",
         "timeout": 600000
+      },
+      // Go meters cache reads per request; the catalog's 1M windows defer compaction until ~850k tokens.
+      "models": {
+        "deepseek-v4-pro": { "limit": { "context": 200000, "output": 65536 } },
+        "deepseek-v4.1-flash": { "limit": { "context": 200000, "output": 65536 } },
+        "qwen3.7-plus": { "limit": { "context": 200000, "output": 65536 } },
+        "kimi-k3": { "limit": { "context": 200000, "output": 65536 } },
+        "glm-5.3": { "limit": { "context": 200000, "output": 65536 } },
+        "glm-5.3-flash": { "limit": { "context": 200000, "output": 65536 } }
       }
     },
 
