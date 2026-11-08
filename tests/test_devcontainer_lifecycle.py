@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import base64
+import fnmatch
 import json
 import re
 import runpy
@@ -74,6 +75,247 @@ class DevcontainerLifecycleTests(unittest.TestCase):
 
     def assert_success(self, result: subprocess.CompletedProcess[str]) -> None:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def run_claude_installer(
+        self, *, conditional: bool = False, **overrides: str,
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+        calls_file = self.fixture.root / "claude-calls.jsonl"
+        calls_file.write_text("", encoding="utf-8")
+        program = f"#!{sys.executable}\n" + r'''
+import json
+import os
+import sys
+from pathlib import Path
+
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+with open(os.environ["CLAUDE_CALLS"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps([name, *args]) + "\n")
+
+def fail_at(stage):
+    if os.environ.get("FAIL_AT") == stage:
+        sys.stderr.write("fixture failure: " + stage + "\n")
+        sys.exit(42)
+
+repo = "https://downloads.claude.ai/claude-code/apt/latest"
+version = os.environ["CLAUDE_CODE_VERSION"]
+if name == "sudo":
+    if args == ["install", "-d", "-m", "0755", "/etc/apt/keyrings"]:
+        fail_at("key-directory")
+    elif args[0] == "tee":
+        target = args[1]
+        assert target in ("/etc/apt/keyrings/claude-code.asc", "/etc/apt/sources.list.d/claude-code.list")
+        payload = sys.stdin.read()
+        fail_at("key-write" if target.endswith(".asc") else "source-write")
+        if target.endswith(".list"):
+            assert payload == "deb [signed-by=/etc/apt/keyrings/claude-code.asc] " + repo + " latest main\n"
+        (Path(os.environ["CLAUDE_FIXTURE_ROOT"]) / Path(target).name).write_text(payload)
+    elif args == ["chmod", "0644", "/etc/apt/keyrings/claude-code.asc"]:
+        fail_at("key-permissions")
+    elif args == ["apt-get", "update"]:
+        fail_at("apt-update")
+    elif args == ["apt-get", "install", "-y", "claude-code=" + version + "-1"]:
+        fail_at("apt-install")
+    else:
+        raise AssertionError(args)
+elif name == "curl":
+    assert args == ["-fsSL", "https://downloads.claude.ai/keys/claude-code.asc"]
+    fail_at("key-download")
+    print("fixture signing key")
+elif name == "dpkg":
+    assert args == ["--print-architecture"]
+    fail_at("architecture")
+    print(os.environ.get("ARCH", "arm64"))
+elif name == "apt-cache":
+    arch = os.environ.get("ARCH", "arm64")
+    assert args == ["madison", "claude-code:" + arch]
+    fail_at("apt-cache")
+    versions = os.environ.get("APT_VERSIONS", "claude-code | " + version + "-1 | " + repo + " latest/main " + arch + " Packages")
+    print(versions if os.environ.get("APT_INDEX_ARCH", arch) == arch else "")
+elif name == "npm":
+    if args == ["list", "-g", "@anthropic-ai/claude-code"]:
+        sys.exit(0 if os.environ.get("NPM_PRESENT", "1") == "1" else 1)
+    assert args == ["uninstall", "-g", "@anthropic-ai/claude-code"]
+    assert "CI" not in os.environ
+    fail_at("npm-uninstall")
+elif name == "dpkg-query":
+    assert args == ["-W", "-f=${Version}", "claude-code"]
+    print(os.environ.get("INSTALLED_VERSION", version + "-1"))
+    fail_at("package-verify")
+elif name == "claude":
+    assert args == ["--version"]
+    print(os.environ.get("CLI_VERSION", version + " (Claude Code)"))
+    fail_at("cli-verify")
+else:
+    raise AssertionError(name)
+'''
+        for name in ("sudo", "curl", "dpkg", "apt-cache", "npm", "dpkg-query", "claude"):
+            write_executable(self.fixture.fake_bin / name, program)
+        env = {
+            **self.env, "CLAUDE_CODE_VERSION": "2.1.312", "CI": "1",
+            "CLAUDE_CALLS": str(calls_file), "CLAUDE_FIXTURE_ROOT": str(self.fixture.root),
+            **overrides,
+        }
+        invocation = "install_claude_code_apt_package"
+        if conditional:
+            invocation = 'if install_claude_code_apt_package; then exit 0; else exit 1; fi'
+        result = self.run_bash(
+            'source "$1"; '
+            'command() { if [[ "${NO_NPM:-0}" == 1 && "$*" == "-v npm" ]]; then return 1; fi; builtin command "$@"; }; '
+            + invocation,
+            str(POST_CREATE), env=env,
+        )
+        calls = [json.loads(line) for line in calls_file.read_text().splitlines()]
+        return result, calls
+
+    def test_claude_apt_installer_checks_native_pin_before_npm_removal(self) -> None:
+        for arch in ("arm64", "amd64"):
+            for _ in range(2):
+                with self.subTest(arch=arch):
+                    result, calls = self.run_claude_installer(ARCH=arch)
+                    self.assert_success(result)
+                    ordered = [
+                        ["sudo", "apt-get", "update"],
+                        ["apt-cache", "madison", f"claude-code:{arch}"],
+                        ["npm", "uninstall", "-g", "@anthropic-ai/claude-code"],
+                        ["sudo", "apt-get", "install", "-y", "claude-code=2.1.312-1"],
+                        ["dpkg-query", "-W", "-f=${Version}", "claude-code"],
+                        ["claude", "--version"],
+                    ]
+                    self.assertEqual([call for call in calls if call in ordered], ordered)
+                    self.assertIn("installed from Anthropic apt", result.stdout)
+
+    def test_claude_apt_installer_rejects_invalid_version_before_mutation(self) -> None:
+        for version in ("", "2.1", "2.1.312-1", "2.1.312;true", "2.1.312 extra", "02.1.312"):
+            with self.subTest(version=version):
+                result, calls = self.run_claude_installer(CLAUDE_CODE_VERSION=version)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("ERROR: CLAUDE_CODE_VERSION", result.stderr)
+                self.assertEqual(calls, [])
+
+    def test_claude_apt_installer_preserves_npm_when_pin_is_unavailable(self) -> None:
+        for versions in ("", "claude-code | 2.1.3150-1 | fixture arm64 Packages",
+                         "claude-code | 2.1.315-2 | fixture arm64 Packages",
+                         "claude-code | 2.1.312-1 | fixture arm64 Packages"):
+            with self.subTest(versions=versions):
+                result, calls = self.run_claude_installer(
+                    CLAUDE_CODE_VERSION="2.1.315", APT_VERSIONS=versions,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                for expected in ("2.1.315-1", "arm64", "https://downloads.claude.ai/claude-code/apt/latest", "Available"):
+                    self.assertIn(expected, result.stderr)
+                self.assertFalse(any(call[0] == "npm" or call[:3] == ["sudo", "apt-get", "install"] for call in calls))
+                self.assertNotIn("installed from Anthropic apt", result.stdout)
+        result, calls = self.run_claude_installer(ARCH="arm64", APT_INDEX_ARCH="amd64")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(["apt-cache", "madison", "claude-code:arm64"], calls)
+        self.assertFalse(any(call[0] == "npm" or call[:3] == ["sudo", "apt-get", "install"] for call in calls))
+
+    def test_claude_apt_installer_propagates_setup_and_lookup_failures(self) -> None:
+        stages = ("architecture", "key-directory", "key-download", "key-write", "key-permissions",
+                  "source-write", "apt-update", "apt-cache")
+        for conditional in (False, True):
+            for stage in stages:
+                with self.subTest(conditional=conditional, stage=stage):
+                    result, calls = self.run_claude_installer(conditional=conditional, FAIL_AT=stage)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(any(call[0] in ("npm", "dpkg-query", "claude") for call in calls))
+                    self.assertNotIn(["sudo", "apt-get", "install", "-y", "claude-code=2.1.312-1"], calls)
+                    if stage == "apt-cache":
+                        self.assertIn("Could not query", result.stderr)
+                        self.assertNotIn("is unavailable", result.stderr)
+                    self.assertNotIn("installed from Anthropic apt", result.stdout)
+        result, calls = self.run_claude_installer(ARCH="")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [["dpkg", "--print-architecture"]])
+
+    def test_claude_apt_installer_never_reports_failed_install_or_verification_as_success(self) -> None:
+        for conditional in (False, True):
+            for overrides in (
+                {"FAIL_AT": "apt-install"}, {"FAIL_AT": "package-verify"}, {"FAIL_AT": "cli-verify"},
+                {"INSTALLED_VERSION": "2.1.312-2"}, {"INSTALLED_VERSION": ""},
+                {"CLI_VERSION": "2.1.3120 (Claude Code)"}, {"CLI_VERSION": "2.1.312-beta"}, {"CLI_VERSION": ""},
+            ):
+                with self.subTest(conditional=conditional, overrides=overrides):
+                    result, calls = self.run_claude_installer(conditional=conditional, **overrides)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("installed from Anthropic apt", result.stdout)
+                    if overrides.get("FAIL_AT") == "apt-install":
+                        self.assertFalse(any(call[0] in ("dpkg-query", "claude") for call in calls))
+
+    def test_claude_apt_installer_handles_absent_npm_and_warns_on_cleanup_failure(self) -> None:
+        for overrides in ({"NPM_PRESENT": "0"}, {"NO_NPM": "1"}, {"FAIL_AT": "npm-uninstall"}):
+            with self.subTest(overrides=overrides):
+                result, calls = self.run_claude_installer(**overrides)
+                self.assert_success(result)
+                if "FAIL_AT" in overrides:
+                    self.assertIn("WARN: npm uninstall", result.stderr)
+                else:
+                    self.assertNotIn(["npm", "uninstall", "-g", "@anthropic-ai/claude-code"], calls)
+
+    def test_claude_renovate_extracts_only_installable_debian_revisions(self) -> None:
+        load_json = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
+        config = load_json(REPO_ROOT / "renovate.json5", jsonc=True)
+        relative = DEVCONTAINER_CONFIG.relative_to(REPO_ROOT).as_posix()
+        extracted = []
+        for manager in config["customManagers"]:
+            if not any(re.search(pattern[1:-1], relative) for pattern in manager["managerFilePatterns"]):
+                continue
+            for expression in manager["matchStrings"]:
+                expression = re.sub(r"\(\?<([A-Za-z_]+)>", r"(?P<\1>", expression)
+                for match in re.finditer(expression, DEVCONTAINER_CONFIG.read_text()):
+                    if match.groupdict().get("depName") in ("claude-code", "@anthropic-ai/claude-code"):
+                        extracted.append(match.groupdict())
+        self.assertEqual(len(extracted), 1)
+        dependency = extracted[0]
+        self.assertEqual(dependency["datasource"], "deb")
+        self.assertEqual(dependency["depName"], "claude-code")
+        version = dependency["currentValue"]
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+        expression = re.sub(r"\(\?<([A-Za-z_]+)>", r"(?P<\1>", dependency["extractVersion"])
+        self.assertEqual(re.fullmatch(expression, version + "-1").group("version"), version)
+        for invalid in (version, version + "-2", version + "-10", version + "-1extra", "v" + version + "-1"):
+            self.assertIsNone(re.fullmatch(expression, invalid), invalid)
+
+    def test_claude_renovate_policy_is_scoped_and_retains_patch_automerge(self) -> None:
+        load_json = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
+        config = load_json(REPO_ROOT / "renovate.json5", jsonc=True)
+        relative = DEVCONTAINER_CONFIG.relative_to(REPO_ROOT).as_posix()
+
+        def effective_policy(dep_name: str, datasource: str, update_type: str, file_name: str = relative) -> dict:
+            selectors = {"matchManagers": "custom.regex", "matchDepNames": dep_name,
+                         "matchDatasources": datasource, "matchUpdateTypes": update_type, "matchFileNames": file_name}
+            effective = {key: value for key, value in config.items() if key != "packageRules"}
+            for rule in config["packageRules"]:
+                self.assertFalse({key for key in rule if key.startswith("match")} - selectors.keys())
+                if all(key not in rule or any(
+                    re.search(pattern[1:-1], value) if pattern.startswith("/") and pattern.endswith("/")
+                    else fnmatch.fnmatchcase(value, pattern) for pattern in rule[key]
+                ) for key, value in selectors.items()):
+                    effective.update(rule)
+            return effective
+
+        for update_type in ("patch", "minor", "major"):
+            policy = effective_policy("claude-code", "deb", update_type)
+            self.assertEqual(policy["registryUrls"], ["https://downloads.claude.ai/claude-code/apt/latest?suite=latest&components=main&binaryArch=arm64"])
+            self.assertEqual(policy["versioning"], "semver")
+            self.assertEqual(policy["minimumReleaseAgeBehaviour"], "timestamp-optional")
+            self.assertEqual(policy["minimumReleaseAge"], "7 days")
+            self.assertEqual(policy["automerge"], update_type == "patch")
+            self.assertIsNone(policy.get("groupName"))
+            if update_type == "patch":
+                self.assertEqual(policy["automergeType"], "pr")
+                self.assertTrue(policy["platformAutomerge"])
+            uv_policy = effective_policy("uv", "pypi", update_type)
+            self.assertEqual(uv_policy["groupName"], f"fast moving tools ({update_type})")
+            self.assertNotIn("minimumReleaseAgeBehaviour", uv_policy)
+            self.assertEqual(uv_policy["minimumReleaseAge"], "7 days")
+        for dep_name, datasource, file_name in (("claude-code", "npm", relative),
+                                                ("claude-code", "deb", "unrelated.json"),
+                                                ("other", "deb", relative)):
+            policy = effective_policy(dep_name, datasource, "patch", file_name)
+            self.assertNotIn("registryUrls", policy)
+            self.assertNotIn("minimumReleaseAgeBehaviour", policy)
 
     def generated_sset(self) -> Path:
         result = self.run_bash('source "$1"; install_sset_helper', str(POST_START))

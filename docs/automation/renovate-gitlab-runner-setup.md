@@ -142,8 +142,11 @@ renovate-config-validator renovate.json5 --no-global
   rules.
 - Keep major updates grouped but separate from minor/patch groups.
 - Require a 7-day release age (`minimumReleaseAge`) before updates are eligible,
-  except OpenCode plugin patch/digest updates. Core Beads clients use a stricter
-  14-day package rule.
+  except OpenCode plugin patch/digest updates and timestamp-less Claude Code apt
+  updates. The Claude apt rule uses `minimumReleaseAgeBehaviour: timestamp-optional`
+  because the Debian datasource supplies no release timestamps; its standalone
+  patch PRs retain automerge, while minor and major updates remain manual.
+  Core Beads clients use a stricter 14-day package rule.
 - Disable hourly and concurrent Renovate limits (`commitHourlyLimit`,
   `prHourlyLimit`, `prConcurrentLimit`, and `branchConcurrentLimit` are `0`).
   Eligible updates should be created in one run; release-age-blocked updates
