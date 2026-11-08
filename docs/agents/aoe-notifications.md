@@ -182,6 +182,7 @@ for k in acp.auto_stop_idle_secs acp.max_concurrent_workers \
          session.confirm_before_quit session.default_attach_mode \
          session.default_tool session.delete_to_trash session.host_tab_title \
          session.row_tag session.agent_command_override \
+         session.agent_execution_as session.agent_config_dir \
          status_hooks.enabled status_hooks.on_error status_hooks.on_waiting \
          telemetry.enabled tmux.clipboard tmux.status_bar \
          updates.update_check_mode \

@@ -389,12 +389,25 @@ default_tool = "opencode"
 claude = "claude-plannotator"
 opencode = "opencode-plannotator"
 
+[session.agent_execution_as]
+claude = "claude"
+
+[session.agent_config_dir]
+claude = "~/.claude"
+
 [session.agent_detect_as]
 opencode-custom = "opencode"
 
 [session.custom_agents]
 opencode-custom = "opencode-plannotator-custom"
 ```
+
+AoE 1.22 and later refuse to resume a recorded conversation through a wrapper
+unless `agent_execution_as` and `agent_config_dir` declare the native agent and
+its store. Keep `~/.claude` literal: AoE leaves `CLAUDE_CONFIG_DIR` unset only
+for that spelling, and an expanded path makes Claude read
+`~/.claude/.claude.json` instead of `~/.claude.json`. OpenCode sessions carry no
+recorded conversation ID, so their wrappers need no declaration.
 
 The managed host AoE config emits these overrides on Linux and macOS targets.
 Native Windows does not receive the Bash wrapper override.
