@@ -643,14 +643,31 @@ setup, and manual smoke tests.
 
 ## Agent of Empires in Devcontainers
 
-The `homelab-IaC` template pins the release in `AOE_VERSION`. AoE metadata is
-persisted under `/home/vscode/persistent-data/agent-of-empires`;
-`postCreate.sh` and `postStart.sh` link `~/.config/agent-of-empires` there so
-profile/session metadata survives container rebuild/recreate cycles.
+The `homelab-IaC` template pins the release in `AOE_VERSION`. The named Docker
+volume `homelab-iac-aoe-data-volume` mounts directly at
+`/home/vscode/.config/agent-of-empires`, preserving metadata across container
+rebuild/recreate cycles. AoE requires a real directory at its storage root;
+a symlink there fails its no-follow directory check. This mount works with both
+WSL2 Docker and macOS OrbStack. Each Docker engine owns its own volume; matching
+names do not synchronize data between machines.
 
-If `~/.config/agent-of-empires` already exists as a real directory, startup
-scripts migrate its current contents into persistent storage before replacing it
-with the symlink.
+On first initialization, lifecycle scripts copy and verify legacy data from
+`/home/vscode/persistent-data/agent-of-empires` into the empty mounted root.
+The legacy directory remains untouched as a migration snapshot, not an ongoing
+backup. A completion marker prevents later starts from importing stale data.
+Missing `state.toml` is initialized only after the copy is verified.
+
+Initialization requires the real mount and refuses an ambiguous nonempty or
+incomplete destination. On failure, stop AoE and inspect both the mounted root
+and retained legacy source before explicit recovery; do not delete either
+volume or blindly retry a partial copy. After new AoE writes, rollback must
+account for data newer than the retained snapshot.
+
+Deploy the template and lifecycle files through the approved canonical-source
+workflow before rebuilding; a restart cannot add the mount. Obtain interruption
+approval, stop active agents/AoE, follow the workspace's agent/Dolt shutdown
+guidance, and verify private metadata backups before
+`devcontainer-launch homelab-IaC rebuild`. Persistent volumes are not backups.
 
 Only the managed AoE `config.toml` is refreshed from host dotfiles at startup.
 Runtime-managed files (for example `state.toml`, `profiles/*/sessions.json`,

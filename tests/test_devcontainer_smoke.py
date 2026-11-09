@@ -102,6 +102,11 @@ class DevcontainerSmokeContractTests(unittest.TestCase):
             self.assertIn("--pull=never", config["runArgs"])
             self.assertIn("--network=none", config["runArgs"])
             self.assertEqual(config["remoteUser"], "vscode")
+            volume_mounts = [mount for mount in config["mounts"] if "type=volume" in mount]
+            self.assertEqual(volume_mounts, [
+                "source=dotfiles-devcontainer-smoke-abc123,target=/home/vscode/persistent-data,type=volume",
+                "source=dotfiles-devcontainer-smoke-abc123-aoe,target=/home/vscode/.config/agent-of-empires,type=volume",
+            ])
             self.assertEqual(
                 config["postCreateCommand"],
                 [
@@ -199,9 +204,42 @@ post_start_runtime_configuration '/workspace with spaces'
             self.assertTrue(any(call[:3] == ["docker", "ps", "-a"] for call in argv))
             self.assertTrue(any(call[:3] == ["docker", "ps", "-aq"] for call in argv))
             self.assertTrue(any(call[:3] == ["docker", "volume", "rm"] for call in argv))
+            created = [call[-1] for call in argv if call[:3] == ["docker", "volume", "create"]]
+            removed = next(call[4:] for call in argv if call[:3] == ["docker", "volume", "rm"])
+            self.assertEqual(len(created), 2)
+            self.assertEqual(removed, created)
             run_artifacts = next(artifacts.iterdir())
             self.assertTrue((run_artifacts / "devcontainer.json").is_file())
             self.assertTrue((run_artifacts / "lifecycle.sh").is_file())
+
+    def test_success_recreates_container_and_cleans_both_volumes(self) -> None:
+        class SuccessRunner(FakeRunner):
+            removed = False
+
+            def run(self, argv, *, check=True, timeout=None):
+                self.calls.append((argv, check))
+                if argv[:3] == ["docker", "rm", "-f"]:
+                    self.removed = True
+                output = ""
+                if argv[:2] == ["devcontainer", "up"]:
+                    output = json.dumps({"containerId": "recreated" if self.removed else "initial"})
+                return subprocess.CompletedProcess(argv, 0, output, "")
+
+        with tempfile.TemporaryDirectory(prefix="devcontainer-smoke-success-") as temp_name:
+            with mock.patch.object(SMOKE, "CommandRunner", SuccessRunner):
+                artifacts = SMOKE.run_smoke(REPO_ROOT, {"DEVCONTAINER_SMOKE_ARTIFACTS": temp_name})
+            runner = SuccessRunner.instances[-1]
+            calls = [argv for argv, _ in runner.calls]
+            self.assertIn(["docker", "rm", "-f", "initial"], calls)
+            self.assertIn(["docker", "rm", "-f", "recreated"], calls)
+            created = [call[-1] for call in calls if call[:3] == ["docker", "volume", "create"]]
+            removed = next(call[4:] for call in calls if call[:3] == ["docker", "volume", "rm"])
+            self.assertEqual(removed, created)
+            commands = "\n".join(call[-1] for call in calls if call[:2] == ["devcontainer", "exec"])
+            self.assertIn("os.O_NOFOLLOW", commands)
+            self.assertIn("mountpoint -q", commands)
+            self.assertIn("updated", commands)
+            self.assertEqual(json.loads((artifacts / "result.json").read_text())["volumes"], created)
 
 
 if __name__ == "__main__":

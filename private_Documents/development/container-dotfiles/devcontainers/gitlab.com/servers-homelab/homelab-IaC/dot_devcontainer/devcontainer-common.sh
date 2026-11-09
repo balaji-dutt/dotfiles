@@ -30,32 +30,6 @@ load_opencode_env_file() {
   fi
 }
 
-# AoE 1.13.2 reads first-run state from this sibling TOML file. Seed only a
-# missing file; AoE owns it after creation and existing state must survive.
-initialize_agent_of_empires_state() {
-  local aoe_persist_dir state_file
-  aoe_persist_dir="$1"
-  state_file="$aoe_persist_dir/state.toml"
-
-  if [[ -e "$state_file" || -L "$state_file" ]]; then
-    return 0
-  fi
-
-  if ! (
-    set -o noclobber
-    umask 077
-    printf '%s\n' 'has_seen_welcome = true' >"$state_file"
-  ) 2>/dev/null; then
-    if [[ -e "$state_file" || -L "$state_file" ]]; then
-      return 0
-    fi
-    echo "ERROR: Failed initializing Agent of Empires state: $state_file" >&2
-    return 1
-  fi
-
-  return 0
-}
-
 ensure_git_safe_directories() (
   set -Eeuo pipefail
 
@@ -132,30 +106,125 @@ ensure_git_safe_directories() (
   trap - EXIT
 )
 
-ensure_agent_of_empires_persistence_link() {
-  local aoe_persist_dir aoe_config_dir
-  aoe_persist_dir="${1:-/home/vscode/persistent-data/agent-of-empires}"
+initialize_agent_of_empires_storage() {
+  python3 - "$1" "$2" <<'PY'
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+legacy, root = map(Path, sys.argv[1:])
+lock_name = ".dotfiles-aoe-storage.lock"
+marker_name = ".dotfiles-aoe-storage-v1"
+pending_name = ".dotfiles-aoe-migration-pending"
+marker_value = b"aoe-storage-v1\n"
+
+def require_directory(directory):
+    if not stat.S_ISDIR(directory.lstat().st_mode):
+        raise ValueError("storage root must be a real directory")
+
+def snapshot(directory):
+    result = {}
+    for item in sorted(directory.iterdir()):
+        info = item.lstat()
+        mode = stat.S_IMODE(info.st_mode)
+        if stat.S_ISLNK(info.st_mode):
+            result[item.name] = ("link", os.readlink(item))
+        elif stat.S_ISDIR(info.st_mode):
+            result[item.name] = ("directory", mode, snapshot(item))
+        elif stat.S_ISREG(info.st_mode):
+            digest = hashlib.sha256()
+            with item.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            result[item.name] = ("file", mode, info.st_mtime_ns, digest.digest())
+        else:
+            raise ValueError("unsupported special file in AoE storage")
+    return result
+
+def create_private(file_path, content):
+    descriptor = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+def seed_state():
+    try:
+        create_private(root / "state.toml", b"has_seen_welcome = true\n")
+    except FileExistsError:
+        pass
+
+try:
+    require_directory(root)
+    if legacy.is_symlink() or (legacy.exists() and not legacy.is_dir()):
+        raise ValueError("legacy AoE root must be a real directory or absent")
+    common = Path(os.path.commonpath((legacy.resolve(), root.resolve())))
+    if common in (legacy.resolve(), root.resolve()):
+        raise ValueError("AoE storage roots must not overlap")
+    descriptor = os.open(root / lock_name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "rb") as lock:
+        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode) or os.fstat(lock.fileno()).st_nlink != 1:
+            raise ValueError("unsafe AoE initialization lock")
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        marker = root / marker_name
+        if marker.exists() or marker.is_symlink():
+            if marker.is_symlink() or not marker.is_file() or marker.read_bytes() != marker_value:
+                raise ValueError("invalid AoE storage completion marker")
+            seed_state()
+        else:
+            if any(item.name != lock_name for item in root.iterdir()):
+                raise ValueError("nonempty or incomplete AoE destination; recover explicitly from retained data")
+            before = snapshot(legacy) if legacy.exists() else {}
+            if {lock_name, marker_name, pending_name} & before.keys():
+                raise ValueError("legacy AoE data contains reserved storage control files")
+            create_private(root / pending_name, b"migration in progress\n")
+            if legacy.exists():
+                for item in legacy.iterdir():
+                    target = root / item.name
+                    if item.is_dir() and not item.is_symlink():
+                        shutil.copytree(item, target, symlinks=True)
+                    else:
+                        shutil.copy2(item, target, follow_symlinks=False)
+                after = snapshot(legacy)
+                copied = snapshot(root)
+                for name in (lock_name, pending_name):
+                    copied.pop(name, None)
+                if before != after or before != copied:
+                    raise ValueError("AoE migration verification failed; source retained")
+            seed_state()
+            create_private(root / (marker_name + ".tmp"), marker_value)
+            os.replace(root / (marker_name + ".tmp"), marker)
+            (root / pending_name).unlink()
+except ValueError as error:
+    print(f"ERROR: AoE storage initialization refused: {error}; source retained, explicit recovery required.", file=sys.stderr)
+    sys.exit(1)
+except BlockingIOError:
+    print("ERROR: AoE storage initialization is already in progress; no data copied.", file=sys.stderr)
+    sys.exit(1)
+except (OSError, shutil.Error):
+    print("ERROR: AoE storage initialization refused or failed; stop AoE and inspect the mounted destination and retained legacy source before recovery.", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+ensure_agent_of_empires_storage() {
+  local aoe_legacy_dir aoe_config_dir
+  aoe_legacy_dir="${1:-/home/vscode/persistent-data/agent-of-empires}"
   aoe_config_dir="${2:-$HOME/.config/agent-of-empires}"
 
-  mkdir -p "$aoe_persist_dir" "$(dirname "$aoe_config_dir")"
-
-  if [[ -L "$aoe_config_dir" ]]; then
-    ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
-  else
-    if [[ -d "$aoe_config_dir" ]]; then
-      if ! cp -a "$aoe_config_dir"/. "$aoe_persist_dir"/; then
-        echo "ERROR: Failed migrating existing AoE config directory to persistent storage." >&2
-        return 1
-      fi
-      rm -rf "$aoe_config_dir"
-    elif [[ -e "$aoe_config_dir" ]]; then
-      rm -f "$aoe_config_dir"
-    fi
-
-    ln -sfn "$aoe_persist_dir" "$aoe_config_dir"
+  if [[ -L "$aoe_config_dir" || ! -d "$aoe_config_dir" ]] || ! mountpoint -q -- "$aoe_config_dir"; then
+    echo "ERROR: AoE requires a real dedicated volume at $aoe_config_dir; deploy the mount configuration and rebuild the container." >&2
+    return 1
   fi
-
-  initialize_agent_of_empires_state "$aoe_persist_dir"
+  if ! sudo chown vscode:vscode -- "$aoe_config_dir"; then
+    echo "ERROR: Could not prepare AoE volume ownership." >&2
+    return 1
+  fi
+  initialize_agent_of_empires_storage "$aoe_legacy_dir" "$aoe_config_dir"
 }
 
 migrate_directory_to_persistent_target() {

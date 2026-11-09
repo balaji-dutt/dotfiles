@@ -182,7 +182,12 @@ def write_fixture(
     )
     _write(
         fixture / "host-claude/settings-base.json",
-        '{"env":{"DEVCONTAINER_SMOKE":"1"}}\n',
+        json.dumps({
+            "env": {"DEVCONTAINER_SMOKE": "1"},
+            "extraKnownMarketplaces": {
+                "plannotator": {"source": {"source": "github", "repo": "backnotprop/plannotator", "ref": "v0.0.0"}},
+            },
+        }) + "\n",
     )
     _write(fixture / "host-claude/AGENTS.md", "# Smoke agent instructions\n")
     _write(fixture / "host-claude/no-ai-isms.md", "Smoke fixture.\n")
@@ -204,6 +209,12 @@ set -Eeuo pipefail
 mode="${1:?lifecycle mode is required}"
 workspace="${2:?workspace path is required}"
 sudo install -d -o vscode -g vscode /home/vscode/persistent-data
+if [[ ! -d /home/vscode/persistent-data/agent-of-empires ]]; then
+  install -d -m 0700 /home/vscode/persistent-data/agent-of-empires/profiles/default
+  printf '%s\n' 'has_seen_welcome = true' >/home/vscode/persistent-data/agent-of-empires/state.toml
+  chmod 0600 /home/vscode/persistent-data/agent-of-empires/state.toml
+  printf '%s\n' legacy >/home/vscode/persistent-data/agent-of-empires/profiles/default/sessions.json
+fi
 install -d "$HOME/.local/bin"
 
 case "$mode" in
@@ -252,6 +263,7 @@ printf '%s\n' "$((value + 1))" >"$counter"
             f"source={fixture / 'container-configs'},target=/tmp/host-container-configs,type=bind,readonly",
             f"source={fixture / 'smoke'},target=/tmp/devcontainer-smoke,type=bind,readonly",
             f"source={volume},target=/home/vscode/persistent-data,type=volume",
+            f"source={volume}-aoe,target=/home/vscode/.config/agent-of-empires,type=volume",
         ],
         "postCreateCommand": [
             "bash",
@@ -309,9 +321,10 @@ def _exec(
 def _assert_state(
     runner: CommandRunner,
     workspace: Path,
-    create_count: int,
-    start_count: int,
+    create_count: int | None,
+    start_count: int | None,
     profiles: str,
+    aoe_state: str = "updated",
 ) -> None:
     checks = [
         (
@@ -331,10 +344,20 @@ def _assert_state(
             'test "$(readlink "$HOME/.claude")" = /home/vscode/persistent-data/claude/config',
         ),
         (
-            "Agent of Empires persistence link",
-            'test "$(readlink "$HOME/.config/agent-of-empires")" = /home/vscode/persistent-data/agent-of-empires',
+            "Agent of Empires real persistent mount",
+            'test ! -L "$HOME/.config/agent-of-empires" && mountpoint -q "$HOME/.config/agent-of-empires" && '
+            'python3 -c \'import os; fd=os.open(os.path.expanduser("~/.config/agent-of-empires"), os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW); os.close(fd)\'',
         ),
-        ("Claude settings link", 'test -L "$HOME/.claude/settings.json"'),
+        (
+            "Agent of Empires preserved runtime state",
+            f'test "$(cat "$HOME/.config/agent-of-empires/profiles/default/sessions.json")" = {shlex.quote(aoe_state)} && '
+            'test "$(cat /home/vscode/persistent-data/agent-of-empires/profiles/default/sessions.json)" = legacy && '
+            'test -f "$HOME/.config/agent-of-empires/.dotfiles-aoe-storage-v1" && '
+            'test "$(stat -c %a "$HOME/.config/agent-of-empires/state.toml")" = 600 && '
+            'test "$(stat -c %U "$HOME/.config/agent-of-empires")" = vscode && '
+            'grep -qx \'theme = "smoke"\' "$HOME/.config/agent-of-empires/config.toml"',
+        ),
+        ("Claude materialized settings", 'test -f "$HOME/.claude/settings.json" && test ! -L "$HOME/.claude/settings.json"'),
         ("managed OpenCode config", 'test -f "$HOME/.config/opencode/opencode.jsonc"'),
         (
             "managed OpenCode manifest",
@@ -373,6 +396,8 @@ def _assert_state(
             "test ! -e /home/vscode/persistent-data/claude/unmanaged-managed-path-backups",
         ),
     ]
+    if create_count is None or start_count is None:
+        checks = checks[2:]
     for label, command in checks:
         result = _exec(runner, workspace, command, check=False)
         if result.returncode != 0:
@@ -383,7 +408,8 @@ def _state_fingerprint(runner: CommandRunner, workspace: Path) -> str:
     command = """set -Eeuo pipefail
 find "$HOME/.config/opencode" -type f ! -path '*/runtime/*' -print0 | sort -z | xargs -0 -r sha256sum
 find "$HOME/.config/opencode/runtime" -type f -name opencode.jsonc -print0 | sort -z | xargs -0 -r sha256sum
-printf '%s\n' "$(readlink "$HOME/.config/opencode")" "$(readlink "$HOME/.claude")" "$(readlink "$HOME/.config/agent-of-empires")"
+find "$HOME/.config/agent-of-empires" -type f -print0 | sort -z | xargs -0 -r sha256sum
+printf '%s\n' "$(readlink "$HOME/.config/opencode")" "$(readlink "$HOME/.claude")"
 """
     return _exec(runner, workspace, command).stdout
 
@@ -419,7 +445,7 @@ def _cleanup(
     unique_ids = sorted(set(ids))
     if unique_ids:
         runner.run(["docker", "rm", "-f", *unique_ids], check=False, timeout=30)
-    runner.run(["docker", "volume", "rm", "-f", volume], check=False, timeout=30)
+    runner.run(["docker", "volume", "rm", "-f", volume, volume + "-aoe"], check=False, timeout=30)
 
 
 def run_smoke(repo_root: Path, environ: dict[str, str] | os._Environ[str]) -> Path:
@@ -448,22 +474,17 @@ def run_smoke(repo_root: Path, environ: dict[str, str] | os._Environ[str]) -> Pa
         temp_root = Path(temp_name)
         workspace = write_fixture(temp_root, repo_root, token, volume)
         try:
-            runner.run(
-                [
-                    "docker",
-                    "volume",
-                    "create",
-                    "--label",
-                    label,
-                    volume,
-                ],
-                timeout=30,
-            )
+            for owned_volume in (volume, volume + "-aoe"):
+                runner.run(
+                    ["docker", "volume", "create", "--label", label, owned_volume],
+                    timeout=30,
+                )
             first = runner.run(
                 ["devcontainer", "up", "--workspace-folder", str(workspace)]
             )
             container_id = _container_id(first.stdout)
-            _assert_state(runner, workspace, 1, 1, "defaults")
+            _assert_state(runner, workspace, 1, 1, "defaults", "legacy")
+            _exec(runner, workspace, 'printf "%s\\n" updated >"$HOME/.config/agent-of-empires/profiles/default/sessions.json"')
 
             _exec(
                 runner,
@@ -500,6 +521,14 @@ def run_smoke(repo_root: Path, environ: dict[str, str] | os._Environ[str]) -> Pa
             if after != before:
                 raise SmokeFailure("second devcontainer up changed persisted runtime state")
 
+            runner.run(["docker", "rm", "-f", container_id], timeout=30)
+            container_id = None
+            recreated = runner.run(["devcontainer", "up", "--workspace-folder", str(workspace)])
+            container_id = _container_id(recreated.stdout)
+            _assert_state(runner, workspace, None, None, "defaults anthropic-api")
+            if _state_fingerprint(runner, workspace) != before:
+                raise SmokeFailure("container recreation changed persisted runtime state")
+
             _collect_container_logs(runner, container_id, label)
             (artifacts / "result.json").write_text(
                 json.dumps(
@@ -507,7 +536,7 @@ def run_smoke(repo_root: Path, environ: dict[str, str] | os._Environ[str]) -> Pa
                         "container_id": container_id,
                         "image": IMAGE,
                         "outcome": "pass",
-                        "volume": volume,
+                        "volumes": [volume, volume + "-aoe"],
                     },
                     indent=2,
                 )

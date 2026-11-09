@@ -16,6 +16,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import isolated_environment, init_git_repository, run_git, write_executable
+from tests.support.chezmoi_render import CHEZMOI, render_template
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -855,23 +856,189 @@ printf '%s:%s:%s\n' "$state" "$LIFECYCLE_EXPORTED" "$(printenv LIFECYCLE_EXPORTE
             ),
         )
 
-    def test_agent_of_empires_state_and_link_survive_repeated_runs(self) -> None:
-        persist = self.fixture.root / "persistent data" / "agent-of-empires"
-        config = self.fixture.home / ".config" / "agent-of-empires"
-        config.mkdir(parents=True)
-        (config / "config.toml").write_text("theme = 'dark'\n", encoding="utf-8")
-        result = self.run_bash(
-            'source "$1"; ensure_agent_of_empires_persistence_link "$2" "$3"; printf %s preserved >"$2/state.toml"; ensure_agent_of_empires_persistence_link "$2" "$3"',
-            str(COMMON),
-            str(persist),
-            str(config),
+    def run_aoe_storage(self, legacy: Path, config: Path, prelude: str = "") -> subprocess.CompletedProcess[str]:
+        return self.run_bash(
+            'source "$1"; ' + prelude + '\nif initialize_agent_of_empires_storage "$2" "$3"; then exit 0; else exit $?; fi',
+            str(COMMON), str(legacy), str(config),
         )
-        self.assert_success(result)
-        self.assertTrue(config.is_symlink())
-        self.assertEqual(os.readlink(config), str(persist))
-        self.assertEqual((persist / "config.toml").read_text(encoding="utf-8"), "theme = 'dark'\n")
-        self.assertEqual((persist / "state.toml").read_text(encoding="utf-8"), "preserved")
-        self.assertEqual(stat.S_IMODE((persist / "state.toml").stat().st_mode), 0o600)
+
+    def test_agent_of_empires_migration_and_state_survive_repeated_runs(self) -> None:
+        legacy = self.fixture.root / "persistent data" / "agent-of-empires"
+        config = self.fixture.home / ".config" / "agent-of-empires"
+        legacy.mkdir(parents=True)
+        config.mkdir(parents=True)
+        (legacy / "profiles/default").mkdir(parents=True)
+        (legacy / "profiles/default/sessions.json").write_text('{"sessions": []}\n')
+        (legacy / ".hidden").write_text("hidden\n")
+        (legacy / "state.toml").write_text("legacy\n")
+        (legacy / "state.toml").chmod(0o600)
+        (legacy / "profiles").chmod(0o700)
+        outside = self.fixture.root / "outside"
+        outside.write_text("never copy or modify\n")
+        (legacy / "reference").symlink_to(outside)
+        self.assert_success(self.run_aoe_storage(legacy, config))
+        self.assertFalse(config.is_symlink())
+        descriptor = os.open(config, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        os.close(descriptor)
+        self.assertEqual((config / "profiles/default/sessions.json").read_bytes(), (legacy / "profiles/default/sessions.json").read_bytes())
+        self.assertEqual((config / ".hidden").read_text(), "hidden\n")
+        self.assertEqual(stat.S_IMODE((config / "profiles").stat().st_mode), 0o700)
+        self.assertEqual(os.readlink(config / "reference"), str(outside))
+        (config / "state.toml").write_text("new state\n")
+        self.assert_success(self.run_aoe_storage(legacy, config))
+        self.assertEqual((config / "state.toml").read_text(), "new state\n")
+        self.assertEqual((legacy / "state.toml").read_text(), "legacy\n")
+        self.assertEqual(outside.read_text(), "never copy or modify\n")
+        self.assertEqual(stat.S_IMODE((config / "state.toml").stat().st_mode), 0o600)
+        self.assertFalse((config / ".dotfiles-aoe-migration-pending").exists())
+
+    def test_agent_of_empires_fresh_state_is_private_and_missing_only(self) -> None:
+        legacy = self.fixture.root / "missing"
+        config = self.fixture.root / "mounted"
+        config.mkdir()
+        self.assert_success(self.run_aoe_storage(legacy, config))
+        self.assertEqual((config / "state.toml").read_text(), "has_seen_welcome = true\n")
+        self.assertEqual(stat.S_IMODE((config / "state.toml").stat().st_mode), 0o600)
+        (config / "state.toml").write_text("owned by AoE\n")
+        self.assert_success(self.run_aoe_storage(legacy, config))
+        self.assertEqual((config / "state.toml").read_text(), "owned by AoE\n")
+        (config / "state.toml").unlink()
+        self.assert_success(self.run_aoe_storage(legacy, config))
+        self.assertEqual((config / "state.toml").read_text(), "has_seen_welcome = true\n")
+
+    def test_agent_of_empires_rejects_ambiguous_or_unsafe_storage(self) -> None:
+        for case in ("symlink-root", "file-root", "missing-root", "nonempty", "pending", "bad-marker", "symlink-marker", "symlink-legacy", "file-legacy", "special-file", "overlap", "reserved"):
+            with self.subTest(case=case):
+                base = self.fixture.root / case
+                legacy, config = base / "legacy", base / "config"
+                legacy.mkdir(parents=True)
+                config.mkdir()
+                (legacy / "state.toml").write_text("retain\n")
+                if case == "symlink-root":
+                    config.rmdir()
+                    config.symlink_to(legacy)
+                    with self.assertRaises(OSError):
+                        os.open(config, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                elif case == "file-root":
+                    config.rmdir()
+                    config.write_text("keep\n")
+                elif case == "missing-root":
+                    config.rmdir()
+                elif case in ("nonempty", "pending", "bad-marker"):
+                    name = {"nonempty": "sessions.json", "pending": ".dotfiles-aoe-migration-pending", "bad-marker": ".dotfiles-aoe-storage-v1"}[case]
+                    (config / name).write_text("keep\n")
+                elif case == "symlink-marker":
+                    (config / ".dotfiles-aoe-storage-v1").symlink_to(legacy / "state.toml")
+                elif case == "symlink-legacy":
+                    real = base / "real"
+                    legacy.rename(real)
+                    legacy.symlink_to(real)
+                elif case == "file-legacy":
+                    (legacy / "state.toml").unlink()
+                    legacy.rmdir()
+                    legacy.write_text("keep\n")
+                elif case == "special-file":
+                    os.mkfifo(legacy / "socket-like")
+                elif case == "overlap":
+                    config = legacy
+                elif case == "reserved":
+                    (legacy / ".dotfiles-aoe-storage.lock").write_text("keep\n")
+                result = self.run_aoe_storage(legacy, config)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("ERROR: AoE storage", result.stderr)
+                if legacy.is_dir():
+                    self.assertEqual((legacy / "state.toml").read_text(), "retain\n")
+                else:
+                    self.assertEqual(legacy.read_text(), "keep\n")
+                self.assertNotIn("retain\n", result.stderr)
+
+    def test_agent_of_empires_copy_failure_and_corruption_remain_incomplete(self) -> None:
+        for failure in ("copy", "verification", "state"):
+            with self.subTest(failure=failure):
+                base = self.fixture.root / failure
+                legacy, config = base / "legacy", base / "config"
+                legacy.mkdir(parents=True)
+                config.mkdir()
+                (legacy / "sessions.json").write_text("private sessions\n")
+                injection = {
+                    "copy": 'shutil.copy2=lambda *a, **kw: (_ for _ in ()).throw(OSError("private copy failure"))',
+                    "verification": 'shutil.copy2=lambda src, dst, **kw: pathlib.Path(dst).write_text("corrupt")',
+                    "state": 'original=os.open; os.open=lambda p, *a, **kw: (_ for _ in ()).throw(OSError("private state failure")) if str(p).endswith("state.toml") else original(p, *a, **kw)',
+                }[failure]
+                prelude = "python3() { command python3 -c 'import sys, shutil, pathlib, os; sys.argv=sys.argv[1:]; " + injection + "; exec(sys.stdin.read())' \"$@\"; }"
+                result = self.run_aoe_storage(legacy, config, prelude)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("private", result.stderr)
+                self.assertTrue((config / ".dotfiles-aoe-migration-pending").exists())
+                self.assertFalse((config / ".dotfiles-aoe-storage-v1").exists())
+                self.assertEqual((legacy / "sessions.json").read_text(), "private sessions\n")
+                self.assertNotEqual(self.run_aoe_storage(legacy, config).returncode, 0)
+
+    def test_agent_of_empires_concurrent_initialization_refuses_without_copy(self) -> None:
+        import fcntl
+        config = self.fixture.root / "mounted"
+        config.mkdir()
+        with (config / ".dotfiles-aoe-storage.lock").open("wb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_aoe_storage(self.fixture.root / "missing", config)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([item.name for item in config.iterdir()], [".dotfiles-aoe-storage.lock"])
+
+    def test_agent_of_empires_mount_and_ownership_precede_initialization(self) -> None:
+        config = self.fixture.root / "mounted"
+        config.mkdir()
+        for failure in ("mount", "ownership", "none"):
+            with self.subTest(failure=failure):
+                result = self.run_bash(
+                    '''source "$1"
+sudo() { printf 'ownership\n'; [[ "$FAIL" != ownership ]]; }
+initialize_agent_of_empires_storage() { printf 'initialize\n'; }
+mountpoint() { printf 'mount\n'; [[ "$FAIL" != mount ]]; }
+if ensure_agent_of_empires_storage "$2" "$3"; then exit 0; else exit $?; fi''',
+                    str(COMMON), str(self.fixture.root / "missing"), str(config),
+                    env={**self.env, "FAIL": failure},
+                )
+                expected = {"mount": ["mount"], "ownership": ["mount", "ownership"], "none": ["mount", "ownership", "initialize"]}[failure]
+                self.assertEqual(result.stdout.splitlines(), expected)
+                self.assertEqual(result.returncode == 0, failure == "none")
+        result = self.run_bash(
+            'source "$1"; if ensure_agent_of_empires_storage "$2" "$3"; then exit 0; else exit $?; fi',
+            str(COMMON), str(self.fixture.root / "missing"), str(config),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rebuild", result.stderr)
+        self.assertEqual(list(config.iterdir()), [])
+
+    def test_agent_of_empires_lifecycle_failure_stops_conditional_phases(self) -> None:
+        for source, phase in ((POST_CREATE, "post_create_persistence_phase"), (POST_START, "post_start_persistence_phase"), (POST_START, "post_start_runtime_configuration")):
+            with self.subTest(phase=phase):
+                result = self.run_bash(
+                    '''source "$1"
+step() { :; }; done_step() { :; }; mkdir() { :; }
+ensure_claude_persistence_links() { :; }
+install_claude_managed_asset_links() { :; }
+register_claude_mcp_servers() { :; }
+retire_mnemo_persistence_link() { :; }
+ensure_agent_of_empires_storage() { return 42; }
+ensure_opencode_persistence_links() { printf 'unexpected\n'; }
+ensure_beads_persistence_mounts() { printf 'unexpected\n'; }
+post_start_optional_integrations_phase() { printf 'unexpected\n'; }
+post_start_materialization_phase() { printf 'unexpected\n'; }
+if "$2" /fixture; then exit 0; else exit $?; fi''',
+                    str(source), phase,
+                )
+                self.assertEqual(result.returncode, 42, result.stderr)
+                self.assertNotIn("unexpected", result.stdout)
+
+    @unittest.skipUnless(CHEZMOI, "chezmoi is required")
+    def test_agent_of_empires_mount_is_shared_by_macos_and_wsl_renderings(self) -> None:
+        def configure(data: dict[str, object]) -> None:
+            data.update(CERTFILES_RAW="", CERTPATH="/fixture/keys")
+        for platform in ("macos", "wsl2"):
+            with self.subTest(platform=platform):
+                text = render_template(str(DEVCONTAINER_CONFIG.relative_to(REPO_ROOT)), platform, configure)
+                self.assertRegex(text, r'"source": "homelab-iac-aoe-data-volume",\s*"target": "/home/vscode/.config/agent-of-empires",\s*"type": "volume"')
+                self.assertIn('"source": "homelab-iac-data-volume"', text)
 
     def test_opencode_links_migrate_partial_state_and_stale_nested_link(self) -> None:
         persistent = self.fixture.root / "persistent data" / "opencode"

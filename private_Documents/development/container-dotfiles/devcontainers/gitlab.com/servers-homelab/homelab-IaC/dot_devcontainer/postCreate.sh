@@ -664,16 +664,16 @@ post_create_persistence_phase() {
   retire_mnemo_persistence_link
   done_step "Retire mnemo persistence symlink"
 
-  step "Prime OpenCode/AoE persistent-data symlinks before install"
+  step "Prepare OpenCode links and AoE persistent storage before install"
   mkdir -p \
     /home/vscode/persistent-data/opencode/{config,cache,share,state} \
     "$HOME/.cache" \
     "$HOME/.local/share" \
     "$HOME/.local/state"
 
-  ensure_agent_of_empires_persistence_link
+  ensure_agent_of_empires_storage || return $?
   ensure_opencode_persistence_links
-  done_step "Prime OpenCode/AoE persistent-data symlinks before install"
+  done_step "Prepare OpenCode links and AoE persistent storage before install"
 
   step "Install generated OpenCode env file (if present)"
   install_opencode_env_file
@@ -1037,7 +1037,7 @@ else
 fi
 done_step "Install plannotator CLI"
 
-post_create_persistence_phase
+post_create_persistence_phase || return $?
 
 step "Run host dotfiles installer (if present)"
 SRC=/home/vscode/.host-dotfiles

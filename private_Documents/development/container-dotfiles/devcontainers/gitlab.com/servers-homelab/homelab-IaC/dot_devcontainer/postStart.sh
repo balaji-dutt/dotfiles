@@ -490,7 +490,7 @@ post_start_persistence_phase() {
     "$HOME/.local/bin" \
     "$HOME/.ssh"
 
-  ensure_agent_of_empires_persistence_link
+  ensure_agent_of_empires_storage || return $?
   ensure_claude_persistence_links
   ensure_beads_persistence_mounts "$workspace_root"
   install_claude_managed_asset_links
@@ -506,7 +506,7 @@ post_start_materialization_phase() {
 
   if [[ -f /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml ]]; then
     install -m 0644 /home/vscode/.host-dotfiles/.config/agent-of-empires/config.toml \
-      /home/vscode/persistent-data/agent-of-empires/config.toml
+      "$HOME/.config/agent-of-empires/config.toml" || return $?
   else
     echo "WARN: Agent of Empires config not found; keeping existing config." >&2
   fi
@@ -563,9 +563,9 @@ post_start_runtime_configuration() {
   local workspace_root
   workspace_root="$1"
 
-  post_start_persistence_phase "$workspace_root"
+  post_start_persistence_phase "$workspace_root" || return $?
   post_start_optional_integrations_phase
-  post_start_materialization_phase "$workspace_root"
+  post_start_materialization_phase "$workspace_root" || return $?
 }
 
 post_start_check_host_relay() {
@@ -597,7 +597,7 @@ fi
 workspace_root="${workspace_root:-$PWD}"
 log_run_header "$workspace_root"
 ensure_git_safe_directories "$workspace_root"
-post_start_runtime_configuration "$workspace_root"
+post_start_runtime_configuration "$workspace_root" || return $?
 post_start_check_host_relay
 post_start_refresh_ssh
 )
