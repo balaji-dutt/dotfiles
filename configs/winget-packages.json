@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-  "CreationDate": "2026-09-27T00:41:53.094+08:00",
+  "CreationDate": "2026-11-09T19:33:20.183+08:00",
   "Sources": [
     {
       "Packages": [
@@ -68,10 +68,19 @@
           "PackageIdentifier": "Obsidian.Obsidian"
         },
         {
-          "PackageIdentifier": "filips.FirefoxPWA"
+          "PackageIdentifier": "OpenJS.NodeJS.LTS"
+        },
+        {
+          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x64"
+        },
+        {
+          "PackageIdentifier": "filips.FirefoxPWA"
+        },
+        {
+          "PackageIdentifier": "Starship.Starship"
         },
         {
           "PackageIdentifier": "RoyalApps.RoyalTS.7"
@@ -89,22 +98,13 @@
           "PackageIdentifier": "GPSoftware.DirectoryOpus"
         },
         {
-          "PackageIdentifier": "EpicGames.EpicGamesLauncher"
-        },
-        {
-          "PackageIdentifier": "Microsoft.GameInput"
-        },
-        {
           "PackageIdentifier": "Apple.AppleApplicationSupport.x64"
         },
         {
-          "PackageIdentifier": "Starship.Starship"
+          "PackageIdentifier": "Adobe.Acrobat.Pro"
         },
         {
           "PackageIdentifier": "GlavSoft.TightVNC"
-        },
-        {
-          "PackageIdentifier": "Adobe.Acrobat.Pro"
         },
         {
           "PackageIdentifier": "SiberSystems.GoodSync"
@@ -120,6 +120,9 @@
         },
         {
           "PackageIdentifier": "Maximus5.ConEmu"
+        },
+        {
+          "PackageIdentifier": "Microsoft.GameInput"
         },
         {
           "PackageIdentifier": "Microsoft.VisualStudioCode"
@@ -167,19 +170,31 @@
           "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.6"
         },
         {
-          "PackageIdentifier": "Microsoft.PowerShell"
+          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
+        },
+        {
+          "PackageIdentifier": "Python.Launcher"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2015+.x64"
         },
         {
-          "PackageIdentifier": "Microsoft.DotNet.DesktopRuntime.8"
+          "PackageIdentifier": "Microsoft.PowerShell"
+        },
+        {
+          "PackageIdentifier": "Microsoft.Edge"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2012.x86"
         },
         {
+          "PackageIdentifier": "Jabra.Direct"
+        },
+        {
           "PackageIdentifier": "EpicGames.EpicOnlineServices"
+        },
+        {
+          "PackageIdentifier": "DYMO.DYMOConnect"
         },
         {
           "PackageIdentifier": "Sonos.Controller"
@@ -188,31 +203,19 @@
           "PackageIdentifier": "DYMO.DYMOLabel"
         },
         {
-          "PackageIdentifier": "DYMO.DYMOConnect"
-        },
-        {
-          "PackageIdentifier": "BrianApps.Sizer.Dev"
-        },
-        {
           "PackageIdentifier": "Microsoft.VCRedist.2015+.x86"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2013.x86"
         },
         {
-          "PackageIdentifier": "Microsoft.Edge"
-        },
-        {
-          "PackageIdentifier": "Python.Launcher"
+          "PackageIdentifier": "BrianApps.Sizer.Dev"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2010.x86"
         },
         {
           "PackageIdentifier": "Microsoft.VCRedist.2012.x64"
-        },
-        {
-          "PackageIdentifier": "Jabra.Direct"
         },
         {
           "PackageIdentifier": "Eugeny.Tabby"
@@ -234,6 +237,9 @@
         },
         {
           "PackageIdentifier": "Gyan.FFmpeg"
+        },
+        {
+          "PackageIdentifier": "Mikrotik.Winbox"
         },
         {
           "PackageIdentifier": "Microsoft.OneDrive"
