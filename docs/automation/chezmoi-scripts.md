@@ -44,6 +44,7 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
 | `run_after_windows-beads-pin.ps1.tmpl` | after | Windows Beads Winget pin reconciliation |
 | `run_after_windows-ffpwa-runtime.ps1.tmpl` | after | Windows FirefoxPWA runtime and web app refresh |
 | `run_after_windows-opencode-pin.ps1.tmpl` | after | hold an installed stable OpenCode v1 with Chocolatey |
+| `run_after_windows-release-sync.ps1.tmpl` | after | Windows GitHub release sync into versioned folders; see `docs/tooling/release-sync.md` |
 | `run_after_windows-sync.ps1.tmpl` | after | Windows sync flow |
 | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Windows startup task registration |
 | `run_after_install_codebase-memory-mcp.ps1.tmpl` | after | Windows CBM binary installation; defers with a warning while a coding agent holds the binary |

@@ -1,0 +1,760 @@
+{{- if ne .chezmoi.os "windows" -}}
+{{- /* not Windows: do nothing */ -}}
+{{- else -}}
+# Install the newest GitHub release asset for each entry in
+# ~/.config/dotfiles/release-sync.json into <dest>\releases\<tag> and point the
+# <dest>\current junction at it. Contract: docs/tooling/release-sync.md.
+# Runs on every apply so throttled checks and deferred post-install steps retry.
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference    = "SilentlyContinue"
+
+$ReleaseSyncSchemaVersion      = 1
+$ReleaseSyncCheckIntervalHours = 24
+$ReleaseSyncDeferredExitCode   = 75
+$ReleaseSyncAllowedKeys        = @("name", "repo", "channel", "asset_pattern", "dest", "keep", "post_install")
+
+function Write-ReleaseSyncInfo {
+  param([Parameter(Mandatory)][string] $Message)
+  Write-Host "release-sync: $Message"
+}
+
+function Write-ReleaseSyncWarning {
+  param([Parameter(Mandatory)][string] $Message)
+  Write-Host "WARNING: release-sync: $Message"
+}
+
+function Test-ReleaseSyncFlag {
+  param([string] $Value)
+  return (-not [string]::IsNullOrWhiteSpace($Value)) -and $Value -ne "0"
+}
+
+function Get-ReleaseSyncConfigPath {
+  if (-not [string]::IsNullOrWhiteSpace($env:DOTFILES_RELEASE_SYNC_CONFIG)) {
+    return $env:DOTFILES_RELEASE_SYNC_CONFIG
+  }
+  return Join-Path (Join-Path (Join-Path $HOME ".config") "dotfiles") "release-sync.json"
+}
+
+function Get-ReleaseSyncStateDir {
+  $base = $env:LOCALAPPDATA
+  if ([string]::IsNullOrWhiteSpace($base)) {
+    $base = Join-Path (Join-Path $HOME "AppData") "Local"
+  }
+  return Join-Path (Join-Path $base "dotfiles") "release-sync"
+}
+
+function ConvertTo-ReleaseSyncUtc {
+  param($Value)
+
+  if ($null -eq $Value) {
+    return $null
+  }
+  if ($Value -is [datetime]) {
+    if ($Value.Kind -eq [System.DateTimeKind]::Unspecified) {
+      return [datetime]::SpecifyKind($Value, [System.DateTimeKind]::Utc)
+    }
+    return $Value.ToUniversalTime()
+  }
+  if ($Value -is [datetimeoffset]) {
+    return $Value.UtcDateTime
+  }
+  $parsed = [datetimeoffset]::MinValue
+  $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal
+  if ([datetimeoffset]::TryParse([string] $Value, [cultureinfo]::InvariantCulture, $styles, [ref] $parsed)) {
+    return $parsed.UtcDateTime
+  }
+  return $null
+}
+
+function Test-ReleaseSyncTag {
+  param([string] $Tag)
+  return (-not [string]::IsNullOrEmpty($Tag)) -and
+    ($Tag -cmatch '^[A-Za-z0-9][A-Za-z0-9._-]*(?<!\.)\z') -and
+    ($Tag -notmatch '^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?\z')
+}
+
+function ConvertTo-ReleaseSyncEntry {
+  param([Parameter(Mandatory)] $Raw)
+
+  if ($Raw -isnot [System.Collections.IDictionary]) {
+    throw "entry is not a JSON object"
+  }
+  foreach ($key in $Raw.Keys) {
+    if ($ReleaseSyncAllowedKeys -cnotcontains $key) {
+      throw "unknown key '$key'"
+    }
+  }
+
+  $name = [string] $Raw["name"]
+  if ($name -cnotmatch '^[a-z0-9][a-z0-9-]*\z') {
+    throw "name must match ^[a-z0-9][a-z0-9-]*$"
+  }
+
+  $repo = [string] $Raw["repo"]
+  if ($repo -cnotmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\z') {
+    throw "${name}: repo must be <owner>/<repo>"
+  }
+
+  $channel = [string] $Raw["channel"]
+  if (@("prerelease", "stable") -cnotcontains $channel) {
+    throw "${name}: channel must be 'prerelease' or 'stable'"
+  }
+
+  $assetPattern = [string] $Raw["asset_pattern"]
+  if ([string]::IsNullOrEmpty($assetPattern)) {
+    throw "${name}: asset_pattern is required"
+  }
+  try {
+    [void] [regex]::new($assetPattern)
+  } catch {
+    throw "${name}: asset_pattern is not a valid regex"
+  }
+
+  $dest = [string] $Raw["dest"]
+  if ([string]::IsNullOrWhiteSpace($dest) -or -not [System.IO.Path]::IsPathFullyQualified($dest)) {
+    throw "${name}: dest must be an absolute path"
+  }
+  $dest = [System.IO.Path]::GetFullPath($dest).TrimEnd([char[]] @('\', '/'))
+  if ([string]::IsNullOrEmpty([System.IO.Path]::GetDirectoryName($dest))) {
+    throw "${name}: dest must not be a drive root"
+  }
+
+  $keep = 3
+  if ($Raw.Contains("keep")) {
+    $rawKeep = $Raw["keep"]
+    if (($rawKeep -isnot [int] -and $rawKeep -isnot [long]) -or $rawKeep -lt 1 -or $rawKeep -gt 50) {
+      throw "${name}: keep must be an integer from 1 to 50"
+    }
+    $keep = [int] $rawKeep
+  }
+
+  $postInstall = ""
+  if ($Raw.Contains("post_install") -and $null -ne $Raw["post_install"]) {
+    $postInstall = [string] $Raw["post_install"]
+    if (-not [System.IO.Path]::IsPathFullyQualified($postInstall) -or -not $postInstall.EndsWith(".ps1", [StringComparison]::OrdinalIgnoreCase)) {
+      throw "${name}: post_install must be an absolute path to a .ps1 file"
+    }
+  }
+
+  return [pscustomobject]@{
+    Name         = $name
+    Repo         = $repo
+    Channel      = $channel
+    AssetPattern = $assetPattern
+    Dest         = $dest
+    Keep         = $keep
+    PostInstall  = $postInstall
+  }
+}
+
+function New-ReleaseSyncState {
+  return [ordered]@{
+    schema_version        = $ReleaseSyncSchemaVersion
+    last_check_utc        = $null
+    current_tag           = $null
+    post_install_done_tag = $null
+    installed             = @()
+  }
+}
+
+function Read-ReleaseSyncState {
+  param([Parameter(Mandatory)][string] $Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return New-ReleaseSyncState
+  }
+  $raw = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -AsHashtable
+  if ($raw -isnot [System.Collections.IDictionary] -or $raw["schema_version"] -ne $ReleaseSyncSchemaVersion) {
+    throw "state file $Path has an unexpected format; delete it to start over"
+  }
+
+  $state = New-ReleaseSyncState
+  $lastCheck = ConvertTo-ReleaseSyncUtc $raw["last_check_utc"]
+  if ($null -ne $lastCheck) {
+    $state.last_check_utc = $lastCheck.ToString("o")
+  }
+  foreach ($key in @("current_tag", "post_install_done_tag")) {
+    $value = [string] $raw[$key]
+    if (-not [string]::IsNullOrEmpty($value)) {
+      if (-not (Test-ReleaseSyncTag $value)) {
+        throw "state file $Path has an invalid $key"
+      }
+      $state[$key] = $value
+    }
+  }
+
+  $installed = @()
+  foreach ($record in @($raw["installed"])) {
+    if ($null -eq $record) {
+      continue
+    }
+    if ($record -isnot [System.Collections.IDictionary] -or -not (Test-ReleaseSyncTag ([string] $record["tag"]))) {
+      throw "state file $Path has an invalid installed record"
+    }
+    $installedUtc = ConvertTo-ReleaseSyncUtc $record["installed_utc"]
+    $installed += , ([ordered]@{
+      tag           = [string] $record["tag"]
+      asset         = [string] $record["asset"]
+      sha256        = [string] $record["sha256"]
+      installed_utc = if ($null -ne $installedUtc) { $installedUtc.ToString("o") } else { $null }
+    })
+  }
+  $state.installed = $installed
+  return $state
+}
+
+function Write-ReleaseSyncState {
+  param(
+    [Parameter(Mandatory)][string] $Path,
+    [Parameter(Mandatory)] $State
+  )
+
+  $directory = Split-Path -Parent $Path
+  if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+  $snapshot = [ordered]@{}
+  foreach ($key in $State.Keys) {
+    $snapshot[$key] = $State[$key]
+  }
+  $snapshot.installed = @($State.installed)
+  $temporary = "$Path.tmp-$([guid]::NewGuid().ToString('N'))"
+  try {
+    $snapshot | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporary -Encoding utf8NoBOM
+    Move-Item -LiteralPath $temporary -Destination $Path -Force
+  } finally {
+    if (Test-Path -LiteralPath $temporary) {
+      Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Get-ReleaseSyncLinkState {
+  param([Parameter(Mandatory)][string] $Path)
+
+  $info = [System.IO.DirectoryInfo]::new($Path)
+  $info.Refresh()
+  if ([int] $info.Attributes -eq -1) {
+    return [pscustomobject]@{ Kind = "Missing"; Target = $null }
+  }
+  $isDirectory = ($info.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+  $isReparse = ($info.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
+  if ($isDirectory -and $isReparse -and -not [string]::IsNullOrEmpty($info.LinkTarget)) {
+    $target = $info.LinkTarget
+    if (-not [System.IO.Path]::IsPathRooted($target)) {
+      $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($info.Parent.FullName, $target))
+    }
+    return [pscustomobject]@{ Kind = "Link"; Target = $target }
+  }
+  return [pscustomobject]@{ Kind = "Other"; Target = $null }
+}
+
+function Test-ReleaseSyncSamePath {
+  param([string] $Left, [string] $Right)
+
+  if ([string]::IsNullOrEmpty($Left) -or [string]::IsNullOrEmpty($Right)) {
+    return $false
+  }
+  $normalizedLeft = [System.IO.Path]::GetFullPath($Left).TrimEnd([char[]] @('\', '/'))
+  $normalizedRight = [System.IO.Path]::GetFullPath($Right).TrimEnd([char[]] @('\', '/'))
+  return [string]::Equals($normalizedLeft, $normalizedRight, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-ReleaseSyncReleases {
+  param([Parameter(Mandatory)][string] $Repo)
+
+  $headers = @{
+    Accept                 = "application/vnd.github+json"
+    "User-Agent"           = "dotfiles-release-sync"
+    "X-GitHub-Api-Version" = "2022-11-28"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_API_TOKEN)) {
+    $headers.Authorization = "Bearer $($env:GITHUB_API_TOKEN)"
+  }
+  $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" -Headers $headers -TimeoutSec 30
+  return @($response | ForEach-Object { $_ })
+}
+
+function Select-ReleaseSyncRelease {
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Releases,
+    [Parameter(Mandatory)][string] $Channel
+  )
+
+  $candidates = @(
+    $Releases | Where-Object {
+      $null -ne $_ -and
+      -not [bool] $_.draft -and
+      ($Channel -eq "prerelease" -or -not [bool] $_.prerelease) -and
+      $null -ne (ConvertTo-ReleaseSyncUtc $_.published_at)
+    }
+  )
+  if ($candidates.Count -eq 0) {
+    return $null
+  }
+  return $candidates |
+    Sort-Object -Property @{ Expression = { ConvertTo-ReleaseSyncUtc $_.published_at } } -Descending |
+    Select-Object -First 1
+}
+
+function Select-ReleaseSyncAsset {
+  param(
+    [Parameter(Mandatory)] $Release,
+    [Parameter(Mandatory)] $Entry
+  )
+
+  $tag = [string] $Release.tag_name
+  $assetMatches = @(@($Release.assets) | Where-Object { $null -ne $_ -and [regex]::IsMatch([string] $_.name, $Entry.AssetPattern) })
+  if ($assetMatches.Count -ne 1) {
+    throw "$tag has $($assetMatches.Count) assets matching asset_pattern; expected exactly one"
+  }
+  $asset = $assetMatches[0]
+  if (-not ([string] $asset.name).EndsWith(".zip", [StringComparison]::OrdinalIgnoreCase)) {
+    throw "$tag asset $($asset.name) is not a .zip archive"
+  }
+
+  $url = [string] $asset.browser_download_url
+  $uri = $null
+  $pathPrefix = "/$($Entry.Repo)/releases/download/"
+  $trusted = [uri]::TryCreate($url, [System.UriKind]::Absolute, [ref] $uri) -and
+    $uri.Scheme -ceq "https" -and
+    $uri.Host -eq "github.com" -and
+    $uri.IsDefaultPort -and
+    $uri.AbsolutePath.StartsWith($pathPrefix, [StringComparison]::OrdinalIgnoreCase)
+  if (-not $trusted) {
+    throw "$tag asset $($asset.name) has an unexpected download URL: $url"
+  }
+
+  $digest = [string] $asset.digest
+  $digestMatch = [regex]::Match($digest, '^sha256:([0-9A-Fa-f]{64})\z')
+  if (-not $digestMatch.Success) {
+    throw "$tag asset $($asset.name) has no sha256 digest; refusing to install it unverified"
+  }
+
+  return [pscustomobject]@{
+    Name   = [string] $asset.name
+    Url    = $uri.AbsoluteUri
+    Sha256 = $digestMatch.Groups[1].Value.ToLowerInvariant()
+  }
+}
+
+function Expand-ReleaseSyncArchive {
+  param(
+    [Parameter(Mandatory)][string] $ZipPath,
+    [Parameter(Mandatory)][string] $Destination
+  )
+
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd([char[]] @('\', '/'))
+  $rootWithSeparator = $root + [System.IO.Path]::DirectorySeparatorChar
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+  try {
+    foreach ($entry in $archive.Entries) {
+      $target = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $entry.FullName)).TrimEnd([char[]] @('\', '/'))
+      $inside = $target.StartsWith($rootWithSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+        [string]::Equals($target, $root, [StringComparison]::OrdinalIgnoreCase)
+      if (-not $inside) {
+        throw "archive entry escapes the release folder: $($entry.FullName)"
+      }
+    }
+  } finally {
+    $archive.Dispose()
+  }
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $root)
+}
+
+function Install-ReleaseSyncAsset {
+  param(
+    [Parameter(Mandatory)] $Entry,
+    [Parameter(Mandatory)] $State,
+    [Parameter(Mandatory)][string] $Tag,
+    [Parameter(Mandatory)] $Asset
+  )
+
+  $releasesDir = Join-Path $Entry.Dest "releases"
+  $releaseDir = Join-Path $releasesDir $Tag
+  $recorded = @($State.installed | Where-Object { $_.tag -ceq $Tag })
+  $releaseState = Get-ReleaseSyncLinkState -Path $releaseDir
+  if ($releaseState.Kind -ne "Missing" -and ($recorded.Count -eq 0 -or $releaseState.Kind -ne "Other")) {
+    throw "$releaseDir already exists and was not installed by release-sync; move it aside to continue"
+  }
+
+  if (-not (Test-Path -LiteralPath $releasesDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $releasesDir -Force | Out-Null
+  }
+
+  $workDir = Join-Path ([System.IO.Path]::GetTempPath()) "release-sync-$([guid]::NewGuid().ToString('N'))"
+  $stagingDir = Join-Path $releasesDir ".staging-$([guid]::NewGuid().ToString('N'))"
+  $retiredDir = $null
+  try {
+    New-Item -ItemType Directory -Path $workDir | Out-Null
+    $zipPath = Join-Path $workDir "asset.zip"
+    Invoke-WebRequest -Uri $Asset.Url -OutFile $zipPath -Headers @{ "User-Agent" = "dotfiles-release-sync" } -TimeoutSec 300 | Out-Null
+    $actual = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $Asset.Sha256) {
+      throw "$Tag asset $($Asset.Name) failed verification: expected sha256 $($Asset.Sha256), got $actual"
+    }
+
+    New-Item -ItemType Directory -Path $stagingDir | Out-Null
+    Expand-ReleaseSyncArchive -ZipPath $zipPath -Destination $stagingDir
+
+    if ($releaseState.Kind -eq "Other") {
+      $retiredDir = Join-Path $releasesDir ".retired-$([guid]::NewGuid().ToString('N'))"
+      [System.IO.Directory]::Move($releaseDir, $retiredDir)
+    }
+    try {
+      [System.IO.Directory]::Move($stagingDir, $releaseDir)
+    } catch {
+      if ($null -ne $retiredDir) {
+        [System.IO.Directory]::Move($retiredDir, $releaseDir)
+      }
+      throw
+    }
+  } finally {
+    Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $stagingDir) {
+      Remove-Item -LiteralPath $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  $State.installed = @($State.installed | Where-Object { $_.tag -cne $Tag }) + , ([ordered]@{
+    tag           = $Tag
+    asset         = $Asset.Name
+    sha256        = $Asset.Sha256
+    installed_utc = [datetime]::UtcNow.ToString("o")
+  })
+  if ($null -ne $retiredDir) {
+    Remove-Item -LiteralPath $retiredDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  Set-ReleaseSyncCurrent -Dest $Entry.Dest -ReleaseDir $releaseDir
+  $State.current_tag = $Tag
+  return $releaseDir
+}
+
+function Set-ReleaseSyncCurrent {
+  param(
+    [Parameter(Mandatory)][string] $Dest,
+    [Parameter(Mandatory)][string] $ReleaseDir
+  )
+
+  $currentPath = Join-Path $Dest "current"
+  $nextPath = Join-Path $Dest "current.new"
+
+  $current = Get-ReleaseSyncLinkState -Path $currentPath
+  if ($current.Kind -eq "Other") {
+    throw "$currentPath exists and is not a junction; move it aside to continue"
+  }
+  if ($current.Kind -eq "Link" -and (Test-ReleaseSyncSamePath $current.Target $ReleaseDir)) {
+    return
+  }
+
+  $next = Get-ReleaseSyncLinkState -Path $nextPath
+  if ($next.Kind -eq "Other") {
+    throw "$nextPath exists and is not a junction; move it aside to continue"
+  }
+  if ($next.Kind -eq "Link") {
+    [System.IO.Directory]::Delete($nextPath, $false)
+  }
+
+  New-Item -ItemType Junction -Path $nextPath -Target $ReleaseDir | Out-Null
+  if ($current.Kind -eq "Link") {
+    [System.IO.Directory]::Delete($currentPath, $false)
+  }
+  [System.IO.Directory]::Move($nextPath, $currentPath)
+}
+
+function Remove-ReleaseSyncOldReleases {
+  param(
+    [Parameter(Mandatory)] $Entry,
+    [Parameter(Mandatory)] $State
+  )
+
+  $releasesDir = Join-Path $Entry.Dest "releases"
+  if (Test-Path -LiteralPath $releasesDir -PathType Container) {
+    $leftovers = @(Get-ChildItem -LiteralPath $releasesDir -Directory -Force | Where-Object { $_.Name -cmatch '^\.(staging|retired)-[0-9a-f]{32}\z' })
+    foreach ($leftover in $leftovers) {
+      if ((Get-ReleaseSyncLinkState -Path $leftover.FullName).Kind -ne "Other") {
+        continue
+      }
+      try {
+        Remove-Item -LiteralPath $leftover.FullName -Recurse -Force
+      } catch {
+        Write-ReleaseSyncWarning "$($Entry.Name): could not remove $($leftover.FullName); retrying on next apply"
+      }
+    }
+  }
+
+  $records = @($State.installed)
+  if ($records.Count -le $Entry.Keep) {
+    return
+  }
+  $keepTags = @($records | Select-Object -Last $Entry.Keep | ForEach-Object { $_.tag })
+  $current = Get-ReleaseSyncLinkState -Path (Join-Path $Entry.Dest "current")
+  $linkedDir = if ($current.Kind -eq "Link") { $current.Target } else { $null }
+  $remaining = @()
+  foreach ($record in $records) {
+    $releaseDir = Join-Path $releasesDir $record.tag
+    if ($keepTags -ccontains $record.tag -or $record.tag -ceq $State.current_tag -or (Test-ReleaseSyncSamePath $linkedDir $releaseDir)) {
+      $remaining += , $record
+      continue
+    }
+    $releaseState = Get-ReleaseSyncLinkState -Path $releaseDir
+    if ($releaseState.Kind -eq "Link") {
+      Write-ReleaseSyncWarning "$($Entry.Name): $releaseDir is a link; leaving it in place"
+      $remaining += , $record
+      continue
+    }
+    if ($releaseState.Kind -eq "Other") {
+      try {
+        Remove-Item -LiteralPath $releaseDir -Recurse -Force
+      } catch {
+        Write-ReleaseSyncWarning "$($Entry.Name): could not remove $releaseDir; retrying on next apply ($($_.Exception.Message))"
+        $remaining += , $record
+        continue
+      }
+      Write-ReleaseSyncInfo "$($Entry.Name): removed old release $($record.tag)"
+    }
+  }
+  $State.installed = $remaining
+}
+
+function Get-ReleaseSyncPwshPath {
+  $candidate = Join-Path $PSHOME "pwsh.exe"
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+    return $candidate
+  }
+  $candidate = Join-Path $PSHOME "pwsh"
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+    return $candidate
+  }
+  return "pwsh"
+}
+
+function Invoke-ReleaseSyncPostInstall {
+  param(
+    [Parameter(Mandatory)] $Entry,
+    [Parameter(Mandatory)] $State,
+    [switch] $DryRun
+  )
+
+  if ([string]::IsNullOrEmpty($Entry.PostInstall) -or [string]::IsNullOrEmpty($State.current_tag)) {
+    return
+  }
+  if ($State.post_install_done_tag -ceq $State.current_tag) {
+    return
+  }
+
+  $tag = $State.current_tag
+  $releaseDir = Join-Path (Join-Path $Entry.Dest "releases") $tag
+  if ((Get-ReleaseSyncLinkState -Path $releaseDir).Kind -ne "Other") {
+    Write-ReleaseSyncWarning "$($Entry.Name): $releaseDir is missing; skipping post_install"
+    return
+  }
+  if (-not (Test-Path -LiteralPath $Entry.PostInstall -PathType Leaf)) {
+    Write-ReleaseSyncWarning "$($Entry.Name): post_install script not found: $($Entry.PostInstall); retrying on next apply"
+    return
+  }
+  if ($DryRun) {
+    Write-ReleaseSyncInfo "$($Entry.Name): dry run: would run $($Entry.PostInstall) for $tag"
+    return
+  }
+
+  try {
+    & (Get-ReleaseSyncPwshPath) -NoLogo -NoProfile -NonInteractive -File $Entry.PostInstall -ReleaseDir $releaseDir -Tag $tag -Dest $Entry.Dest
+    $exitCode = $LASTEXITCODE
+  } catch {
+    Write-ReleaseSyncWarning "$($Entry.Name): could not start post_install for ${tag}; retrying on next apply ($($_.Exception.Message))"
+    return
+  }
+  if ($exitCode -eq 0) {
+    $State.post_install_done_tag = $tag
+    Write-ReleaseSyncInfo "$($Entry.Name): post_install finished for $tag"
+  } elseif ($exitCode -eq $ReleaseSyncDeferredExitCode) {
+    Write-ReleaseSyncInfo "$($Entry.Name): post_install deferred for $tag; retrying on next apply"
+  } else {
+    Write-ReleaseSyncWarning "$($Entry.Name): post_install exited $exitCode for $tag; retrying on next apply"
+  }
+}
+
+function Invoke-ReleaseSyncCheck {
+  param(
+    [Parameter(Mandatory)] $Entry,
+    [Parameter(Mandatory)] $State,
+    [switch] $DryRun
+  )
+
+  try {
+    $releases = Get-ReleaseSyncReleases -Repo $Entry.Repo
+  } catch {
+    Write-ReleaseSyncWarning "$($Entry.Name): could not query $($Entry.Repo) releases; retrying on next apply ($($_.Exception.Message))"
+    return
+  }
+  $checkedAt = [datetime]::UtcNow.ToString("o")
+
+  $release = Select-ReleaseSyncRelease -Releases $releases -Channel $Entry.Channel
+  if ($null -eq $release) {
+    Write-ReleaseSyncWarning "$($Entry.Name): $($Entry.Repo) has no published $($Entry.Channel) release"
+    $State.last_check_utc = $checkedAt
+    return
+  }
+  $tag = [string] $release.tag_name
+  if (-not (Test-ReleaseSyncTag $tag)) {
+    Write-ReleaseSyncWarning "$($Entry.Name): release tag '$tag' is not usable as a folder name"
+    $State.last_check_utc = $checkedAt
+    return
+  }
+  try {
+    $asset = Select-ReleaseSyncAsset -Release $release -Entry $Entry
+  } catch {
+    Write-ReleaseSyncWarning "$($Entry.Name): $($_.Exception.Message)"
+    $State.last_check_utc = $checkedAt
+    return
+  }
+
+  $releaseDir = Join-Path (Join-Path $Entry.Dest "releases") $tag
+  $record = @($State.installed | Where-Object { $_.tag -ceq $tag }) | Select-Object -First 1
+  $upToDate = $State.current_tag -ceq $tag -and
+    $null -ne $record -and
+    $record.sha256 -ceq $Asset.Sha256 -and
+    (Get-ReleaseSyncLinkState -Path $releaseDir).Kind -eq "Other"
+  if ($upToDate) {
+    if ((Get-ReleaseSyncLinkState -Path (Join-Path $Entry.Dest "current")).Kind -eq "Missing") {
+      if ($DryRun) {
+        Write-ReleaseSyncInfo "$($Entry.Name): dry run: would recreate $(Join-Path $Entry.Dest 'current') -> $releaseDir"
+      } else {
+        Set-ReleaseSyncCurrent -Dest $Entry.Dest -ReleaseDir $releaseDir
+      }
+    }
+    $State.last_check_utc = $checkedAt
+    return
+  }
+
+  if ($DryRun) {
+    Write-ReleaseSyncInfo "$($Entry.Name): dry run: would install $tag ($($asset.Name), sha256 $($asset.Sha256)) into $releaseDir"
+    return
+  }
+
+  try {
+    [void] (Install-ReleaseSyncAsset -Entry $Entry -State $State -Tag $tag -Asset $asset)
+  } catch {
+    Write-ReleaseSyncWarning "$($Entry.Name): could not install ${tag}; retrying on next apply ($($_.Exception.Message))"
+    return
+  }
+  $State.last_check_utc = $checkedAt
+  Write-ReleaseSyncInfo "$($Entry.Name): installed $tag ($($asset.Name)); $(Join-Path $Entry.Dest 'current') -> $releaseDir"
+}
+
+function Invoke-ReleaseSyncEntry {
+  param(
+    [Parameter(Mandatory)] $Entry,
+    [Parameter(Mandatory)][string] $StateDir,
+    [switch] $Force,
+    [switch] $DryRun
+  )
+
+  $parent = Split-Path -Parent $Entry.Dest
+  if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+    Write-ReleaseSyncWarning "$($Entry.Name): $parent does not exist; skipping"
+    return
+  }
+  foreach ($linkName in @("current", "current.new")) {
+    $linkPath = Join-Path $Entry.Dest $linkName
+    if ((Get-ReleaseSyncLinkState -Path $linkPath).Kind -eq "Other") {
+      Write-ReleaseSyncWarning "$($Entry.Name): $linkPath exists and is not a junction; move it aside to continue"
+      return
+    }
+  }
+
+  $statePath = Join-Path $StateDir "$($Entry.Name).json"
+  $state = Read-ReleaseSyncState -Path $statePath
+
+  $lastCheck = ConvertTo-ReleaseSyncUtc $state.last_check_utc
+  $due = $Force -or $null -eq $lastCheck -or
+    ([datetime]::UtcNow - $lastCheck).TotalHours -ge $ReleaseSyncCheckIntervalHours -or
+    $lastCheck -gt [datetime]::UtcNow.AddMinutes(5)
+
+  if ($due) {
+    if (-not $DryRun -and -not (Test-Path -LiteralPath $Entry.Dest -PathType Container)) {
+      New-Item -ItemType Directory -Path $Entry.Dest | Out-Null
+    }
+    try {
+      Invoke-ReleaseSyncCheck -Entry $Entry -State $state -DryRun:$DryRun
+    } catch {
+      Write-ReleaseSyncWarning "$($Entry.Name): $($_.Exception.Message)"
+    }
+  }
+
+  try {
+    Invoke-ReleaseSyncPostInstall -Entry $Entry -State $state -DryRun:$DryRun
+    if (-not $DryRun) {
+      Remove-ReleaseSyncOldReleases -Entry $Entry -State $state
+    }
+  } finally {
+    if (-not $DryRun) {
+      Write-ReleaseSyncState -Path $statePath -State $state
+    }
+  }
+}
+
+function Invoke-ReleaseSync {
+  $configPath = Get-ReleaseSyncConfigPath
+  if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    return
+  }
+
+  try {
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json -AsHashtable
+  } catch {
+    Write-ReleaseSyncWarning "could not parse ${configPath}: $($_.Exception.Message)"
+    return
+  }
+  if ($config -isnot [System.Collections.IDictionary] -or $config["schema_version"] -ne $ReleaseSyncSchemaVersion) {
+    Write-ReleaseSyncWarning "$configPath must be an object with schema_version $ReleaseSyncSchemaVersion"
+    return
+  }
+  if ($config["releases"] -isnot [array]) {
+    Write-ReleaseSyncWarning "$configPath must contain a releases array"
+    return
+  }
+
+  $force = Test-ReleaseSyncFlag $env:DOTFILES_RELEASE_SYNC_FORCE
+  $dryRun = Test-ReleaseSyncFlag $env:DOTFILES_RELEASE_SYNC_DRY_RUN
+  $stateDir = Get-ReleaseSyncStateDir
+  $seenNames = @{}
+  $seenDests = @{}
+  $index = 0
+  foreach ($raw in $config["releases"]) {
+    $index++
+    try {
+      $entry = ConvertTo-ReleaseSyncEntry -Raw $raw
+    } catch {
+      Write-ReleaseSyncWarning "releases[$($index - 1)]: $($_.Exception.Message); skipping"
+      continue
+    }
+    $destKey = $entry.Dest.ToLowerInvariant()
+    if ($seenNames.ContainsKey($entry.Name) -or $seenDests.ContainsKey($destKey)) {
+      Write-ReleaseSyncWarning "$($entry.Name): duplicate name or dest; skipping"
+      continue
+    }
+    $seenNames[$entry.Name] = $true
+    $seenDests[$destKey] = $true
+
+    try {
+      Invoke-ReleaseSyncEntry -Entry $entry -StateDir $stateDir -Force:$force -DryRun:$dryRun
+    } catch {
+      Write-ReleaseSyncWarning "$($entry.Name): $($_.Exception.Message)"
+    }
+  }
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  try {
+    Invoke-ReleaseSync
+  } catch {
+    Write-ReleaseSyncWarning $_.Exception.Message
+  }
+  exit 0
+}
+{{- end -}}

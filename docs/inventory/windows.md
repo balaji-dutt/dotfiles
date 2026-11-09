@@ -128,8 +128,8 @@ home directory.
 
 ## Windows Apply-Hook Allowlist
 
-Windows ignores `.chezmoiscripts/**` by default and then admits these nineteen
-rendered hook targets:
+Windows ignores `.chezmoiscripts/**` by default and then admits these
+twenty-one rendered hook targets:
 
 | Managed Hook Target | Source Template | Trigger | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -148,6 +148,7 @@ rendered hook targets:
 | `windows-beads-pin.ps1` | `run_after_windows-beads-pin.ps1.tmpl` | after | Reapply the shared exact-version Winget pin and report installed Beads drift |
 | `windows-ffpwa-runtime.ps1` | `run_after_windows-ffpwa-runtime.ps1.tmpl` | after | Run `ffpwa-refresh.ps1 auto`: reinstall the FirefoxPWA runtime and update web apps when Firefox is newer; warn and continue on failure |
 | `windows-opencode-pin.ps1` | `run_after_windows-opencode-pin.ps1.tmpl` | after | Verify installed stable v1 and reassert its Chocolatey hold; no installation or elevation. Without admin rights it skips the pin write and prints an `-EncodedCommand` line to run elevated |
+| `windows-release-sync.ps1` | `run_after_windows-release-sync.ps1.tmpl` | after | Install the newest release asset for each entry in the local `release-sync.json` into a versioned folder behind a `current` junction; no-op without the config ([contract](../tooling/release-sync.md)) |
 | `windows-bootstrap.ps1` | `run_onchange_after_windows-bootstrap.ps1.tmpl` | onchange, after | Reconcile selected user PATH entries and PowerShell profile loading |
 | `windows-sync.ps1` | `run_after_windows-sync.ps1.tmpl` | after | Render or copy the sync outputs documented above |
 | `windows-zz-register-startup-tasks.ps1` | `run_after_windows-zz-register-startup-tasks.ps1.tmpl` | after | Register `Start-WslSshPageant` at logon, with a Startup-folder fallback |

@@ -25,6 +25,7 @@ HOOKS = {
     "mcp": "run_onchange_after_claude_mcp_servers.ps1.tmpl",
     "kanban": "run_onchange_after_install_better_beads_kanban.ps1.tmpl",
     "plannotator": "run_onchange_after_install_plannotator.ps1.tmpl",
+    "release-sync": "run_after_windows-release-sync.ps1.tmpl",
 }
 DENY_EXTERNAL = r'''
 function Invoke-WebRequest { throw 'fixture blocked external network' }
@@ -59,6 +60,7 @@ class WindowsLifecycleBoundaryTests(unittest.TestCase):
             "HOME": str(self.root / "home"),
             "USERPROFILE": str(self.root / "home"),
             "GITHUB_API_TOKEN": "",
+            "DOTFILES_RELEASE_SYNC_CONFIG": str(self.root / "home" / "release-sync.json"),
         }
         for name in ("appdata", "localappdata", "temp", "home"):
             (self.root / name).mkdir()
@@ -373,6 +375,36 @@ function Test-Path {
         result = self.run_hook("plannotator", before=before)
         self.assert_ok(result)
         self.assertIn("Would install plannotator", result.stdout)
+
+    def test_release_sync_without_config_makes_no_network_call_or_state(self) -> None:
+        result = self.run_hook("release-sync")
+        self.assert_ok(result)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertFalse((self.root / "localappdata" / "dotfiles").exists())
+
+    def test_release_sync_network_failure_warns_and_keeps_state_in_fixture(self) -> None:
+        dest_parent = self.root / "tools"
+        dest_parent.mkdir()
+        Path(self.env["DOTFILES_RELEASE_SYNC_CONFIG"]).write_text(json.dumps({
+            "schema_version": 1,
+            "releases": [{
+                "name": "fixture",
+                "repo": "owner/repo",
+                "channel": "stable",
+                "asset_pattern": r"^Bundle\.zip$",
+                "dest": str(dest_parent / "fixture"),
+            }],
+        }), encoding="utf-8")
+
+        result = self.run_hook("release-sync")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WARNING: release-sync: fixture: could not query owner/repo releases", result.stdout)
+        state = json.loads(
+            (self.root / "localappdata" / "dotfiles" / "release-sync" / "fixture.json").read_text(encoding="utf-8-sig")
+        )
+        self.assertIsNone(state["last_check_utc"])
+        self.assertEqual([path.name for path in (dest_parent / "fixture").iterdir()], [])
 
 
 if __name__ == "__main__":

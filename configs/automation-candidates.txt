@@ -15,6 +15,7 @@
 .chezmoiscripts/run_after_windows-beads-pin.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-ffpwa-runtime.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-opencode-pin.ps1.tmpl	chezmoi-lifecycle,script-extension
+.chezmoiscripts/run_after_windows-release-sync.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-sync.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_windows-zz-register-startup-tasks.ps1.tmpl	chezmoi-lifecycle,script-extension
 .chezmoiscripts/run_after_zz-configure-codebase-memory-mcp.ps1.tmpl	chezmoi-lifecycle,script-extension
