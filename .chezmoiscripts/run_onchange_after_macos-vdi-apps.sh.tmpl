@@ -12,15 +12,15 @@ VDI_ENABLED={{ (get $macosVdi "enabled" | default false) | toJson }}
 INSTALL_ENABLED={{ (get $macosVdi "install" | default false) | toJson }}
 ALLOW_DOWNGRADE={{ (get $macosVdi "allow_downgrade" | default false) | toJson }}
 
-CITRIX_DESIRED_FAMILY={{ (get $citrix "desired_family" | default "26.03.11") | toJson }}
-CITRIX_DISPLAY_VERSION={{ (get $citrix "display_version" | default "26.03.11") | toJson }}
+CITRIX_DESIRED_FAMILY={{ (get $citrix "desired_family" | default "26.09.0") | toJson }}
+CITRIX_DISPLAY_VERSION={{ (get $citrix "display_version" | default "26.09.0") | toJson }}
 CITRIX_DMG_URL_OP_REF={{ (get $citrix "dmg_url_op_ref" | default "") | toJson }}
 CITRIX_DMG_PATH={{ (get $citrix "dmg_path" | default "") | toJson }}
 CITRIX_DEFAULT_DMG_PATH={{ (get $citrix "default_dmg_path" | default "/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg") | toJson }}
 CITRIX_DMG_SHA256={{ (get $citrix "dmg_sha256" | default "") | toJson }}
 CITRIX_DMG_SHA256_OP_REF={{ (get $citrix "dmg_sha256_op_ref" | default "") | toJson }}
 
-ZOOM_DESIRED_PACKAGE_VERSION={{ (get $zoom "desired_pkg_version" | default "6.4.17.26900") | toJson }}
+ZOOM_DESIRED_PACKAGE_VERSION={{ (get $zoom "desired_pkg_version" | default "6.6.15.27010") | toJson }}
 ZOOM_PKG_URL_OP_REF={{ (get $zoom "pkg_url_op_ref" | default "") | toJson }}
 ZOOM_PKG_SHA256={{ (get $zoom "pkg_sha256" | default "") | toJson }}
 ZOOM_PKG_SHA256_OP_REF={{ (get $zoom "pkg_sha256_op_ref" | default "") | toJson }}

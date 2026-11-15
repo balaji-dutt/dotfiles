@@ -18,8 +18,8 @@ build without an explicit dotfiles metadata change.
 Committed data in `.chezmoidata.yaml` is limited to non-secret policy:
 
 - VDI management defaults to disabled and report-only.
-- Citrix uses the desired version family `26.03.11`.
-- Zoom VDI uses the full `pkgutil` package version `6.4.17.26900`.
+- Citrix uses the desired version family `26.09.0`.
+- Zoom VDI uses the full `pkgutil` package version `6.6.15.27010`.
 - Citrix falls back to `/Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg`
   when no local URL source is configured.
 

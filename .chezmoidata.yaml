@@ -25,11 +25,11 @@ macos_vdi:
   install: false
   allow_downgrade: false
   citrix:
-    desired_family: "26.03.11"
-    display_version: "26.03.11"
+    desired_family: "26.09.0"
+    display_version: "26.09.0"
     default_dmg_path: /Users/balaji/Downloads/Utilities/CitrixWorkspaceApp.dmg
   zoom:
-    desired_pkg_version: "6.4.17.26900"
+    desired_pkg_version: "6.6.15.27010"
 plannotator_port: 8999
 plannotator_ports:
   host:
