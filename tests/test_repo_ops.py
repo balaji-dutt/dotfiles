@@ -487,6 +487,9 @@ class RepoOpsTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("tmux"), "requires tmux on POSIX")
     def test_confirmed_controls_keep_original_targets(self):
+        if sys.platform == "darwin" and os.environ.get("REPO_OPS_RUN_QUARANTINED") != "1":
+            self.skipTest("dots-f5ol: macOS tmux respawn quarantine; "
+                          "see docs/tooling/repo-ops.md#test-quarantine to opt in")
         self.require_theme_compatible_tmux()
         with self.theme_server() as (fixture, env, tmux, run):
             started = run("new-session", "-d", "-s", "repo-ops-core", "-n", "dotfiles", "sleep 120")

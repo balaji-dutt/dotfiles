@@ -121,3 +121,28 @@ sessions, explicitly reload only that server with `tmux -L repo-ops -f
 ~/.config/tmux/repo-ops.conf source-file ~/.config/tmux/repo-ops.conf`. No
 shell restart is needed for the tmux changes. Existing Zsh panes need
 `exec zsh` to load the new command-name hook. Do not reload the default server.
+
+## Test quarantine
+
+`test_confirmed_controls_keep_original_targets` is temporarily quarantined on
+macOS under `dots-f5ol` while a tmux respawn failure is investigated. Its
+original-target restart and kill safety checks do not run by default on macOS;
+the other repo-ops tests remain enabled, and this test remains enabled on
+WSL/Linux. The quarantine is not a fix for the underlying failure.
+
+To run the quarantined test explicitly from the repository root:
+
+```sh
+python3 -c '
+import tests
+from os import environ
+import unittest
+environ["REPO_OPS_RUN_QUARANTINED"] = "1"
+unittest.main(module=None)
+' -v tests.test_repo_ops.RepoOpsTests.test_confirmed_controls_keep_original_targets
+```
+
+Importing `tests` establishes the synthetic test environment. The command sets
+the opt-in afterward, without bypassing isolation. A shell-prefix assignment
+is scrubbed by that import, the suite runner, and the peer helper; it does not
+enable the quarantined test.
