@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "format": "dotfiles-opencode-v2-consumer-contract",
+  "purpose": "inactive-design-metadata-not-opencode-configuration",
+  "phase": "DV2-010",
+  "issue": "dots-0lqe",
+  "inventory": "configs/opencode-v2/source/inventory.json",
+  "operationalReady": false,
+  "operationalAggregate": "withheld",
+  "ownership": {
+    "agentic-tooling": ["canonical specialist bodies", "native anchored projections", "retained skill bundles", "native owner manifest", "withheld skill qualification"],
+    "dotfiles": ["consumer overlays and ordered composition", "hand-authored agents and prompts", "permissions and delegation intent", "host and independent container configuration", "profiles and model transforms", "Windows helpers", "mirrors and lifecycle", "launchers and AoE overlay", "native consumer provenance", "attestation restoration and emission"],
+    "excluded": ["Claude Code configuration changes", "homelab Ansible changes", "native plugin implementation or adoption", "binary installation or hold changes", "activation and v1 retirement"]
+  },
+  "isolation": {
+    "sourceRoot": "configs/opencode-v2/source",
+    "futurePreparedRoot": "configs/opencode-v2/prepared",
+    "futureOwnerPayloadRoot": "configs/opencode-v2/prepared/owner",
+    "futureSubsetManifest": "configs/opencode-v2/prepared/metadata/subset-manifest.json",
+    "presentPayloadFiles": 0,
+    "registrationAllowed": false,
+    "activationAllowed": false,
+    "staticEvidence": [
+      ".chezmoiignore excludes configs/ and configs/** after the native Windows whitelist; container-dotfiles/dotfiles/configs/** is also excluded.",
+      "configs/devcontainer-sync.jsonc mirrors selected active OpenCode subtrees, not configs/opencode-v2; container opencode.jsonc and profiles are independently maintained.",
+      "Container lifecycle materializes allowlisted assets from raw host OpenCode sources or fallback mirrors; configs is not an allowed managed asset."
+    ],
+    "futureProofRequired": ["rendered final chezmoi rules on macOS, WSL2/Linux and Windows", "recursive v1/v2 discovery and ancestor roots", "explicit skill/config/file registrations", "raw-host and fallback-mirror lifecycle routes", "root and ancestor symlinks including dangling links", "relative traversal, case aliases and Windows drive escapes"],
+    "ownerCliBoundary": "configs is a forbidden owner target; import exact pinned committed emissions in DV2-020. Never relax the owner path guard or run legacy generation.",
+    "newEmissionBoundary": "A changed owner projection requires separate owner regeneration approval, pinned build evidence and independent scored prompt evaluation."
+  },
+  "provenance": {
+    "digestSemantics": {"sourceDigest": "canonical exact source bytes", "digest": "exact emitted output bytes"},
+    "ownerPayload": "Verbatim selected emissions; do not patch generated frontmatter or body in dotfiles.",
+    "consumerMetadata": "Hand-authored dotfiles-owned metadata, separate from generated payload and legacy manifests.",
+    "requiredFutureSubsetFields": ["purpose and inactive status", "owner commit and manifest path/digest", "producer source, lock/tool identities and actual-build unknown when unknown", "source path/sourceDigest", "output path/digest", "ordered transform and overlay input paths/digests", "consumer baseline commit", "blocked reasons and unresolved decisions"],
+    "orderedInputs": "Record each declaring input before its transform; retain overlay order and input hashes independently of output hashes. A final-output digest alone is insufficient.",
+    "attestation": "Source-Definition and Source-Digest are an inseparable canonical-source pair, not an emitted-text-equality claim. Native collector/source lookup and trailer emission require separate restoration.",
+    "legacyPreservation": [".agentic-tooling/generated-manifest.json", "configs/automation-provenance.json", "assets/check-automation-provenance.py", "the two existing task-only accepted divergences", "active Claude and OpenCode generated bodies and skill files"]
+  },
+  "surfaces": [
+    {"id": "host-global", "root": "private_dot_config/opencode", "configuration": "private_dot_config/opencode/opencode.jsonc", "ownership": "dotfiles; generated specialist bodies remain owner-owned"},
+    {"id": "container-global", "root": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode", "configuration": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc", "ownership": "independent dotfiles configuration; selected agents/prompts/skills mirrored by sync contract", "differences": ["container external-directory roots", "no host deepwiki block", "build has no host inline prompt", "cc-safety-net@2.7.6 source pin versus host @latest"]},
+    {"id": "project", "root": ".opencode", "configuration": ".opencode/opencode.jsonc", "ownership": "dotfiles project permissions, instructions, CBM actions, Beads and reviewer routes"},
+    {"id": "profiles", "roots": ["private_dot_config/opencode/profiles", "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles"], "profiles": ["defaults", "chatgpt", "anthropic-api", "api-fallback"], "content": "schema-only overlays at the frozen baseline; behavior resides in helpers"},
+    {"id": "posix-composition", "sources": ["private_dot_config/opencode/opencode-profile.sh", "private_dot_config/opencode/opencode-sync-workspace-overrides.sh"], "execution": "not authorized against real configuration"},
+    {"id": "windows", "source": "private_dot_config/powershell/opencode-env.ps1.tmpl", "execution": "source inspected only; no native Windows runtime evidence"},
+    {"id": "mirrors", "source": "configs/devcontainer-sync.jsonc", "behavior": "tracked include/exclude, cleanup-managed ownership and byte/mode/EOL checks; container JSONC and profiles excluded from host sync"},
+    {"id": "lifecycle", "root": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer", "sources": ["devcontainer-common.sh", "postCreate.sh", "postStart.sh", "devcontainer.json.tmpl", "opencode-sync-workspace-overrides.sh"], "behavior": "raw-host/fallback source selection, managed-assets manifest, pruning owned stale assets, preserving generated/local state, type-conflict backup and legacy JSON removal", "deploymentAuthorized": false},
+    {"id": "launchers", "sources": ["bin/executable_opencode-plannotator.tmpl", "bin/executable_opencode-plannotator-custom.tmpl", "bin/executable_ai-wt.tmpl"], "behavior": "wrappers pass arguments and load trusted environment helpers; ai-wt may append --auto explicitly or after interactive choice", "executionAuthorized": false},
+    {"id": "aoe", "source": "private_dot_config/agent-of-empires/modify_config.toml", "behavior": "owned overlay routes OpenCode to opencode-plannotator and custom pool; no inference about persistent session auto-approval state"}
+  ],
+  "composition": {
+    "status": "v1-source-contract; native operational transform blocked",
+    "normalDefaults": "defaults/chatgpt normalization leaves OPENCODE_CONFIG_DIR unset; ordinary runtime loading is not the composed snapshot path",
+    "composedInputOrder": ["host global JSONC, else defaults profile", "defaults profile overlay when global base exists", "normalized/deduplicated non-default profiles in requested order", "workspace agent entries only", "anthropic-api model rewrite if selected", "api-fallback exact model rewrite if selected"],
+    "merge": "Recursive object merge; scalar/list replacement. Rebase exact whole {file:./...} and {file:../...} references against each declaring input before merge.",
+    "workspaceScope": "Only the v1 agent map is imported by the composer, not workspace instructions/plugins/permissions/MCP. A future native agents adapter must preserve this boundary explicitly.",
+    "selectionDifferences": "The composer prefers workspace JSONC to JSON; POSIX/Windows profile freshness probes prefer JSON to JSONC. Record and fixture this distinction, do not silently unify it.",
+    "failure": "POSIX profile selection can fall back to static configuration; Windows refuses runtime-required anthropic-api/api-fallback selection when composition fails. Preserve or seek explicit loss/fallback approval.",
+    "writeBoundary": "The existing composer creates runtime directories, removes legacy JSON and atomically writes mode-0600 snapshots. Future tests use synthetic offline inputs, never the real helper against user configuration.",
+    "anthropicApiRewrite": {"sourcePrefix": "anthropic/", "destinationPrefix": "anthropic-api/", "nativeClaudeAgentMustRemainUntouched": true},
+    "apiFallbackRewrite": {
+      "moonshot/kimi-k3": "openrouter/moonshotai/kimi-k3",
+      "moonshot/kimi-k2.7-code": "openrouter/moonshotai/kimi-k3",
+      "moonshot/kimi-k2.6": "openrouter/moonshotai/kimi-k2.6",
+      "google/gemini-3.6-flash": "openrouter/z-ai/glm-5.2:exacto"
+    },
+    "planTrialRoute": "Plan-Trial is a project-only normal/default route; composed-profile Plannotator omission remains unsupported, not expanded or removed."
+  },
+  "identities": [
+    {"id": "plan", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "high", "hostDelegation": {"default": "deny", "allow": []}, "projectDelegation": {"default": "deny", "allow": ["dotfiles-reviewer"]}, "nativeOperationalStatus": "blocked"},
+    {"id": "plan-GPT-xhigh", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "xhigh", "hostDelegation": {"default": "deny", "allow": ["plan-reviewer"]}, "projectDelegation": {"default": "deny", "allow": ["plan-reviewer", "dotfiles-reviewer"]}, "nativeOperationalStatus": "blocked"},
+    {"id": "build", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "high", "hostDelegation": {"default": "not-explicitly-declared"}, "projectDelegation": {"default": "deny", "allow": ["dotfiles-reviewer", "beads-issue-author", "beads-backlog-manager"]}, "nativeOperationalStatus": "blocked"},
+    {"id": "agent-engineer", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "xhigh", "hostDelegation": {"default": "ask", "allow": ["plan-reviewer"]}, "projectDelegation": {"default": "deny", "allow": ["plan-reviewer", "dotfiles-reviewer", "beads-issue-author", "beads-backlog-manager"]}, "nativeOperationalStatus": "blocked; withheld skill dependencies and policy/model mapping"},
+    {"id": "special-builder", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "xhigh", "hostDelegation": {"default": "ask", "allow": ["plan-reviewer"]}, "projectDelegation": {"default": "deny", "allow": ["plan-reviewer", "dotfiles-reviewer", "beads-issue-author", "beads-backlog-manager"]}, "nativeOperationalStatus": "blocked"},
+    {"id": "plan-reviewer", "mode": "subagent", "modelIntent": "openai/gpt-6-astra", "effortIntent": "high", "leafIntent": "read-only tools; no shell, editing, delegation or Beads mutation", "nativeOperationalStatus": "blocked"},
+    {"id": "beads-issue-author", "mode": "subagent", "modelIntent": "opencode-go/qwen3.7-plus", "effortIntent": "not-explicitly-declared", "restrictionIntent": "approved single-issue create/attach/claim lane; only eligible local state file editable; no source edits or closure; inherited shell ask behavior is not deny-all", "nativeOperationalStatus": "blocked"},
+    {"id": "beads-backlog-manager", "mode": "subagent", "modelIntent": "opencode-go/qwen3.7-plus", "effortIntent": "not-explicitly-declared", "restrictionIntent": "approved No implementation backlog lane; no claim, state file or source edits; shell default deny with named Beads grants", "nativeOperationalStatus": "blocked"},
+    {"id": "dotfiles-reviewer", "mode": "subagent", "modelIntent": "anthropic/claude-opus-5-5", "effortIntent": "high", "restrictionIntent": "read-only scoped diff review; shell default deny with Git grants constrained by prompt; no --no-index/--output/outside paths, edits or delegation", "nativeOperationalStatus": "blocked; native claude-agent ID/effort unknown"},
+    {"id": "Plan-Trial", "mode": "primary", "modelIntent": "openai/gpt-6.1-sol", "effortIntent": "high", "projectDelegation": {"default": "deny", "allow": ["dotfiles-reviewer"]}, "restrictionIntent": "project-only normal/default planning route", "nativeOperationalStatus": "blocked"}
+  ],
+  "policyContract": {
+    "authority": "Frozen committed source bytes and separately recorded checkout EOL evidence in inventory, including global configuration, global agent Markdown and project overrides; source-visible grants are not a computed native effective policy.",
+    "preserve": ["ordered allow/ask/deny rules", "wildcard and unmatched defaults", "scope precedence and scalar-versus-map interactions", "parent/child inheritance and depth limits", "named delegates and leaf restrictions", "credential/env/path scopes", "read-only intent including mutating shell flags", "unavailable-tool and fallback behavior"],
+    "legacySpecialistShell": "Generated Markdown bash: ask leaves visible project Bash grants inert in the current composition. They must not become new native auto-allows.",
+    "credentialScopes": ["dotenv reads/edits with existing example exceptions", "SSH", "AWS", "Ansible", "GnuPG", "Kubernetes", "Docker", "Azure", "GitHub CLI", "gcloud", "keyrings", "password-store", "1Password"],
+    "externalDirectoryScopes": "Retain source order, trusted host development roots versus container /workspaces/** and /workspace/**, default ask and sensitive-root denies; no universal allow or deny substitution.",
+    "nativeDeclaredSemantics": [
+      "Ordered permissions arrays use action/resource/effect; last matching rule wins, unmatched asks and the native base contributes wildcard allow.",
+      "Top-level rules precede appended agent rules; scalar fields replace, request headers/body merge shallowly and a later layer can recreate a disabled identity.",
+      "Native children inherit the full parent session rule array; v1 child construction copies denies and external-directory rules. Neither implies blanket parent/agent policy intersection.",
+      "Native experimental.subagent_depth defaults to 1; explicit child model override outranks agent preference and parent model; hidden is not an execution deny."
+    ],
+    "translationBoundaries": ["bash to shell requires semantic mapping", "task to subagent requires target and inheritance mapping", "write/patch to edit requires action/resource mapping", "individual MCP action is not mcp.use", "skill is not skill.use", "plugin loading is not integration.use"],
+    "nativeReadiness": "blocked; known declared shapes are not accepted consumer operational mappings",
+    "policyChangeApproval": "Any widening, tightening, default, fallback or unsupported behavior loss requires an explicit per-row decision; no convenient hard global policy."
+  },
+  "providerContract": {
+    "approvedDirection": "Anthropic/Claude-backed OpenCode routes move toward native claude-agent, not anthropic-api or the bridge; Claude Code configuration is untouched.",
+    "nativeClaudeAgentId": null,
+    "nativeClaudeAgentEffort": null,
+    "preserveProviders": ["OpenAI", "DeepSeek", "Qwen", "other evidenced source routes and inherited choices"],
+    "preserveLimits": "Retain the six opencode-go context-200000/output-65536 overrides from the attributed refresh.",
+    "samplingDecisionForEveryProviderRow": ["evidenced effective native mapping", "explicit per-row approved loss", "blocked"],
+    "ineffectiveOverlayIsPreservation": false,
+    "unqualifiedSamplingRequestBodyAllowed": false,
+    "fallbackOrAliasInventionAllowed": false,
+    "catalogAndRuntimeDiscoveryPerformed": false,
+    "claudeAgentDeclaredConstraints": "Local Claude Code integration only; temperature unsupported and HTTP plugin hooks bypassed. Upstream declares chat >=2.1.248 and context probe >=2.1.257; installed/runtime qualification is separate."
+  },
+  "futurePhaseAcceptance": {
+    "phase": "DV2-020",
+    "authorization": "Separate phase approval; upstream operational blockers do not block inactive preparation.",
+    "payload": "Exactly the inventory selection, complete four bundles, separate subset manifest; no canonical-bases map, upstream build/plan-reviewer replacement, full archive or withheld bundle fragments.",
+    "checker": "assets/check-opencode-v2-preparation.py --root .",
+    "tests": "tests/test_opencode_v2_preparation.py",
+    "registration": ["configs/automation-test-inventory.json", "configs/automation-candidates.txt", "configs/test-suites.json"],
+    "positiveAndNegativeFixtures": [
+      "independently verify selected source/output digests, closure, ordered multi-input hashes and producer unknowns",
+      "reject stale, missing, extra or edited payload and incomplete bundles",
+      "reject aggregate readiness while any row or required skill dependency is blocked",
+      "prove discovery, explicit registration, final rendered Windows ignore ordering and lifecycle exclusion",
+      "reject symlink/ancestor/dangling-link/traversal/Windows case-and-drive escapes",
+      "prove profile order, agent-only workspace merge, file-reference rebasing and list replacement",
+      "preserve model/fallback transforms; native claude-agent never remaps to anthropic-api",
+      "preserve Plan-Trial default-only, Windows failure behavior and explicit launcher auto-approval boundary",
+      "prove active v1/Claude sources, old provenance, helpers, launchers, plugins, attestation and mirrors unchanged"
+    ],
+    "execution": "Synthetic offline inputs only; no real profile/lifecycle execution, upstream compatibility campaign, live provider/auth/catalog/native policy-engine or plugin tests."
+  },
+  "verificationBoundary": {
+    "localAudits": "CZ_AUDIT_PEER_ENV=0 ./assets/cz-audit.sh check <each-changed-repo-relative-path>",
+    "doctor": "chezmoi doctor after successful audits; only repository-documented exceptions apply",
+    "legacyChecker": "python3 assets/check-automation-provenance.py --repo-root .",
+    "peerProbeOrTransportAuthorized": true,
+    "peerAuthorizationScope": "DV2-010 verification only: helper probe, audits of the two metadata files and fast suite on reachable configured peers, with --no-agent-repair; helper-owned cache, diagnostics, temporary snapshots/namespace refs, disposable worktrees and cleanup. Not reusable authorization for DV2-020, deployment, branch pushes, authentication or relay repair.",
+    "peerStatus": "Probe completed; zero reachable peers. Audits and fast tests not run; no retry, repair or snapshot/ref transfer attempted.",
+    "peerResults": [
+      {"name": "wsl2-debian", "platform": "wsl2", "status": "unreachable", "report": "not verified on wsl2: peer unreachable"},
+      {"name": "wsl2-ubuntu", "platform": "wsl2", "status": "unreachable", "report": "not verified on wsl2: peer unreachable"}
+    ],
+    "peerReportSource": "Documented status mapping; the probe printed peer statuses, not report lines.",
+    "peerSuppressionIsWaiver": false,
+    "phaseExitScope": "Only DV2-010 inactive inventory/contract metadata and ledger, with no executable, runtime-consumed configuration, generated payload, test-registration or deployment changes. Scope expansion requires reassessment and approval; this is not a configs-wide exemption.",
+    "phaseExit": "Required passing local checks and review permit acceptance of this phase and a commit proposal with the existing zero-reachable-peer outcome disclosed as unverified. Applicable reachable-peer audits/tests remain required and actual failures block; suppression alone does not waive a check. Probe outcomes are final for this task; later verification or repair requires fresh explicit authorization. DV2-020 retains separate approval and verification.",
+    "promptEvaluation": "No prompt is changed in DV2-010. Any later changed projection requires independent scored evaluation; withheld prompt-evaluator does not waive evaluation.",
+    "tracking": "Reuse dots-0lqe; the approved DV2-010 phase-exit addendum permits one exact acceptance-clause amendment only. Preserve all other acceptance text, metadata/design/status/assignee, prior notes and the original anchor; subsequent results are append-only and require readback. No closure or sync.",
+    "commit": "Proposal only after verification gates; separate approval and oc-commit, no automatic stage/commit/push/merge.",
+    "permissionDenial": "Stop immediately; do not change tool, agent, path or transport to bypass a denial."
+  }
+}

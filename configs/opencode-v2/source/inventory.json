@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "format": "dotfiles-opencode-v2-source-inventory",
+  "purpose": "inactive-consumer-preparation",
+  "phase": "DV2-010",
+  "issue": "dots-0lqe",
+  "hashKind": "sha256-exact-committed-bytes",
+  "operationalReady": false,
+  "references": {
+    "owner": {
+      "repository": "agentic-tooling",
+      "commit": "81d4b66457e8d2b5628904c043dacd9d33a5c66e",
+      "documents": [
+        "docs/workflows/native-opencode-v2-agents.md",
+        "docs/reference/opencode-v2-preparation.md",
+        "docs/workflows/native-opencode-v2-source-matrix.md",
+        "docs/roadmap/native-opencode-v2-agents-tasklist.md"
+      ],
+      "originalInventoryPath": "configs/opencode-v2/source-inventory.json",
+      "originalInventoryDigest": "2bbd78505774bb6f06434aa7de2fb62fe70d2644b299c709d9779f73033ebe09",
+      "originalInventoryAttributions": 7,
+      "originalInventoryPreservation": "Immutable commit/path/digest reference retains the complete three-repository inventory; the dotfiles file map is reproduced below.",
+      "canonicalObservationCommit": "03e8935e716368ae6de4b44d279d878032ee44bc",
+      "homelabObservationCommit": "2c65bf55605e304e28369148cc05fa0ca5f43d16",
+      "homelabObservationStatus": "historical-only; no fresh homelab qualification"
+    },
+    "nativeReference": {
+      "version": "v2.2.3",
+      "commit": "082ac6281fd395c2d0c17fd3c38214db2f89621f",
+      "purpose": "preparation-schema-and-declared-semantics-reference",
+      "cutoverRelease": null
+    },
+    "legacyReference": {
+      "version": "v1.19.5",
+      "commit": "810c0eba1a7348036f8bdf61e6632d0c36c6876c"
+    },
+    "privatePluginDelivery": {
+      "commit": "263c5a1137584b2840be6463c0a1d2012710de28",
+      "nativeReferenceVersion": "v2.2.0",
+      "nativeReferenceCommit": "1097e2668b1e08ad63bdf0b1c4860b9bc01e420c",
+      "adopted": false,
+      "compatibilityWithPreparationReference": "not-established-by-delivery"
+    }
+  },
+  "producerEvidence": {
+    "generator": "agentic-tooling",
+    "declaredPackageVersion": "0.1.0",
+    "declaredPackageManager": "pnpm@11.0.8",
+    "cliEntry": "packages/cli/dist/index.js",
+    "command": "prepare-opencode-v2",
+    "actualProducingBuild": null,
+    "actualProducingBuildStatus": "unknown; committed emission verified, not locally regenerated",
+    "localBuildOrInstallPerformed": false,
+    "sourceSha256ByPath": {
+      "configs/opencode-v2/preparation.jsonc": "29fdb36c31fbc401a16149101a2124754b0f0bfd1ce57fb4e58d5b9c6bdd9e64",
+      "configs/opencode-v2/source-inventory.json": "2bbd78505774bb6f06434aa7de2fb62fe70d2644b299c709d9779f73033ebe09",
+      "packages/cli/package.json": "f561b0e12fd4dded3af829dd4235b907eb4620364819908c22fb72bc41cfa31e",
+      "packages/generators/package.json": "f3e1f9649555932a3f274c92abff9d31d7eadcd9eff605bbd7cc1cfe22b0f006",
+      "package.json": "22db33a77cc0c218f371a8da9163beceeedba1c38858a45b61d9aab6004e2f35",
+      "pnpm-lock.yaml": "33bc69ed5fb99dd211ffe5733ef7700597f8dbacf4e92bb8e4b9577abc9ceef3",
+      "packages/cli/src/prepare-opencode-v2-command.ts": "44fad41220119123ed681797b87af89e4e34aa1d044902311bce9410c9f7b5c6",
+      "packages/generators/src/opencode-v2/paths.ts": "703e4f800690853c3f1d4467ca7c3fd516d9bdd27ad3c5c4bac9453bc14fb3a5",
+      "packages/generators/src/opencode-v2/constants.ts": "7138db23ae84d1bcae32690ff595d05093c6b1d83644bacb25a64a42a4248ee4"
+    },
+    "manifest": {
+      "path": "generated/opencode-v2/reference-v2.2.3/metadata/preparation-manifest.json",
+      "digest": "1cae59d43ff31d54e9d094aa9a79abc8b7d1590ac00bc0f1b554466c7b2685a3",
+      "format": "opencode-v2-preparation",
+      "schemaVersion": 1,
+      "payloadOutputs": 47,
+      "filesIncludingManifest": 48,
+      "agentBases": 15,
+      "retainedSkillBundles": 12,
+      "retainedSkillFiles": 31,
+      "blockedOperationalRows": 15,
+      "aggregate": "withheld-aggregate",
+      "overallReady": false,
+      "orderedInputAuthority": "The pinned manifest inputs array, including preparation, historical inventory, canonical sources and anchored projections.",
+      "canonicalBasesMapPurpose": "ID-to-agent map for an agents value; not a root configuration or operational aggregate"
+    },
+    "projectionSha256ByPath": {
+      "configs/opencode-v2/projections/build.json": "f8286232854e2e6bd09c600df97c4954303498c2ab51bfa9282e67b6e65fa17c",
+      "configs/opencode-v2/projections/workflow-planner.json": "32ed29da2d889dcdb93fe530ea7704f5e69850ef6f88aeb95f61926fb57163ce",
+      "configs/opencode-v2/projections/workflow-steward.json": "72b3fa2ec647624cbd1121bb57d54b6dd66317dc3a524a557c4cf3564d93c9c0"
+    }
+  },
+  "historicalConsumerSnapshot": {
+    "repository": "dotfiles",
+    "commit": "418776882a73011590304379b8b57051182eaf20",
+    "fileCount": 47,
+    "sha256ByPath": {
+      "private_dot_config/opencode/opencode.jsonc": "4bb624fd60eef44990737753d640275d8d510df9f67e0769fcdc5d0930c41fc6",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc": "69830cb9e3e83bb12e290916349d4ebaabf431985c4bac894fe80bb0c19a053f",
+      ".opencode/opencode.jsonc": "6a4f101f255b21fe91ceba169d6d134617996ed8c2579ab7d39665087ed672eb",
+      "private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+      "private_dot_config/opencode/profiles/api-fallback/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+      "private_dot_config/opencode/profiles/chatgpt/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+      "private_dot_config/opencode/profiles/defaults/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+      "private_dot_config/opencode/opencode-profile.sh": "43268b47b638fbeb2b65223c1f25552879c00e4c24376e8fc68e3aaf2c64ef75",
+      "private_dot_config/opencode/opencode-sync-workspace-overrides.sh": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904",
+      "private_dot_config/opencode/AGENTS.md": "7cb6df125e1fa6032ae77061872f13616a7aba4bbd21cb1787f496c8b255f665",
+      "private_dot_config/opencode/agents/agent-engineer.md": "8b6dce350f9ef1b9a74063579c06dbe226f919895d78359460d2bb4d5e4c845a",
+      "private_dot_config/opencode/agents/special-builder.md": "ed4ecb15c106ad79be5ec43a903f917031981d6557379ae22e73fe79c2e7a805",
+      "private_dot_config/opencode/agents/plan-reviewer.md": "9a5d4d3e50394631ec6bd18597b6d85576953c5d5aa9ea1de3d197e1dc53ca20",
+      "private_dot_config/opencode/agents/beads-issue-author.md": "8bd8644b7d629a86169d865e567905149dcbca46a698b8c6358d738bb2661dcf",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/agents/agent-engineer.md": "8b6dce350f9ef1b9a74063579c06dbe226f919895d78359460d2bb4d5e4c845a",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/agents/special-builder.md": "ed4ecb15c106ad79be5ec43a903f917031981d6557379ae22e73fe79c2e7a805",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/agents/plan-reviewer.md": "9a5d4d3e50394631ec6bd18597b6d85576953c5d5aa9ea1de3d197e1dc53ca20",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/agents/beads-issue-author.md": "8bd8644b7d629a86169d865e567905149dcbca46a698b8c6358d738bb2661dcf",
+      ".opencode/agents/beads-backlog-manager.md": "15a8e62e4e1f632ae7fbf0b369a3da5cd959d7ba2526be617e4865b46633d1b2",
+      ".opencode/agents/dotfiles-reviewer.md": "ab2e67a1723236b06d9463964c80b4c5fc8bd063a8ba789f26cb750b35f37c65",
+      "private_dot_config/opencode/prompts/plan-agent.md": "8b176d3246a3fa835fabc329619d24936a3f9bc16e2e05df4416d05f20d3e629",
+      "private_dot_config/opencode/prompts/plan-gpt-xhigh-agent.md": "6ba1aea2fadb86bcc18874873633f1c3d292df40d8e43fd84684591fa5389e5f",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/prompts/plan-agent.md": "8b176d3246a3fa835fabc329619d24936a3f9bc16e2e05df4416d05f20d3e629",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/prompts/plan-gpt-xhigh-agent.md": "6ba1aea2fadb86bcc18874873633f1c3d292df40d8e43fd84684591fa5389e5f",
+      ".opencode/prompts/build.md": "b8685b51eeed00698eb3ab8bf9d4e231c4478fa4254364ace9d55abc6423903d",
+      "private_dot_config/opencode/skills/plugin-developer/SKILL.md": "1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f",
+      "private_dot_config/opencode/skills/prompt-engineer/SKILL.md": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c",
+      "private_dot_config/opencode/skills/prompt-evaluator/SKILL.md": "fc907457738d7c8cf156bb23d8a0da3dcebf93b54239ed9ac1ca9a9d9d65a812",
+      "private_dot_config/opencode/skills/prompt-optimizer/SKILL.md": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af",
+      "private_dot_config/opencode/skills/skill-creator/SKILL.md": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e",
+      "private_dot_config/opencode/skills/skill-reviewer/SKILL.md": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50",
+      ".agentic-tooling/generated-manifest.json": "2c0271b6cc393b854a1f1234b5628ff66babffba116fe96dd859d16d7168d421",
+      "configs/automation-provenance.json": "883876b6070afa2718fa34f86b647ff7b57c916f98a6f957c7bfe25a0dbf5aa0",
+      "assets/check-automation-provenance.py": "64ffea16b553cd57610ce64b1bcaea771dcbae589a3a91e47464c422e9f51203",
+      "configs/devcontainer-sync.jsonc": "fa4ef0624af851d918811fb8028f5f4fa06cd5bf4afdbcfef905bd6d84f48f89",
+      ".chezmoiignore": "931b001244675497ad15a82ed883f7d1a5a7ca6e4f56c26b71ce035083d780cc",
+      "configs/mise_wsl2.toml": "7bafb307fb911dba66ad8eae5f1fc4034b8845915764f85bdd0ae1e6c53d1860",
+      "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt": "f04e0cfcbc7ac21234b456339147e2b89bb40e6e834013a8d71ae934cf6c67c1",
+      "docs/agents/generated-agents.md": "0afd2b4a0f68f70713ab28d63c0e095d2a3ce0ebbffd51de1f9bb83aa44a90f4",
+      "AGENTS.md": "746bfe2c26e363463ede7fa8f024b63e5f3f5ed25731fc1f389084f53c6ae916",
+      "private_dot_config/opencode/plugins/opencode-agent-attestation.js": "81c91436b71c461410d3ca5194e1a5002445ebdf5ecfb1b57d83b27fab8d7e70",
+      "private_dot_config/opencode/attestation/collector.mjs": "c128130f4f6bf379422c85d9d857b74c7b4c7adcfda1ad4f27d7d06913929b2a",
+      "private_dot_config/opencode/attestation/sources.mjs": "e671fca1002bfce70444251f42931acd50c949c4da01d471c163449b5bf1231d",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/plugins/opencode-agent-attestation.js": "81c91436b71c461410d3ca5194e1a5002445ebdf5ecfb1b57d83b27fab8d7e70",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/collector.mjs": "c128130f4f6bf379422c85d9d857b74c7b4c7adcfda1ad4f27d7d06913929b2a",
+      "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/attestation/sources.mjs": "e671fca1002bfce70444251f42931acd50c949c4da01d471c163449b5bf1231d",
+      "docs/git-agent-attestation.md": "0f6329316227da0decde86f6e46b669f11b8d1a0b44a0bb8a5259b3478cab892"
+    }
+  },
+  "consumerRefresh": {
+    "commit": "333b882a9f7415589cf7df4aa8cf269783cd29ad",
+    "historicalHashesVerified": 47,
+    "unchanged": 44,
+    "changed": 3,
+    "currentDigestRule": "Use historical sha256ByPath, replacing only the three paths below with currentDigest; retain both snapshots.",
+    "deltas": [
+      {
+        "path": "private_dot_config/opencode/opencode.jsonc",
+        "historicalDigest": "4bb624fd60eef44990737753d640275d8d510df9f67e0769fcdc5d0930c41fc6",
+        "currentDigest": "8e7c6dde2fd5b77ee15dbdd070ce985a04851da1d4a15c7daed8a495c2aa745b",
+        "commits": ["d0e5c0d1c9dc96bc512422947cd24c18dbc2c87c"],
+        "attribution": "Six opencode-go models have context 200000 and output 65536 overrides; preserve these limits."
+      },
+      {
+        "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+        "historicalDigest": "69830cb9e3e83bb12e290916349d4ebaabf431985c4bac894fe80bb0c19a053f",
+        "currentDigest": "72d867f98d2ee304499f314ddeacd8450a6940119d6767d5a5220e728829e4b1",
+        "commits": ["051f59a90d00d4df105d7c105afa4c5f2c8dee83", "57d3aec69605dfb62232e55cf2d32d892c233b01", "37e4c25d73ea298fa2648082d29042d322ea7cec", "7d2c14611ed64eaedaba15f6ca8885c597dc176d"],
+        "attribution": "cc-safety-net source pin 2.6.19 to 2.7.6; not installed-version or enabled-fixture evidence."
+      },
+      {
+        "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/configs/npm_packages.txt",
+        "historicalDigest": "f04e0cfcbc7ac21234b456339147e2b89bb40e6e834013a8d71ae934cf6c67c1",
+        "currentDigest": "88101026cf716a1820c013c9a18b9087d434db633d94c7d6f5bf3662206a507b",
+        "commits": ["f428fa5092bca105dcd1bff6aa593b859c70545e", "6a0bbf8a12cd9b3c6d9801642c2645e3606cfab3", "b8cd712208a7a98f59833c4790ea691c40695ffe", "976322c84c07c9d9452f65c85c8cb8af4f8f2ffe", "9db0f8881b6c98bb6964d28fb064fc2cf7762ced", "f010ef3eb540746eeb9cdeedd289a37a2b0bdbd6", "ce9db07aa334b26d49081a967636c9d8bb5fcea0", "925974cf7482ecd69016fa90e95099b48f341876"],
+        "attribution": "Mirrored package list: OpenSpec 1.15 to 1.16, Beads 1.3.1 to 1.3.2, pnpm 11.0.8 to 12.17.0, markdownlint 0.18.1 to 0.24.0; OpenCode remains 1.19.5."
+      }
+    ]
+  },
+  "additionalCurrentSha256ByPath": {
+    "docs/agents/review-loop.md": "d2b9cc1ecadd4153c899ca2a08d204498cd729f66372ad6ef99b5e566a53ecf2",
+    "docs/agents/ADDING_SCRIPTS.md": "9a020adde8f35cba27d2c9c7ffa375fd7d88264b506fdb5c9c01891832f5ec3d",
+    "docs/tooling/peer-environments.md": "5e959468f8ff05077df005f0499838da03686eabfef635806e8d37e52e65ab27",
+    "docs/tooling/cz-audit.md": "7de40faf91f1fe0f08e832ab2b301977ffefb9d44bb6fcd512a491fcbf0ded30",
+    "docs/devcontainers.md": "faca2f54ed608c15579470868462ca9d3233e3978832f36565a65b68c69670dc",
+    "assets/cz-audit.sh": "05ec18a14c62ef947045c036bebe461807878442b3a4b2dd77dd453da2105870",
+    "bin/executable_opencode-plannotator.tmpl": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b",
+    "bin/executable_opencode-plannotator-custom.tmpl": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b",
+    "bin/executable_ai-wt.tmpl": "4cc367904211b5e4ed16890a1e4ef35056be471109c8a6a289eb3f7f780068eb",
+    "private_dot_config/agent-of-empires/modify_config.toml": "d219347ea9591b1590a15a92e58faa68e6ded8dc82f16fd58df332e83752fa3f",
+    "private_dot_config/powershell/opencode-env.ps1.tmpl": "49dfa80b7ec905e928004baeaa814733ac5c55b35d2161b91e4859030f7a7ac1",
+    "configs/test-suites.json": "31d81e64b4a604c38c5c82c22b93f0de25e455987e055a3c55b8b5f7301b5fb6",
+    "configs/automation-test-inventory.json": "375d41e0b761ceb6981f7df67e80a20277d980736a6b925d76b8875999e89778",
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh": "253e0a3f9befb984241a050b849036838417f473a602c8406135c2cd186e33ba",
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh": "bd26006ef0b3b274b1965cc9daeeaa180b5d502393d302bc64837cc408c24bf6",
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postStart.sh": "803a46e2ffe794a515d3dfa5f63f9495cfd4ade1c20d6afea7ce569f17511258",
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl": "a5567f8d482f3a5587f5d92f776e9c38e0e6df663e6e7e16d68871d1b80e4e6c",
+    "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/opencode-sync-workspace-overrides.sh": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904",
+    "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/defaults/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+    "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/chatgpt/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+    "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1",
+    "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/api-fallback/opencode.jsonc": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+  },
+  "checkoutByteVariance": [
+    {
+      "path": "private_dot_config/powershell/opencode-env.ps1.tmpl",
+      "workingDigest": "52eb826e4a3d0fdec9ecb39e36fc0777779ea7afb347bdf83dcc8b70db893f33",
+      "committedDigest": "49dfa80b7ec905e928004baeaa814733ac5c55b35d2161b91e4859030f7a7ac1",
+      "gitAttributes": "text eol=crlf",
+      "workingLineEnding": "CRLF",
+      "committedLineEnding": "LF",
+      "comparison": "Exact working bytes recorded separately; CRLF-to-LF alone equals committed bytes. Recheck attributes and both digests, not a general normalization exemption."
+    }
+  ],
+  "selection": {
+    "approvalRequiredPhase": "DV2-020",
+    "payloadPresent": false,
+    "payloadFiles": 14,
+    "agentBases": 2,
+    "skillBundles": 4,
+    "skillFiles": 12,
+    "futureConsumerRoot": "configs/opencode-v2/prepared/owner",
+    "destinationRule": "Append ownerManifestPath after removing its reference-v2.2.3/ prefix; do not import other owner outputs.",
+    "files": [
+      {"ownerManifestPath": "reference-v2.2.3/agents/agent-engineer.md", "source": "agents/agent-engineer.yaml", "sourceDigest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446", "digest": "df07be4a46c87fbd092e96a0ec513754eaff0d7bb353269111c120b6e961b81e"},
+      {"ownerManifestPath": "reference-v2.2.3/agents/special-builder.md", "source": "agents/special-builder.yaml", "sourceDigest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161", "digest": "d5bb2c9ca861342bc9b9ce9ce41bdf90e02140bab664f1668419ca2bf334d60b"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/SKILL.md", "source": "skills/prompt-engineer/SKILL.md", "sourceDigest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c", "digest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/authoring-patterns.md", "source": "skills/prompt-engineer/references/authoring-patterns.md", "sourceDigest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b", "digest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/improvement-checklist.md", "source": "skills/prompt-engineer/references/improvement-checklist.md", "sourceDigest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96", "digest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/model-specific.md", "source": "skills/prompt-engineer/references/model-specific.md", "sourceDigest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71", "digest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/SKILL.md", "source": "skills/prompt-optimizer/SKILL.md", "sourceDigest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af", "digest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/references/domain-theories.md", "source": "skills/prompt-optimizer/references/domain-theories.md", "sourceDigest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5", "digest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/references/ears-syntax.md", "source": "skills/prompt-optimizer/references/ears-syntax.md", "sourceDigest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343", "digest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/skill-creator/SKILL.md", "source": "skills/skill-creator/SKILL.md", "sourceDigest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e", "digest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/skill-creator/references/skill-structure.md", "source": "skills/skill-creator/references/skill-structure.md", "sourceDigest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0", "digest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/skill-creator/references/testing-guide.md", "source": "skills/skill-creator/references/testing-guide.md", "sourceDigest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19", "digest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/skill-reviewer/SKILL.md", "source": "skills/skill-reviewer/SKILL.md", "sourceDigest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50", "digest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"},
+      {"ownerManifestPath": "reference-v2.2.3/skills/skill-reviewer/references/review-checklist.md", "source": "skills/skill-reviewer/references/review-checklist.md", "sourceDigest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d", "digest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"}
+    ],
+    "withheldDependencies": [
+      {"skill": "plugin-developer", "files": 3, "ownerReason": "native-plugin-guidance-unqualified", "resolutionOwner": "agentic-tooling"},
+      {"skill": "prompt-evaluator", "files": 5, "ownerReason": "native-live-evaluator-unqualified", "resolutionOwner": "agentic-tooling"}
+    ],
+    "closureClaim": "Selected payload and complete retained bundles only; not the complete 48-file owner package or a runnable agent-engineer."
+  }
+}
