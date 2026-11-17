@@ -313,6 +313,46 @@ class BeadsSyncUpgradeContract:
                 self.assertEqual(bd_calls, [["version", "--json"]])
                 self.assertFalse(any("dolt_pull(" in query for query in self.queries()))
 
+    def make_remote_mirror(self, *, broken: bool) -> None:
+        mirror = self.repo / ".beads/dolt/dots/.dolt/git-remote-cache/abc/repo.git"
+        mirror.parent.mkdir(parents=True)
+        subprocess.run(
+            ["git", "init", "--quiet", "--bare", str(mirror)],
+            env=self.fixture.env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if broken:
+            ref = mirror / "refs/dolt/remotes/origin/dolt/data/last"
+            ref.parent.mkdir(parents=True)
+            ref.write_bytes(b"")
+        self.provide_backend_git(broken=broken)
+
+    def provide_backend_git(self, *, broken: bool) -> None:
+        """Real git on PATH reads the mirror; backends without git override this."""
+
+    def test_broken_mirror_ref_refuses_pull_and_push(self) -> None:
+        self.make_remote_mirror(broken=True)
+        for command in ("pull", "push"):
+            with self.subTest(command=command):
+                self.clear_calls()
+                result = self.run_sync(command)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("broken ref refs/dolt/remotes/origin/dolt/data/last", result.stderr)
+                self.assertIn("'Remote mirror has a broken ref'", result.stderr)
+                bd_calls = [arguments for _, arguments in self.calls("bd")]
+                self.assertNotIn(["dolt", "stop"], bd_calls)
+                self.assertNotIn(["dolt", "push"], bd_calls)
+                self.assertFalse(any("dolt_pull(" in query for query in self.queries()))
+
+    def test_intact_mirror_lets_pull_proceed(self) -> None:
+        self.make_remote_mirror(broken=False)
+        result = self.run_sync("pull")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pull_queries = [query for query in self.queries() if "dolt_pull(" in query]
+        self.assertEqual(len(pull_queries), 1)
+
     def test_missing_recorded_bd_version_skips_the_check(self) -> None:
         result = self.run_sync("pull", env_updates={"DOLT_BD_VERSION": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -611,6 +651,22 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
             raise unittest.SkipTest("native Windows execution is opportunistic for this suite")
         cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
         cls.pwsh = cls.backend.executable
+
+    def provide_backend_git(self, *, broken: bool) -> None:
+        if not self.backend.engine:
+            return
+        # The audit image ships no git. Mimic git 2.47's for-each-ref on a 0-byte loose ref.
+        warning = (
+            "echo 'warning: ignoring broken ref refs/dolt/remotes/origin/dolt/data/last' >&2\n"
+            if broken
+            else ""
+        )
+        write_executable(
+            self.fixture.fake_bin / "git",
+            '#!/bin/sh\n'
+            'case " $* " in *" for-each-ref "*) ;; *) echo "stub git: $*" >&2; exit 2 ;; esac\n'
+            f"{warning}exit 0\n",
+        )
 
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None

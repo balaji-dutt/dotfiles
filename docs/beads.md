@@ -1249,6 +1249,7 @@ else. Move it aside rather than deleting, so the old copy is the rollback:
 bd export --all -o ~/dots-local-only-$(date +%Y%m%d).jsonl   # floor, always
 bd dolt stop
 mv .beads/dolt/dots/.dolt/git-remote-cache ~/dots-git-remote-cache-$(date +%Y%m%d)
+bd dolt start                    # stop removed .beads/dolt-server.port, which beads-sync needs
 ./assets/beads-sync.sh pull      # rebuilds the mirror; expect "merge successful"
 ./assets/beads-sync.sh push
 ```
@@ -1262,6 +1263,42 @@ Compare `dolt version` across machines against the `dolt_version` pin in
 never tested. Since 2026-08-15 both tools are pinned from that one file and
 neither is Homebrew-managed, so the drift the theory depends on should no longer
 arise on its own.
+
+### Remote mirror has a broken ref
+
+A pull fails with credential advice even though `ssh -T git@gitlab.com` works:
+
+```
+error on line 1 for query call dolt_pull('origin','main'): Error 1105 (HY000): failed to get remote db; warning: ignoring broken ref refs/dolt/remotes/origin/dolt/data/last
+hint: dolt does not support interactive credential prompts
+hint: run `ssh-add <key>` to pre-load your key for SSH remotes
+```
+
+dolt appends those hints to every git failure. They are not the problem here. The
+`warning:` line is: git found a ref in dolt's mirror of the remote (the
+`git-remote-cache` from **Sync wedge** above) that it cannot read. Diagnosed
+2026-11-17 on the WSL2 Debian peer. The loose ref file was 0 bytes, and its mtime
+matched the last second of the previous boot's journal (`journalctl -b -1` ended
+with `systemd: Shutting down`). The mirror was being written when the WSL VM shut
+down for a Windows restart, and the ref's contents never reached disk.
+
+`beads-sync pull` and `push` check the mirror before restarting the server and
+refuse with `git cannot read the refs in dolt's mirror of the sync remote`. To
+confirm by hand:
+
+```bash
+for CACHE in .beads/dolt/dots/.dolt/git-remote-cache/*/repo.git; do
+  git --git-dir "$CACHE" for-each-ref >/dev/null   # prints "ignoring broken ref ..."
+  git --git-dir "$CACHE" fsck --connectivity-only  # "invalid sha1 pointer 0000..."
+done
+```
+
+Fix it with the move-aside block in **Sync wedge**: stop the server, move
+`git-remote-cache` aside, start the server again, and run
+`./assets/beads-sync.sh pull`. That pull
+rebuilds the mirror from the remote (about 35 MB for `dots`). Hand-deleting the
+one bad ref file also silences git, but it leaves the stale value from
+`packed-refs` behind, and nobody has tested how dolt treats that.
 
 ### Windows peer: `fork/exec ... Not enough memory resources`
 

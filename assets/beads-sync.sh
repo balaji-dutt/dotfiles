@@ -445,6 +445,21 @@ require_ssh_agent() {
   esac
 }
 
+# dolt reports a broken ref in its git mirror of the remote as a credentials problem.
+require_intact_remote_mirror() {
+  local mirror err rc reason
+  have git || return 0
+  for mirror in .beads/dolt/"${DB}"/.dolt/git-remote-cache/*/repo.git; do
+    [[ -d "$mirror" ]] || continue
+    rc=0
+    err="$(LC_ALL=C git --git-dir "$mirror" for-each-ref --format='%(refname)' 2>&1 >/dev/null)" || rc=$?
+    if [[ "$rc" -ne 0 || "$err" == *"broken ref"* ]]; then
+      reason="${err%%$'\n'*}"
+      die "git cannot read the refs in dolt's mirror of the sync remote (${mirror}): ${reason:-git exited $rc}. Ignore dolt's credential hints; the mirror is derived state. Move it aside and re-pull: docs/beads.md 'Remote mirror has a broken ref'."
+    fi
+  done
+}
+
 # The private sync remote URL. Never echo it unredacted - the repo is public.
 # Falls through to BD_SYNC_REMOTE when the file is absent OR lacks the key,
 # matching the two documented ways of providing the URL (docs/beads.md).
@@ -867,6 +882,7 @@ report_pull_conflicts() {
 cmd_pull() {
   require_reconciled_bd_version
   require_ssh_agent
+  require_intact_remote_mirror
   sync_boundary_snapshot forced
   restart_server
 
@@ -909,6 +925,7 @@ cmd_push() {
   [[ -n "$remote" ]] || die "no Dolt remote configured; refusing push; see docs/beads.md"
   require_reconciled_bd_version
   require_ssh_agent
+  require_intact_remote_mirror
 
   if [[ "$DO_BACKUP" -eq 1 ]]; then
     sync_boundary_snapshot forced

@@ -384,6 +384,33 @@ function Assert-BdVersionReconciled {
   }
 }
 
+# dolt reports a broken ref in its git mirror of the remote as a credentials problem.
+function Assert-IntactRemoteMirror {
+  if (-not (HaveCmd git)) { return }
+  $cacheRoot = ".beads/dolt/$DbName/.dolt/git-remote-cache"
+  $caches = @(Get-ChildItem -LiteralPath $cacheRoot -Directory -Force -ErrorAction SilentlyContinue)
+  foreach ($cache in $caches) {
+    $mirror = "$cacheRoot/$($cache.Name)/repo.git"
+    if (-not (Test-Path -LiteralPath $mirror -PathType Container)) { continue }
+    $savedLcAll = $env:LC_ALL
+    $env:LC_ALL = 'C'
+    $ErrorActionPreference = 'Continue'
+    try {
+      $out = @(& git --git-dir $mirror for-each-ref '--format=%(refname)' 2>&1)
+      $rc = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = 'Stop'
+      $env:LC_ALL = $savedLcAll
+    }
+    $err = @($out | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { $_.ToString() })
+    $errText = $err -join "`n"
+    if ($rc -ne 0 -or $errText -like '*broken ref*') {
+      $first = if ($err.Count -gt 0) { $err[0] } else { "git exited $rc" }
+      Die "git cannot read the refs in dolt's mirror of the sync remote (${mirror}): $first. Ignore dolt's credential hints; the mirror is derived state. Move it aside and re-pull: docs/beads.md 'Remote mirror has a broken ref'."
+    }
+  }
+}
+
 function Get-RemoteName {
   $raw = Invoke-DoltSql -Query 'select name from dolt_remotes limit 1;' -Csv -Quiet
   $rows = @(($raw | Out-String).Trim() | ConvertFrom-Csv)
@@ -754,6 +781,7 @@ function Invoke-Clean {
 
 function Invoke-Pull {
   Assert-BdVersionReconciled
+  Assert-IntactRemoteMirror
   Invoke-SyncBoundarySnapshot forced | Out-Null
   Restart-DoltServer
 
@@ -792,6 +820,7 @@ function Invoke-Push {
   $remote = Get-RemoteName
   if (-not $remote) { Die 'no Dolt remote configured; refusing push; see docs/beads.md' }
   Assert-BdVersionReconciled
+  Assert-IntactRemoteMirror
 
   if ($Backup) {
     Invoke-SyncBoundarySnapshot forced | Out-Null
