@@ -217,3 +217,130 @@ prior notes, tracking anchor, title, status, assignee and other metadata. Subseq
 verified dated results remain append-only and require readback. Do not close,
 export or sync the issue. Any permission denial or unknown mutation/readback
 outcome stops work; do not switch tools, agents, paths or transports to bypass it.
+
+## DV2-020: inactive subset and consumer validation
+
+This section extends the frozen DV2-010 observation above. The approved DV2-020
+plan and subsequent readback-verified results are dated notes on `dots-0lqe`;
+they do not rewrite the earlier observation, original design or acceptance text.
+The preservation baseline for this phase is
+`9100cf156e76e4dec337de3d8e0d5d9df7fc7821`, not a silent refresh of the
+inventory's historical `333b882a` consumer observation.
+
+The phase contains fourteen inactive payload files: two specialist bases and
+twelve files forming four complete skill bundles. Three additional immutable
+evidence files contain the pinned owner manifest and the two canonical YAML
+sources. Evidence is not installed source authority, a complete upstream archive,
+or a claim of runnable agent-engineer dependency closure. The withheld
+`plugin-developer` and `prompt-evaluator` bundles remain upstream dependencies.
+
+The consumer descriptor at `configs/opencode-v2/source/preparation.jsonc` records
+the exact import and ordered, unapplied overlay inputs. The separate subset
+manifest at `configs/opencode-v2/prepared/metadata/subset-manifest.json` records
+canonical source digests, emitted output digests, immutable evidence and blocked
+operational rows. The actual producing build remains unknown. No aggregate,
+registration, activation, native model alias, permission translation or provider
+sampling decision is supplied by this phase.
+
+### Offline checker and proof boundaries
+
+```sh
+python3 assets/check-opencode-v2-preparation.py --root .
+```
+
+The checker and core gate require POSIX checkout semantics. Non-POSIX checker
+execution is refused before root, Git or artifact access. Native Windows checker
+execution is unsupported; the separate render class retains its four-platform
+synthetic coverage without claiming native Windows filesystem verification.
+
+The checker derives its authority from the pinned pre-phase Git objects and
+frozen inventory/contract before accepting mutable prepared metadata. It checks
+exact payload/evidence closure, independent source/output hashes, ordered inputs,
+inactive status and bounded public-source preservation. A changed output cannot
+self-certify by changing its subset-manifest digest. A missing baseline fails
+without fetching or substituting the current HEAD. No owner checkout, credentials,
+network, Beads query, user-state interpolation or installed configuration scan
+is required.
+
+The pinned `9100cf15` baseline is a deliberate drift guard for this preparation
+phase, not a permanent ban on legitimate configuration changes. A later active
+source change requires a separately authorized baseline update or retirement of
+this phase guard. Missing history remains a failure, not permission to fetch or
+fall back to HEAD.
+
+Root and component links, dangling links, cycles, traversal and Windows aliases
+are rejected before prepared content is read. Instrumented open/hash tests cover
+forbidden target reads; separate fixture tree, index and outside-sentinel checks
+cover non-modification. These checks are not an atomic filesystem sandbox against
+concurrent hostile mutation.
+
+Protected legacy symlinks outside the preparation tree retain their exact link
+payloads without opening or hashing their targets. Replacing a link with a regular
+file or changing its target is rejected. The recorded CRLF exception requires
+exact committed/working digests, only the permitted line-ending transformation,
+and actual fixture Git attributes declaring `text` and `eol=crlf`.
+
+The new tests model consumer-owned composition and ownership contracts using
+synthetic inputs. They bind the model to unchanged source hashes but do not
+execute or qualify real profile/lifecycle helpers or the native permission
+engine. Reference rebasing, profile order, workspace-agent-only merging, exact
+fallback routes, native `claude-agent` preservation, default-only `Plan-Trial`,
+Windows failure routes and explicit launcher approval remain separate from
+operational readiness.
+
+The render class uses synthetic Linux, macOS, Windows and WSL2 data and real
+chezmoi `ignored` and `managed` queries in owned temporary source, destination,
+config, state and cache directories. Chezmoi `!` exclusions override matching
+ignore rules regardless of order. Placement of the repository's `configs/**`
+rule after the Windows block is a structural invariant, not last-match semantic
+proof. Negative fixtures expose prepared paths with overlapping unignore rules
+in either order. Synthetic Windows rendering is not native Windows runtime
+verification. No apply, init, script execution or external download is involved.
+
+### DV2-020 behavioral requirement matrix
+
+Core methods below belong to `OpenCodeV2PreparationTests` in
+`tests/test_opencode_v2_preparation.py`; render methods belong to
+`OpenCodeV2IsolationRenderTests` in the same module. These requirements describe
+implemented coverage, not a claim that the full phase verification has passed.
+
+| Requirement ID | Kind | Description | Existing test methods |
+|---|---|---|---|
+| `success-independent-subset-authority` | success | Verify the fourteen-file subset, complete bundles, canonical source proofs, ordered inputs and unknown producer build against frozen independent authority. | Core: `test_default_cli_accepts_the_real_inactive_subset_without_owner_checkout`, `test_selected_closure_has_independent_expected_counts_and_source_proof`, `test_provenance_order_unknown_build_and_readiness_are_strict` |
+| `success-offline-composition-contract` | success | Exercise synthetic profile ordering, workspace-agent scope, reference rebasing, provider transforms, Windows failure routes and managed ownership without executing live helpers. | Core: `test_profile_composition_order_workspace_scope_rebase_and_replacements`, `test_default_alias_provider_transforms_native_claude_and_windows_failure_contract`, `test_raw_host_and_fallback_mirror_lifecycle_ownership_and_isolation` |
+| `failure-output-and-manifest-tamper` | failure | Reject edited, missing, extra or incomplete artifacts even when a mutable subset digest is changed to match the edited output. | Core: `test_output_and_mutable_manifest_cannot_self_certify_tampering`, `test_missing_extra_stale_and_incomplete_bundle_are_rejected`, `test_canonical_evidence_and_frozen_authority_cannot_be_replaced` |
+| `failure-readiness-and-provenance-forgery` | failure | Reject forged readiness, activation, aggregate, producer-build, typed-value and ordered-input claims. | Core: `test_provenance_order_unknown_build_and_readiness_are_strict`, `test_descriptor_cannot_enable_registration_or_hide_an_applied_overlay`, `test_strict_jsonc_duplicates_nonfinite_and_root_types` |
+| `failure-protected-source-drift` | failure | Reject protected public source or path-set drift, existing registration changes and a missing pinned Git baseline without fetching or falling back to HEAD. | Core: `test_protected_bytes_path_sets_modes_and_registry_history`, `test_protected_executable_mode_drift_is_rejected`, `test_recorded_crlf_variance_requires_exact_bytes_and_real_attributes`, `test_legacy_link_payload_is_preserved_without_reading_its_targets`, `test_missing_trusted_git_baseline_fails_without_fetch_or_fallback` |
+| `safety-no-forbidden-link-read-or-write` | safety | Reject roots, ancestors, dangling links, cycles, traversal and Windows aliases before forbidden file-open or hash boundaries; separately preserve fixture trees, index and outside sentinels. | Core: `test_symlink_targets_are_not_read_or_hashed_and_checker_does_not_write`, `test_legacy_link_payload_is_preserved_without_reading_its_targets`, `test_root_ancestor_dangling_cyclic_links_and_case_aliases_are_rejected`, `test_windows_path_alias_and_escape_matrix` |
+| `safety-real-chezmoi-target-exclusion` | safety | Render four synthetic platforms and query real chezmoi ignored and managed target paths; detect exposing unignore rules in either order without apply, init, scripts or user-state access. | Render: `test_real_rendered_matrix_keeps_evidence_payload_and_container_mirror_unmanaged`, `test_actual_unignore_exposes_payload_in_either_order`, `test_omitting_config_exclusions_exposes_prepared_files_on_posix` |
+| `safety-native-route-and-policy-boundaries` | safety | Preserve native claude-agent routes, default-only Plan-Trial and explicit launcher approval boundaries without claiming native runtime or permission-engine qualification. | Core: `test_non_posix_checker_refuses_before_root_or_content_access`, `test_default_alias_provider_transforms_native_claude_and_windows_failure_contract`, `test_workspace_preference_plan_trial_and_explicit_launcher_auto` |
+
+### DV2-020 verification and delivery gate
+
+The POSIX-only core class is registered in `fast` and `provenance`; the unchanged
+real-render class is registered in `fast` and `render`. Their success, failure
+and safety requirements are mapped above and referenced by the new high-risk owned automation inventory
+entry, independently of the legacy provenance checker. Its structured requirement
+array is empty under the existing noncritical-entry policy. Existing legacy
+manifests, accepted divergences, active v1
+and Claude sources, helpers, policies, mirrors, launchers and attestation remain
+unchanged. Byte-identical owner prompt emissions retain their pinned evaluation
+evidence; a new projection needs separate owner regeneration and independent
+scored evaluation.
+
+Required local checks, per-path peer-suppressed audits, doctor and complete
+scoped review precede the phase-specific peer cycle. The approved macOS procedure
+uses one fresh probe and a bounded 7200-second cache, `--no-agent-repair` on every
+invocation, unchanged cache/config fingerprints and sufficient remaining TTL
+before each audit/test batch. An expired or replaced cache stops work rather
+than authorizing a second probe. Real failures, unknown outcomes, permission
+denials and incomplete cleanup block progress; the DV2-010 metadata-only
+unavailable-peer exception does not apply here.
+
+Actual validation, review, docs assessment and peer outcomes are recorded in
+dated, readback-verified notes on the same Bead. A missing successful result is
+not PASS. Only the two explicitly authorized intent-to-add entries may be used
+for census/AST visibility and removed without deleting working files. Ordinary
+staging and a commit still require separate approval. This phase does not
+authorize activation, DV2-030, plugin adoption, attestation restoration, homelab
+deployment, Safety Net qualification, binary changes or cutover.

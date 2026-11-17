@@ -824,6 +824,24 @@
       "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules. OpenCode wrapper fixtures also exercise the shared selective Go key loader with stale inheritance, rotation, credential-safe refusals, unchanged PATH and profile exports, dry-run exclusions, and dependency-guard ordering and failure propagation. These fixtures do not verify live container provisioning or provider authentication."
     },
     {
+      "id": "opencode-v2-preparation-policy",
+      "classification": "owned",
+      "paths": ["assets/check-opencode-v2-preparation.py"],
+      "owner": {"kind": "repository", "name": "inactive OpenCode v2 subset provenance and isolation"},
+      "languages": ["python"],
+      "platforms": ["devcontainer", "linux", "macos", "wsl2"],
+      "risk": "high",
+      "side_effects": ["process"],
+      "test_layers": ["contract", "integration", "provenance", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-0lqe",
+        "test_paths": ["tests/test_opencode_v2_preparation.py"],
+        "behavior_requirements": []
+      },
+      "rationale": "The checker and core gate require POSIX checkout semantics; native Windows checker execution is unsupported. Owned temporary Git and chezmoi fixtures exercise read-only validation and independently expected safety failures. The eight success/failure/safety requirements and test-method mappings are recorded in docs/agents/opencode-v2-preparation.md#dv2-020-behavioral-requirement-matrix; the structured inventory array is reserved for critical-risk entries. Composition and lifecycle cases are consumer contract models, not execution or qualification of the real helpers or native runtime. The unchanged render class retains four-platform synthetic coverage, which is not native Windows runtime evidence."
+    },
+    {
       "id": "peer-env",
       "classification": "owned",
       "paths": ["assets/peer-env", "assets/peer_env_windows.py"],
