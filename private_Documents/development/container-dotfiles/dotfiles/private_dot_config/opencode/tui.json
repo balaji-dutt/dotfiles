@@ -3,6 +3,6 @@
   "theme": "system",
   "plugin": [
     "@slkiser/opencode-quota@4",
-    "@tarquinen/opencode-dcp@3.2.0"
+    "@tarquinen/opencode-dcp@3.2.1"
   ]
 }
