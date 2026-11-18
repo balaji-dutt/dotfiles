@@ -204,7 +204,10 @@ arrays. For example:
     },
     "pester": {
       "command": "{python}",
-      "probe": ["{python}", "{repo}/tests/support/powershell.py", "probe-pester"]
+      "probe": [
+        "{python}", "{repo}/tests/support/powershell.py", "probe-pester",
+        "--repo-root", "{repo}"
+      ]
     }
   },
   "steps": [
@@ -268,7 +271,12 @@ resolves, parser-only checks may use the retained
 neither retained image satisfies the native `pwsh` or `pester` capabilities.
 The native Pester probe accepts installed Pester
 3.4 or newer, and the shared launcher selects the compatible Pester 3 or 5
-invocation without installing or upgrading host modules.
+invocation without installing or upgrading host modules. On native Windows the
+Pester 3.4 that ships with Windows is enough; the sandbox passes `ProgramFiles`
+through so `pwsh` can expand `%ProgramFiles%\WindowsPowerShell\Modules` in its
+default module path. Without Pester, `lifecycle-windows` and `windows-shell`
+report `SKIP ...: capability probe failed for pester (exit 1)` and the run
+still exits `0`; add `--require-capability pester` to make that a `FAIL`.
 Every `Assert-MockCalled` under `tests/powershell/` passes `-Scope`, because
 Pester 3 otherwise counts calls across the whole `Describe`; a source check
 enforces this.
@@ -283,10 +291,10 @@ docker build -f assets/Dockerfile.powershell-audit -t local/powershell-audit:lts
 docker build -f assets/Dockerfile.powershell-tests -t local/powershell-tests:lts .
 ```
 
-The audit image supports the audit, Beads sync, and OpenCode hold fixtures.
+The audit image has no Git and supports the audit and OpenCode hold fixtures.
 The optional test image adds Git, Python 3, and AllUsers Pester **5.7.1** for
-the Beads dispatch, installer, host-plugin refresh, OpenCode profile, and FFPWA
-Pester fixtures. Both images carry `image_retention=retain`.
+the Beads sync, Beads dispatch, installer, host-plugin refresh, OpenCode
+profile, and FFPWA Pester fixtures. Both images carry `image_retention=retain`.
 
 | Capability | Probe and meaning |
 | :--- | :--- |
@@ -315,9 +323,9 @@ least one test, with no failed tests, blocks, or containers.
 
 Container results are Linux PowerShell behavior, **not native Windows proof**.
 Job Objects, reparse points, Windows process enumeration, and the native-only
-Windows shell/lifecycle suites still need Windows. Audit-image Beads init
-cases requiring Git still skip. Use `--case-report` to inspect these case-level
-skips rather than treating a passing registration step as full coverage.
+Windows shell/lifecycle suites still need Windows. Use `--case-report` to
+inspect case-level skips rather than treating a passing registration step as
+full coverage.
 
 ## Isolation contract
 
@@ -326,6 +334,8 @@ Each invocation gets a temporary sandbox. Child processes receive synthetic
 (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`). Git global/system config
 points at an empty sandbox file, interactive Git prompts are disabled, and
 credential/service variables are not copied wholesale from the parent process.
+On Windows, the read-only `ProgramFiles` location passes through unchanged,
+while `PROGRAMDATA`, `APPDATA`, and `LOCALAPPDATA` point into the sandbox.
 The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are the
 only live-smoke settings passed through. The command timeout defaults to 180
 seconds and accepts values from 30 through 900. No similarly prefixed credential

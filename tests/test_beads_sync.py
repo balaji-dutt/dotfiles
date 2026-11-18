@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from tests.support.fixtures import init_git_repository, isolated_environment, write_executable
-from tests.support.powershell import POWERSHELL_AUDIT_IMAGE, require_fixture_powershell
+from tests.support.powershell import require_fixture_powershell
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +79,7 @@ case "$query" in
       printf 'fk:%s\n' "$fk"
     done
     ;;
+  *'from issues;'*) printf 'n\n5\n' ;;
   'select count(*) as n from '*)
     table=$(printf '%s' "$query" | sed -n 's/^select count(\*) as n from \([a-z_]*\) .*/\1/p')
     count=$(printf ' %s ' "${DOLT_ORPHANS:-}" | sed -n "s/.* $table=\([0-9]*\) .*/\1/p")
@@ -125,7 +126,6 @@ case "$query" in
     index=0
     while [ "$index" -lt "$count" ]; do printf 'wisp_%s\n' "$index"; index=$((index + 1)); done
     ;;
-  *'from issues;'*) printf 'n\n5\n' ;;
   *"_project_id"*) printf 'value\nlocal-id\n' ;;
 esac
 exit 0
@@ -327,10 +327,6 @@ class BeadsSyncUpgradeContract:
             ref = mirror / "refs/dolt/remotes/origin/dolt/data/last"
             ref.parent.mkdir(parents=True)
             ref.write_bytes(b"")
-        self.provide_backend_git(broken=broken)
-
-    def provide_backend_git(self, *, broken: bool) -> None:
-        """Real git on PATH reads the mirror; backends without git override this."""
 
     def test_broken_mirror_ref_refuses_pull_and_push(self) -> None:
         self.make_remote_mirror(broken=True)
@@ -649,24 +645,7 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
     def setUpClass(cls) -> None:
         if os.name == "nt":
             raise unittest.SkipTest("native Windows execution is opportunistic for this suite")
-        cls.backend = require_fixture_powershell(image=POWERSHELL_AUDIT_IMAGE)
-        cls.pwsh = cls.backend.executable
-
-    def provide_backend_git(self, *, broken: bool) -> None:
-        if not self.backend.engine:
-            return
-        # The audit image ships no git. Mimic git 2.47's for-each-ref on a 0-byte loose ref.
-        warning = (
-            "echo 'warning: ignoring broken ref refs/dolt/remotes/origin/dolt/data/last' >&2\n"
-            if broken
-            else ""
-        )
-        write_executable(
-            self.fixture.fake_bin / "git",
-            '#!/bin/sh\n'
-            'case " $* " in *" for-each-ref "*) ;; *) echo "stub git: $*" >&2; exit 2 ;; esac\n'
-            f"{warning}exit 0\n",
-        )
+        cls.backend = require_fixture_powershell()
 
     def run_sync(
         self, *arguments: str, env_updates: dict[str, str] | None = None
@@ -678,7 +657,8 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
         paths = ('BD_SNAPSHOT_ROOT', 'BD_SYNC_TEST_LOG', 'GIT_CONFIG_GLOBAL',
                  'GIT_CONFIG_SYSTEM', 'HOME', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE',
                  'XDG_CACHE_HOME', 'XDG_CONFIG_HOME')
-        values = ('GIT_TERMINAL_PROMPT', 'BD_EXPORT_MODE', 'BD_VERSION_STRING',
+        values = ('GIT_TERMINAL_PROMPT', 'BD_SYNC_REMOTE', 'BEADS_DOLT_SERVER_PORT',
+                  'BD_AUTO_SNAPSHOT', 'BD_SNAPSHOT_MACHINE', 'BD_EXPORT_MODE', 'BD_VERSION_STRING',
                   'BD_INIT_RC', 'BD_START_RC', 'BD_COMMIT_OUTPUT', 'BD_COMMIT_RC',
                   'BD_PUSH_OUTPUT', 'BD_PUSH_RC', 'BD_NO_REMOTE_ADOPT',
                   'DOLT_SERVER_RC', 'DOLT_FK_SCAN_RC', 'DOLT_FK_TABLES', 'DOLT_FKS_PRESENT',
@@ -689,16 +669,6 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
         return self.backend.run(self.fixture.root, cwd=self.repo, script=script,
                                 args=arguments, environ=env, env_keys=(*paths, *values),
                                 path_keys=paths)
-
-    def test_init_compares_wisp_tables_before_and_after_reset(self) -> None:
-        if not self.pwsh:
-            self.skipTest(f"{POWERSHELL_AUDIT_IMAGE} has no git, which init needs")
-        super().test_init_compares_wisp_tables_before_and_after_reset()
-
-    def test_init_relinks_after_the_reset(self) -> None:
-        if not self.pwsh:
-            self.skipTest(f"{POWERSHELL_AUDIT_IMAGE} has no git, which init needs")
-        super().test_init_relinks_after_the_reset()
 
     def test_status_refusal_and_single_session_pull_match_posix_contract(self) -> None:
         refused = self.run_sync(
@@ -735,6 +705,7 @@ class BeadsSyncPowerShellTests(BeadsSyncUpgradeContract, BeadsSyncFixture, unitt
         self.prepare_init_failure()
         result = self.run_sync("init", env_updates={"BD_INIT_RC": "19"})
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bd init failed (exit 19)", result.stderr)
         remote = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             cwd=self.repo,

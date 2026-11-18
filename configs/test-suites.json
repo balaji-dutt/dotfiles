@@ -187,7 +187,7 @@
       "suites": ["platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPowerShellTests"],
       "covers": ["tests/test_beads_sync.py"],
-      "requires": ["git"]
+      "requires": ["git", "pwsh-fixture"]
     },
     {
       "id": "browser-policy-sync",

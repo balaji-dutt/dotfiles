@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.support import fixtures
 from tests.support.fixtures import (
     BROKEN_RESOLVERS,
     bash_argv,
@@ -103,6 +104,24 @@ class TestFixtureTests(unittest.TestCase):
                                     capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.splitlines(), ["two words", "ü;literal"])
+
+    def test_git_bash_candidates_prefer_the_git_for_windows_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "Git"
+            for relative in ("bin/bash.exe", "usr/bin/bash.exe", "cmd/git.exe",
+                             "ucrt64/bin/git.exe", "mingw64/bin/git.exe"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_bytes(b"")
+            launcher = str(root / "bin" / "bash.exe")
+            raw = str(root / "usr" / "bin" / "bash.exe")
+            for git in ("cmd/git.exe", "ucrt64/bin/git.exe", "mingw64/bin/git.exe"):
+                with self.subTest(git=git):
+                    found = {"git": str(root / git), "bash": raw}
+                    with mock.patch.object(fixtures.shutil, "which", side_effect=found.get):
+                        self.assertEqual(fixtures.git_bash_candidates(windows=True), [launcher, raw])
+            with mock.patch.object(fixtures.shutil, "which", side_effect={"bash": raw}.get):
+                self.assertEqual(fixtures.git_bash_candidates(windows=True), [launcher, raw])
+                self.assertEqual(fixtures.git_bash_candidates(windows=False), [raw])
 
     def test_json_helpers_are_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

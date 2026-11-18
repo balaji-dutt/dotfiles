@@ -14,44 +14,20 @@ import sys
 import tempfile
 import unittest
 
-from tests.support.fixtures import BROKEN_RESOLVERS, init_git_repository, isolated_environment, run_git
+from tests.support.fixtures import (
+    BROKEN_RESOLVERS,
+    compatible_bash,
+    init_git_repository,
+    isolated_environment,
+    run_git,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / ".claude/hooks"
 
 
-def resolve_hook_bash() -> str | None:
-    candidates = [shutil.which("bash")]
-    if os.name == "nt":
-        git = shutil.which("git")
-        if git:
-            candidates.insert(0, str(Path(git).parent.parent / "bin" / "bash.exe"))
-    for candidate in dict.fromkeys(candidates):
-        if not candidate or not Path(candidate).is_file():
-            continue
-        try:
-            probe = subprocess.run(
-                [
-                    candidate,
-                    "-c",
-                    'test -f "$1" && test -d "$2"',
-                    "bash",
-                    str(HOOKS / "mark-needs-review-bash.sh"),
-                    tempfile.gettempdir(),
-                ],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if probe.returncode == 0:
-            return candidate
-    return None
-
-
-BASH = resolve_hook_bash()
+BASH = compatible_bash(HOOKS / "mark-needs-review-bash.sh", Path(tempfile.gettempdir()))
 
 
 def resolver_hooks() -> list[Path]:

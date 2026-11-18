@@ -1471,6 +1471,18 @@ class TestRunnerTests(unittest.TestCase):
         for directory in actual["xdg"]:
             self.assertTrue(Path(directory).is_relative_to(actual["home"]), directory)
 
+    def test_program_files_passes_through_for_the_windows_powershell_module_path(self) -> None:
+        sandbox = self.fixture.root / "program-files-sandbox"
+        sandbox.mkdir()
+        inherited = {"ProgramFiles": "C:\\Program Files", "FIXTURE_SECRET_TOKEN": "must-not-leak"}
+        with mock.patch.dict(os.environ, inherited), \
+                mock.patch.object(RUN_TESTS, "_runtime_lookup_path",
+                                  side_effect=lambda tool, lookup_path, *_: lookup_path):
+            env = RUN_TESTS.isolated_environment(self.fixture.root, sandbox)
+        program_files = {name: value for name, value in env.items() if name.upper() == "PROGRAMFILES"}
+        self.assertEqual(list(program_files.values()), ["C:\\Program Files"])
+        self.assertNotIn("FIXTURE_SECRET_TOKEN", env)
+
     def test_devcontainer_smoke_opt_in_and_artifact_settings_are_passed_through(self) -> None:
         output = self.fixture.root / "smoke-environment.json"
         self.fixture.write_script(

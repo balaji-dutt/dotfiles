@@ -124,15 +124,30 @@ def write_executable(path: Path, content: str, *, dedent: bool = False) -> Path:
     return path
 
 
+def git_bash_candidates(*, windows: bool = os.name == "nt") -> list[str]:
+    """Bash executables to probe, the Git for Windows launcher (bin/bash.exe) first."""
+    fallback = shutil.which("bash")
+    candidates: list[str] = []
+    if windows:
+        # Only the launcher puts usr/bin (cygpath, coreutils) on PATH; usr/bin/bash.exe does not.
+        for found in (shutil.which("git"), fallback):
+            if not found:
+                continue
+            for ancestor in list(Path(found).parents)[:3]:
+                launcher = ancestor / "bin" / "bash.exe"
+                if launcher.is_file() and (ancestor / "usr" / "bin").is_dir():
+                    candidates.append(str(launcher))
+                    break
+    if fallback:
+        candidates.append(fallback)
+    unique: dict[str, str] = {}
+    for candidate in candidates:
+        unique.setdefault(os.path.normcase(candidate), candidate)
+    return list(unique.values())
+
+
 def compatible_bash(checkout_file: Path, fixture_directory: Path) -> str | None:
-    candidates = [shutil.which("bash")]
-    if os.name == "nt":
-        git = shutil.which("git")
-        if git:
-            candidates.insert(0, str(Path(git).parent.parent / "bin" / "bash.exe"))
-    for candidate in dict.fromkeys(candidates):
-        if not candidate or not Path(candidate).is_file():
-            continue
+    for candidate in git_bash_candidates():
         try:
             result = subprocess.run(
                 [candidate, "-c", 'test -f "$1" && test -d "$2"', "bash",
