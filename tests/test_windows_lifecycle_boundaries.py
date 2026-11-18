@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -334,11 +335,14 @@ function Get-Command {
 
     def test_kanban_idempotent_fixture_does_not_install_or_download(self) -> None:
         source = self.render("kanban")
-        sha = "7bf8f1073d527424bcfc46dde132a79b35f013d28209f21a0efa67169d8afcfa"
-        self.assertIn(f'$ExpectedSha             = "{sha}"', source)
+        version_match = re.search(r'^\$ForkVersion\s+= "([^"]+)"', source, re.MULTILINE)
+        sha_match = re.search(r'^\$ExpectedSha\s+= "([0-9a-f]{64})"', source, re.MULTILINE)
+        self.assertIsNotNone(version_match, "rendered script has no $ForkVersion pin")
+        self.assertIsNotNone(sha_match, "rendered script has no 64-hex $ExpectedSha pin")
+        version, sha = version_match.group(1), sha_match.group(1)
         cache = self.root / "localappdata" / "dotfiles" / "better-beads-kanban-vsix"
         cache.mkdir(parents=True)
-        marker = cache / "v2.2.2.installed"
+        marker = cache / f"v{version}.installed"
         marker.write_text(sha, encoding="utf-8")
         self.env["FIXTURE_CODE_LOG"] = str(self.root / "code.log")
         before = r'''
@@ -350,10 +354,10 @@ function Get-Command {
 function code {
   Add-Content -LiteralPath $env:FIXTURE_CODE_LOG -Value ($args -join ' ')
   $global:LASTEXITCODE = 0
-  if ($args[0] -eq '--list-extensions') { 'balaji-dutt.better-beads-kanban@2.2.2' }
+  if ($args[0] -eq '--list-extensions') { 'balaji-dutt.better-beads-kanban@FORK_VERSION' }
   elseif ($args[0] -ne '--uninstall-extension') { throw 'unexpected VS Code command' }
 }
-'''
+'''.replace("FORK_VERSION", version)
         result = self.run_hook("kanban", source=source, before=before)
         self.assert_ok(result)
         self.assertIn("already installed", result.stdout)
