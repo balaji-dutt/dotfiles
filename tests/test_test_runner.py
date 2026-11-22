@@ -143,9 +143,10 @@ class RunnerFixture:
             encoding="utf-8",
         )
 
-    def run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run(self, *args: str, env: dict[str, str] | None = None,
+            jobs: int | None = 1) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            self.command(*args),
+            self.command(*args, jobs=jobs),
             env=env,
             check=False,
             text=True,
@@ -154,9 +155,10 @@ class RunnerFixture:
             stderr=subprocess.PIPE,
         )
 
-    def command(self, *args: str) -> list[str]:
+    def command(self, *args: str, jobs: int | None = 1) -> list[str]:
+        pinned = [] if jobs is None else ["--jobs", str(jobs)]
         return [sys.executable, str(RUNNER), "--repo-root", str(self.root),
-                "--registry", str(self.registry), *args]
+                "--registry", str(self.registry), *pinned, *args]
 
     def supervised(self, *args: str) -> subprocess.CompletedProcess[str]:
         with (tempfile.TemporaryFile(mode="w+t") as output,
@@ -419,6 +421,45 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.assertIsNone(running)
         self.assertFalse(report.exists())
 
+    def test_interrupted_parallel_run_marks_every_step_in_flight(self) -> None:
+        report = self.fixture.root / "parallel.json"
+        pid_files = []
+        for name in ("beta", "gamma"):
+            pid_file = self.fixture_pid(f"hung-{name}.pid")
+            pid_files.append(pid_file)
+            self.fixture.write_script(f"{name}.py", "import os, pathlib, time\n"
+                                      f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                      "time.sleep(30)\n")
+            self.fixture.steps.append(self.fixture.step(name, ["fast"], f"{name}.py"))
+        self.fixture.write_script("zeta.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("zeta", ["fast"], "zeta.py"))
+        self.fixture.write_registry()
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(
+                self.fixture.command("--case-report", "--report-file", str(report), jobs=2),
+                stdout=output, stderr=errors, start_new_session=True)
+            try:
+                for pid_file in pid_files:
+                    self.wait_for(pid_file)
+                os.kill(runner.pid, signal.SIGINT)
+                runner.wait(timeout=8)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
+        self.assertEqual(runner.returncode, 130)
+        for pid_file in pid_files:
+            self.assert_stopped(pid_file)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((payload["state"], payload["exit_code"]), ("interrupted", 130))
+        self.assertEqual(payload["context"]["jobs"], 2)
+        self.assertEqual(
+            [(step["id"], step["status"], step["outcome"]) for step in payload["steps"]],
+            [("alpha", "pass", "passed"), ("beta", "fail", "interrupted"),
+             ("gamma", "fail", "interrupted"), ("zeta", "skip", "not_run")],
+        )
+
     def test_cancelled_step_stops_its_group_and_reports_interrupted(self) -> None:
         pid_file = self.fixture_pid("cancelled.pid")
         command = [sys.executable, "-c",
@@ -668,6 +709,29 @@ class WindowsStepSupervisionTests(unittest.TestCase):
         self.assertEqual(result, ("out", "err", 0, None, "exited", None))
         run.assert_not_called()
 
+    def test_concurrent_cancelled_steps_each_kill_their_own_tree(self) -> None:
+        processes = [mock.Mock(pid=4242, returncode=0), mock.Mock(pid=4343, returncode=0)]
+        cancel = threading.Event()
+        cancel.set()
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", side_effect=processes),
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes",
+                                side_effect=lambda process: FakePipes([False, True])),
+              mock.patch.object(RUN_TESTS.subprocess, "run",
+                                return_value=subprocess.CompletedProcess([], 0)) as run):
+            workers = [
+                threading.Thread(target=RUN_TESTS._run_windows_step, args=(["step.exe"],),
+                                 kwargs={"repo_root": Path("C:/repo"), "env": {},
+                                         "timeout_seconds": 3, "cancel": cancel})
+                for _ in processes
+            ]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertEqual(sorted(call.args[0][1:] for call in run.call_args_list),
+                         [["/T", "/F", "/PID", "4242"], ["/T", "/F", "/PID", "4343"]])
+
 
 class BoundedOutputTests(unittest.TestCase):
     def test_keeps_the_tail_and_counts_dropped_bytes(self) -> None:
@@ -713,21 +777,41 @@ class ThreadedPipesTests(unittest.TestCase):
 class RunnerCrashEvidenceTests(unittest.TestCase):
     LAUNCHER = "_run_windows_step" if RUN_TESTS.IS_WINDOWS else "_run_posix_step"
 
-    def steps(self):
+    def steps(self, names=("alpha", "beta")):
         return tuple(
             RUN_TESTS.Step(name, ("fast",), ("{python}", "-c", "pass"), ("tests/x.py",), RUN_TESTS.PLATFORMS, ())
-            for name in ("alpha", "beta")
+            for name in names
         )
 
-    def run_steps(self, snapshots: list, **patches):
-        steps = self.steps()
+    def run_steps(self, snapshots: list, *, names=("alpha", "beta"), jobs: int = 1, **patches):
+        steps = self.steps(names)
         with contextlib.ExitStack() as stack:
             for name, value in patches.items():
                 stack.enter_context(mock.patch.object(RUN_TESTS, name, value))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             return RUN_TESTS.run_steps(RUN_TESTS.Registry({}, steps), steps, repo_root=REPO_ROOT,
                                        require_capabilities=False, required_capabilities=frozenset(),
-                                       progress=snapshots.append)
+                                       progress=snapshots.append, jobs=jobs)
+
+    def test_runner_crash_with_two_steps_in_flight_interrupts_both(self) -> None:
+        both_started = threading.Barrier(2)
+
+        def launcher(command, *, repo_root, env, timeout_seconds, cancel):
+            if both_started.wait(timeout=5) == 0:
+                raise RuntimeError("bug")
+            cancel.wait(5)
+            return ("", "", None, "interrupted", "interrupted", None)
+
+        snapshots = []
+        with self.assertRaises(RuntimeError):
+            self.run_steps(snapshots, names=("alpha", "beta", "gamma"), jobs=2,
+                           **{self.LAUNCHER: launcher})
+        final = snapshots[-1]
+        self.assertEqual((final.state, final.exit_code), ("crashed", 1))
+        self.assertEqual([(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                         [("alpha", "interrupted", "runner crashed: RuntimeError"),
+                          ("beta", "interrupted", "runner crashed: RuntimeError"),
+                          ("gamma", "not_run", "not run: the run stopped early")])
 
     def test_runner_crash_records_crashed_state_and_reraises(self) -> None:
         snapshots = []
@@ -791,6 +875,92 @@ class RunnerCrashEvidenceTests(unittest.TestCase):
                                 _run_windows_step=mock.Mock(side_effect=[access_violation, ordinary]))
         self.assertEqual([step.outcome for step in result.steps], ["crash", "failed"])
         self.assertEqual(result.steps[0].termination["kind"], "exited")
+
+
+class RunnerParallelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = RunnerFixture()
+        self.addCleanup(self.fixture.cleanup)
+        self.shared = self.fixture.root / "shared"
+        self.shared.mkdir()
+        self.fixture.write_script(
+            "overlap.py",
+            "import pathlib, sys, time\n"
+            f"shared = pathlib.Path({str(self.shared)!r})\n"
+            "name, peer, wait = sys.argv[1], sys.argv[2], float(sys.argv[3])\n"
+            "def log(event):\n"
+            "    with (shared / 'events.log').open('a', encoding='utf-8') as handle:\n"
+            "        handle.write(f'{event} {name}\\n')\n"
+            "own = shared / f'started-{name}'\n"
+            "own.write_text('', encoding='utf-8')\n"
+            "if peer == '-':\n"
+            "    log('start')\n"
+            "    time.sleep(wait)\n"
+            "    ok = list(shared.glob('started-*')) == [own]\n"
+            "    log('end')\n"
+            "    own.unlink()\n"
+            "else:\n"
+            "    deadline = time.monotonic() + wait\n"
+            "    while time.monotonic() < deadline and not (shared / f'started-{peer}').exists():\n"
+            "        time.sleep(0.02)\n"
+            "    ok = (shared / f'started-{peer}').exists()\n"
+            "raise SystemExit(0 if ok else 1)\n",
+        )
+        self.fixture.steps = []
+
+    def add_step(self, name: str, peer: str, wait: str, **extra: object) -> None:
+        step = self.fixture.step(name, ["fast"], "overlap.py", **extra)
+        step["argv"] += [name, peer, wait]
+        self.fixture.steps.append(step)
+
+    def events(self) -> list[str]:
+        log = self.shared / "events.log"
+        lines = log.read_text(encoding="utf-8").splitlines()
+        log.unlink()
+        for marker in self.shared.glob("started-*"):
+            marker.unlink()
+        return lines
+
+    def test_jobs_overlap_steps_and_keep_serial_steps_alone(self) -> None:
+        self.add_step("a-pair", "b-pair", "20")
+        self.add_step("b-pair", "a-pair", "20")
+        self.add_step("z-alone", "-", "0.5", serial=True)
+        self.fixture.write_registry()
+        report = self.fixture.root / "parallel.json"
+        result = self.fixture.run("--case-report", "--report-file", str(report), jobs=3)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.events(), ["start z-alone", "end z-alone"])
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["context"]["jobs"], 3)
+        self.assertEqual(payload["context"]["selected_steps"], ["a-pair", "b-pair", "z-alone"])
+        self.assertEqual([(step["id"], step["outcome"]) for step in payload["steps"]],
+                         [("a-pair", "passed"), ("b-pair", "passed"), ("z-alone", "passed")])
+        for name in ("a-pair", "b-pair", "z-alone"):
+            self.assertEqual(result.stdout.count(f"RUN  {name}\n"), 1)
+            self.assertEqual(result.stdout.count(f"PASS {name}\n"), 1)
+
+    def test_without_jobs_steps_run_one_at_a_time_in_registry_order(self) -> None:
+        self.add_step("a-plain", "-", "0")
+        self.add_step("z-alone", "-", "0", serial=True)
+        self.fixture.write_registry()
+        in_order = ["start a-plain", "end a-plain", "start z-alone", "end z-alone"]
+        for jobs in (None, 1):
+            with self.subTest(jobs=jobs):
+                result = self.fixture.run(jobs=jobs)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.events(), in_order)
+        result = self.fixture.run(jobs=2)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.events(), in_order[2:] + in_order[:2])
+
+    def test_jobs_must_be_a_positive_integer(self) -> None:
+        self.add_step("a-plain", "-", "0")
+        self.fixture.write_registry()
+        for value in ("0", "-1", "two"):
+            with self.subTest(jobs=value):
+                result = self.fixture.run("--jobs", value, "--list")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("must be a positive integer", result.stderr)
 
 
 class ReportReplaceRetryTests(unittest.TestCase):

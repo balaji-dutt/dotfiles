@@ -35,8 +35,21 @@ platform
 all
 ```
 
-`all` runs every registered step once in registry order. Use `--list` to
-validate and print the selected steps without executing them:
+`all` runs every registered step once in registry order. Steps run one at a
+time unless `--jobs N` asks for more:
+
+```sh
+./assets/run-tests.sh fast --jobs 4
+```
+
+With `N` above 1, steps marked `serial` in the registry run first, each one
+alone, and the remaining steps then run up to `N` at a time in registry order.
+A serial step never overlaps another step. Each step's output is still printed
+whole when the step finishes, so `RUN` and `PASS`/`FAIL` lines for different
+steps can interleave and steps can finish out of registry order. Reports list
+steps in registry order regardless. `--jobs 1` is the default.
+
+Use `--list` to validate and print the selected steps without executing them:
 
 ```sh
 ./assets/run-tests.sh --list integration
@@ -92,14 +105,15 @@ The report becomes `schema_version` 2. It keeps every version 1 field and adds:
   rewrites the report atomically after every step, so a run in progress shows
   `running` with its finished steps and a null `exit_code`. If the run is
   interrupted (`SIGINT`, `SIGTERM`, `SIGHUP`, Ctrl+C) or the runner itself
-  raises, the last write marks the step in progress `interrupted`, the steps
-  after it `not_run`, and records the exit code the runner is leaving with
-  (128 plus the signal number, `130` for Ctrl+C, `1` for a runner crash). A
+  raises, the last write marks every step in progress `interrupted`, every
+  step that had not started `not_run`, and records the exit code the runner
+  is leaving with (128 plus the signal number, `130` for Ctrl+C, `1` for a
+  runner crash). A
   runner killed outright (`SIGKILL`, power loss) cannot write that final
   report, so a file still at `running` means the run ended without a summary.
 - `context`: Git `revision` and `dirty` (tracked files only), `platform`,
-  Python `implementation` and `version`, the `suite`, and the
-  `selected_steps` in run order.
+  Python `implementation` and `version`, the `suite`, the `jobs` count, and
+  the `selected_steps` in registry order.
 - per step, `outcome`, one of `passed`, `failed`, `skipped_platform`,
   `skipped_capability`, `missing_capability`, `timeout`, `launch_error`,
   `crash`, `interrupted` or `not_run`. On Windows, `crash` means an exit code

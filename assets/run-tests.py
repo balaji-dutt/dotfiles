@@ -753,6 +753,7 @@ def run_steps(
     required_capabilities: frozenset[str],
     case_report: bool = False,
     progress: Callable[[RunResult], None] | None = None,
+    jobs: int = 1,
 ) -> RunResult:
     platform = current_platform()
     results: dict[int, StepResult] = {}
@@ -895,13 +896,23 @@ def run_steps(
                 if deferred_signal is not None:
                     raise SystemExit(128 + deferred_signal)
 
-            pending = collections.deque(range(len(steps)))
+            def can_start(index: int) -> bool:
+                if not running:
+                    return True
+                if steps[index].serial or any(steps[other].serial for other in running):
+                    return False
+                return len(running) < jobs
+
+            order = list(range(len(steps)))
+            if jobs > 1:
+                order.sort(key=lambda index: not steps[index].serial)
+            pending = collections.deque(order)
             try:
                 if not IS_WINDOWS and threading.current_thread() is threading.main_thread():
                     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
                         previous_handlers[sig] = signal.signal(sig, stop_run)
                 while pending or running:
-                    if pending and not running:
+                    if pending and can_start(pending[0]):
                         preparing = pending.popleft()
                         start(preparing)
                         preparing = None
@@ -968,7 +979,7 @@ def run_steps(
     return RunResult(platform, step_results)
 
 
-def run_context(repo_root: Path, suite: str, steps: tuple[Step, ...]) -> dict[str, object]:
+def run_context(repo_root: Path, suite: str, steps: tuple[Step, ...], jobs: int) -> dict[str, object]:
     def git(*args: str) -> str | None:
         try:
             completed = subprocess.run(
@@ -991,6 +1002,7 @@ def run_context(repo_root: Path, suite: str, steps: tuple[Step, ...]) -> dict[st
         },
         "suite": suite,
         "selected_steps": [step.step_id for step in steps],
+        "jobs": jobs,
     }
 
 
@@ -1058,6 +1070,16 @@ def write_report(
         temporary.unlink(missing_ok=True)
 
 
+def _job_count(value: str) -> int:
+    try:
+        count = int(value)
+    except ValueError:
+        count = 0
+    if count < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return count
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("suite", nargs="?", default="fast", choices=(*SUITES, "all"))
@@ -1089,6 +1111,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=Path(__file__).resolve().parents[1],
         help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--jobs",
+        type=_job_count,
+        default=1,
+        metavar="N",
+        help="run up to N steps at once; serial steps always run alone (default: 1)",
     )
     parser.add_argument("--registry", type=Path, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
@@ -1126,7 +1155,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path = args.report_file
     if report_path and not report_path.is_absolute():
         report_path = repo_root / report_path
-    context = run_context(repo_root, args.suite, steps) if args.case_report else None
+    context = run_context(repo_root, args.suite, steps, args.jobs) if args.case_report else None
     progress = None
     if context is not None:
         def progress(partial: RunResult) -> None:
@@ -1143,6 +1172,7 @@ def main(argv: list[str] | None = None) -> int:
         required_capabilities=frozenset(args.require_capability),
         case_report=args.case_report,
         progress=progress,
+        jobs=args.jobs,
     )
     if report_path:
         try:
