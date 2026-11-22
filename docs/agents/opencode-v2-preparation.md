@@ -253,20 +253,25 @@ execution is refused before root, Git or artifact access. Native Windows checker
 execution is unsupported; the separate render class retains its four-platform
 synthetic coverage without claiming native Windows filesystem verification.
 
-The checker derives its authority from the pinned pre-phase Git objects and
-frozen inventory/contract before accepting mutable prepared metadata. It checks
-exact payload/evidence closure, independent source/output hashes, ordered inputs,
-inactive status and bounded public-source preservation. A changed output cannot
-self-certify by changing its subset-manifest digest. A missing baseline fails
-without fetching or substituting the current HEAD. No owner checkout, credentials,
-network, Beads query, user-state interpolation or installed configuration scan
-is required.
+The checker derives its authority from pinned public Git objects and the frozen
+inventory/contract before accepting mutable prepared metadata. It checks exact
+payload/evidence closure, independent source/output hashes, ordered inputs and
+inactive status. A changed output cannot self-certify by changing its mutable
+subset-manifest digest. No owner checkout, credentials, network, Beads query,
+user-state interpolation or installed configuration scan is required.
 
-The pinned `9100cf15` baseline is a deliberate drift guard for this preparation
-phase, not a permanent ban on legitimate configuration changes. A later active
-source change requires a separately authorized baseline update or retirement of
-this phase guard. Missing history remains a failure, not permission to fetch or
-fall back to HEAD.
+Historical preservation compares completed preparation commit
+`a417636d7376dd426a811935bc2f7203472bd6ef` with pre-phase baseline
+`9100cf156e76e4dec337de3d8e0d5d9df7fc7821`. Protected path sets, modes and bytes must
+match, subject only to the approved additive registry and ledger changes. Both
+historical views are selected from public metadata before blob contents are
+requested. Missing history fails without fetching or substituting HEAD.
+
+This historical audit does not freeze the current active configuration to old
+bytes. Ongoing checks validate current prepared artifacts and the bounded loading
+declarations below. The descriptor's overlay hashes and preservation-tree digest
+remain evidence of the `9100cf15` inputs; they are not rebased onto current main
+or presented as qualification of current helper behavior.
 
 Root and component links, dangling links, cycles, traversal and Windows aliases
 are rejected before prepared content is read. Instrumented open/hash tests cover
@@ -274,16 +279,17 @@ forbidden target reads; separate fixture tree, index and outside-sentinel checks
 cover non-modification. These checks are not an atomic filesystem sandbox against
 concurrent hostile mutation.
 
-Protected legacy symlinks outside the preparation tree retain their exact link
-payloads without opening or hashing their targets. Replacing a link with a regular
-file or changing its target is rejected. The recorded CRLF exception requires
-exact committed/working digests, only the permitted line-ending transformation,
-and actual fixture Git attributes declaring `text` and `eol=crlf`.
+The explicit physical-preservation audit model retains legacy link payloads
+without opening or hashing their targets. Its fixtures reject link-type changes,
+retargeting and mode drift. The recorded CRLF model requires exact committed and
+working digests, only the permitted line-ending transformation, and actual
+fixture Git attributes declaring `text` and `eol=crlf`. These physical audit
+fixtures are separate from the default current-loading check.
 
-The new tests model consumer-owned composition and ownership contracts using
-synthetic inputs. They bind the model to unchanged source hashes but do not
-execute or qualify real profile/lifecycle helpers or the native permission
-engine. Reference rebasing, profile order, workspace-agent-only merging, exact
+The tests model consumer-owned composition and ownership contracts using
+synthetic inputs and historical source hashes. They do not execute or qualify
+current profile/lifecycle helpers or the native permission engine. Reference
+rebasing, profile order, workspace-agent-only merging, exact
 fallback routes, native `claude-agent` preservation, default-only `Plan-Trial`,
 Windows failure routes and explicit launcher approval remain separate from
 operational readiness.
@@ -296,6 +302,84 @@ rule after the Windows block is a structural invariant, not last-match semantic
 proof. Negative fixtures expose prepared paths with overlapping unignore rules
 in either order. Synthetic Windows rendering is not native Windows runtime
 verification. No apply, init, script execution or external download is involved.
+Ignore-exposure negatives fail this companion render gate, not the CLI's loading
+declaration check. CLI PASS alone establishes neither chezmoi exclusion nor
+runtime qualification.
+
+### Bounded current-loading declarations
+
+`C` below denotes
+`private_Documents/development/container-dotfiles/dotfiles`. Global source roots
+are `private_dot_config/opencode` and `C/private_dot_config/opencode`.
+
+| Public source input | Presence and scope |
+|---|---|
+| `.opencode/opencode.jsonc` and both global roots' `opencode.jsonc` | Mandatory; absence fails. |
+| Root `opencode.json`/`opencode.jsonc`, corresponding project/global JSON alternatives | Checked when present; both formats are inspected, without selecting a winner. |
+| Global `profiles/*/opencode.json` and `opencode.jsonc` | One profile-directory level; absent optional inputs are inert. |
+| Known root and discovery aliases | Public Git links or `symlink_*` records only; link payloads, not target contents. |
+| `configs/devcontainer-sync.jsonc` | Only `shared.mirrors` declarations; unrelated source contents are not inspected. |
+
+Present configuration inputs must be public and Git-visible before content is
+read. Relevant source templates, unsupported value types and unresolved local
+expressions fail as unverified rather than disappearing from the check.
+
+| Field | Relative base and interpretation |
+|---|---|
+| Project/root `instructions[]` | Repository root. |
+| Global/profile `instructions[]` | Known absolute or file-URL mappings only; relative forms are unsupported and fail as unverified. |
+| `skills.paths[]` | Declaring configuration directory; directory registrations cover descendants. |
+| Local `plugin[]` strings or tuple element zero | Declaring configuration directory. Remote HTTP/Git/NPM identities remain opaque, including version interpolation; no environment lookup. |
+| `agent.*` or `agents.*` string `prompt`/`system` | Every literal `{file:...}` marker uses the declaring configuration directory; ordinary inline text stays opaque. |
+
+These source-side resolution rules are not a complete upstream loader model.
+Unrelated model, provider, permission and Claude settings values are opaque.
+Unsupported future declarations require separate review, not permission-policy
+changes or silent assumptions.
+
+Project `.opencode` maps to `$REPO/.opencode`; host OpenCode and `dot_claude`
+sources map to distinct host `$HOME/.config/opencode` and `$HOME/.claude`
+namespaces. Container counterparts use a separate container-home namespace.
+Known repository absolute paths and home prefixes map back to public source
+paths without reading an installed home or expanding user environment values.
+Project references to `~/.config/opencode` use the host namespace. The inactive
+`configs/opencode-v2` area has no deployment mapping. Unknown external contents
+are not opened or qualified; unresolved potential preparation references fail.
+
+Home-prefixed declarations retain their selected namespace even in project
+configuration. Relative host/container and Claude declarations are normalized
+within their containing global source root; leaving that namespace fails before
+target inspection. Equality or a slash-delimited descendant is required, so a
+similarly named sibling is not contained. The global root is a containment
+boundary, not a resolution base: a profile's `../shared/plugin.js` resolves from
+its declaring directory to `profiles/shared/plugin.js`, while
+`../../prompts/x.md` resolves inside the global `prompts` directory. Contained
+parent segments, project-relative paths and explicit public repository absolute
+paths/file URLs remain supported. Relative global/profile instructions remain
+unsupported.
+
+Local normalization handles dot segments, case-insensitive potential overlap and
+one file-URL decoding pass. Drive/UNC forms, escapes and residual encoded
+separator/dot forms are unsupported. Local glob checking deliberately uses a
+conservative `fnmatchcase` model in which `*` spans slashes, matching inactive
+files and their directory ancestors. Negated or unsupported expressions fail as
+unverified; false positives require review, not automatic widening.
+
+Alias scope is limited to public project/host/container OpenCode and Claude
+agent(s), skill(s), command(s), plugin(s) and prompt roots, plus AGENTS/CLAUDE
+root aliases. Only fixed source-prefix mappings and `symlink_` basename removal
+are modeled. Repo-local chains permit at most 16 hops with a visited set;
+cycles, dangling/external/escaping chains and hop exhaustion fail without target
+content reads. Preparation paths and directory ancestors cannot be registered
+through aliases.
+
+Mirror destinations are checked independently before source overlap: a target
+equal to, inside or ancestral to the inactive area is rejected even for an
+unrelated source. Source selection then uses the existing POSIX case-sensitive
+include-any and exclude-any `fnmatch` rules; exclusions are never case-folded.
+Selected inactive files cannot project into active discovery. Unsupported roots,
+schemas or ambiguous aliases fail as unverified. This bounded declaration check
+does not analyze arbitrary plugin code or generators.
 
 ### DV2-020 behavioral requirement matrix
 
@@ -315,15 +399,84 @@ implemented coverage, not a claim that the full phase verification has passed.
 | `safety-real-chezmoi-target-exclusion` | safety | Render four synthetic platforms and query real chezmoi ignored and managed target paths; detect exposing unignore rules in either order without apply, init, scripts or user-state access. | Render: `test_real_rendered_matrix_keeps_evidence_payload_and_container_mirror_unmanaged`, `test_actual_unignore_exposes_payload_in_either_order`, `test_omitting_config_exclusions_exposes_prepared_files_on_posix` |
 | `safety-native-route-and-policy-boundaries` | safety | Preserve native claude-agent routes, default-only Plan-Trial and explicit launcher approval boundaries without claiming native runtime or permission-engine qualification. | Core: `test_non_posix_checker_refuses_before_root_or_content_access`, `test_default_alias_provider_transforms_native_claude_and_windows_failure_contract`, `test_workspace_preference_plan_trial_and_explicit_launcher_auto` |
 
+Integration mappings extend those same requirement IDs:
+
+- `success-independent-subset-authority` and `failure-protected-source-drift`:
+  `test_completed_history_is_independent_of_benign_current_changes`.
+- `safety-no-forbidden-link-read-or-write`:
+  `test_current_inputs_presence_url_escapes_and_external_boundaries`,
+  `test_alias_payloads_have_bounded_chains_and_never_read_targets`, and both
+  `test_public_projection_filters_before_blob_reads_and_preserves_main_delta`
+  and `test_public_projection_conflicts_and_unapproved_delta_fail_closed`.
+- `safety-native-route-and-policy-boundaries`:
+  `test_loader_fields_resolve_independently_and_reject_preparation_exposure` and
+  `test_mirror_destinations_are_guarded_before_source_overlap`.
+- `safety-no-forbidden-link-read-or-write` and
+  `safety-native-route-and-policy-boundaries`:
+  `test_mapped_loader_namespaces_reject_escapes_before_target_inspection` and
+  `test_mapped_loader_namespaces_preserve_declaring_bases_and_public_mappings`.
+- `success-independent-subset-authority`, `failure-protected-source-drift` and
+  `safety-no-forbidden-link-read-or-write`:
+  `test_public_projection_keeps_one_capture_when_shared_refs_advance` and
+  `test_public_projection_rejects_own_index_files_and_feature_drift`.
+
+### Public integration projection
+
+The manual test-support rehearsal captures the committed main SHA once, immediately
+before selecting its immutable histories, with an expected feature HEAD. Feature
+validation does not require main to match an earlier observation or wait for main
+to stop moving. Main-worktree cleanliness remains a landing-helper condition;
+uncommitted main changes are not included. Its allowlist includes inactive
+inputs/artifacts, the four amendment paths, declared loader/mirror/alias inputs,
+`.chezmoiignore`, required public Python/render support, and the public drift
+controls `docs/devcontainers.md` and `dot_claude/settings-base.json`.
+
+Public-path exclusion happens before any blob request. Only allowed blobs enter
+an owned temporary Git object store, with no alternates, clone, hooks, user Git
+configuration or network access. Synthetic filtered base/main/feature commits
+are merged there; the real full trees are never passed to `merge-tree`.
+Excluded object contents are unavailable to that merge. Projection source queries
+are non-writing. Independent fixtures prove whole-source/index/ref nonmodification
+in controlled runs and use a separate owned fixture actor to advance shared refs.
+The rehearsal rejects changes to its source index, four files or feature HEAD;
+main and unrelated branch advancement are reported, not treated as failures.
+
+The amendment delta relative to completed preparation `a417636d` is applied with
+three-way index application to the projected combined versions. Whole-file
+overlays are not used. Conflicts stop; fixtures verify main-only content survives
+and unrelated delta paths are rejected. The rehearsal records the resulting
+four amended-file hashes and checks other projected content is preserved.
+
+The candidate checker loads pinned public historical authority from the source
+repository and uses its existing trusted-context API against the projection.
+The candidate's three real render tests run against the projected ignore file.
+Acceptance requires both API and render PASS. This is a public projection, not
+a full checkout, candidate default-CLI proof, full merged CI or native runtime
+qualification. Ordinary fast tests use synthetic histories, never moving main;
+the actual-main rehearsal is an explicit one-off support invocation.
+
+Results identify captured main, observed main afterward, feature, projected tree,
+four amended-file hashes and observed shared-ref movement. Capture and observation
+are non-atomic: they do not establish exclusive access, absence of transient
+changes or an A-to-B-to-A transition. Main movement does not trigger recapture,
+restart or another campaign. A successful result applies only to the captured
+snapshot, not to later commits.
+
+Before landing, compare that snapshot with the canonical helper's fresh main
+observation and disclose any gap. Feature CI and the helper's no-ff merge are not
+combined-tree validation of later main. A later authorization must choose a
+bounded targeted refresh or informed acceptance of the untested delta; this
+amendment grants neither, and never waives an actual failed check.
+
 ### DV2-020 verification and delivery gate
 
-The POSIX-only core class is registered in `fast` and `provenance`; the unchanged
+The POSIX-only core class is registered in `fast` and `provenance`; the
 real-render class is registered in `fast` and `render`. Their success, failure
-and safety requirements are mapped above and referenced by the new high-risk owned automation inventory
-entry, independently of the legacy provenance checker. Its structured requirement
-array is empty under the existing noncritical-entry policy. Existing legacy
-manifests, accepted divergences, active v1
-and Claude sources, helpers, policies, mirrors, launchers and attestation remain
+and safety requirements are mapped above and referenced by the high-risk owned
+automation inventory entry, independently of the legacy provenance checker. Its
+structured requirement array is empty under the noncritical-entry policy.
+Existing legacy manifests, accepted divergences, active v1 and Claude sources,
+helpers, policies, mirrors, launchers and attestation remain
 unchanged. Byte-identical owner prompt emissions retain their pinned evaluation
 evidence; a new projection needs separate owner regeneration and independent
 scored evaluation.
@@ -337,10 +490,23 @@ than authorizing a second probe. Real failures, unknown outcomes, permission
 denials and incomplete cleanup block progress; the DV2-010 metadata-only
 unavailable-peer exception does not apply here.
 
+The approved integration-completion package permits the initial namespace
+correction and at most two related local follow-on rounds within its four-file
+scope. Local failures stay blocking until a corrected candidate passes; they do
+not require a separate approval for every in-scope correction. Each changed
+candidate needs its affected checks and source review, with at most three
+complete local campaigns and three public-rehearsal invocations in total. A
+diagnosed rehearsal-caller correction consumes the next round and an invocation;
+successful rehearsals are not repeated merely to select a later main. Permission
+denials stop all normal work, and scope changes, source-state drift, genuine
+integration conflicts, timeouts/unknown cleanup, peer failures and cache-guard
+refusals are hard stops rather than local-loop retries.
+
 Actual validation, review, docs assessment and peer outcomes are recorded in
 dated, readback-verified notes on the same Bead. A missing successful result is
-not PASS. Only the two explicitly authorized intent-to-add entries may be used
-for census/AST visibility and removed without deleting working files. Ordinary
-staging and a commit still require separate approval. This phase does not
+not PASS. The four integration-amendment files are tracked; no intent-to-add
+entries are needed. Ordinary staging, a commit and feature CI publication each
+require separate approval. Landing uses the canonical CI-gated helper rather
+than the public-projection fixture. This phase does not
 authorize activation, DV2-030, plugin adoption, attestation restoration, homelab
 deployment, Safety Net qualification, binary changes or cutover.

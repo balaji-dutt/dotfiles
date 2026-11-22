@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fnmatch
 import hashlib
 import json
 import os
@@ -14,9 +15,11 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
 
 
 BASELINE = "9100cf156e76e4dec337de3d8e0d5d9df7fc7821"
+COMPLETED_PREPARATION = "a417636d7376dd426a811935bc2f7203472bd6ef"
 AREA = "configs/opencode-v2"
 INVENTORY = f"{AREA}/source/inventory.json"
 CONTRACT = f"{AREA}/source/consumer-contract.jsonc"
@@ -235,6 +238,7 @@ class TrustedContext:
     contract: dict
     frozen: dict[str, bytes]
     baseline: dict[str, tuple[str, bytes]]
+    completed: dict[str, tuple[str, bytes]] | None = None
 
 
 def protected(name: str, inventory: dict) -> bool:
@@ -244,14 +248,9 @@ def protected(name: str, inventory: dict) -> bool:
     return public_name(name) and (name in explicit or name.startswith(ACTIVE_ROOTS))
 
 
-def load_context(root: Path) -> TrustedContext:
-    checked_root(root)
-    frozen = {name: git(root, "show", f"{BASELINE}:{name}") for name in FROZEN_DIGESTS}
-    for name, value in frozen.items():
-        require(digest(value) == FROZEN_DIGESTS[name], f"baseline authority mismatch: {name}")
-    inventory, contract = (decode_document(frozen[name]) for name in (INVENTORY, CONTRACT))
+def public_git_view(root: Path, revision: str, inventory: dict) -> dict:
     selected = {}
-    for entry in git(root, "ls-tree", "-rz", BASELINE).split(b"\0"):
+    for entry in git(root, "ls-tree", "-rz", revision).split(b"\0"):
         if not entry:
             continue
         metadata, raw_name = entry.split(b"\t", 1)
@@ -271,7 +270,21 @@ def load_context(root: Path) -> TrustedContext:
         size = int(header[2])
         baseline[name] = (mode, batch[end + 1:end + 1 + size])
         offset = end + size + 2
-    return TrustedContext(inventory, contract, frozen, baseline)
+    return baseline
+
+
+def load_context(root: Path) -> TrustedContext:
+    checked_root(root)
+    frozen = {name: git(root, "show", f"{BASELINE}:{name}") for name in FROZEN_DIGESTS}
+    for name, value in frozen.items():
+        require(digest(value) == FROZEN_DIGESTS[name], f"baseline authority mismatch: {name}")
+    inventory, contract = (decode_document(frozen[name]) for name in (INVENTORY, CONTRACT))
+    baseline = public_git_view(root, BASELINE, inventory)
+    completed = public_git_view(root, COMPLETED_PREPARATION, inventory)
+    for name, value in frozen.items():
+        require(git(root, "show", f"{COMPLETED_PREPARATION}:{name}") == value,
+                f"completed frozen authority changed: {name}")
+    return TrustedContext(inventory, contract, frozen, baseline, completed)
 
 
 def payload_rows(context: TrustedContext) -> list[dict]:
@@ -387,6 +400,275 @@ def verify_additive(before: object, after: object, name: str) -> None:
         require(canonical(before) == canonical(after), f"existing registration changed: {name}")
 
 
+def verify_completed_preservation(context: TrustedContext) -> None:
+    completed = context.completed
+    require(completed is not None, "missing completed preparation history")
+    require(set(completed) == set(context.baseline), "completed protected path set changed")
+    for name, (mode, before) in context.baseline.items():
+        actual_mode, after = completed[name]
+        require(actual_mode == mode, f"completed protected mode changed: {name}")
+        if name in REGISTRIES:
+            if name.endswith(".txt"):
+                require(set(before.splitlines()).issubset(after.splitlines()), "completed census entries removed")
+            else:
+                verify_additive(decode_document(before), decode_document(after), name)
+        elif name == LEDGER:
+            require(after.startswith(before), "completed phase ledger history changed")
+        else:
+            require(after == before, f"completed protected source bytes changed: {name}")
+
+
+CONTAINER_SOURCE = "private_Documents/development/container-dotfiles/dotfiles"
+OPENCODE_ROOTS = ("private_dot_config/opencode", f"{CONTAINER_SOURCE}/private_dot_config/opencode")
+LOADING_ROOTS = (".opencode", ".claude", ".agents", *OPENCODE_ROOTS,
+                 "dot_claude", f"{CONTAINER_SOURCE}/dot_claude")
+DISCOVERY_CHILDREN = {"agent", "agents", "skill", "skills", "command", "commands", "plugin", "plugins", "prompts"}
+MIRRORS = "configs/devcontainer-sync.jsonc"
+MANDATORY_CONFIGS = (".opencode/opencode.jsonc", *(f"{name}/opencode.jsonc" for name in OPENCODE_ROOTS))
+
+
+def active_loading_path(name: str) -> bool:
+    folded = name.casefold()
+    if folded in {"opencode.json", "opencode.jsonc"}:
+        return True
+    for prefix in LOADING_ROOTS:
+        prefix = prefix.casefold()
+        if folded == prefix:
+            return True
+        if not folded.startswith(prefix + "/"):
+            continue
+        parts = folded[len(prefix) + 1:].split("/")
+        if parts[0] in DISCOVERY_CHILDREN or parts[0] in {"agents.md", "claude.md", "symlink_agents.md", "symlink_claude.md", "opencode.json", "opencode.jsonc"}:
+            return True
+        if parts[0] == "profiles" and len(parts) >= 3:
+            return parts[2] in DISCOVERY_CHILDREN or parts[2] in {"opencode.json", "opencode.jsonc"}
+    return False
+
+
+def inactive_files(context: TrustedContext) -> set[str]:
+    files = {INVENTORY, CONTRACT, DESCRIPTOR, SUBSET}
+    files.update(row["path"] for row in payload_rows(context) + evidence_rows(context))
+    return files
+
+
+def inactive_candidates(context: TrustedContext) -> set[str]:
+    files = inactive_files(context)
+    return files | {str(parent) for name in files for parent in PurePosixPath(name).parents if str(parent) != "."}
+
+
+def reject_inactive_overlap(name: str, context: TrustedContext, *, directory: bool = False) -> None:
+    folded, area = name.casefold().rstrip("/"), AREA.casefold()
+    require(not (folded == area or folded.startswith(area + "/")), "declared loader exposes inactive preparation")
+    if directory:
+        require(bool(folded) and not area.startswith(folded + "/"), "declared loader exposes an inactive ancestor")
+    if any(char in folded for char in "*?["):
+        require(not any(fnmatch.fnmatchcase(item.casefold(), folded) for item in inactive_candidates(context)),
+                "declared loader glob exposes inactive preparation")
+
+
+def local_reference(root: Path, value: str, config: str, *, relative: bool = True) -> str | None:
+    require(isinstance(value, str) and bool(value), "unverified local loader expression")
+    if value.lower().startswith("file:"):
+        parsed = urlsplit(value)
+        require(parsed.netloc.lower() in {"", "localhost"} and not parsed.query and not parsed.fragment,
+                "unverified local file URL")
+        value = unquote(parsed.path)
+    require(not re.search(r"%(?:2e|2f|5c)", value, re.IGNORECASE), "unverified encoded local expression")
+    require(not any(char in value for char in "\\{}$\0\n\r") and not value.startswith("!")
+            and value.count("[") == value.count("]"), "unverified local loader expression")
+    require(not re.match(r"^[A-Za-z]:", value) and not value.startswith("//"), "unverified drive or UNC loader")
+    require(":" not in value, "unverified local loader scheme")
+    namespace = ""
+    container = config.casefold().startswith(CONTAINER_SOURCE.casefold() + "/")
+    homes = (("~/.config/opencode", OPENCODE_ROOTS[int(container)]),
+             ("~/.claude", f"{CONTAINER_SOURCE}/dot_claude" if container else "dot_claude"))
+    for prefix, source in homes:
+        if value.casefold() == prefix or value.casefold().startswith(prefix + "/"):
+            value = source + value[len(prefix):]
+            namespace = source
+            break
+    else:
+        if value.startswith("/"):
+            repository = root.as_posix().rstrip("/")
+            if value.casefold() == repository.casefold() or value.casefold().startswith(repository.casefold() + "/"):
+                value = value[len(repository):].lstrip("/")
+            else:
+                require(AREA.casefold() not in posixpath.normpath(value).casefold(), "unverified external inactive reference")
+                return None
+        else:
+            require(not value.startswith("~"), "unverified home loader expression")
+            require(relative, "unverified relative global instruction")
+            namespace = next((source for source in (*OPENCODE_ROOTS, "dot_claude", f"{CONTAINER_SOURCE}/dot_claude")
+                              if config.casefold().startswith(source.casefold() + "/")), "")
+            value = posixpath.join(str(PurePosixPath(config).parent), value)
+    value = posixpath.normpath(value)
+    require(not namespace or value.casefold() == namespace.casefold()
+            or value.casefold().startswith(namespace.casefold() + "/"),
+            "unverified escaping mapped loader namespace")
+    require(value != ".." and not value.startswith("../"), "unverified escaping loader expression")
+    return "" if value == "." else value
+
+
+def current_config_names(root: Path, visible: set[str]) -> list[str]:
+    candidates = {"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
+    for prefix in OPENCODE_ROOTS:
+        candidates.update(f"{prefix}/opencode.{suffix}" for suffix in ("json", "jsonc"))
+        profiles = root / prefix / "profiles"
+        if os.path.lexists(profiles):
+            require(safe_path(root, f"{prefix}/profiles").is_dir(), "unverified profiles directory")
+            for profile in profiles.iterdir():
+                require(not profile.is_symlink(), "unverified profile alias")
+                if profile.is_dir():
+                    candidates.update(f"{prefix}/profiles/{profile.name}/opencode.{suffix}" for suffix in ("json", "jsonc"))
+    for name in candidates:
+        require(not os.path.lexists(root / (name + ".tmpl")), "unverified loader configuration template")
+    require(all(os.path.lexists(root / name) for name in MANDATORY_CONFIGS), "missing mandatory loading configuration")
+    present = sorted(name for name in candidates if os.path.lexists(root / name))
+    require(all(public_name(name) and name in visible for name in present), "unverified non-public loading configuration")
+    return present
+
+
+def reject_unknown_aliases(root: Path, name: str) -> None:
+    current = root
+    for component in PurePosixPath(name).parts:
+        if any(char in component for char in "*?["):
+            break
+        current = current / component
+        if not os.path.lexists(current):
+            break
+        require(not current.is_symlink() or active_loading_path(current.relative_to(root).as_posix()),
+                "unverified alias outside bounded loading roots")
+
+
+def verify_loading_config(root: Path, name: str, context: TrustedContext, visible: set[str]) -> None:
+    config = decode_document(read_bytes(root, name))
+
+    def inspect(value: str, *, directory: bool = False, instruction: bool = False) -> None:
+        project = name in {"opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"}
+        base = "opencode.jsonc" if instruction and project else name
+        resolved = local_reference(root, value, base, relative=not instruction or project)
+        if resolved is not None:
+            require(public_name(resolved), "unverified private local declaration")
+            reject_inactive_overlap(resolved, context, directory=directory)
+            reject_unknown_aliases(root, resolved)
+            for candidate in visible:
+                if public_name(candidate) and ((directory and candidate.startswith(resolved + "/"))
+                                               or fnmatch.fnmatchcase(candidate, resolved)):
+                    reject_unknown_aliases(root, candidate)
+
+    instructions = config.get("instructions", [])
+    require(isinstance(instructions, list), "unverified instructions declaration")
+    for value in instructions:
+        require(isinstance(value, str), "unverified instruction value")
+        if re.match(r"^(?:https?|git)://", value, re.IGNORECASE):
+            continue
+        inspect(value, instruction=True)
+    skills = config.get("skills", {})
+    require(isinstance(skills, dict) and isinstance(skills.get("paths", []), list), "unverified skill paths")
+    for value in skills.get("paths", []):
+        inspect(value, directory=True)
+    plugins = config.get("plugin", [])
+    require(isinstance(plugins, list), "unverified plugin declaration")
+    for entry in plugins:
+        value = entry[0] if isinstance(entry, list) and entry else entry
+        require(isinstance(value, str), "unverified plugin identity")
+        if re.match(r"^(?:https?|git|ssh)://|^git@|^github:|^@", value, re.IGNORECASE):
+            continue
+        if value.startswith((".", "/", "~")) or "\\" in value or value.lower().startswith("file:") or re.match(r"^[A-Za-z]:", value) or AREA.casefold() in value.casefold():
+            inspect(value)
+    for field in ("agent", "agents"):
+        agents = config.get(field, {})
+        require(isinstance(agents, dict), "unverified agent declaration")
+        for agent in agents.values():
+            require(isinstance(agent, dict), "unverified agent loader shape")
+            for key in ("prompt", "system"):
+                if key not in agent:
+                    continue
+                require(isinstance(agent[key], str), "unverified prompt loader shape")
+                for value in re.findall(r"\{file:([^{}]+)\}", agent[key]):
+                    inspect(value)
+                require("{file:" not in re.sub(r"\{file:[^{}]+\}", "", agent[key]), "unverified prompt interpolation")
+
+
+def verify_aliases(root: Path, visible: set[str], context: TrustedContext) -> int:
+    aliases = {}
+    for name in sorted(visible):
+        if not active_loading_path(name) or not public_name(name):
+            continue
+        source = safe_path(root, name, link_leaf=True)
+        if source.is_symlink():
+            target = os.readlink(source)
+            logical = name
+        elif PurePosixPath(name).name.startswith("symlink_"):
+            target = read_bytes(root, name).decode("utf-8").removesuffix("\n")
+            logical = str(PurePosixPath(name).with_name(PurePosixPath(name).name[len("symlink_"):]))
+        else:
+            continue
+        relative_name(logical)
+        require(logical.casefold() not in aliases, "unverified alias case collision")
+        aliases[logical.casefold()] = (logical, target)
+    for start in aliases:
+        current, seen = aliases[start][0], set()
+        for _ in range(16):
+            matches = [name for name in aliases if current.casefold() == name or current.casefold().startswith(name + "/")]
+            if not matches:
+                require(public_name(current) and os.path.lexists(root / current), "unverified dangling or private alias")
+                final = safe_path(root, current)
+                if final.is_dir():
+                    for candidate in visible:
+                        if public_name(candidate) and candidate.startswith(current + "/"):
+                            reject_unknown_aliases(root, candidate)
+                break
+            name = max(matches, key=len)
+            require(name not in seen, "unverified alias cycle")
+            seen.add(name)
+            logical, target = aliases[name]
+            resolved = local_reference(root, target, logical)
+            require(resolved is not None, "unverified external alias")
+            current = posixpath.normpath(posixpath.join(resolved, current[len(logical):].lstrip("/")))
+            reject_inactive_overlap(current, context, directory=True)
+        else:
+            require(not any(current.casefold() == name or current.casefold().startswith(name + "/") for name in aliases), "unverified alias hop limit")
+            require(public_name(current) and os.path.lexists(root / current), "unverified dangling alias")
+            safe_path(root, current)
+    return len(aliases)
+
+
+def verify_mirrors(root: Path, visible: set[str], context: TrustedContext) -> None:
+    require(MIRRORS in visible, "missing public mirror declarations")
+    document = decode_document(read_bytes(root, MIRRORS))
+    mirrors = document.get("shared", {}).get("mirrors")
+    require(isinstance(mirrors, list), "unverified mirror declaration schema")
+    for mirror in mirrors:
+        require(isinstance(mirror, dict), "unverified mirror declaration")
+        source, target = mirror.get("source_root"), mirror.get("target_root")
+        require(isinstance(source, str) and isinstance(target, str), "unverified mirror roots")
+        relative_name(source)
+        relative_name(target)
+        reject_inactive_overlap(target, context, directory=True)
+        reject_unknown_aliases(root, target)
+        require(source.casefold() not in {name.casefold() for name in inactive_files(context)}, "unverified mirror file source root")
+        include, exclude = mirror.get("include", ["**"]), mirror.get("exclude", [])
+        require(isinstance(include, list) and isinstance(exclude, list)
+                and all(isinstance(item, str) for item in include + exclude), "unverified mirror patterns")
+        for name in inactive_files(context):
+            if not name.casefold().startswith(source.casefold() + "/"):
+                continue
+            relative = name[len(source) + 1:]
+            if any(fnmatch.fnmatchcase(relative, pattern) for pattern in include) and not any(fnmatch.fnmatchcase(relative, pattern) for pattern in exclude):
+                require(not active_loading_path(f"{target}/{relative}"), "mirror projects inactive preparation into discovery")
+
+
+def verify_current_loading(root: Path, context: TrustedContext) -> dict:
+    visible = {name.decode() for name in git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0") if name}
+    names = current_config_names(root, visible)
+    aliases = verify_aliases(root, visible, context)
+    for name in names:
+        verify_loading_config(root, name, context, visible)
+    verify_mirrors(root, visible, context)
+    return {"configurations": len(names), "aliases": aliases, "scope": "bounded public declarations; external content and plugin code not qualified"}
+
+
 def verify_preservation(root: Path, context: TrustedContext) -> None:
     names = {name.decode() for name in git(root, "ls-files", "-z", "--cached", "--others",
                                          "--exclude-standard").split(b"\0") if name}
@@ -459,10 +741,14 @@ def check_repository(root: Path, trusted: TrustedContext | None = None) -> dict:
     require(canonical(decode_document(read_bytes(root, SUBSET)))
             == canonical(expected_subset(context, owner, descriptor)),
             "subset provenance, order, closure or blocked status mismatch")
-    verify_preservation(root, context)
+    verify_completed_preservation(context)
+    loading = verify_current_loading(root, context)
     return {"phase": "DV2-020", "payloadFiles": 14, "evidenceFiles": 3,
             "operationalReady": False, "aggregate": "withheld", "status": "PASS",
-            "proof": "pinned bytes, selected closure, bounded source preservation; not runtime qualification"}
+            "historicalPreservation": {"baseline": BASELINE, "completed": COMPLETED_PREPARATION, "status": "PASS"},
+            "currentLoading": loading,
+            "proof": "pinned bytes, selected closure, historical preparation audit and bounded current declarations; "
+                     "CLI PASS does not prove chezmoi exclusion or runtime qualification"}
 
 
 def merge_objects(base: dict, overlay: dict) -> dict:

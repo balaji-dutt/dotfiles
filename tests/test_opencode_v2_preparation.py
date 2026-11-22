@@ -54,6 +54,244 @@ def tree_snapshot(root: Path) -> dict:
     return result
 
 
+AMENDMENT_PATHS = (
+    "assets/check-opencode-v2-preparation.py", "tests/test_opencode_v2_preparation.py",
+    "configs/automation-test-inventory.json", CHECKER.LEDGER,
+)
+PROJECTION_SUPPORT = {
+    ".chezmoiignore", CHECKER.MIRRORS, "docs/devcontainers.md", "dot_claude/settings-base.json",
+    "tests/__init__.py", "tests/support/__init__.py", "tests/support/chezmoi_render.py",
+}
+
+
+def projection_git(root: Path, *arguments: str, input_bytes: bytes | None = None,
+                   check: bool = True) -> subprocess.CompletedProcess:
+    environment = {
+        "PATH": os.environ.get("PATH", ""), "HOME": str(root),
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
+        "GIT_AUTHOR_NAME": "Projection fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_NAME": "Projection fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+        "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
+    }
+    result = subprocess.run(
+        ["git", "--no-optional-locks", "--no-replace-objects", "-C", str(root),
+         "-c", "core.hooksPath=" + os.devnull, "-c", "core.autocrlf=false", *arguments],
+        input=input_bytes, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=120, check=False,
+    )
+    if check and result.returncode:
+        raise AssertionError(result.stderr.decode(errors="replace"))
+    return result
+
+
+def source_git(root: Path, *arguments: str, input_bytes: bytes | None = None) -> bytes:
+    if arguments[0] not in {"ls-tree", "cat-file", "merge-base", "diff", "rev-parse", "for-each-ref"}:
+        raise AssertionError("projection source operation is not read-only")
+    return projection_git(root, *arguments, input_bytes=input_bytes).stdout
+
+
+def projection_public_path(name: str, mode: str) -> bool:
+    if not CHECKER.public_name(name):
+        return False
+    if name.startswith(CHECKER.AREA + "/") or name in {*AMENDMENT_PATHS, *PROJECTION_SUPPORT}:
+        return True
+    if not CHECKER.active_loading_path(name):
+        return False
+    basename = Path(name).name
+    return (mode == "120000" or basename.startswith("symlink_")
+            or basename in {"opencode.json", "opencode.jsonc", "AGENTS.md", "CLAUDE.md"})
+
+
+def projection_public_view(source: Path, revision: str) -> dict:
+    selected = []
+    for row in source_git(source, "ls-tree", "-rz", revision).split(b"\0"):
+        if row:
+            header, raw_name = row.split(b"\t", 1)
+            mode, kind, identifier = header.decode().split()
+            name = raw_name.decode()
+            basename = Path(name).name
+            if (kind == "blob" and basename.casefold() in {"opencode.json.tmpl", "opencode.jsonc.tmpl"}
+                    and projection_public_path(name[:-5], mode)):
+                raise AssertionError("unverified loader template in public projection")
+            if (kind == "blob" and basename.casefold() in {"opencode.json", "opencode.jsonc"}
+                    and basename != basename.casefold() and CHECKER.active_loading_path(name)):
+                raise AssertionError("unverified loader case alias in public projection")
+            if kind == "blob" and projection_public_path(name, mode):
+                CHECKER.relative_name(name)
+                selected.append((name, mode, identifier))
+    if not selected:
+        return {}
+    output = source_git(source, "cat-file", "--batch",
+                        input_bytes="".join(identifier + "\n" for _, _, identifier in selected).encode())
+    offset, result = 0, {}
+    for name, mode, identifier in selected:
+        boundary = output.index(b"\n", offset)
+        actual, kind, length = output[offset:boundary].decode().split()
+        size = int(length)
+        content = output[boundary + 1:boundary + 1 + size]
+        expected = hashlib.sha1(b"blob " + str(len(content)).encode() + b"\0" + content).hexdigest()
+        if actual != identifier or kind != "blob" or expected != identifier:
+            raise AssertionError("public projection blob identity mismatch")
+        result[name] = (mode, content)
+        offset = boundary + size + 2
+    if offset != len(output):
+        raise AssertionError("public projection blob stream has trailing bytes")
+    return result
+
+
+def projection_commit(root: Path, rows: dict, parent: str | None = None) -> str:
+    projection_git(root, "read-tree", "--empty")
+    entries = []
+    for name, (mode, content) in sorted(rows.items()):
+        CHECKER.relative_name(name)
+        identifier = projection_git(root, "hash-object", "--no-filters", "-w", "--stdin",
+                                    input_bytes=content).stdout.decode().strip()
+        entries.append(f"{mode} {identifier}\t{name}\0")
+    if entries:
+        projection_git(root, "update-index", "-z", "--index-info", input_bytes="".join(entries).encode())
+    tree = projection_git(root, "write-tree").stdout.decode().strip()
+    arguments = ["commit-tree", tree, "-m", "Public projection"]
+    if parent:
+        arguments.extend(["-p", parent])
+    return projection_git(root, *arguments).stdout.decode().strip()
+
+
+def projection_source_snapshot(source: Path) -> dict:
+    index_name = source_git(source, "rev-parse", "--git-path", "index").decode().strip()
+    index = source / index_name
+    return {"index": sha(index.read_bytes()) if index.exists() else None,
+            "feature": source_git(source, "rev-parse", "HEAD").decode().strip(),
+            "sharedRefs": source_git(source, "for-each-ref", "--format=%(refname) %(objectname)"),
+            "files": {name: sha(CHECKER.read_bytes(source, name)) for name in AMENDMENT_PATHS
+                      if os.path.lexists(source / name)}}
+
+
+def require_projection_source_stable(before: dict, after: dict) -> None:
+    for key in ("index", "files", "feature"):
+        if before[key] != after[key]:
+            raise AssertionError("projection source changed: " + key)
+
+
+def capture_projection_revisions(source: Path, feature_sha: str) -> tuple[str, str, str]:
+    if source_git(source, "rev-parse", "HEAD").decode().strip() != feature_sha:
+        raise AssertionError("feature moved before public projection")
+    main_sha = source_git(source, "rev-parse", "refs/heads/main").decode().strip()
+    common = source_git(source, "merge-base", main_sha, feature_sha).decode().strip()
+    return common, main_sha, feature_sha
+
+
+def projection_source_observation(source: Path, before: dict, captured_main: str) -> dict:
+    observed_main = source_git(source, "rev-parse", "refs/heads/main").decode().strip()
+    after = projection_source_snapshot(source)
+    require_projection_source_stable(before, after)
+    return {"capturedMain": captured_main, "observedMainAfter": observed_main,
+            "mainMovementObserved": observed_main != captured_main,
+            "sharedRefMovementObserved": before["sharedRefs"] != after["sharedRefs"]}
+
+
+def timing_projection_fixture(source: Path) -> tuple[tuple[str, str, str], str]:
+    source.mkdir()
+    projection_git(source, "init", "-q")
+    rows = {name: ("100644", (name + "\n").encode()) for name in AMENDMENT_PATHS}
+    rows["docs/devcontainers.md"] = ("100644", b"original documentation\n")
+    base = projection_commit(source, rows)
+    main_rows = copy.deepcopy(rows)
+    main_rows["docs/devcontainers.md"] = ("100644", b"captured main documentation\n")
+    main = projection_commit(source, main_rows, base)
+    feature_rows = copy.deepcopy(rows)
+    feature_rows[AMENDMENT_PATHS[3]] = ("100644", b"feature ledger\n")
+    feature = projection_commit(source, feature_rows, base)
+    later_rows = copy.deepcopy(main_rows)
+    later_rows["docs/devcontainers.md"] = ("100644", b"later main documentation\n")
+    later = projection_commit(source, later_rows, main)
+    projection_git(source, "update-ref", "refs/heads/main", main)
+    projection_git(source, "update-ref", "refs/heads/feature", feature)
+    projection_git(source, "update-ref", "refs/heads/other", base)
+    projection_git(source, "symbolic-ref", "HEAD", "refs/heads/feature")
+    projection_git(source, "read-tree", feature)
+    projection_git(source, "checkout-index", "--all", "--force")
+    return (base, main, feature), later
+
+
+def build_public_projection(source: Path, revisions: tuple[str, str, str], delta: bytes,
+                            target: Path) -> dict:
+    before = projection_source_snapshot(source)
+    target.mkdir(parents=True, exist_ok=True)
+    if target.resolve() == source.resolve():
+        raise AssertionError("projection target must be independently owned")
+    projection_git(target, "init", "-q")
+    rows = [projection_public_view(source, revision) for revision in revisions]
+    base = projection_commit(target, rows[0])
+    main = projection_commit(target, rows[1], base)
+    feature = projection_commit(target, rows[2], base)
+    merged = projection_git(target, "merge-tree", "--write-tree", main, feature, check=False)
+    if merged.returncode:
+        raise AssertionError("public projection content conflict")
+    merged_tree = merged.stdout.splitlines()[0].decode()
+    projection_git(target, "read-tree", merged_tree)
+    projection_git(target, "checkout-index", "--all", "--force", "--index")
+    headers = [line for line in delta.decode().splitlines() if line.startswith("diff --git ")]
+    if delta and not headers:
+        raise AssertionError("amendment delta has no approved file headers")
+    for line in headers:
+        parts = line.split()
+        name = parts[2].removeprefix("a/") if len(parts) == 4 else ""
+        if name not in AMENDMENT_PATHS or parts[2:] != ["a/" + name, "b/" + name]:
+            raise AssertionError("amendment delta contains an unapproved path")
+    changed_before = projection_git(target, "ls-files", "--stage").stdout
+    if delta:
+        for name in AMENDMENT_PATHS:
+            if os.path.lexists(target / name):
+                CHECKER.safe_path(target, name)
+        applied = projection_git(target, "apply", "--3way", "--index", input_bytes=delta, check=False)
+        if applied.returncode:
+            raise AssertionError(
+                f"public projection amendment application failed (exit {applied.returncode})\n"
+                f"stdout:\n{applied.stdout.decode(errors='replace')}\n"
+                f"stderr:\n{applied.stderr.decode(errors='replace')}"
+            )
+    changes = projection_git(target, "diff", "--cached", "--name-only", merged_tree, "-z").stdout
+    if any(name.decode() not in AMENDMENT_PATHS for name in changes.split(b"\0") if name):
+        raise AssertionError("projection delta changed an unapproved path")
+    after = projection_source_snapshot(source)
+    require_projection_source_stable(before, after)
+    return {"publicMergeTree": merged_tree, "initialProjectedIndex": sha(changed_before),
+            "projectedTree": projection_git(target, "write-tree").stdout.decode().strip(),
+            "sharedRefMovementObserved": before["sharedRefs"] != after["sharedRefs"],
+            "amendedFiles": {name: sha(CHECKER.read_bytes(target, name)) for name in AMENDMENT_PATHS
+                             if os.path.lexists(target / name)}}
+
+
+def rehearse_current_main(feature_sha: str) -> dict:
+    source = REPO_ROOT
+    before = projection_source_snapshot(source)
+    common, main_sha, feature_sha = capture_projection_revisions(source, feature_sha)
+    delta = source_git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary", "--full-index", CHECKER.COMPLETED_PREPARATION,
+                       "--", *AMENDMENT_PATHS)
+    with tempfile.TemporaryDirectory(prefix="opencode-v2-public-projection-") as temporary:
+        target = Path(temporary).resolve() / "projection"
+        result = build_public_projection(source, (common, main_sha, feature_sha), delta, target)
+        specification = importlib.util.spec_from_file_location(
+            "opencode_v2_projected_checker", target / AMENDMENT_PATHS[0])
+        candidate = importlib.util.module_from_spec(specification)
+        sys.modules[specification.name] = candidate
+        with mock.patch.object(sys, "dont_write_bytecode", True):
+            specification.loader.exec_module(candidate)
+        result["checkerAPI"] = candidate.check_repository(target, candidate.load_context(source))
+        rendered = subprocess.run(
+            [sys.executable, "-B", "-m", "unittest", "-v",
+             "tests.test_opencode_v2_preparation.OpenCodeV2IsolationRenderTests"],
+            cwd=target, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600, check=False,
+        )
+        if rendered.returncode or "Ran 3 tests" not in rendered.stderr.decode() or "skipped=" in rendered.stderr.decode():
+            raise AssertionError("projected companion render gate failed: " + rendered.stderr.decode())
+        result.update({"feature": feature_sha, "commonAncestor": common,
+                        "companionRender": "3 executed PASS", "proof": "public projection, not full merged CI"})
+    result.update(projection_source_observation(source, before, main_sha))
+    return result
+
+
 class PreparationFixture:
     def __init__(self, root: Path):
         self.root = root
@@ -112,13 +350,17 @@ class PreparationFixture:
         self.host = "private_dot_config/opencode/opencode.jsonc"
         self.contract = {"surfaces": [{"id": "host", "configuration": self.host}]}
         baseline_bytes = {self.host: b'{"agent":{"plan":{"model":"openai/original"}}}\n',
-                          CHECKER.LEDGER: b"# Synthetic historical ledger\n",
-                          ".gitattributes": b"* text=auto\n"}
+                           CHECKER.LEDGER: b"# Synthetic historical ledger\n",
+                           ".gitattributes": b"* text=auto\n"}
+        baseline_bytes.update({name: b"{}\n" for name in CHECKER.MANDATORY_CONFIGS if name != self.host})
+        baseline_bytes[CHECKER.MIRRORS] = b'{"shared":{"mirrors":[]}}\n'
+        self.inventory["additionalCurrentSha256ByPath"][CHECKER.MIRRORS] = sha(baseline_bytes[CHECKER.MIRRORS])
         baseline_bytes.update({name: b'{"entries":[{"id":"existing"}]}\n' if name.endswith(".json")
                                else b"existing-helper.py\n" for name in CHECKER.REGISTRIES})
         frozen = {CHECKER.INVENTORY: json_bytes(self.inventory), CHECKER.CONTRACT: json_bytes(self.contract)}
         self.context = CHECKER.TrustedContext(
             self.inventory, self.contract, frozen,
+            {name: ("100644", value) for name, value in baseline_bytes.items()},
             {name: ("100644", value) for name, value in baseline_bytes.items()},
         )
         for name, value in {**baseline_bytes, **frozen, **self.payload}.items():
@@ -151,6 +393,10 @@ class PreparationFixture:
     def check(self) -> dict:
         with mock.patch.dict(os.environ, self.environment, clear=True):
             return CHECKER.check_repository(self.root, self.context)
+
+    def audit(self) -> None:
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            CHECKER.verify_preservation(self.root, self.context)
 
     def refresh_context(self) -> None:
         value = json_bytes(self.inventory)
@@ -286,19 +532,426 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
         for name in (".ENV", "a/.SSH/key", "a/.git/config", "a/NODE_MODULES/x", "a/auth.json"):
             self.assertFalse(CHECKER.public_name(name), name)
 
+    def test_completed_history_is_independent_of_benign_current_changes(self):
+        write(self.root, self.fixture.host, json_bytes({"agent": {"plan": {"model": "openai/new"}},
+                                                      "provider": {"new": {}}, "permission": {"read": "ask"}}))
+        write(self.root, "dot_claude/settings-base.json", b'{"new":"setting"}\n')
+        write(self.root, "docs/devcontainers.md", b"legitimate current documentation\n")
+        result = self.fixture.check()
+        self.assertEqual(result["historicalPreservation"]["completed"], CHECKER.COMPLETED_PREPARATION)
+        self.assertIn("does not prove chezmoi exclusion", result["proof"])
+        original = copy.deepcopy(self.fixture.context.completed)
+        variants = [({**original, self.fixture.host: ("100644", b"changed historical bytes\n")}, "completed protected source bytes"),
+                    ({**original, self.fixture.host: ("100755", original[self.fixture.host][1])}, "completed protected mode"),
+                    ({name: value for name, value in original.items() if name != self.fixture.host}, "completed protected path"),
+                    ({**original, CHECKER.REGISTRIES[0]: ("100644", b'{"entries":[]}\n')}, "existing registration")]
+        for completed, diagnostic in variants:
+            with self.subTest(diagnostic=diagnostic):
+                context = CHECKER.TrustedContext(self.fixture.inventory, self.fixture.contract,
+                                                 self.fixture.context.frozen, self.fixture.context.baseline, completed)
+                with self.assertRaisesRegex(CHECKER.CheckFailure, diagnostic):
+                    CHECKER.verify_completed_preservation(context)
+        context = CHECKER.TrustedContext(self.fixture.inventory, self.fixture.contract,
+                                         self.fixture.context.frozen, self.fixture.context.baseline)
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "missing completed"):
+            CHECKER.verify_completed_preservation(context)
+        legacy = {"public-link": ("120000", b"target")}
+        context = CHECKER.TrustedContext({}, {}, {}, legacy, {"public-link": ("120000", b"retargeted")})
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "completed protected source bytes"):
+            CHECKER.verify_completed_preservation(context)
+
+    def test_loader_fields_resolve_independently_and_reject_preparation_exposure(self):
+        project = ".opencode/opencode.jsonc"
+        cases = [({"instructions": ["configs/opencode-v2/prepared/owner/agents/agent-engineer.md"]}, "inactive preparation"),
+                 ({"instructions": ["CONFIGS/OPENCODE-V2/**"]}, "inactive preparation"),
+                 ({"skills": {"paths": ["../configs"]}}, "inactive ancestor"),
+                 ({"skills": {"paths": ["../configs/**"]}}, "inactive preparation"),
+                  ({"plugin": [["../configs/opencode-v2/payload.js", {}]]}, "inactive preparation"),
+                  ({"plugin": [r"\\server\configs\opencode-v2\payload.js"]}, "unverified"),
+                  ({"plugin": [r"configs\opencode-v2\payload.js"]}, "unverified"),
+                  ({"plugin": ["C:payload.js"]}, "unverified"),
+                 ({"agent": {"x": {"prompt": "first {file:../configs/opencode-v2/source/inventory.json} last"}}}, "inactive preparation"),
+                 ({"agents": {"x": {"system": "{file:../configs/opencode-v2/source/inventory.json}"}}}, "inactive preparation"),
+                 ({"skills": {"paths": ["{env:LOCAL_SKILLS}"]}}, "unverified"),
+                 ({"agent": {"x": {"prompt": "{file:{env:LOCAL_PROMPT}}"}}}, "unverified prompt interpolation")]
+        for value, diagnostic in cases:
+            with self.subTest(value=value):
+                write(self.root, project, json_bytes(value))
+                with self.assertRaisesRegex(CHECKER.CheckFailure, diagnostic):
+                    self.fixture.check()
+        write(self.root, project, json_bytes({
+            "instructions": ["docs/public.md"], "skills": {"paths": ["./skills"]},
+            "plugin": [["@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}", {}], "./plugins/local.js"],
+            "agent": {"x": {"prompt": "{file:~/.config/opencode/prompts/plan-agent.md}"}},
+        }))
+        self.assertEqual(self.fixture.check()["status"], "PASS")
+        self.assertEqual(CHECKER.local_reference(self.root, "~/.config/opencode/prompts/x.md", project),
+                         "private_dot_config/opencode/prompts/x.md")
+        container = CHECKER.OPENCODE_ROOTS[1] + "/opencode.jsonc"
+        self.assertEqual(CHECKER.local_reference(self.root, "~/.config/opencode/prompts/x.md", container),
+                         CHECKER.OPENCODE_ROOTS[1] + "/prompts/x.md")
+        for value in ("../configs/opencode-v2", "instructions.md"):
+            write(self.root, self.fixture.host, json_bytes({"instructions": [value]}))
+            with self.assertRaisesRegex(CHECKER.CheckFailure, "relative global instruction"):
+                self.fixture.check()
+        write(self.root, self.fixture.host, json_bytes({"instructions": [(self.root / "docs/public.md").as_uri()]}))
+        self.assertEqual(self.fixture.check()["status"], "PASS")
+
+    def test_mapped_loader_namespaces_reject_escapes_before_target_inspection(self):
+        project = ".opencode/opencode.jsonc"
+        tail = "Documents/development/dotfiles/configs/opencode-v2/x.js"
+        host, container = CHECKER.OPENCODE_ROOTS
+        cases = [
+            (host + "/opencode.jsonc", {"plugin": ["../../" + tail]}),
+            (container + "/opencode.jsonc", {"plugin": [["../../" + tail, {}]]}),
+            (project, {"plugin": ["~/.config/opencode/../../" + tail]}),
+            (project, {"agent": {"x": {"prompt": "{file:~/.claude/../" + tail + "}"}}}),
+            (project, {"instructions": ["~/.config/opencode/../../" + tail]}),
+            (host + "/opencode.jsonc", {"instructions": ["~/.claude/../" + tail]}),
+            (host + "/opencode.jsonc", {"skills": {"paths": ["../"]}}),
+            (project, {"skills": {"paths": ["~/.config/opencode/../../Documents/development/dotfiles/configs"]}}),
+            (host + "/profiles/alpha/opencode.jsonc", {"plugin": ["../../../../" + tail]}),
+            (container + "/profiles/alpha/opencode.jsonc", {"agents": {"x": {"system": "{file:../../../../" + tail + "}"}}}),
+            (project, {"plugin": ["file:~/.config/opencode/%2e%2e/%2e%2e/" + tail]}),
+            (host + "/opencode.jsonc", {"plugin": ["file:%2e%2e/%2e%2e/" + tail]}),
+            (project, {"skills": {"paths": ["~/.CoNfIg/OpEnCoDe/../OPENCODE-extra/**"]}}),
+            (project, {"plugin": ["~/.ClAuDe/../dot_claude-extra/plugin.js"]}),
+        ]
+        original_read = CHECKER.read_bytes
+        for config, value in cases:
+            with self.subTest(config=config, value=value):
+                write(self.root, config, json_bytes(value))
+                def guarded_read(root, name):
+                    self.assertEqual(name, config)
+                    return original_read(root, name)
+                with mock.patch.object(CHECKER, "read_bytes", side_effect=guarded_read), \
+                     mock.patch.object(CHECKER, "reject_unknown_aliases", side_effect=AssertionError("target inspection before namespace verification")) as inspect:
+                    with self.assertRaisesRegex(CHECKER.CheckFailure, "escaping mapped loader namespace"):
+                        CHECKER.verify_loading_config(self.root, config, self.fixture.context, {config})
+                    inspect.assert_not_called()
+        for namespace in ("dot_claude", f"{CHECKER.CONTAINER_SOURCE}/dot_claude"):
+            with self.subTest(namespace=namespace), self.assertRaisesRegex(CHECKER.CheckFailure, "mapped loader namespace"):
+                CHECKER.local_reference(self.root, "../outside.md", namespace + "/symlink_CLAUDE.md")
+
+    def test_mapped_loader_namespaces_preserve_declaring_bases_and_public_mappings(self):
+        project = ".opencode/opencode.jsonc"
+        host, container = CHECKER.OPENCODE_ROOTS
+        for namespace in (host, container, "dot_claude", f"{CHECKER.CONTAINER_SOURCE}/dot_claude"):
+            config = namespace + "/profiles/alpha/opencode.jsonc"
+            for value, expected in (("../shared/plugin.js", namespace + "/profiles/shared/plugin.js"),
+                                    ("../../prompts/x.md", namespace + "/prompts/x.md"),
+                                    ("./child/../plugin.js", namespace + "/profiles/alpha/plugin.js")):
+                with self.subTest(config=config, value=value):
+                    self.assertEqual(CHECKER.local_reference(self.root, value, config), expected)
+        for config, namespace in ((project, host), (container + "/opencode.jsonc", container)):
+            self.assertEqual(CHECKER.local_reference(self.root, "~/.config/opencode", config), namespace)
+            self.assertEqual(CHECKER.local_reference(self.root, "file:~/.config/opencode/prompts/%2e%2e/agents/x.md", config),
+                             namespace + "/agents/x.md")
+        self.assertEqual(CHECKER.local_reference(self.root, "../public/plugin.js", project), "public/plugin.js")
+        self.assertEqual(CHECKER.local_reference(self.root, str(self.root / "docs/../public.md"), self.fixture.host), "public.md")
+        self.assertEqual(CHECKER.local_reference(self.root, (self.root / "docs/../public.md").as_uri(), self.fixture.host), "public.md")
+        for namespace in (host, container):
+            config = namespace + "/profiles/alpha/opencode.jsonc"
+            write(self.root, config, json_bytes({"skills": {"paths": ["../shared"]},
+                                                "plugin": ["../shared/plugin.js", "@plannotator/opencode@{env:PLANNOTATOR_PIN_VERSION}"],
+                                                "agent": {"x": {"prompt": "{file:../../prompts/x.md}"}}}))
+            CHECKER.verify_loading_config(self.root, config, self.fixture.context, {config})
+            write(self.root, config, json_bytes({"instructions": ["../../prompts/x.md"]}))
+            with self.assertRaisesRegex(CHECKER.CheckFailure, "relative global instruction"):
+                CHECKER.verify_loading_config(self.root, config, self.fixture.context, {config})
+
+    def test_current_inputs_presence_url_escapes_and_external_boundaries(self):
+        for value in ("C:/configs/opencode-v2", "//server/configs/opencode-v2", "file:///tmp/%252e%252e/x",
+                      "!configs/**", "{env:PATH}", "../../escape"):
+            with self.subTest(value=value), self.assertRaises(CHECKER.CheckFailure):
+                CHECKER.local_reference(self.root, value, ".opencode/opencode.jsonc")
+        self.assertIsNone(CHECKER.local_reference(self.root, "/unqualified/external/file.md", self.fixture.host))
+        target = self.root / self.fixture.host
+        original = target.read_bytes()
+        target.unlink()
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "missing mandatory"):
+            self.fixture.check()
+        write(self.root, self.fixture.host, original)
+        optional = "opencode.jsonc"
+        write(self.root, optional, b"{}\n")
+        write(self.root, ".gitignore", b"/opencode.jsonc\n")
+        original_read = CHECKER.read_bytes
+        def guarded_read(root, name):
+            self.assertNotEqual(name, optional)
+            return original_read(root, name)
+        with mock.patch.object(CHECKER, "read_bytes", side_effect=guarded_read):
+            with self.assertRaisesRegex(CHECKER.CheckFailure, "non-public loading configuration"):
+                self.fixture.check()
+        (self.root / optional).unlink()
+        write(self.root, CHECKER.OPENCODE_ROOTS[0] + "/profiles/synthetic/opencode.jsonc", b"{}\n")
+        self.assertEqual(self.fixture.check()["currentLoading"]["configurations"], 4)
+
+    def test_alias_payloads_have_bounded_chains_and_never_read_targets(self):
+        directory = self.root / ".opencode/skills"
+        directory.mkdir(parents=True)
+        write(self.root, ".opencode/skills/target.md", b"public terminal target\n")
+        for number in range(16):
+            write(self.root, f".opencode/skills/symlink_link{number}",
+                  (f"link{number + 1}" if number < 15 else "target.md").encode())
+        self.assertEqual(self.fixture.check()["currentLoading"]["aliases"], 16)
+        write(self.root, ".opencode/skills/symlink_link15", b"link16")
+        write(self.root, ".opencode/skills/symlink_link16", b"target.md")
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "hop limit"):
+            self.fixture.check()
+        for candidate in directory.glob("symlink_*"):
+            candidate.unlink()
+        for target, diagnostic in (("../../configs/opencode-v2", "inactive preparation"),
+                                   ("cycle", "alias cycle"), ("missing", "dangling"),
+                                   ("/unqualified/external", "external alias")):
+            with self.subTest(target=target):
+                write(self.root, ".opencode/skills/symlink_cycle", target.encode())
+                with self.assertRaisesRegex(CHECKER.CheckFailure, diagnostic):
+                    self.fixture.check()
+        (directory / "symlink_cycle").unlink()
+        (directory / "native").symlink_to("../../configs/opencode-v2")
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "inactive preparation"):
+            self.fixture.check()
+
+    def test_mirror_destinations_are_guarded_before_source_overlap(self):
+        def check_mirror(source, target, include, exclude):
+            write(self.root, CHECKER.MIRRORS, json_bytes({"shared": {"mirrors": [
+                {"source_root": source, "target_root": target, "include": include, "exclude": exclude}
+            ]}}))
+            return self.fixture.check()
+        for target in (CHECKER.AREA, CHECKER.AREA + "/source", "configs"):
+            with self.subTest(target=target), self.assertRaisesRegex(CHECKER.CheckFailure, "inactive"):
+                check_mirror("unrelated-public-source", target, ["**"], [])
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "projects inactive"):
+            check_mirror(CHECKER.AREA + "/prepared/owner", ".opencode", ["agents/**"], [])
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "projects inactive"):
+            check_mirror("CONFIGS/OpenCode-V2/prepared/owner", ".opencode", ["agents/**"], [])
+        self.assertEqual(check_mirror(CHECKER.AREA, ".opencode/skills", ["**"], ["**"])["status"], "PASS")
+        with self.assertRaisesRegex(CHECKER.CheckFailure, "projects inactive"):
+            check_mirror(CHECKER.AREA, ".opencode/skills", ["**"], ["SOURCE/**", "PREPARED/**"])
+        self.assertEqual(check_mirror("unrelated-public-source", "public-mirror", ["**"], [])["status"], "PASS")
+
+    def test_public_projection_filters_before_blob_reads_and_preserves_main_delta(self):
+        source = self.root / "projection-source"
+        target = self.root / "projection-target"
+        source.mkdir()
+        projection_git(source, "init", "-q")
+        original_checker = b"heading\nkeep-1\nkeep-2\nkeep-3\nkeep-4\nkeep-5\nmarker\n"
+        rows = {name: ("100644", (name + "\n").encode()) for name in AMENDMENT_PATHS}
+        rows[AMENDMENT_PATHS[0]] = ("100644", original_checker)
+        rows["docs/devcontainers.md"] = ("100644", b"original documentation\n")
+        excluded_name = "private/credentials.json"
+        excluded_bytes = b"owned-secret-sentinel-never-project\n"
+        rows[excluded_name] = ("100644", excluded_bytes)
+        base = projection_commit(source, rows)
+        main_rows = copy.deepcopy(rows)
+        main_rows[AMENDMENT_PATHS[0]] = ("100644", original_checker.replace(b"heading", b"main-only"))
+        main_rows["docs/devcontainers.md"] = ("100644", b"main-only documentation\n")
+        main = projection_commit(source, main_rows, base)
+        feature_rows = copy.deepcopy(rows)
+        feature_rows[AMENDMENT_PATHS[3]] = ("100644", b"feature-only ledger\n")
+        feature = projection_commit(source, feature_rows, base)
+        projection_git(source, "update-ref", "refs/heads/main", main)
+        projection_git(source, "update-ref", "refs/heads/feature", feature)
+        projection_git(source, "symbolic-ref", "HEAD", "refs/heads/feature")
+        projection_git(source, "read-tree", feature)
+        projection_git(source, "checkout-index", "--all", "--force")
+        write(source, AMENDMENT_PATHS[0], original_checker.replace(b"marker", b"amended-marker"))
+        delta = source_git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary",
+                           "--full-index", feature, "--", *AMENDMENT_PATHS)
+        excluded_oid = hashlib.sha1(b"blob " + str(len(excluded_bytes)).encode() + b"\0" + excluded_bytes).hexdigest()
+        before = tree_snapshot(source)
+        original_source_git = source_git
+        original_projection_git = projection_git
+        requests = []
+        apply_observations = []
+
+        def guarded_source_git(source_root, *arguments, **kwargs):
+            if arguments[0] == "cat-file":
+                requested = kwargs.get("input_bytes", b"").splitlines()
+                requests.extend(requested)
+                self.assertNotIn(excluded_oid.encode(), requested)
+            return original_source_git(source_root, *arguments, **kwargs)
+
+        def observe_real_apply(projection_root, *arguments, **kwargs):
+            if arguments[:3] == ("apply", "--3way", "--index"):
+                self.assertEqual(projection_root, target)
+                agreement = original_projection_git(
+                    projection_root, "diff-files", "--quiet", "--", *AMENDMENT_PATHS, check=False)
+                self.assertEqual(agreement.returncode, 0, agreement.stderr.decode(errors="replace"))
+                apply_observations.append(projection_root)
+            return original_projection_git(projection_root, *arguments, **kwargs)
+
+        with mock.patch.object(sys.modules[__name__], "source_git", side_effect=guarded_source_git), mock.patch.object(
+                sys.modules[__name__], "projection_git", side_effect=observe_real_apply):
+            result = build_public_projection(source, (base, main, feature), delta, target)
+        self.assertEqual(apply_observations, [target])
+        self.assertTrue(requests)
+        self.assertEqual(tree_snapshot(source), before)
+        self.assertFalse((target / excluded_name).exists())
+        self.assertFalse((target / ".git/objects/info/alternates").exists())
+        self.assertNotEqual(projection_git(target, "cat-file", "-e", excluded_oid, check=False).returncode, 0)
+        self.assertEqual((target / AMENDMENT_PATHS[0]).read_bytes(),
+                         original_checker.replace(b"heading", b"main-only").replace(b"marker", b"amended-marker"))
+        self.assertEqual((target / "docs/devcontainers.md").read_bytes(), b"main-only documentation\n")
+        self.assertEqual((target / AMENDMENT_PATHS[3]).read_bytes(), b"feature-only ledger\n")
+        self.assertEqual(set(result["amendedFiles"]), set(AMENDMENT_PATHS))
+        with self.assertRaisesRegex(AssertionError, "source operation is not read-only"):
+            source_git(source, "update-ref", "refs/heads/main", feature)
+        self.assertEqual(tree_snapshot(source), before)
+        template_rows = copy.deepcopy(rows)
+        template_rows[".opencode/opencode.jsonc.tmpl"] = ("100644", b"not requested\n")
+        template_commit = projection_commit(source, template_rows, base)
+        calls = []
+
+        def template_boundary(source_root, *arguments, **kwargs):
+            calls.append(arguments[0])
+            return original_source_git(source_root, *arguments, **kwargs)
+
+        with mock.patch.object(sys.modules[__name__], "source_git", side_effect=template_boundary):
+            with self.assertRaisesRegex(AssertionError, "unverified loader template"):
+                projection_public_view(source, template_commit)
+        self.assertNotIn("cat-file", calls)
+
+    def test_public_projection_conflicts_and_unapproved_delta_fail_closed(self):
+        for scenario in ("content", "amendment", "scope"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary).resolve() / "source"
+                target = Path(temporary).resolve() / "target"
+                source.mkdir()
+                projection_git(source, "init", "-q")
+                original = b"heading\nkeep-1\nkeep-2\nkeep-3\nkeep-4\nkeep-5\nmarker\n"
+                rows = {name: ("100644", (name + "\n").encode()) for name in AMENDMENT_PATHS}
+                rows[AMENDMENT_PATHS[0]] = ("100644", original)
+                base = projection_commit(source, rows)
+                main_rows = copy.deepcopy(rows)
+                feature_rows = copy.deepcopy(rows)
+                if scenario == "content":
+                    main_rows[AMENDMENT_PATHS[0]] = ("100644", original.replace(b"heading", b"main"))
+                    feature_rows[AMENDMENT_PATHS[0]] = ("100644", original.replace(b"heading", b"feature"))
+                elif scenario == "amendment":
+                    main_rows[AMENDMENT_PATHS[0]] = ("100644", original.replace(b"marker", b"main-marker"))
+                main = projection_commit(source, main_rows, base)
+                feature = projection_commit(source, feature_rows, base)
+                projection_git(source, "update-ref", "refs/heads/main", main)
+                projection_git(source, "update-ref", "refs/heads/feature", feature)
+                projection_git(source, "symbolic-ref", "HEAD", "refs/heads/feature")
+                projection_git(source, "read-tree", feature)
+                projection_git(source, "checkout-index", "--all", "--force")
+                delta = b""
+                diagnostic = "public projection content conflict"
+                if scenario == "amendment":
+                    write(source, AMENDMENT_PATHS[0], original.replace(b"marker", b"amended-marker"))
+                    delta = source_git(source, "diff", "--no-ext-diff", "--no-textconv", "--binary",
+                                       "--full-index", feature, "--", *AMENDMENT_PATHS)
+                    diagnostic = "public projection amendment application failed"
+                elif scenario == "scope":
+                    delta = b"diff --git a/unapproved.md b/unapproved.md\n"
+                    diagnostic = "unapproved path"
+                before = tree_snapshot(source)
+                with self.assertRaisesRegex(AssertionError, diagnostic) as failure:
+                    build_public_projection(source, (base, main, feature), delta, target)
+                if scenario == "amendment":
+                    self.assertIn(f"Applied patch to '{AMENDMENT_PATHS[0]}' with conflicts.", str(failure.exception))
+                    unmerged = projection_git(target, "ls-files", "--unmerged", "-z").stdout
+                    entries = [record.split(b"\t", 1) for record in unmerged.split(b"\0") if record]
+                    self.assertEqual(len(entries), 3)
+                    self.assertEqual({(details.split()[2], name) for details, name in entries},
+                                     {(str(stage).encode(), AMENDMENT_PATHS[0].encode()) for stage in (1, 2, 3)})
+                self.assertEqual(tree_snapshot(source), before)
+
+    def test_public_projection_keeps_one_capture_when_shared_refs_advance(self):
+        original_view = projection_public_view
+        original_source_git = source_git
+        for scenario in ("main", "other", "both"):
+            with self.subTest(scenario=scenario):
+                source = self.root / ("moving-source-" + scenario)
+                target = self.root / ("moving-target-" + scenario)
+                revisions, later = timing_projection_fixture(source)
+                before = projection_source_snapshot(source)
+                selected = []
+                main_queries = []
+                actor_snapshot = []
+
+                def record_source_query(source_root, *arguments, **kwargs):
+                    if arguments == ("rev-parse", "refs/heads/main"):
+                        main_queries.append(arguments)
+                    return original_source_git(source_root, *arguments, **kwargs)
+
+                def advance_shared_ref(source_root, revision):
+                    selected.append(revision)
+                    if len(selected) == 1:
+                        if scenario in ("main", "both"):
+                            projection_git(source, "update-ref", "refs/heads/main", later)
+                        if scenario in ("other", "both"):
+                            projection_git(source, "update-ref", "refs/heads/other", later)
+                        actor_snapshot.append(tree_snapshot(source))
+                    return original_view(source_root, revision)
+
+                with mock.patch.object(sys.modules[__name__], "source_git", side_effect=record_source_query), \
+                        mock.patch.object(sys.modules[__name__], "projection_public_view", side_effect=advance_shared_ref):
+                    captured = capture_projection_revisions(source, revisions[2])
+                    result = build_public_projection(source, captured, b"", target)
+                    observation = projection_source_observation(source, before, captured[1])
+                self.assertEqual(captured, revisions)
+                self.assertEqual(selected, list(revisions))
+                self.assertEqual(len(main_queries), 2)
+                self.assertTrue(result["sharedRefMovementObserved"])
+                self.assertEqual(observation, {
+                    "capturedMain": revisions[1],
+                    "observedMainAfter": later if scenario in ("main", "both") else revisions[1],
+                    "mainMovementObserved": scenario in ("main", "both"),
+                    "sharedRefMovementObserved": True,
+                })
+                self.assertEqual((target / "docs/devcontainers.md").read_bytes(), b"captured main documentation\n")
+                self.assertEqual(tree_snapshot(source), actor_snapshot[0])
+                require_projection_source_stable(before, projection_source_snapshot(source))
+
+    def test_public_projection_rejects_own_index_files_and_feature_drift(self):
+        original_view = projection_public_view
+        for scenario in ("index", "files", "feature"):
+            with self.subTest(scenario=scenario):
+                source = self.root / ("own-source-" + scenario)
+                target = self.root / ("own-target-" + scenario)
+                revisions, later = timing_projection_fixture(source)
+                actor_snapshot = []
+
+                def change_owned_state(source_root, revision):
+                    if not actor_snapshot:
+                        if scenario == "index":
+                            projection_git(source, "update-index", "--force-remove", "--", AMENDMENT_PATHS[0])
+                        elif scenario == "files":
+                            write(source, AMENDMENT_PATHS[0], b"competing owned-fixture edit\n")
+                        else:
+                            projection_git(source, "update-ref", "refs/heads/feature", later)
+                        actor_snapshot.append(tree_snapshot(source))
+                    return original_view(source_root, revision)
+
+                captured = capture_projection_revisions(source, revisions[2])
+                with mock.patch.object(sys.modules[__name__], "projection_public_view", side_effect=change_owned_state):
+                    with self.assertRaisesRegex(AssertionError, "projection source changed: " + scenario):
+                        build_public_projection(source, captured, b"", target)
+                self.assertEqual(tree_snapshot(source), actor_snapshot[0])
+
+        source = self.root / "feature-preflight-source"
+        revisions, _ = timing_projection_fixture(source)
+        before = tree_snapshot(source)
+        with self.assertRaisesRegex(AssertionError, "feature moved before public projection"):
+            capture_projection_revisions(source, revisions[0])
+        self.assertEqual(tree_snapshot(source), before)
+
     def test_protected_bytes_path_sets_modes_and_registry_history(self):
         original = (self.root / self.fixture.host).read_bytes()
         write(self.root, self.fixture.host, b"changed policy\n")
         with self.assertRaisesRegex(CHECKER.CheckFailure, "protected source bytes"):
-            self.fixture.check()
+            self.fixture.audit()
         write(self.root, self.fixture.host, original)
         write(self.root, "private_dot_config/opencode/agents/new.md", b"new registration\n")
         with self.assertRaisesRegex(CHECKER.CheckFailure, "path set"):
-            self.fixture.check()
+            self.fixture.audit()
         (self.root / "private_dot_config/opencode/agents/new.md").unlink()
         write(self.root, CHECKER.REGISTRIES[0], b'{"entries":[]}\n')
         with self.assertRaisesRegex(CHECKER.CheckFailure, "existing registration"):
-            self.fixture.check()
+            self.fixture.audit()
 
     def test_protected_executable_mode_drift_is_rejected(self):
         target = self.root / self.fixture.host
@@ -306,10 +959,10 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
         try:
             target.chmod(original_mode | 0o111)
             with self.assertRaisesRegex(CHECKER.CheckFailure, "protected mode changed"):
-                self.fixture.check()
+                self.fixture.audit()
         finally:
             target.chmod(original_mode)
-        self.assertEqual(self.fixture.check()["status"], "PASS")
+        self.fixture.audit()
 
     def test_recorded_crlf_variance_requires_exact_bytes_and_real_attributes(self):
         name = "private_dot_config/opencode/fixture.ps1"
@@ -323,7 +976,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
         record = {"path": name, "committedDigest": sha(committed), "workingDigest": sha(working)}
         self.fixture.inventory["checkoutByteVariance"] = [record]
         self.fixture.refresh_context()
-        self.assertEqual(self.fixture.check()["status"], "PASS")
+        self.fixture.audit()
 
         for field in ("committedDigest", "workingDigest"):
             with self.subTest(digest=field):
@@ -331,7 +984,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
                 record[field] = "0" * 64
                 self.fixture.refresh_context()
                 with self.assertRaisesRegex(CHECKER.CheckFailure, "protected source bytes changed"):
-                    self.fixture.check()
+                    self.fixture.audit()
                 record[field] = original_digest
 
         changed = b"first\r\nchanged\r\n"
@@ -339,7 +992,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
         record["workingDigest"] = sha(changed)
         self.fixture.refresh_context()
         with self.assertRaisesRegex(CHECKER.CheckFailure, "protected source bytes changed"):
-            self.fixture.check()
+            self.fixture.audit()
         write(self.root, name, working)
         record["workingDigest"] = sha(working)
 
@@ -350,7 +1003,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
                 write(self.root, ".gitattributes", rules)
                 self.fixture.refresh_context()
                 with self.assertRaisesRegex(CHECKER.CheckFailure, "unverified checkout EOL"):
-                    self.fixture.check()
+                    self.fixture.audit()
 
     def test_legacy_link_payload_is_preserved_without_reading_its_targets(self):
         with tempfile.TemporaryDirectory(prefix="opencode-v2-legacy-target-") as temporary:
@@ -384,7 +1037,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
                     mock.patch.object(CHECKER, "digest", side_effect=guarded_digest):
                 before = tree_snapshot(self.root)
                 index_before = (self.root / ".git/index").read_bytes()
-                self.assertEqual(self.fixture.check()["status"], "PASS")
+                self.fixture.audit()
                 self.assertEqual(tree_snapshot(self.root), before)
                 self.assertEqual((self.root / ".git/index").read_bytes(), index_before)
 
@@ -392,7 +1045,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
                 write(self.root, name, target_bytes)
                 before = tree_snapshot(self.root)
                 with self.assertRaisesRegex(CHECKER.CheckFailure, "protected link type changed"):
-                    self.fixture.check()
+                    self.fixture.audit()
                 self.assertEqual(tree_snapshot(self.root), before)
                 self.assertEqual((self.root / ".git/index").read_bytes(), index_before)
 
@@ -400,7 +1053,7 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
                 link.symlink_to(alternative)
                 before = tree_snapshot(self.root)
                 with self.assertRaisesRegex(CHECKER.CheckFailure, "protected source bytes changed"):
-                    self.fixture.check()
+                    self.fixture.audit()
                 self.assertEqual(tree_snapshot(self.root), before)
                 self.assertEqual((self.root / ".git/index").read_bytes(), index_before)
             self.assertEqual(outside.read_bytes(), sentinel)
@@ -411,10 +1064,10 @@ class OpenCodeV2PreparationTests(unittest.TestCase):
             write(self.root, name, b'{"entries":[{"id":"existing"},{"id":"new"}]}\n'
                   if name.endswith(".json") else b"existing-helper.py\nnew-helper.py\n")
         write(self.root, CHECKER.LEDGER, b"# Synthetic historical ledger\n\nDV2-020 result\n")
-        self.assertEqual(self.fixture.check()["status"], "PASS")
+        self.fixture.audit()
         write(self.root, CHECKER.LEDGER, b"rewritten history\n")
         with self.assertRaisesRegex(CHECKER.CheckFailure, "historical ledger"):
-            self.fixture.check()
+            self.fixture.audit()
 
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink support is required")
     def test_symlink_targets_are_not_read_or_hashed_and_checker_does_not_write(self):
