@@ -255,6 +255,14 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
   `assets/beads-sync.sh` and `assets/beads-sync.ps1`, naming each key added or
   removed. It fails closed when the file is missing or cannot be parsed.
   `--clone-local-fks-file` reads a local copy instead.
+- Dolt has its own rule, placed before the Beads rule. It groups the
+  `.chezmoidata.yaml` `dolt_version` pin with the homelab-IaC devcontainer
+  `DOLT_VERSION` pin as "beads dolt engine", waits 14 days, never automerges,
+  and uses the same `renovate/beads-core-*` branch prefix, so a Dolt bump
+  arrives as its own merge request and runs the same CI jobs as a Beads bump.
+  On that branch the Beads pins are unchanged, so the release-note guard
+  reports no adopted range and still scans newer Beads releases. It does not
+  read Dolt's release notes.
 - The annotated `beads_version` and `dolt_version` pins in `.chezmoidata.yaml`
   use the `github-releases` datasource, so Renovate proposes upstream releases
   without routing installation through npm. `configs/mise_wsl2.toml` is a

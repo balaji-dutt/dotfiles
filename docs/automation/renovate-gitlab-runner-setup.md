@@ -202,7 +202,9 @@ until both clients can update, and gives the group the
 `renovate/beads-core-*` branch prefix. A dedicated `.gitlab-ci.yml` job runs
 `python3 assets/check-beads-release-notes.py` only for that prefix in push and
 merge-request pipelines. It does not match the unrelated
-`renovate/beads-kanban-*` checksum-sync branches.
+`renovate/beads-kanban-*` checksum-sync branches. A separate rule gives
+`dolthub/dolt` the same prefix as its own "beads dolt engine" group, so the job
+also runs on Dolt bumps, where it finds the Beads pins unchanged.
 
 The checker first requires the host and devcontainer pins to agree. It then
 uses the public `gastownhall/beads` GitHub releases API to list every published

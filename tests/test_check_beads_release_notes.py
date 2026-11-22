@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -884,6 +885,50 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
         for version in ("1.2.2", "1.3.1", "1.3.10"):
             with self.subTest(allowed_version=version):
                 self.assertNotRegex(version, excluded_versions)
+
+    def test_dolt_has_its_own_gated_group_on_the_beads_branch_prefix(self) -> None:
+        load_json = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
+        rules = load_json(REPO_ROOT / "renovate.json5", jsonc=True)["packageRules"]
+        dependency_keys = {
+            "matchDepNames", "matchPackageNames", "matchDepPatterns",
+            "matchPackagePatterns", "matchPackagePrefixes", "matchSourceUrls",
+        }
+        naming_dolt = [
+            index for index, rule in enumerate(rules)
+            if any("dolthub/dolt" in rule.get(key, []) for key in dependency_keys)
+        ]
+        self.assertEqual(len(naming_dolt), 1)
+        dolt_index = naming_dolt[0]
+        self.assertEqual(
+            rules[dolt_index],
+            {
+                "matchManagers": ["custom.regex"],
+                "matchDepNames": ["dolthub/dolt"],
+                "minimumReleaseAge": "14 days",
+                "minimumGroupSize": 2,
+                "groupName": "beads dolt engine",
+                "groupSlug": "dolt-engine",
+                "additionalBranchPrefix": "beads-core-",
+                "automerge": False,
+                "platformAutomerge": False,
+            },
+        )
+        later = rules[dolt_index + 1 :]
+        self.assertEqual(
+            [rule["matchDepNames"] for rule in later], [["@beads/bd", "gastownhall/beads"]]
+        )
+
+        pins = [
+            REPO_ROOT / ".chezmoidata.yaml",
+            REPO_ROOT / "private_Documents/development/container-dotfiles/devcontainers"
+            "/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
+        ]
+        for path in pins:
+            with self.subTest(path=path.name):
+                annotations = re.findall(
+                    r"depName=dolthub/dolt(?=\s|$)", path.read_text(encoding="utf-8"), re.M
+                )
+                self.assertEqual(len(annotations), 1)
 
     def test_ci_dispatch_is_narrow_and_excludes_beads_kanban(self) -> None:
         pipeline = (REPO_ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
