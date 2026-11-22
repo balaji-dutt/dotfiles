@@ -263,9 +263,10 @@ Windows has a separate PowerShell implementation inside
 root no longer exists, such as removed agent worktrees. The POSIX and Windows
 `zz-prune-codebase-memory-mcp` apply hooks run it with `--apply` on every
 `chezmoi apply` and protect the chezmoi working tree. An index is deleted only
-when its root is absent and the root's parent directory exists and is not
-empty, so indexes on an unmounted volume are kept. A root that cannot be
-checked is kept too. Without `--apply` it only reports:
+when its root is absent and either the root's parent directory exists and is
+not empty, or the nearest existing ancestor lies inside a Git working tree.
+Indexes on an unmounted volume outside any checkout are kept. A root that
+cannot be checked is kept too. Without `--apply` it only reports:
 
 ```sh
 python3 -I assets/cbm-prune-orphans.py

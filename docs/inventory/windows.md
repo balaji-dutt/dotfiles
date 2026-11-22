@@ -211,8 +211,9 @@ It probes `python3`, `python`, then `py -3` for Python 3.9+ and runs
 `assets/cbm-prune-orphans.py` with `-I`, `--apply`, and the protected chezmoi
 working tree. The helper prefers `~/.local/codebase-memory-mcp.exe`; a missing
 interpreter or binary skips pruning. It deletes only absent roots under a
-populated parent. Unavailable mapped/UNC parents, drive/share roots, incomplete
-paths, access errors, and case-insensitive `--keep` matches are retained.
+populated parent or inside an existing Git working tree. Unavailable mapped/UNC
+parents, drive/share roots, incomplete paths, access errors, and
+case-insensitive `--keep` matches are retained.
 CLI failures and 180-second timeouts warn and skip when another exact-name
 `codebase-memory-mcp.exe` process is found; otherwise they fail the apply.
 Manual helper runs without `--apply` only report candidates.

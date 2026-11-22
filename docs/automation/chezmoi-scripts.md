@@ -88,12 +88,14 @@ Chezmoi executes scripts in `.chezmoiscripts/` based on filename conventions.
   CBM ends its own startup wait within roughly 130 seconds.
 - The POSIX and Windows CBM prune hooks run after their configure hooks and call
   `assets/cbm-prune-orphans.py --apply`, protecting the chezmoi working tree.
-  It deletes an index only when the indexed root is absent and its parent
-  directory exists and is not empty. An unmounted NFS share or external disk
-  leaves no parent or an empty mount point, so its indexes survive, as does a
-  root that cannot be checked. It applies the same active-session rule as the
-  configure hooks: a CLI failure or a CLI call past its 180-second timeout is
-  a warning while CBM sessions run, otherwise an error. Missing Python or a
+  It deletes an index only when the indexed root is absent and either its
+  parent directory exists and is not empty, or its nearest existing ancestor
+  lies inside a Git working tree. An unmounted NFS share or external disk
+  leaves no parent or an empty mount point outside any checkout, so its indexes
+  survive, as does a root that cannot be checked. It applies the same
+  active-session rule as the configure hooks: a CLI failure or a CLI call past
+  its 180-second timeout is a warning while CBM sessions run, otherwise an
+  error. Missing Python or a
   missing CBM binary is a skip. The Windows hook probes `python3`, `python`,
   then `py -3` for Python 3.9+ and uses the managed binary under `~/.local`
   before PATH. Drive/share roots and incompletely qualified Windows paths

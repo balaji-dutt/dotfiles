@@ -100,6 +100,13 @@ class Fixture:
 
 
 class CbmPruneOrphansTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        module = load_script_module(HELPER, "cbm_prune_orphans")
+        with isolated_environment(prefix="cbm-prune-probe-") as env:
+            if module.inside_git_worktree(str(env.root)) is not False:
+                raise AssertionError(f"{env.root} lies inside a Git working tree; set TMPDIR elsewhere")
+
     def layout(self, fixture: Fixture) -> dict[str, Path]:
         worktrees = fixture.root / "worktrees"
         live = worktrees / "live"
@@ -159,6 +166,33 @@ class CbmPruneOrphansTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(fixture.remaining(), ["on-share"])
             self.assertIn("parent directory is empty", result.stdout)
+
+    def test_root_in_empty_worktree_dir_of_git_checkout_is_deleted(self) -> None:
+        with isolated_environment(prefix="cbm-prune-emptywt-") as env:
+            fixture = Fixture(env)
+            repo = fixture.root / "repo"
+            (repo / ".git").mkdir(parents=True)
+            (repo / "worktrees").mkdir()
+            fixture.add("gone", repo / "worktrees" / "gone")
+            result = fixture.run("--apply")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(fixture.remaining(), [])
+            self.assertIn("deleting gone", result.stdout)
+            self.assertIn("inside an existing Git working tree", result.stdout)
+
+    def test_root_with_missing_parent_inside_git_checkout_is_deleted(self) -> None:
+        with isolated_environment(prefix="cbm-prune-nowt-") as env:
+            fixture = Fixture(env)
+            repo = fixture.root / "repo"
+            repo.mkdir()
+            (repo / ".git").write_text("gitdir: /elsewhere/.git/worktrees/repo\n", encoding="utf-8")
+            fixture.add("gone", repo / "worktrees" / "gone")
+            result = fixture.run("--apply")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(fixture.remaining(), [])
+            self.assertIn("inside an existing Git working tree", result.stdout)
 
     @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0,
                      "needs a non-root POSIX user for permission checks")

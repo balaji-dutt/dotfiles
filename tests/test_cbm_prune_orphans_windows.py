@@ -76,12 +76,55 @@ class WindowsCbmPruneOrphansTests(unittest.TestCase):
         self.assertTrue(all(call[0] == "fixture-cbm.exe" for call in self.calls))
 
     def test_empty_and_missing_parents_are_kept(self) -> None:
+        self.assertIs(self.module.inside_git_worktree(str(self.root)), False,
+                      f"{self.root} lies inside a Git working tree; set TEMP elsewhere")
         (self.root / "empty").mkdir()
         for root in (self.root / "empty" / "gone", self.root / "missing" / "gone"):
             with self.subTest(root=root):
                 verdict = self.module.classify(self.module.Project("kept", str(root)), set())
                 self.assertFalse(verdict.delete)
                 self.assertTrue(verdict.report)
+
+    def test_empty_or_missing_worktree_dir_inside_git_checkout_is_deleted(self) -> None:
+        repo = self.root / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / "worktrees").mkdir()
+        (repo / ".claude").mkdir()
+        self.add("empty-parent", repo / "worktrees" / "gone")
+        self.add("missing-parent", repo / ".claude" / "worktrees" / "gone")
+        code, output, error = self.run_main("--apply")
+        self.assertEqual(code, 0, error)
+        self.assertEqual(self.projects, [])
+        self.assertEqual(output.count("inside an existing Git working tree"), 2)
+
+    def test_unreadable_ancestor_during_checkout_walk_is_kept(self) -> None:
+        repo = self.root / "repo"
+        (repo / ".git").mkdir(parents=True)
+        root = repo / "worktrees" / "nested" / "gone"
+        real_lstat = self.module.os.lstat
+
+        for error in (PermissionError(13, "denied"), OSError(5, "I/O error")):
+            def lstat(target, *args, error=error, **kwargs):
+                if Path(target) == repo / "worktrees":
+                    raise error
+                return real_lstat(target, *args, **kwargs)
+
+            with self.subTest(error=error), patch.object(self.module.os, "lstat", side_effect=lstat), \
+                    patch.object(self.module.os, "scandir", side_effect=FileNotFoundError()):
+                verdict = self.module.classify(self.module.Project("kept", str(root)), set())
+                self.assertFalse(verdict.delete)
+                self.assertTrue(verdict.report)
+                self.assertIn("ancestor directory cannot be checked", verdict.reason)
+
+    def test_offline_drive_is_probed_once_and_kept(self) -> None:
+        for root in ("Z:/offline/repo/worktrees/gone", "//unavailable.invalid/share/repo/worktrees/gone"):
+            with self.subTest(root=root), \
+                    patch.object(self.module.os, "lstat", side_effect=FileNotFoundError()) as lstat, \
+                    patch.object(self.module.os, "scandir", side_effect=FileNotFoundError()):
+                verdict = self.module.classify(self.module.Project("kept", root), set())
+                self.assertFalse(verdict.delete)
+                self.assertIn("parent directory is missing", verdict.reason)
+                self.assertEqual(lstat.call_count, 2)
 
     def test_qualified_paths_and_volume_roots_are_conservative(self) -> None:
         roots = ("", "relative/repo", "C:repo", "\\repo", "/repo", "Z:/", "Z:\\",

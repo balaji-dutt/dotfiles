@@ -5,11 +5,13 @@ Repo-only helper. It is never applied to a chezmoi target and is never
 templated. The run_after_zz-prune-codebase-memory-mcp shell and PowerShell
 hooks run it with --apply on macOS, Linux, WSL2, and native Windows applies.
 
-A project is deleted only when its root path is absent and the root's parent
-directory exists and is not empty. An unmounted volume leaves either no
-parent or an empty mount-point directory, so indexes on a missing NFS share or
-external disk are kept. A root that cannot be checked is kept. Roots passed
-with --keep are never deleted.
+A project is deleted only when its root path is absent and either the root's
+parent directory exists and is not empty, or the nearest existing ancestor
+lies inside a Git working tree (it or one of its ancestors has a .git entry).
+An unmounted volume leaves either no parent or an empty mount-point directory
+outside any checkout, so indexes on a missing NFS share or external disk are
+kept. A root that cannot be checked is kept. Roots passed with --keep are
+never deleted.
 
 Usage:
   cbm-prune-orphans.py [--apply] [--cbm PATH] [--keep PATH]...
@@ -156,6 +158,43 @@ class Verdict:
     report: bool = False
 
 
+def inside_git_worktree(path: str) -> bool | None:
+    drive = os.path.splitdrive(path)[0]
+    if drive:
+        # An offline share raises ENOENT at every level; probe it once, not once per component.
+        try:
+            os.lstat(drive + os.sep)
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return None
+    current = path
+    while True:
+        try:
+            os.lstat(current)
+            break
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return None
+        ancestor = os.path.dirname(current)
+        if ancestor == current:
+            return False
+        current = ancestor
+    while True:
+        try:
+            os.lstat(os.path.join(current, ".git"))
+            return True
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return None
+        ancestor = os.path.dirname(current)
+        if ancestor == current:
+            return False
+        current = ancestor
+
+
 def classify(project: Project, kept: set[str]) -> Verdict:
     root = project.root
     if sys.platform == "win32":
@@ -178,14 +217,19 @@ def classify(project: Project, kept: set[str]) -> Verdict:
     parent = os.path.dirname(os.path.normpath(root))
     try:
         with os.scandir(parent) as entries:
-            populated = next(entries, None) is not None
+            if next(entries, None) is not None:
+                return Verdict(True, "root is missing")
+        fallback = Verdict(False, "parent directory is empty; it may be an unmounted mount point", report=True)
     except FileNotFoundError:
-        return Verdict(False, "parent directory is missing; its volume may be unmounted", report=True)
+        fallback = Verdict(False, "parent directory is missing; its volume may be unmounted", report=True)
     except OSError as error:
         return Verdict(False, f"parent directory cannot be read ({error.strerror})", report=True)
-    if not populated:
-        return Verdict(False, "parent directory is empty; it may be an unmounted mount point", report=True)
-    return Verdict(True, "root is missing")
+    in_checkout = inside_git_worktree(parent)
+    if in_checkout is None:
+        return Verdict(False, "an ancestor directory cannot be checked", report=True)
+    if in_checkout:
+        return Verdict(True, "root is missing inside an existing Git working tree")
+    return fallback
 
 
 def sessions_active() -> bool:
@@ -251,17 +295,17 @@ def main(argv: list[str] | None = None) -> int:
     except CbmError as error:
         return fail_or_skip(error)
 
-    orphans: list[Project] = []
+    orphans: list[tuple[Project, Verdict]] = []
     for project in projects:
         verdict = classify(project, kept)
         if verdict.delete:
-            orphans.append(project)
+            orphans.append((project, verdict))
         elif verdict.report:
             print(f"INFO: keeping {project.name} ({project.root}): {verdict.reason}")
 
     verb = "deleting" if args.apply else "would delete"
-    for project in orphans:
-        print(f"INFO: {verb} {project.name} ({project.root}): root is missing")
+    for project, verdict in orphans:
+        print(f"INFO: {verb} {project.name} ({project.root}): {verdict.reason}")
         if args.apply:
             try:
                 run_tool(cbm, "delete_project", "--project", project.name)

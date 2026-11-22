@@ -160,11 +160,17 @@ agent worktree leaves one behind (about 60 MB each for this repo). On macOS,
 Linux, and WSL2, `run_after_zz-prune-codebase-memory-mcp.sh.tmpl` runs
 `assets/cbm-prune-orphans.py --apply` on every apply. Native Windows uses the
 matching `.ps1.tmpl` hook and the same Python 3.9+ helper. It deletes a project
-only when its root is gone and the root's parent directory still exists and is
-not empty, and never deletes the chezmoi working tree. An orphan whose parent
-is empty or missing, such as the last removed worktree in a directory, stays
-until that directory has other entries again; delete it by hand with
-`codebase-memory-mcp cli delete_project --project <name>` if it never does.
+only when its root is gone and either the root's parent directory still exists
+and is not empty, or the nearest existing ancestor lies inside a Git working
+tree. The second rule covers the last removed worktree under `worktrees/` or
+`.claude/worktrees/`. It never deletes the chezmoi working tree. An orphan
+outside any checkout whose parent is empty or missing stays, because that is
+what an unmounted share looks like; delete it by hand with
+`codebase-memory-mcp cli delete_project --project <name>` once you know it is
+gone for good. The Git-checkout rule cannot protect a share mounted beneath a
+directory that is itself a working tree, such as a home directory with its own
+`.git`; such an index is deleted while the share is unmounted and rebuilt by
+auto-index on the next session in that repository.
 This hook is the one deliberate exception to the `delete_project` deny below:
 it runs as you during an apply, not as an agent tool call. Windows drive/share
 roots and incompletely qualified paths are retained, and `--keep` matching is
