@@ -590,7 +590,15 @@
     {
       "id": "peer-env",
       "suites": ["fast", "integration"],
-      "argv": ["{python}", "-m", "unittest", "tests.test_peer_env"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_peer_env.AgentPreflightTests", "tests.test_peer_env.ClassifyTests", "tests.test_peer_env.ConfigTests", "tests.test_peer_env.HeaderTests", "tests.test_peer_env.ProbeTests", "tests.test_peer_env.RunTests", "tests.test_peer_env.ServeTests"],
+      "covers": ["tests/test_peer_env.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["git", "sh"]
+    },
+    {
+      "id": "peer-env-lifecycle",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_peer_env.LifecycleTests", "tests.test_peer_env.SymlinkedParentTests"],
       "covers": ["tests/test_peer_env.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["git", "sh"]

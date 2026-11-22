@@ -627,9 +627,10 @@ either sets `SSH_ORIGINAL_COMMAND` and runs the peer clone's own
 `git push` invokes `ssh host '<receive-pack> path'`, the real push lands in
 the local clone through `serve`. Stub `cz-audit.sh` and `run-tests.sh` scripts
 record their arguments and environment inside the peer worktree. The suite is
-registered as `peer-env` in `configs/test-suites.json` for `fast` and
-`integration` on linux, macos, and wsl2; Windows cannot shadow `ssh.exe` with
-a PATH shim for the explicitly selected native executable.
+registered as two steps in `configs/test-suites.json`, `peer-env` and
+`peer-env-lifecycle` (the lifecycle and symlinked-parent classes), for `fast`
+and `integration` on linux, macos, and wsl2; Windows cannot shadow `ssh.exe`
+with a PATH shim for the explicitly selected native executable.
 
 `tests/test_peer_env_windows.py` runs native DACL, junction, hard-link, atomic
 cache, Job Object, descendant shutdown, timeout, cancellation, SSH selection,
