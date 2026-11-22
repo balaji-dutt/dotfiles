@@ -12,12 +12,19 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support.fixtures import init_git_repository, run_git, write_executable, write_json
+from tests.support.fixtures import (
+    compatible_bash,
+    init_git_repository,
+    run_git,
+    write_executable,
+    write_json,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "assets/check-automation-provenance.py"
 STATUSLINE_SYNC = REPO_ROOT / "assets/sync-statusline.sh"
+STATUSLINE_BASH = compatible_bash(STATUSLINE_SYNC, Path(tempfile.gettempdir()))
 CHECKER_SPEC = importlib.util.spec_from_file_location("automation_provenance", CHECKER)
 assert CHECKER_SPEC is not None and CHECKER_SPEC.loader is not None
 checker = importlib.util.module_from_spec(CHECKER_SPEC)
@@ -521,7 +528,7 @@ class AutomationProvenanceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
-@unittest.skipUnless(shutil.which("bash"), "bash is required")
+@unittest.skipUnless(STATUSLINE_BASH, "requires bash that can access the checkout and temporary files")
 class StatuslineSyncProvenanceTests(unittest.TestCase):
     def test_check_mode_uses_pinned_fake_upstream_without_network(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -530,7 +537,7 @@ class StatuslineSyncProvenanceTests(unittest.TestCase):
             assets.mkdir()
             shutil.copy2(STATUSLINE_SYNC, assets / "sync-statusline.sh")
             upstream = root / "upstream.sh"
-            upstream.write_text("#!/usr/bin/env bash\necho upstream\n", encoding="utf-8")
+            upstream.write_text("#!/usr/bin/env bash\necho upstream\n", encoding="utf-8", newline="\n")
             vendored = (
                 "#!/usr/bin/env bash\n"
                 "# renovate: datasource=github-releases depName=Astro-Han/claude-pace\n"
@@ -544,7 +551,7 @@ class StatuslineSyncProvenanceTests(unittest.TestCase):
             )
             for path in (host, container):
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(vendored, encoding="utf-8")
+                path.write_text(vendored, encoding="utf-8", newline="\n")
             fake_bin = root / "fake-bin"
             fake_curl = write_executable(
                 fake_bin / "curl",
@@ -560,8 +567,13 @@ cp "$FAKE_UPSTREAM" "$output"
             env = os.environ.copy()
             env["FAKE_UPSTREAM"] = str(upstream)
             env["PATH"] = str(fake_bin) + os.pathsep + env["PATH"]
+            if os.name == "nt":
+                bash_env = root / "bash-env"
+                bash_env.write_bytes(b'PATH="$(cygpath -u "$STATUSLINE_FAKE_BIN"):$PATH"\n')
+                env["BASH_ENV"] = str(bash_env)
+                env["STATUSLINE_FAKE_BIN"] = str(fake_bin)
             result = subprocess.run(
-                ["bash", str(assets / "sync-statusline.sh"), "--check"],
+                [STATUSLINE_BASH, str(assets / "sync-statusline.sh"), "--check"],
                 cwd=root,
                 env=env,
                 check=False,
@@ -570,9 +582,9 @@ cp "$FAKE_UPSTREAM" "$output"
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            container.write_text(vendored + "# drift\n", encoding="utf-8")
+            container.write_text(vendored + "# drift\n", encoding="utf-8", newline="\n")
             drift = subprocess.run(
-                ["bash", str(assets / "sync-statusline.sh"), "--check"],
+                [STATUSLINE_BASH, str(assets / "sync-statusline.sh"), "--check"],
                 cwd=root,
                 env=env,
                 check=False,

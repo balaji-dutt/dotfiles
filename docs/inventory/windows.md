@@ -81,6 +81,11 @@ Windows registry policy. The PowerShell commit wrappers pass each argument to
 Git without joining or reparsing it, set agent-specific author and committer
 variables only for the child `git commit` process, and return Git's exit status.
 
+Running the repository test suite inside a long-named `ai-wt` worktree also
+needs `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled=1`,
+which `ai-wt` does not set; without it Python cannot open repository files
+whose full path reaches 260 characters.
+
 For OpenCode, `ai-wt` defaults to the Plannotator build pool and accepts
 `--opencode-profile custom` for the custom pool. It launches `opencode.exe`
 directly; native `opencode-plannotator*` wrapper commands are not installed.
