@@ -5,6 +5,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -424,6 +425,13 @@ class RepoOpsTests(unittest.TestCase):
             self.assertEqual(run("display-message", "-p", "-t", "unrelated",
                                  "#{@repo_ops_command}").stdout.strip(), "")
 
+            marker = fixture.root / "ordinary-git.started"
+            write_executable(
+                fixture.fake_bin / "git",
+                "#!/bin/sh\n"
+                f"printf '%s\\n' \"$@\" > {shlex.quote(str(marker))} || exit 1\n"
+                "sleep 30\n",
+            )
             other_tmux = ["tmux", "-L", "other", "-f", str(fixture.home / ".config/tmux/repo-ops.conf")]
 
             def other(*args):
@@ -434,10 +442,20 @@ class RepoOpsTests(unittest.TestCase):
                 self.assertEqual(started.returncode, 0, started.stderr)
                 with self.attached_client(other_tmux, env, "ordinary") as (master, _):
                     self.wait_for_output(master, b"repo-ops: shell")
+                    self.assertFalse(marker.exists())
                     os.write(master, b"git push --follow-tags\n")
-                    self.wait_for_output(master, b"git push --follow-tags")
-                    self.assertEqual(other("display-message", "-p", "-t", "ordinary",
-                                           "#{@repo_ops_command}").stdout.strip(), "")
+                    expected_arguments = "push\n--follow-tags\n"
+                    observed_arguments = None
+                    deadline = time.monotonic() + 4
+                    while time.monotonic() < deadline:
+                        if marker.exists():
+                            observed_arguments = marker.read_text(encoding="utf-8")
+                            if observed_arguments == expected_arguments:
+                                break
+                        time.sleep(0.05)
+                    self.assertEqual(observed_arguments, expected_arguments,
+                                     f"ordinary git startup marker: {observed_arguments!r}")
+                    self.assertEqual(self.tmux_format(other, "ordinary", "#{@repo_ops_command}"), "")
                     os.write(master, b"\x03")
             finally:
                 stop_tmux_server("other", env)

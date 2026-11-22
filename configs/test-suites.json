@@ -554,6 +554,21 @@
       "covers": ["tests/test_opencode_v1.py"]
     },
     {
+      "id": "opencode-v2-isolation-render",
+      "suites": ["fast", "render"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_v2_preparation.OpenCodeV2IsolationRenderTests"],
+      "covers": ["tests/test_opencode_v2_preparation.py"],
+      "requires": ["chezmoi"]
+    },
+    {
+      "id": "opencode-v2-preparation",
+      "suites": ["fast", "provenance"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_opencode_v2_preparation.OpenCodeV2PreparationTests"],
+      "covers": ["tests/test_opencode_v2_preparation.py"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "requires": ["git"]
+    },
+    {
       "id": "opencode-workspace-overrides",
       "suites": ["integration", "platform"],
       "argv": ["{python}", "-m", "unittest", "tests.test_opencode_workspace_overrides"],

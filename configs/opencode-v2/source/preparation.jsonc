@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "format": "dotfiles-opencode-v2-preparation",
+  "phase": "DV2-020",
+  "purpose": "inactive-selected-base-preparation",
+  "issue": "dots-0lqe",
+  "consumerBaseline": "9100cf156e76e4dec337de3d8e0d5d9df7fc7821",
+  "ownerCommit": "81d4b66457e8d2b5628904c043dacd9d33a5c66e",
+  "nativeReference": {
+    "version": "v2.2.3",
+    "commit": "082ac6281fd395c2d0c17fd3c38214db2f89621f",
+    "purpose": "preparation-schema-and-declared-semantics-reference",
+    "cutoverRelease": null
+  },
+  "operationalReady": false,
+  "operationalAggregate": "withheld",
+  "registrationAllowed": false,
+  "activationAllowed": false,
+  "payloadFiles": 14,
+  "evidenceFiles": 3,
+  "actualProducingBuild": null,
+  "frozenInputs": [
+    {
+      "path": "configs/opencode-v2/source/inventory.json",
+      "digest": "926db2206d525b61129ea290058c728a6f31ccc6e9d128baaeb0222cfa6e9d7e"
+    },
+    {
+      "path": "configs/opencode-v2/source/consumer-contract.jsonc",
+      "digest": "e4ad61fd61a6b54fc7058665989fa7dd9cdeb86271959b7c9e3d5daebc798f57"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/metadata/preparation-manifest.json",
+      "digest": "1cae59d43ff31d54e9d094aa9a79abc8b7d1590ac00bc0f1b554466c7b2685a3"
+    },
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/agents/agent-engineer.yaml",
+      "digest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446"
+    },
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/agents/special-builder.yaml",
+      "digest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161"
+    }
+  ],
+  "selectedOwnerPaths": [
+    "reference-v2.2.3/agents/agent-engineer.md",
+    "reference-v2.2.3/agents/special-builder.md",
+    "reference-v2.2.3/skills/prompt-engineer/SKILL.md",
+    "reference-v2.2.3/skills/prompt-engineer/references/authoring-patterns.md",
+    "reference-v2.2.3/skills/prompt-engineer/references/improvement-checklist.md",
+    "reference-v2.2.3/skills/prompt-engineer/references/model-specific.md",
+    "reference-v2.2.3/skills/prompt-optimizer/SKILL.md",
+    "reference-v2.2.3/skills/prompt-optimizer/references/domain-theories.md",
+    "reference-v2.2.3/skills/prompt-optimizer/references/ears-syntax.md",
+    "reference-v2.2.3/skills/skill-creator/SKILL.md",
+    "reference-v2.2.3/skills/skill-creator/references/skill-structure.md",
+    "reference-v2.2.3/skills/skill-creator/references/testing-guide.md",
+    "reference-v2.2.3/skills/skill-reviewer/SKILL.md",
+    "reference-v2.2.3/skills/skill-reviewer/references/review-checklist.md"
+  ],
+  "overlayInputs": [
+    {
+      "surface": "host-global",
+      "path": "private_dot_config/opencode/opencode.jsonc",
+      "digest": "8e7c6dde2fd5b77ee15dbdd070ce985a04851da1d4a15c7daed8a495c2aa745b"
+    },
+    {
+      "surface": "container-global",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+      "digest": "72d867f98d2ee304499f314ddeacd8450a6940119d6767d5a5220e728829e4b1"
+    },
+    {
+      "surface": "project",
+      "path": ".opencode/opencode.jsonc",
+      "digest": "6a4f101f255b21fe91ceba169d6d134617996ed8c2579ab7d39665087ed672eb"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/api-fallback/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/chatgpt/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/defaults/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/api-fallback/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/chatgpt/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/defaults/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "posix-composition",
+      "path": "private_dot_config/opencode/opencode-profile.sh",
+      "digest": "43268b47b638fbeb2b65223c1f25552879c00e4c24376e8fc68e3aaf2c64ef75"
+    },
+    {
+      "surface": "posix-composition",
+      "path": "private_dot_config/opencode/opencode-sync-workspace-overrides.sh",
+      "digest": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904"
+    },
+    {
+      "surface": "windows",
+      "path": "private_dot_config/powershell/opencode-env.ps1.tmpl",
+      "digest": "49dfa80b7ec905e928004baeaa814733ac5c55b35d2161b91e4859030f7a7ac1"
+    },
+    {
+      "surface": "mirrors",
+      "path": "configs/devcontainer-sync.jsonc",
+      "digest": "fa4ef0624af851d918811fb8028f5f4fa06cd5bf4afdbcfef905bd6d84f48f89"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh",
+      "digest": "253e0a3f9befb984241a050b849036838417f473a602c8406135c2cd186e33ba"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh",
+      "digest": "bd26006ef0b3b274b1965cc9daeeaa180b5d502393d302bc64837cc408c24bf6"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postStart.sh",
+      "digest": "803a46e2ffe794a515d3dfa5f63f9495cfd4ade1c20d6afea7ce569f17511258"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
+      "digest": "a5567f8d482f3a5587f5d92f776e9c38e0e6df663e6e7e16d68871d1b80e4e6c"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/opencode-sync-workspace-overrides.sh",
+      "digest": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_opencode-plannotator.tmpl",
+      "digest": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_opencode-plannotator-custom.tmpl",
+      "digest": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_ai-wt.tmpl",
+      "digest": "4cc367904211b5e4ed16890a1e4ef35056be471109c8a6a289eb3f7f780068eb"
+    },
+    {
+      "surface": "aoe",
+      "path": "private_dot_config/agent-of-empires/modify_config.toml",
+      "digest": "d219347ea9591b1590a15a92e58faa68e6ded8dc82f16fd58df332e83752fa3f"
+    }
+  ],
+  "overlaysAppliedToPayload": false,
+  "transforms": [
+    "select exact committed owner output",
+    "preserve emitted bytes without rewriting"
+  ],
+  "preservationTreeDigest": "36df1c1bacdfe3288a896c483bb4c46841b136e0752c638b989e733d1e00f38c",
+  "withheldDependencies": [
+    {
+      "skill": "plugin-developer",
+      "files": 3,
+      "ownerReason": "native-plugin-guidance-unqualified",
+      "resolutionOwner": "agentic-tooling"
+    },
+    {
+      "skill": "prompt-evaluator",
+      "files": 5,
+      "ownerReason": "native-live-evaluator-unqualified",
+      "resolutionOwner": "agentic-tooling"
+    }
+  ],
+  "proofLimits": [
+    "selected closure, not a runnable agent or the full owner package",
+    "offline consumer models, not native engine or live helper qualification",
+    "actual producer build remains unknown",
+    "native Windows runtime not established"
+  ]
+}

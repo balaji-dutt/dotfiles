@@ -96,6 +96,7 @@ assets/check-automation-provenance.py	executable-mode,script-extension,shebang
 assets/check-automation-test-inventory.py	script-extension,shebang
 assets/check-beads-release-notes.py	script-extension,shebang
 assets/check-gitlab-pipeline.py	script-extension,shebang
+assets/check-opencode-v2-preparation.py	script-extension
 assets/check-pipeline.py	script-extension,shebang
 assets/check-plannotator-config.py	script-extension,shebang
 assets/check-test-selection.py	script-extension,shebang

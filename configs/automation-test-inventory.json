@@ -832,6 +832,24 @@
       "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules. OpenCode wrapper fixtures also exercise the shared selective Go key loader with stale inheritance, rotation, credential-safe refusals, unchanged PATH and profile exports, dry-run exclusions, and dependency-guard ordering and failure propagation. These fixtures do not verify live container provisioning or provider authentication."
     },
     {
+      "id": "opencode-v2-preparation-policy",
+      "classification": "owned",
+      "paths": ["assets/check-opencode-v2-preparation.py"],
+      "owner": {"kind": "repository", "name": "inactive OpenCode v2 subset provenance and isolation"},
+      "languages": ["python"],
+      "platforms": ["devcontainer", "linux", "macos", "wsl2"],
+      "risk": "high",
+      "side_effects": ["process"],
+      "test_layers": ["contract", "integration", "provenance", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-0lqe",
+        "test_paths": ["tests/test_opencode_v2_preparation.py"],
+        "behavior_requirements": []
+      },
+        "rationale": "The POSIX-only checker separates completed-phase preservation against pinned public Git history from current artifact and bounded loading-declaration validation. Mapped host/container references must remain within their namespace after normalization; profile paths retain the declaring-directory base rather than resolving from the containment root. Historical overlay hashes remain historical evidence, not qualification of current helpers. Owned temporary Git fixtures cover filtered public projections and amendment deltas without excluded blob reads. Projection source operations are non-writing; own index, files and feature HEAD must remain stable, while shared-ref movement is observed rather than treated as proof of exclusive ownership. A rehearsal validates one late-captured immutable main snapshot, not later main commits. The checker API and separate real chezmoi render gate both matter: CLI PASS alone does not establish chezmoi isolation or runtime qualification. The eight success/failure/safety requirements and concrete test mappings are recorded in docs/agents/opencode-v2-preparation.md#dv2-020-behavioral-requirement-matrix; the structured inventory array is reserved for critical-risk entries. Composition and lifecycle cases are consumer contract models, not execution of live helpers. Four-platform synthetic rendering is not native Windows checker or runtime evidence."
+    },
+    {
       "id": "peer-env",
       "classification": "owned",
       "paths": ["assets/peer-env", "assets/peer_env_windows.py"],
