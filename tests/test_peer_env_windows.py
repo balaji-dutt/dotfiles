@@ -56,14 +56,16 @@ class WindowsClientTests(unittest.TestCase):
     def identity(self):
         return MODULE.ProbeResult("macos", "M4MacBook", "macos", "reachable", "fixture", True, {}, 0.1)
 
-    def set_dacl(self, path, suffix):
+    def set_dacl(self, path, suffix, *, protected=True):
         sd = WIN.P()
         sid = WIN.user_sid()
-        sddl = f"O:{sid}D:P(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" + suffix
+        sddl = f"O:{sid}D:{'P' if protected else ''}(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" + suffix
+        # Elevated runners default new objects to BUILTIN\Administrators, so unprotected fixtures set the owner.
+        flags = 0x80000004 if protected else 0x20000005
         WIN.checked(WIN.descriptor(sddl, 1, ctypes.byref(sd), None), "fixture descriptor")
         try:
             setter = WIN.bind(WIN.advapi, "SetFileSecurityW", WIN.W.BOOL, WIN.W.LPCWSTR, WIN.DWORD, WIN.P)
-            WIN.checked(setter(str(path), 0x80000004, sd), "fixture DACL")
+            WIN.checked(setter(str(path), flags, sd), "fixture DACL")
         finally:
             WIN.free(sd)
 
@@ -98,6 +100,7 @@ class WindowsClientTests(unittest.TestCase):
 
     def test_unprotected_existing_state_is_not_silently_repaired(self):
         self.state.mkdir()
+        self.set_dacl(self.state, "", protected=False)
         with self.assertRaisesRegex(OSError, "protected"):
             WIN.private_directory(self.state)
 

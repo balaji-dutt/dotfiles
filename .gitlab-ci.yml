@@ -242,6 +242,8 @@ linux-fast:
   needs: []
   interruptible: true
   timeout: 10m
+  variables:
+    GIT_DEPTH: "0"
   before_script:
     - |
       set -eu
@@ -284,6 +286,8 @@ linux-all:
   interruptible: true
   allow_failure: true
   timeout: 30m
+  variables:
+    GIT_DEPTH: "0"
   script:
     - mkdir -p ci-artifacts
     - ./assets/run-tests.sh all --require-capability bash --require-capability git --require-capability sh --report-file ci-artifacts/linux-all.json

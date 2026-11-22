@@ -30,6 +30,7 @@ jobs:
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
@@ -55,6 +56,23 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/chezmoi" "$HOME/.local/bin/chezmoi"
           printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/chezmoi" --version
+      - name: Install chezmoi (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ChezmoiVersion = '2.69.3'
+          $Checksum = '0e1042c4e3569358fc2900b336ced6515488094c95f078199627a9ea946bf10a'
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw "unsupported runner architecture: $env:PROCESSOR_ARCHITECTURE" }
+          $Download = Join-Path $env:RUNNER_TEMP 'chezmoi-download.exe'
+          Invoke-WebRequest -Uri "https://github.com/twpayne/chezmoi/releases/download/v$ChezmoiVersion/chezmoi-windows-amd64.exe" -OutFile $Download -MaximumRetryCount 2 -ConnectionTimeoutSeconds 10 -OperationTimeoutSeconds 60
+          $Actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Download).Hash.ToLowerInvariant()
+          if ($Actual -ne $Checksum) { throw "chezmoi checksum mismatch: $Actual" }
+          $Bin = Join-Path $env:RUNNER_TEMP 'chezmoi-bin'
+          New-Item -ItemType Directory -Force $Bin | Out-Null
+          Move-Item -LiteralPath $Download -Destination (Join-Path $Bin 'chezmoi.exe') -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $Bin
+          & (Join-Path $Bin 'chezmoi.exe') --version
       - name: Expose sh from Git for Windows
         if: runner.os == 'Windows'
         shell: pwsh
