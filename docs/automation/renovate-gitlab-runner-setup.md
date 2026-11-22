@@ -202,7 +202,9 @@ until both clients can update, and gives the group the
 `renovate/beads-core-*` branch prefix. A dedicated `.gitlab-ci.yml` job runs
 `python3 assets/check-beads-release-notes.py` only for that prefix in push and
 merge-request pipelines. It does not match the unrelated
-`renovate/beads-kanban-*` checksum-sync branches.
+`renovate/beads-kanban-*` checksum-sync branches. A separate rule gives
+`dolthub/dolt` the same prefix as its own "beads dolt engine" group, so the job
+also runs on Dolt bumps, where it finds the Beads pins unchanged.
 
 The checker first requires the host and devcontainer pins to agree. It then
 uses the public `gastownhall/beads` GitHub releases API to list every published
@@ -215,7 +217,15 @@ problem; the job does not require a token during normal low-volume operation.
 
 This is a review tripwire, not a safety proof. Benign recovery wording may need
 manual review, and incidents missing from upstream notes will not match. The
-14-day release quarantine is independent of the text scan.
+14-day release quarantine is independent of the text scan. A reviewed line is
+recorded in `configs/beads-release-note-acks.json`; see `docs/beads.md`
+**Renovate gating** for the entry format.
+
+The job fetches the merge request's target branch (the default branch on push
+pipelines) so the checker can read the current pin and print the notes for
+every release between it and the proposed pin. That report is informational
+and never changes the job's exit status. If the fetch fails, the report is
+skipped and the blocking checks still run.
 
 The Beads rule also sets `platformAutomerge: false`. For patch/digest updates,
 Renovate therefore waits for GitLab branch status and will not perform its own

@@ -72,10 +72,69 @@ python3 assets/check-beads-release-notes.py \
 
 The fixture path is an input seam; the repository does not keep a live release
 snapshot. Exit status 0 is clean, 1 means newer release notes contain an
-incident term that needs review, and 2 means the pins or release data could not
-be trusted. CI runs this check only for `renovate/beads-core-*` push and merge
-request pipelines. Better Beads Kanban uses the separate
-`renovate/beads-kanban-*` dispatch.
+incident term that has not been acknowledged in
+`configs/beads-release-note-acks.json`, and 2 means the pins, release data, or
+acknowledgement file could not be trusted.
+
+The helper also prints the notes for every release between the pin at
+`--base-ref` and the proposed pin. The default ref is
+`origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME`, then
+`origin/$CI_DEFAULT_BRANCH`, then `origin/main`. That output is
+informational. With `--releases-file`, pass
+`--changelog-file <path-to-CHANGELOG.md>` to include the changelog sections
+without contacting the network.
+
+CI runs this check only for `renovate/beads-core-*` push and merge request
+pipelines. Better Beads Kanban uses the separate `renovate/beads-kanban-*`
+dispatch.
+
+### Beads and Dolt toolchain fetch
+
+`assets/beads-toolchain.py` reads the `beads_version` and `dolt_version` pins
+and fetches those exact upstream release binaries into a private directory.
+It never touches the installed `bd` or `dolt`. Linux and macOS only.
+
+```sh
+python3 assets/beads-toolchain.py pins
+python3 assets/beads-toolchain.py pins --ref origin/renovate/beads-core-clients
+python3 assets/beads-toolchain.py fetch --bd 1.3.4 --dolt 2.7.3 --prefix <dir>
+```
+
+Run `pins` from the repository root, or pass `--repo-root`. It prints both
+pins as JSON, from the working tree or from a git ref. `fetch` downloads each
+release archive from GitHub, checks it against the sha256 digest the GitHub
+releases API publishes for that asset, unpacks only the one binary into
+`<dir>/bin`, and confirms that binary reports the requested version. A release
+without a published digest is refused.
+
+`<dir>` must be new, empty, or one this helper created (it leaves a
+`.beads-toolchain` marker), so a mistyped prefix such as `~/.local` is refused
+and the installed binaries stay as they are. A prefix that already holds the
+requested, verified version is reused without downloading; the digest lookup
+still needs the GitHub API.
+
+Exit status 0 is success and 2 means bad input or a download that could not be
+trusted. Set `GITHUB_TOKEN` or `GH_TOKEN` for an authenticated API request; the
+token is never sent to the download hosts.
+
+### Beads and Dolt upgrade rehearsal
+
+`assets/beads-upgrade-rehearsal.py` copies the live Beads database, runs the
+proposed `bd` and `dolt` on the copy, and reports whether the data and this
+repo's helpers survive. Run it on the machine that hosts the Dolt database
+before merging a `renovate/beads-core-*` merge request. Linux and macOS only.
+
+```sh
+python3 assets/beads-upgrade-rehearsal.py \
+  --ref origin/renovate/beads-core-clients --stop-server
+```
+
+It stops the live Dolt server only for the duration of one copy, and only with
+`--stop-server`. Everything else runs against the copy, in a scratch project
+with no Dolt remotes. Exit status 0 is `RESULT: PASS`, 1 means a check failed
+or the run crashed, and 2 means it refused before running the proposed
+binaries. See `docs/beads.md` **Upgrade rehearsal** for the checks, the
+restore point, and the merge checklist.
 
 ### Plannotator slash-command sync
 

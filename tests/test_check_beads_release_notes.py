@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -102,8 +105,35 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
             npm + ("\n" if npm else ""), encoding="utf-8"
         )
 
+    def commit_base_pin(self, host: str) -> None:
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        proposed = (self.repo_root / ".chezmoidata.yaml").read_text(encoding="utf-8")
+        (self.repo_root / ".chezmoidata.yaml").write_text(host + "\n", encoding="utf-8")
+        for argv in (
+            ["git", "init", "-q", "-b", "main"],
+            ["git", "add", ".chezmoidata.yaml"],
+            [
+                "git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "commit", "-q", "-m", "base pin",
+            ],
+        ):
+            subprocess.run(argv, cwd=self.repo_root, env=env, check=True, capture_output=True)
+        (self.repo_root / ".chezmoidata.yaml").write_text(proposed, encoding="utf-8")
+
+    def write_acks(self, payload: Any) -> None:
+        path = self.repo_root / HELPER.ACKS_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8"
+        )
+
     def run_helper(
-        self, releases: Any, *, raw_json: str | None = None
+        self,
+        releases: Any,
+        *,
+        raw_json: str | None = None,
+        extra: tuple[str, ...] = (),
+        ci: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         releases_path = self.repo_root / "releases.json"
         releases_path.write_text(
@@ -120,7 +150,19 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
                 str(releases_path),
                 "--clone-local-fks-file",
                 str(self.upstream_path),
+                *extra,
             ],
+            env={
+                **{
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("CI_")
+                },
+                **(ci or {}),
+                "GIT_CEILING_DIRECTORIES": str(self.repo_root.parent),
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            },
             check=False,
             capture_output=True,
             text=True,
@@ -326,6 +368,321 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
         self.assertIn("data loss", completed.stderr)
 
 
+    def adopted_range_fixture(self) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+        self.commit_base_pin('beads_version: "1.2.0"')
+        changelog = self.repo_root / "CHANGELOG.md"
+        changelog.write_text(
+            "\n".join(
+                [
+                    "# Changelog",
+                    "## [Unreleased]",
+                    "### Upgrade notes",
+                    "unreleased note must stay hidden",
+                    "## [1.2.2] - 2026-08-20",
+                    "Same code as [1.2.2-rc.1]; the full notes are in that section.",
+                    "## [1.2.2-rc.1] - 2026-08-19",
+                    "First candidate.",
+                    "### Fixed",
+                    "- fixes a data loss bug in export",
+                    "### Upgrade notes",
+                    "- run bd recompute-blocked once",
+                    "#### Details",
+                    "- nested detail stays in the section",
+                    "### Known issues",
+                    "- compact is unsafe after 0062",
+                    "## [1.2.1] - 2026-08-10",
+                    "### Changed",
+                    "- nothing to act on",
+                    "## [1.2.0] - 2026-08-01",
+                    "### Upgrade notes",
+                    "current pin note must stay hidden",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        releases = [
+            release("v1.2.3"),
+            release(
+                "v1.2.2",
+                body=(
+                    "## beads v1.2.2\n### Release notes\nRead the rc section.\n"
+                    "### Known issue found after release: env is ignored\nworkaround text\n"
+                    "### Installation\ninstall text must stay hidden\n"
+                    "## Changelog\n* abc recover from a crash\n"
+                ),
+            ),
+            release("v1.2.2-rc.1"),
+            release("v1.2.1"),
+            release("v1.2.1-rc.1"),
+            release("v1.2.0"),
+        ]
+        return releases, ("--base-ref", "HEAD", "--changelog-file", str(changelog))
+
+    def test_adopted_range_prints_notes_between_current_and_proposed_pins(self) -> None:
+        releases, extra = self.adopted_range_fixture()
+
+        completed = self.run_helper(releases, extra=extra)
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        output = completed.stdout
+        self.assertIn("adopts 4 Beads release(s) after 1.2.0 (HEAD), up to 1.2.2", output)
+        order = [
+            output.index(f"adopted Beads release {version}:")
+            for version in ("1.2.1-rc.1", "1.2.1", "1.2.2-rc.1", "1.2.2")
+        ]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn("adopted Beads release 1.2.0:", output)
+        self.assertNotIn("adopted Beads release 1.2.3:", output)
+        for expected in (
+            "CHANGELOG Upgrade notes:",
+            "| - run bd recompute-blocked once",
+            "| - nested detail stays in the section",
+            "CHANGELOG Known issues:",
+            "| - compact is unsafe after 0062",
+            "| Same code as [1.2.2-rc.1]; the full notes are in that section.",
+            "Release page Release notes:",
+            "Release page Known issue found after release: env is ignored:",
+            "| workaround text",
+            "mentions 'data loss': - fixes a data loss bug in export",
+            "no upgrade-notes or known-issues section found",
+            "blob/v1.2.2/CHANGELOG.md",
+        ):
+            self.assertIn(expected, output)
+        for hidden in ("must stay hidden", "recover from a crash"):
+            self.assertNotIn(hidden, output)
+        self.assertNotIn("ERROR", completed.stderr)
+
+    def test_adopted_range_never_changes_the_exit_status(self) -> None:
+        releases, extra = self.adopted_range_fixture()
+        releases[0] = release("v1.2.3", body="possible data loss")
+
+        completed = self.run_helper(releases, extra=extra)
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("adopts 4 Beads release(s)", completed.stdout)
+
+        missing = self.run_helper(
+            releases[1:], extra=("--base-ref", "HEAD")
+        )
+        self.assertEqual(missing.returncode, 0, missing.stderr)
+        self.assertIn("CHANGELOG.md not read", missing.stdout)
+        self.assertIn("adopted Beads release 1.2.2:", missing.stdout)
+        self.assertIn("Release page Known issue found after release", missing.stdout)
+
+    def test_unchanged_or_lowered_pin_has_no_adopted_range(self) -> None:
+        self.commit_base_pin('beads_version: "1.2.2"')
+        same = self.run_helper([release("v1.2.2")], extra=("--base-ref", "HEAD"))
+        self.assertEqual(same.returncode, 0, same.stderr)
+        self.assertIn("unchanged from HEAD; no adopted range", same.stdout)
+
+        self.write_pins(host='beads_version: "1.2.1"', npm="@beads/bd@1.2.1")
+        lowered = self.run_helper(
+            [release("v1.2.2"), release("v1.2.1")], extra=("--base-ref", "HEAD")
+        )
+        self.assertEqual(lowered.returncode, 0, lowered.stderr)
+        self.assertIn("moves down from 1.2.2 (HEAD) to 1.2.1", lowered.stdout)
+
+    def test_unreadable_base_ref_skips_the_range_report(self) -> None:
+        for extra, message in (
+            ((), "git could not read .chezmoidata.yaml at origin/main"),
+            (("--base-ref=--upload-pack=x",), "refusing base ref"),
+        ):
+            with self.subTest(extra=extra):
+                completed = self.run_helper([release("v1.2.2")], extra=extra)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn("adopted-range report skipped", completed.stdout)
+                self.assertIn(message, completed.stdout)
+
+    def test_acknowledged_lines_pass_and_new_lines_block(self) -> None:
+        commit = "* 056f47a test(ci): assert corrupt-metadata refusals (#7744)"
+        other = "* b184dae fix(dbproxy): recover onto a free port (#7184)"
+        releases = [
+            release("v1.2.2"),
+            release("v1.2.3-rc.1", body=f"## Changelog\n{commit}\n"),
+            release("v1.2.3-rc.2", body=f"## Changelog\n{commit}\n{other}\n"),
+        ]
+        ack = {
+            "line": commit.replace(" test(ci)", "   test(ci)"),
+            "pattern": "corruption",
+            "reason": "test-only commit",
+            "reviewed": "2026-11-22",
+        }
+        self.write_acks({"schema_version": 1, "acks": [ack]})
+
+        blocked = self.run_helper(releases)
+
+        self.assertEqual(blocked.returncode, 1)
+        self.assertEqual(blocked.stdout.count("acknowledged 'corruption' match"), 1)
+        self.assertNotIn("corrupt-metadata", blocked.stderr)
+        self.assertIn(f"v1.2.3-rc.2 release notes match 'recovery': {other}", blocked.stderr)
+        suggestion = next(
+            line for line in blocked.stderr.splitlines() if "to acknowledge after review" in line
+        )
+        suggested = json.loads(suggestion.split(": ", 2)[2])
+        self.assertEqual((suggested["line"], suggested["pattern"]), (other, "recovery"))
+
+        stale = {**ack, "line": "* gone commit recovers nothing", "pattern": "recovery"}
+        self.write_acks(
+            {
+                "schema_version": 1,
+                "acks": [ack, stale, {**ack, "line": other, "pattern": "recovery"}],
+            }
+        )
+        passed = self.run_helper(releases)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertIn("contain no unacknowledged hazard terms", passed.stdout)
+        self.assertIn("stale acknowledgement", passed.stdout)
+        self.assertIn("* gone commit recovers nothing", passed.stdout)
+
+    def test_report_failures_are_swallowed_and_output_is_sanitised(self) -> None:
+        releases, extra = self.adopted_range_fixture()
+        changelog = Path(extra[-1])
+        text = changelog.read_text(encoding="utf-8").replace(
+            "- run bd recompute-blocked once",
+            "- run \x1b[31mbd\x00 recompute-blocked\u202e once",
+        )
+        changelog.write_text(text, encoding="utf-8")
+
+        sanitised = self.run_helper(releases, extra=extra)
+        self.assertEqual(sanitised.returncode, 0, sanitised.stderr)
+        self.assertIn("| - run bd  recompute-blocked  once", sanitised.stdout)
+        for character in ("\x1b", "\x00", "\u202e"):
+            self.assertNotIn(character, sanitised.stdout)
+
+        changelog.write_bytes(b"## [1.2.2]\n\xff\xfe not utf-8\n")
+        unreadable = self.run_helper(releases, extra=extra)
+        self.assertEqual(unreadable.returncode, 0, unreadable.stderr)
+        self.assertIn("CHANGELOG.md not read", unreadable.stdout)
+        self.assertIn("adopted Beads release 1.2.2:", unreadable.stdout)
+        self.assertNotIn("Traceback", unreadable.stderr)
+
+    def test_report_swallows_unexpected_exceptions(self) -> None:
+        releases, extra = self.adopted_range_fixture()
+        releases_path = self.repo_root / "releases.json"
+        releases_path.write_text(json.dumps(releases), encoding="utf-8")
+        original = HELPER.report_adopted_range
+
+        def explode(*args: Any) -> None:
+            del args
+            raise RuntimeError("unexpected\nfailure")
+
+        HELPER.report_adopted_range = explode
+        self.addCleanup(setattr, HELPER, "report_adopted_range", original)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = HELPER.main(
+                [
+                    "--repo-root", str(self.repo_root),
+                    "--releases-file", str(releases_path),
+                    "--clone-local-fks-file", str(self.upstream_path),
+                    *extra,
+                ]
+            )
+
+        self.assertEqual(code, 0, stderr.getvalue())
+        self.assertIn("adopted-range report skipped: unexpected failure", stdout.getvalue())
+        self.assertIn("clone-local FK list matches", stdout.getvalue())
+
+    def test_hazard_term_wrapped_across_lines_still_blocks(self) -> None:
+        completed = self.run_helper(
+            [
+                release("v1.2.2"),
+                release("v1.2.3", body="- export may cause data\r\n  loss on a full disk\nclean"),
+            ]
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn(
+            "match 'data loss': - export may cause data loss on a full disk",
+            completed.stderr,
+        )
+
+    def test_ci_branches_name_the_rehearsal_command_and_other_runs_do_not(self) -> None:
+        command = "python3 assets/beads-upgrade-rehearsal.py --ref origin/{} --stop-server"
+        merge_request = self.run_helper(
+            [release("v1.2.2")],
+            ci={
+                "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "renovate/beads-core-clients",
+                "CI_COMMIT_BRANCH": "ignored",
+            },
+        )
+        self.assertEqual(merge_request.returncode, 0, merge_request.stderr)
+        self.assertIn(command.format("renovate/beads-core-clients"), merge_request.stdout)
+
+        pushed = self.run_helper(
+            [release("v1.2.2")], ci={"CI_COMMIT_BRANCH": "renovate/beads-core-dolt-engine"}
+        )
+        self.assertIn(command.format("renovate/beads-core-dolt-engine"), pushed.stdout)
+
+        for ci in (None, {"CI_COMMIT_BRANCH": "x; rm -rf ~"}, {"CI_COMMIT_BRANCH": "-oops"}):
+            with self.subTest(ci=ci):
+                local = self.run_helper([release("v1.2.2")], ci=ci)
+                self.assertEqual(local.returncode, 0, local.stderr)
+                self.assertNotIn("beads-upgrade-rehearsal", local.stdout)
+
+        blocked = self.run_helper(
+            [release("v1.2.2"), release("v1.2.3", body="data loss")],
+            ci={"CI_COMMIT_BRANCH": "renovate/beads-core-clients"},
+        )
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("beads-upgrade-rehearsal", blocked.stdout)
+
+    def test_every_unacknowledged_line_in_a_release_is_reported(self) -> None:
+        completed = self.run_helper(
+            [
+                release("v1.2.2"),
+                release("v1.2.3", body="first corrupt row\nsecond corrupted table\nclean line"),
+            ]
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("match 'corruption': first corrupt row", completed.stderr)
+        self.assertIn("match 'corruption': second corrupted table", completed.stderr)
+
+    def test_an_acknowledgement_covers_only_its_own_pattern(self) -> None:
+        line = "recover from data loss"
+        self.write_acks(
+            {
+                "schema_version": 1,
+                "acks": [
+                    {"line": line, "pattern": "recovery", "reason": "r", "reviewed": "2026-11-22"}
+                ],
+            }
+        )
+
+        completed = self.run_helper([release("v1.2.2"), release("v1.2.3", body=line)])
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("match 'data loss'", completed.stderr)
+        self.assertNotIn("match 'recovery'", completed.stderr)
+
+    def test_malformed_acknowledgement_file_fails_closed(self) -> None:
+        good = {"line": "x", "pattern": "recovery", "reason": "r", "reviewed": "2026-11-22"}
+        cases = (
+            ("{broken", "invalid JSON"),
+            ([], "schema_version 1"),
+            ({"schema_version": 2, "acks": []}, "schema_version 1"),
+            ({"schema_version": 1}, "acks array"),
+            ({"schema_version": 1, "acks": ["x"]}, "is not an object"),
+            ({"schema_version": 1, "acks": [{**good, "reason": " "}]}, "missing reason"),
+            ({"schema_version": 1, "acks": [{**good, "pattern": "typo"}]}, "unknown pattern"),
+            ({"schema_version": 1, "acks": [{**good, "reviewed": "today"}]}, "YYYY-MM-DD"),
+        )
+        for payload, message in cases:
+            with self.subTest(message=message):
+                self.write_acks(payload)
+                completed = self.run_helper([release("v1.2.2")])
+                self.assertEqual(completed.returncode, 2)
+                self.assertIn(message, completed.stderr)
+
+        (self.repo_root / HELPER.ACKS_PATH).write_bytes(b"\xff\xfe")
+        completed = self.run_helper([release("v1.2.2")])
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("cannot read", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+
 class FakeResponse:
     def __init__(self, payload: Any, *, url: str, link: str | None = None) -> None:
         self.payload = json.dumps(payload).encode("utf-8")
@@ -481,6 +838,22 @@ class BeadsReleaseFetchTests(unittest.TestCase):
             HELPER.fetch_clone_local_fks_source(version, 1.0, opener=numeric_opener)
         self.assertEqual(numeric_opener.requests, [url])
 
+    def test_changelog_is_fetched_from_the_proposed_tag_only(self) -> None:
+        version = HELPER.SemVer.parse("1.3.4")
+        url = f"https://api.github.com{HELPER.CHANGELOG_API_PATH}?ref=v1.3.4"
+        response = FakeResponse(None, url=url)
+        response.payload = b"## [1.3.4] - 2026-11-04\n"
+        opener = FakeOpener([response])
+
+        self.assertEqual(
+            HELPER.fetch_changelog(version, 1.0, opener=opener), "## [1.3.4] - 2026-11-04\n"
+        )
+        self.assertEqual(opener.requests, [url])
+
+        moved = FakeResponse(None, url=f"https://api.github.com{HELPER.CONTENTS_API_PATH}")
+        with self.assertRaisesRegex(HELPER.GuardError, "contents URL outside the Beads GitHub API"):
+            HELPER.fetch_changelog(version, 1.0, opener=FakeOpener([moved]))
+
     def test_missing_clone_local_fks_source_fails_closed(self) -> None:
         error = urllib.error.HTTPError(HELPER.CONTENTS_API_PATH, 404, "Not Found", {}, io.BytesIO())
         try:
@@ -544,6 +917,60 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
         for version in ("1.2.2", "1.3.1", "1.3.10"):
             with self.subTest(allowed_version=version):
                 self.assertNotRegex(version, excluded_versions)
+
+    def test_dolt_has_its_own_gated_group_on_the_beads_branch_prefix(self) -> None:
+        load_json = runpy.run_path(str(REPO_ROOT / "assets/check-ai-tooling.py"))["load_json"]
+        rules = load_json(REPO_ROOT / "renovate.json5", jsonc=True)["packageRules"]
+        dependency_keys = {
+            "matchDepNames", "matchPackageNames", "matchDepPatterns",
+            "matchPackagePatterns", "matchPackagePrefixes", "matchSourceUrls",
+        }
+        naming_dolt = [
+            index for index, rule in enumerate(rules)
+            if any("dolthub/dolt" in rule.get(key, []) for key in dependency_keys)
+        ]
+        self.assertEqual(len(naming_dolt), 1)
+        dolt_index = naming_dolt[0]
+        later = rules[dolt_index + 1 :]
+        self.assertEqual(
+            [rule.get("matchDepNames") for rule in later], [["@beads/bd", "gastownhall/beads"]]
+        )
+        self.assertEqual(
+            rules[dolt_index],
+            {
+                "matchManagers": ["custom.regex"],
+                "matchDepNames": ["dolthub/dolt"],
+                "minimumReleaseAge": "14 days",
+                "minimumGroupSize": 2,
+                "groupName": "beads dolt engine",
+                "groupSlug": "dolt-engine",
+                "additionalBranchPrefix": "beads-core-",
+                "prBodyNotes": rules[-1]["prBodyNotes"],
+                "automerge": False,
+                "platformAutomerge": False,
+            },
+        )
+        notes = rules[-1]["prBodyNotes"]
+        self.assertEqual(len(notes), 1)
+        self.assertIn(
+            "`python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} "
+            "--stop-server`",
+            notes[0],
+        )
+        self.assertIn("RESULT: PASS", notes[0])
+        self.assertTrue((REPO_ROOT / "assets/beads-upgrade-rehearsal.py").is_file())
+
+        pins = [
+            REPO_ROOT / ".chezmoidata.yaml",
+            REPO_ROOT / "private_Documents/development/container-dotfiles/devcontainers"
+            "/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
+        ]
+        for path in pins:
+            with self.subTest(path=path.name):
+                annotations = re.findall(
+                    r"depName=dolthub/dolt(?=\s|$)", path.read_text(encoding="utf-8"), re.M
+                )
+                self.assertEqual(len(annotations), 1)
 
     def test_ci_dispatch_is_narrow_and_excludes_beads_kanban(self) -> None:
         pipeline = (REPO_ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")

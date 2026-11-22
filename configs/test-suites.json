@@ -166,7 +166,8 @@
       "id": "beads-release-notes",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_check_beads_release_notes"],
-      "covers": ["tests/test_check_beads_release_notes.py"]
+      "covers": ["tests/test_check_beads_release_notes.py"],
+      "requires": ["git"]
     },
     {
       "id": "beads-sync",
@@ -188,6 +189,19 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_sync.BeadsSyncPowerShellTests"],
       "covers": ["tests/test_beads_sync.py"],
       "requires": ["git", "pwsh-fixture"]
+    },
+    {
+      "id": "beads-toolchain",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_toolchain"],
+      "covers": ["tests/test_beads_toolchain.py"],
+      "requires": ["git"]
+    },
+    {
+      "id": "beads-upgrade-rehearsal",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_upgrade_rehearsal"],
+      "covers": ["tests/test_beads_upgrade_rehearsal.py"]
     },
     {
       "id": "browser-policy-sync",

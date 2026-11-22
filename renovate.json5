@@ -418,7 +418,6 @@
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
         "uv",
-        "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["patch", "digest"],
@@ -428,7 +427,6 @@
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
         "uv",
-        "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["minor"],
@@ -438,7 +436,6 @@
       "matchManagers": ["custom.regex"],
       "matchDepNames": [
         "uv",
-        "dolthub/dolt",
         "agent-of-empires/agent-of-empires"
       ],
       "matchUpdateTypes": ["major"],
@@ -533,6 +530,22 @@
       "automerge": false
     },
     {
+      // Dolt serves the Beads database, so it shares the Beads branch prefix
+      // and the CI jobs that prefix dispatches. Keep it out of generic groups.
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["dolthub/dolt"],
+      "minimumReleaseAge": "14 days",
+      "minimumGroupSize": 2,
+      "groupName": "beads dolt engine",
+      "groupSlug": "dolt-engine",
+      "additionalBranchPrefix": "beads-core-",
+      "prBodyNotes": [
+        "**Before merging:** this bump changes a binary that reads and writes the Beads database. On the machine that hosts the database, fetch this branch and run `python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} --stop-server`. Merge only after it prints `RESULT: PASS` and the `beads-release-notes` job is green. See `docs/beads.md`, **Upgrade rehearsal**."
+      ],
+      "automerge": false,
+      "platformAutomerge": false
+    },
+    {
       // Keep the host and devcontainer clients together. The branch prefix is
       // the dispatch contract for the Beads release-note CI guard.
       "matchManagers": ["custom.regex"],
@@ -543,6 +556,9 @@
       "groupName": "beads clients",
       "groupSlug": "clients",
       "additionalBranchPrefix": "beads-core-",
+      "prBodyNotes": [
+        "**Before merging:** this bump changes a binary that reads and writes the Beads database. On the machine that hosts the database, fetch this branch and run `python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} --stop-server`. Merge only after it prints `RESULT: PASS` and the `beads-release-notes` job is green. See `docs/beads.md`, **Upgrade rehearsal**."
+      ],
       "platformAutomerge": false
     }
   ]
