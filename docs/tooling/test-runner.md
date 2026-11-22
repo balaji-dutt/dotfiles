@@ -371,6 +371,15 @@ devcontainer step has a 1200-second step limit, distinct from the live-smoke
 command timeout above. Descendants that leave the step's process group are not
 covered by group signalling; undrained output is reported as a cleanup failure.
 
+Every step is launched from a worker thread, and the runner's main thread
+handles interruption for the whole run. On POSIX that covers `SIGINT`,
+`SIGTERM`, and `SIGHUP` between steps and during capability probes as well as
+while a step runs: the worker stops its own step, the step in progress (or the
+one whose capabilities were being probed) is recorded as interrupted, and the
+runner exits with 128 plus the signal number. If stopping the step fails, its
+reason reads `interrupted; cleanup failed: ...` and the run still counts as
+interrupted.
+
 On Windows, each step starts in a new process group and gets the same
 `timeout_seconds` limit. On timeout or interruption the runner runs
 `%SYSTEMROOT%\System32\taskkill.exe /T /F /PID <step pid>` by absolute path,

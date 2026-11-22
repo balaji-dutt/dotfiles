@@ -8,6 +8,7 @@ import collections
 import json
 import os
 import platform as python_platform
+import queue
 import re
 import selectors
 import signal
@@ -32,6 +33,7 @@ STEP_PLACEHOLDERS = {"python", "repo"}
 DEFAULT_STEP_TIMEOUT_SECONDS = 600
 SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
 STEP_STOP_GRACE_SECONDS = 1
+CANCEL_POLL_SECONDS = 0.1
 CASE_REPORT_ADAPTER = Path(__file__).resolve().parent / "unittest-case-report.py"
 STEP_OUTPUT_LIMIT_BYTES = 1024 * 1024
 WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
@@ -39,6 +41,7 @@ WINDOWS_TASKKILL_TIMEOUT_SECONDS = 10
 WINDOWS_TASKKILL_NOT_FOUND = 128
 WINDOWS_NTSTATUS_ERROR = 0xC0000000
 IS_WINDOWS = os.name == "nt"
+WORKER_STOP_SECONDS = 15 if IS_WINDOWS else 5
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 PASSTHROUGH_ENV = {
     "COMSPEC",
@@ -585,26 +588,48 @@ def _stop_step_group(process: subprocess.Popen[bytes], pipes: _PosixPipes) -> st
     return "; ".join(errors) or None
 
 
+def _await_step(
+    process: subprocess.Popen[bytes],
+    pipes: _PosixPipes | _ThreadedPipes,
+    command: list[str],
+    timeout_seconds: int,
+    cancel: threading.Event | None,
+) -> bool:
+    """Drain and reap a step; return False when the run was cancelled before it finished."""
+    deadline = time.monotonic() + timeout_seconds
+    if cancel is None:
+        if not pipes.drain(deadline):
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+        process.wait(timeout=max(0, deadline - time.monotonic()))
+        return True
+    while not pipes.drain(min(deadline, time.monotonic() + CANCEL_POLL_SECONDS)):
+        if cancel.is_set():
+            return False
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+    while not cancel.is_set():
+        try:
+            process.wait(timeout=min(CANCEL_POLL_SECONDS, max(0, deadline - time.monotonic())))
+            return True
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                raise
+    return False
+
+
+def _interrupted(pipes: _PosixPipes | _ThreadedPipes, cleanup_error: str | None):
+    reason = "interrupted"
+    if cleanup_error:
+        reason += f"; cleanup failed: {cleanup_error}"
+    return *pipes.text(), None, reason, "interrupted", cleanup_error
+
+
 def _run_posix_step(
-    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
+    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int,
+    cancel: threading.Event | None = None,
 ) -> tuple[str, str, int | None, str | None, str, str | None]:
-    previous = {}
     process = None
     pipes = None
-    pending_signal = None
-
-    def cancel_step(signum, frame):
-        nonlocal pending_signal
-        for sig in previous:
-            signal.signal(sig, signal.SIG_IGN)
-        if process is None:
-            pending_signal = signum
-        else:
-            raise SystemExit(128 + signum)
-
-    if threading.current_thread() is threading.main_thread():
-        for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
-            previous[sig] = signal.signal(sig, cancel_step)
     try:
         try:
             process = subprocess.Popen(
@@ -614,13 +639,9 @@ def _run_posix_step(
         except OSError as error:
             return "", "", None, f"cannot execute step: {error}", "launch_error", None
         pipes = _PosixPipes(process)
-        if pending_signal is not None:
-            raise SystemExit(128 + pending_signal)
-        deadline = time.monotonic() + timeout_seconds
-        if not pipes.drain(deadline):
-            raise subprocess.TimeoutExpired(command, timeout_seconds)
-        process.wait(timeout=max(0, deadline - time.monotonic()))
-        return *pipes.text(), process.returncode, None, "exited", None
+        if _await_step(process, pipes, command, timeout_seconds, cancel):
+            return *pipes.text(), process.returncode, None, "exited", None
+        return _interrupted(pipes, _stop_step_group(process, pipes))
     except subprocess.TimeoutExpired:
         cleanup_error = _stop_step_group(process, pipes)
         reason = f"timeout after {timeout_seconds} seconds"
@@ -633,9 +654,6 @@ def _run_posix_step(
             if cleanup_error:
                 raise RuntimeError(f"step cleanup failed: {cleanup_error}")
         raise
-    finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
 
 
 def _stop_windows_tree(process: subprocess.Popen[bytes], pipes: _ThreadedPipes) -> str | None:
@@ -667,7 +685,8 @@ def _stop_windows_tree(process: subprocess.Popen[bytes], pipes: _ThreadedPipes) 
 
 
 def _run_windows_step(
-    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int
+    command: list[str], *, repo_root: Path, env: dict[str, str], timeout_seconds: int,
+    cancel: threading.Event | None = None,
 ) -> tuple[str, str, int | None, str | None, str, str | None]:
     try:
         process = subprocess.Popen(
@@ -679,11 +698,9 @@ def _run_windows_step(
         return "", "", None, f"cannot execute step: {error}", "launch_error", None
     pipes = _ThreadedPipes(process)
     try:
-        deadline = time.monotonic() + timeout_seconds
-        if not pipes.drain(deadline):
-            raise subprocess.TimeoutExpired(command, timeout_seconds)
-        process.wait(timeout=max(0, deadline - time.monotonic()))
-        return *pipes.text(), process.returncode, None, "exited", None
+        if _await_step(process, pipes, command, timeout_seconds, cancel):
+            return *pipes.text(), process.returncode, None, "exited", None
+        return _interrupted(pipes, _stop_windows_tree(process, pipes))
     except subprocess.TimeoutExpired:
         cleanup_error = _stop_windows_tree(process, pipes)
         reason = f"timeout after {timeout_seconds} seconds"
@@ -738,13 +755,79 @@ def run_steps(
     progress: Callable[[RunResult], None] | None = None,
 ) -> RunResult:
     platform = current_platform()
-    step_results: list[StepResult] = []
-    current = -1
+    results: dict[int, StepResult] = {}
+    running: dict[int, threading.Thread] = {}
+    reports: dict[int, tuple[Path | None, bool]] = {}
+    finished: queue.Queue[tuple[int, object, float]] = queue.Queue()
+    cancel = threading.Event()
+    previous_handlers: dict[int, object] = {}
+    preparing: int | None = None
+    starting = False
+    deferred_signal: int | None = None
+    unstopped: set[int] = set()
 
-    def record(result: StepResult) -> None:
-        step_results.append(result)
+    def recorded() -> tuple[StepResult, ...]:
+        return tuple(results[index] for index in sorted(results))
+
+    def record(index: int, result: StepResult) -> None:
+        results[index] = result
         if progress is not None:
-            progress(RunResult(platform, tuple(step_results), state="running"))
+            progress(RunResult(platform, recorded(), state="running"))
+
+    def work(index: int, launch, command: list[str], env: dict[str, str]) -> None:
+        started = time.perf_counter()
+        try:
+            if cancel.is_set():
+                outcome = ("", "", None, "interrupted", "interrupted", None)
+            else:
+                outcome = launch(
+                    command, repo_root=repo_root, env=env,
+                    timeout_seconds=steps[index].timeout_seconds, cancel=cancel,
+                )
+        except BaseException as error:
+            outcome = error
+        finished.put((index, outcome, round(time.perf_counter() - started, 3)))
+
+    def stop_run(signum, frame):
+        nonlocal deferred_signal
+        for sig in previous_handlers:
+            signal.signal(sig, signal.SIG_IGN)
+        # Raising inside Thread.start() would leave a worker that cleanup cannot join.
+        if starting:
+            deferred_signal = signum
+        else:
+            raise SystemExit(128 + signum)
+
+    def finish(index: int, outcome: tuple, duration: float) -> None:
+        step = steps[index]
+        stdout, stderr, returncode, failure_reason, kind, cleanup_error = outcome
+        signal_number = -returncode if returncode is not None and returncode < 0 else None
+        termination = {
+            "kind": "signal" if signal_number else kind,
+            "exit_code": returncode,
+            "signal": signal_number,
+            "cleanup_error": cleanup_error,
+        }
+        sidecar, adapted = reports[index]
+        cases = None
+        if sidecar:
+            cases = read_case_report(sidecar) if adapted else {"status": "unsupported-argv"}
+        if stdout:
+            print(stdout, end="" if stdout.endswith("\n") else "\n", flush=True)
+        if stderr:
+            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr, flush=True)
+        if returncode == 0 and failure_reason is None:
+            print(f"PASS {step.step_id}", flush=True)
+            record(index, StepResult(step, "pass", None, 0, "passed", duration, termination, cases))
+            return
+        reason = failure_reason or f"exit {returncode}"
+        result_outcome = {"launch_error": "launch_error", "timeout": "timeout"}.get(kind, "failed")
+        windows_crash = (IS_WINDOWS and returncode is not None
+                         and returncode >= WINDOWS_NTSTATUS_ERROR)
+        if signal_number or windows_crash:
+            result_outcome = "crash"
+        print(f"FAIL {step.step_id}: {reason}", flush=True)
+        record(index, StepResult(step, "fail", reason, returncode, result_outcome, duration, termination, cases))
 
     try:
         with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
@@ -752,13 +835,15 @@ def run_steps(
             shared_env, lookup_path = _shared_environment(repo_root, run_dir)
             probe_env: dict[str, str] | None = None
             capability_cache: dict[str, tuple[str | None, str | None]] = {}
-            for index, step in enumerate(steps):
-                current = index
+
+            def start(index: int) -> None:
+                nonlocal probe_env, starting
+                step = steps[index]
                 if platform not in step.platforms:
                     reason = f"requires platform {', '.join(step.platforms)}"
-                    print(f"SKIP {step.step_id}: {reason}")
-                    record(StepResult(step, "skip", reason, None, "skipped_platform"))
-                    continue
+                    print(f"SKIP {step.step_id}: {reason}", flush=True)
+                    record(index, StepResult(step, "skip", reason, None, "skipped_platform"))
+                    return
                 missing: list[tuple[str, str]] = []
                 for name in step.requires:
                     if name not in capability_cache:
@@ -779,12 +864,12 @@ def run_steps(
                     )
                     status = "FAIL" if should_fail else "SKIP"
                     reason = "; ".join(message for _, message in missing)
-                    print(f"{status} {step.step_id}: {reason}")
+                    print(f"{status} {step.step_id}: {reason}", flush=True)
                     if should_fail:
-                        record(StepResult(step, "fail", reason, None, "missing_capability"))
+                        record(index, StepResult(step, "fail", reason, None, "missing_capability"))
                     else:
-                        record(StepResult(step, "skip", reason, None, "skipped_capability"))
-                    continue
+                        record(index, StepResult(step, "skip", reason, None, "skipped_capability"))
+                    return
 
                 command = _expanded_argv(step, repo_root)
                 step_env = _sandbox_environment(shared_env, run_dir / f"{index:03d}")
@@ -795,40 +880,53 @@ def run_steps(
                 adapted = case_report_command(command, sidecar) if sidecar else None
                 if adapted is not None:
                     command = adapted
-                print(f"RUN  {step.step_id}")
-                started = time.perf_counter()
+                reports[index] = (sidecar, adapted is not None)
+                print(f"RUN  {step.step_id}", flush=True)
                 launch = _run_windows_step if IS_WINDOWS else _run_posix_step
-                stdout, stderr, returncode, failure_reason, kind, cleanup_error = launch(
-                    command, repo_root=repo_root, env=step_env,
-                    timeout_seconds=step.timeout_seconds,
+                thread = threading.Thread(
+                    target=work, args=(index, launch, command, step_env), daemon=True
                 )
-                duration = round(time.perf_counter() - started, 3)
-                signal_number = -returncode if returncode is not None and returncode < 0 else None
-                termination = {
-                    "kind": "signal" if signal_number else kind,
-                    "exit_code": returncode,
-                    "signal": signal_number,
-                    "cleanup_error": cleanup_error,
-                }
-                cases = None
-                if sidecar:
-                    cases = read_case_report(sidecar) if adapted else {"status": "unsupported-argv"}
-                if stdout:
-                    print(stdout, end="" if stdout.endswith("\n") else "\n")
-                if stderr:
-                    print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-                if returncode == 0 and failure_reason is None:
-                    print(f"PASS {step.step_id}")
-                    record(StepResult(step, "pass", None, 0, "passed", duration, termination, cases))
-                else:
-                    reason = failure_reason or f"exit {returncode}"
-                    outcome = {"launch_error": "launch_error", "timeout": "timeout"}.get(kind, "failed")
-                    windows_crash = (IS_WINDOWS and returncode is not None
-                                     and returncode >= WINDOWS_NTSTATUS_ERROR)
-                    if signal_number or windows_crash:
-                        outcome = "crash"
-                    print(f"FAIL {step.step_id}: {reason}")
-                    record(StepResult(step, "fail", reason, returncode, outcome, duration, termination, cases))
+                running[index] = thread
+                starting = True
+                try:
+                    thread.start()
+                finally:
+                    starting = False
+                if deferred_signal is not None:
+                    raise SystemExit(128 + deferred_signal)
+
+            pending = collections.deque(range(len(steps)))
+            try:
+                if not IS_WINDOWS and threading.current_thread() is threading.main_thread():
+                    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+                        previous_handlers[sig] = signal.signal(sig, stop_run)
+                while pending or running:
+                    if pending and not running:
+                        preparing = pending.popleft()
+                        start(preparing)
+                        preparing = None
+                        continue
+                    try:
+                        index, outcome, duration = finished.get(timeout=CANCEL_POLL_SECONDS)
+                    except queue.Empty:
+                        continue
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+                    running[index].join()
+                    finish(index, outcome, duration)
+                    del running[index]
+            except BaseException:
+                cancel.set()
+                stop_by = time.monotonic() + WORKER_STOP_SECONDS
+                for index, thread in running.items():
+                    if thread.is_alive():
+                        thread.join(max(0, stop_by - time.monotonic()))
+                        if thread.is_alive():
+                            unstopped.add(index)
+                raise
+            finally:
+                for sig, handler in previous_handlers.items():
+                    signal.signal(sig, handler)
     except BaseException as error:
         if progress is not None:
             interrupted = isinstance(error, (KeyboardInterrupt, SystemExit))
@@ -836,25 +934,38 @@ def run_steps(
                 exit_code = error.code if isinstance(error.code, int) else int(error.code is not None)
             else:
                 exit_code = 130 if isinstance(error, KeyboardInterrupt) else 1
-            partial = list(step_results)
-            remaining = list(steps[len(step_results):])
-            if current == len(step_results):
-                reason = "interrupted" if interrupted else f"runner crashed: {type(error).__name__}"
-                partial.append(StepResult(remaining.pop(0), "fail", reason, None, "interrupted"))
-            partial.extend(
-                StepResult(step, "skip", "not run: the run stopped early", None, "not_run")
-                for step in remaining
-            )
+            cleanup_errors: dict[int, str] = {}
+            while True:
+                try:
+                    index, outcome, _ = finished.get_nowait()
+                except queue.Empty:
+                    break
+                if isinstance(outcome, tuple) and outcome[5]:
+                    cleanup_errors[index] = outcome[5]
+            final: list[StepResult] = []
+            for index, step in enumerate(steps):
+                if index in results:
+                    final.append(results[index])
+                elif index in running or index == preparing:
+                    reason = "interrupted" if interrupted else f"runner crashed: {type(error).__name__}"
+                    if index in unstopped:
+                        reason += "; cleanup failed: worker did not stop"
+                    elif index in cleanup_errors:
+                        reason += f"; cleanup failed: {cleanup_errors[index]}"
+                    final.append(StepResult(step, "fail", reason, None, "interrupted"))
+                else:
+                    final.append(StepResult(step, "skip", "not run: the run stopped early", None, "not_run"))
             progress(RunResult(
-                platform, tuple(partial),
+                platform, tuple(final),
                 state="interrupted" if interrupted else "crashed",
                 forced_exit_code=exit_code,
             ))
         raise
+    step_results = recorded()
     totals = {status: sum(result.status == status for result in step_results)
               for status in ("pass", "skip", "fail")}
     print(f"SUMMARY pass={totals['pass']} skip={totals['skip']} fail={totals['fail']}")
-    return RunResult(platform, tuple(step_results))
+    return RunResult(platform, step_results)
 
 
 def run_context(repo_root: Path, suite: str, steps: tuple[Step, ...]) -> dict[str, object]:

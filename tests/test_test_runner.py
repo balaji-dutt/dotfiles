@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -418,6 +419,57 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.assertIsNone(running)
         self.assertFalse(report.exists())
 
+    def test_cancelled_step_stops_its_group_and_reports_interrupted(self) -> None:
+        pid_file = self.fixture_pid("cancelled.pid")
+        command = [sys.executable, "-c",
+                   "import os, pathlib, time\n"
+                   f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                   "time.sleep(30)\n"]
+        cancel = threading.Event()
+        outcomes = []
+        worker = threading.Thread(target=lambda: outcomes.append(RUN_TESTS._run_posix_step(
+            command, repo_root=self.fixture.root, env=dict(os.environ), timeout_seconds=30, cancel=cancel)))
+        worker.start()
+        self.wait_for(pid_file)
+        cancel.set()
+        worker.join(timeout=6)
+        self.assertFalse(worker.is_alive(), "cancelled step did not return")
+        self.assertEqual(outcomes[0][2:], (None, "interrupted", "interrupted", None))
+        self.assert_stopped(pid_file)
+
+    def test_signal_during_a_capability_probe_leaves_an_interrupted_report(self) -> None:
+        pid_file = self.fixture_pid("probe.pid")
+        report = self.fixture.root / "probe.json"
+        self.fixture.write_script("probe.py", "import os, pathlib, time\n"
+                                  f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                  "time.sleep(30)\n")
+        self.fixture.capabilities = {
+            "slow": {"command": "{python}", "probe": ["{python}", "{repo}/tests/probe.py"]},
+        }
+        self.fixture.steps[0]["requires"] = ["slow"]
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
+        self.fixture.write_registry()
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(
+                self.fixture.command("--case-report", "--report-file", str(report)),
+                stdout=output, stderr=errors, start_new_session=True)
+            try:
+                self.wait_for(pid_file)
+                os.kill(runner.pid, signal.SIGTERM)
+                runner.wait(timeout=6)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
+        self.assertEqual(runner.returncode, 128 + signal.SIGTERM)
+        self.assert_stopped(pid_file)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((payload["state"], payload["exit_code"]), ("interrupted", 128 + signal.SIGTERM))
+        self.assertEqual([(step["id"], step["outcome"]) for step in payload["steps"]],
+                         [("alpha", "interrupted"), ("beta", "not_run")])
+
     def test_launch_failure_is_recorded_and_the_run_continues(self) -> None:
         self.fixture.steps[0]["argv"] = ["{repo}/tests/missing-tool"]
         self.fixture.write_script("second.py", "raise SystemExit(0)\n")
@@ -590,6 +642,32 @@ class WindowsStepSupervisionTests(unittest.TestCase):
                 RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"), env={}, timeout_seconds=3)
         self.assertEqual(run.call_args.args[0][1:], ["/T", "/F", "/PID", "4242"])
 
+    def cancelled_launch(self, drains, *, cancelled: bool):
+        cancel = threading.Event()
+        if cancelled:
+            cancel.set()
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", return_value=self.process),
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes", return_value=FakePipes(drains)),
+              mock.patch.object(RUN_TESTS.subprocess, "run",
+                                return_value=subprocess.CompletedProcess([], 0)) as run):
+            result = RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"), env={},
+                                                 timeout_seconds=3, cancel=cancel)
+        return result, run
+
+    def test_cancelled_step_kills_its_own_tree_and_reports_interrupted(self) -> None:
+        result, run = self.cancelled_launch([False, True], cancelled=True)
+        self.assertEqual(result, ("out", "err", None, "interrupted", "interrupted", None))
+        self.assertEqual(run.call_args.args[0][1:], ["/T", "/F", "/PID", "4242"])
+
+        result, _ = self.cancelled_launch([False, False], cancelled=True)
+        self.assertEqual(result[3:], ("interrupted; cleanup failed: step output did not drain",
+                                      "interrupted", "step output did not drain"))
+
+    def test_uncancelled_step_drains_in_slices_until_it_exits(self) -> None:
+        result, run = self.cancelled_launch([False, False, True], cancelled=False)
+        self.assertEqual(result, ("out", "err", 0, None, "exited", None))
+        run.assert_not_called()
+
 
 class BoundedOutputTests(unittest.TestCase):
     def test_keeps_the_tail_and_counts_dropped_bytes(self) -> None:
@@ -678,6 +756,33 @@ class RunnerCrashEvidenceTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     self.run_steps(snapshots, **{self.LAUNCHER: mock.Mock(side_effect=SystemExit(code))})
                 self.assertEqual((snapshots[-1].state, snapshots[-1].exit_code), ("interrupted", expected))
+
+    @unittest.skipIf(os.name == "nt", "POSIX signal handlers")
+    def test_signal_while_a_worker_starts_is_reported_as_an_interruption(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            self.skipTest("signal handlers need the main thread")
+
+        class SignalledThread(threading.Thread):
+            def start(self) -> None:
+                if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, signal.SIG_IGN):
+                    raise AssertionError("the runner did not install its SIGTERM handler")
+                os.kill(os.getpid(), signal.SIGTERM)
+                super().start()
+
+        def launcher(command, *, repo_root, env, timeout_seconds, cancel):
+            cancel.wait(5)
+            return ("", "", None, "interrupted", "interrupted", None)
+
+        shim = mock.Mock(wraps=threading, Thread=SignalledThread)
+        snapshots = []
+        with self.assertRaises(SystemExit) as raised:
+            self.run_steps(snapshots, _run_posix_step=launcher, threading=shim)
+        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+        final = snapshots[-1]
+        self.assertEqual((final.state, final.exit_code), ("interrupted", 128 + signal.SIGTERM))
+        self.assertEqual([(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                         [("alpha", "interrupted", "interrupted"),
+                          ("beta", "not_run", "not run: the run stopped early")])
 
     def test_windows_ntstatus_exit_is_a_crash(self) -> None:
         access_violation = ("", "", 0xC0000005, None, "exited", None)
