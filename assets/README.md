@@ -88,6 +88,35 @@ CI runs this check only for `renovate/beads-core-*` push and merge request
 pipelines. Better Beads Kanban uses the separate `renovate/beads-kanban-*`
 dispatch.
 
+### Beads and Dolt toolchain fetch
+
+`assets/beads-toolchain.py` reads the `beads_version` and `dolt_version` pins
+and fetches those exact upstream release binaries into a private directory.
+It never touches the installed `bd` or `dolt`. Linux and macOS only.
+
+```sh
+python3 assets/beads-toolchain.py pins
+python3 assets/beads-toolchain.py pins --ref origin/renovate/beads-core-clients
+python3 assets/beads-toolchain.py fetch --bd 1.3.4 --dolt 2.7.3 --prefix <dir>
+```
+
+Run `pins` from the repository root, or pass `--repo-root`. It prints both
+pins as JSON, from the working tree or from a git ref. `fetch` downloads each
+release archive from GitHub, checks it against the sha256 digest the GitHub
+releases API publishes for that asset, unpacks only the one binary into
+`<dir>/bin`, and confirms that binary reports the requested version. A release
+without a published digest is refused.
+
+`<dir>` must be new, empty, or one this helper created (it leaves a
+`.beads-toolchain` marker), so a mistyped prefix such as `~/.local` is refused
+and the installed binaries stay as they are. A prefix that already holds the
+requested, verified version is reused without downloading; the digest lookup
+still needs the GitHub API.
+
+Exit status 0 is success and 2 means bad input or a download that could not be
+trusted. Set `GITHUB_TOKEN` or `GH_TOKEN` for an authenticated API request; the
+token is never sent to the download hosts.
+
 ### Plannotator slash-command sync
 
 Plannotator's slash commands ship as files upstream installs outside chezmoi:

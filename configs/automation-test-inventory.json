@@ -256,6 +256,49 @@
       "rationale": "Registered helper and isolated sync suites cover launcher dispatch, platform and remote guards, dirty-state refusal, one-session pull SQL, snapshot boundaries, lifecycle cleanup, failure propagation, and URL redaction."
     },
     {
+      "id": "beads-toolchain",
+      "classification": "owned",
+      "paths": ["assets/beads-toolchain.py"],
+      "owner": {"kind": "repository", "name": "Beads and Dolt upgrade toolchain fetcher"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-bmo5",
+        "test_paths": ["tests/test_beads_toolchain.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-untrusted-pins-and-downloads",
+            "kind": "failure",
+            "description": "Exit 2 on malformed pins, refused git refs, missing assets or digests, API and download errors, digest or size mismatches, and archives without exactly one regular binary.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-private-prefix",
+            "kind": "safety",
+            "description": "Install only into a new, empty, or helper-created prefix, leave an existing binary untouched on refusal, and download again when the cached binary or stamp does not match the requested version.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-token-and-redirect-boundary",
+            "kind": "safety",
+            "description": "Send the API token only to the GitHub API without following redirects, and follow download redirects only to GitHub release hosts.",
+            "status": "covered"
+          },
+          {
+            "id": "success-verified-install",
+            "kind": "success",
+            "description": "Read both pins from the working tree or a git ref, and install a digest-verified binary that reports the requested version.",
+            "status": "covered"
+          }
+        ]
+      },
+      "rationale": "Fake openers, local archives, and stub binaries cover pin parsing, the download trust boundary, extraction, and prefix reuse without contacting the network."
+    },
+    {
       "id": "browser-policy-sync",
       "classification": "owned",
       "paths": ["assets/sync-browser-policies.py"],

@@ -191,6 +191,13 @@
       "requires": ["git", "pwsh-fixture"]
     },
     {
+      "id": "beads-toolchain",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_toolchain"],
+      "covers": ["tests/test_beads_toolchain.py"],
+      "requires": ["git"]
+    },
+    {
       "id": "browser-policy-sync",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_sync_browser_policies"],
