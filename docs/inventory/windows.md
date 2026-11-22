@@ -65,12 +65,19 @@ multiline arguments; run `oc-commit` and `cc-commit` from PowerShell.
 Microsoft Store app-execution aliases and never installs or upgrades Python.
 Python itself remains an external host prerequisite.
 
-Two other places resolve Python and must skip the same Store aliases, because
+Three other places resolve Python and must skip the same Store aliases, because
 `python3` is present in `PATH` as an app-execution alias that exits 49 with
 "Python was not found" instead of running: the Claude review-gate hooks
-(`.claude/hooks/lib/resolve-python.sh`) and `assets/cz-audit.ps1`
-(`Resolve-PythonCmd`). Both execute each candidate before accepting it rather
-than trusting a lookup, and both fall back to `py -3`.
+(`.claude/hooks/lib/resolve-python.sh`), `assets/cz-audit.ps1`
+(`Resolve-PythonCmd`), and the OpenCode profile sync helper
+(`~/.config/opencode/opencode-sync-workspace-overrides.sh`). All three execute
+each candidate before accepting it rather than trusting a lookup, and all fall
+back to `py -3`.
+
+The PowerShell OpenCode profile runs that sync helper for stacked profiles with
+Git for Windows' `bin\bash.exe`, found next to `git`. It never uses
+`System32\bash.exe` or the `WindowsApps` alias, because both start WSL, which
+cannot open the Windows paths it is given.
 
 The native launcher supports the installed OpenCode and Claude `.exe` commands.
 Configured `.cmd` or `.bat` agent commands are rejected before a worktree is

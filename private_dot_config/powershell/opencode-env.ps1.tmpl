@@ -61,6 +61,40 @@ if ([string]::IsNullOrWhiteSpace($env:PLANNOTATOR_PORT)) {
   $env:PLANNOTATOR_PORT = "{{ .plannotator_port }}"
 }
 
+function Get-OpenCodeBashPath {
+  if (-not $IsWindows) {
+    return (Get-Command bash -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+  }
+
+  $roots = @(foreach ($git in @(Get-Command git -CommandType Application -All -ErrorAction SilentlyContinue)) {
+    $dir = Split-Path -Parent $git.Source
+    for ($i = 0; $i -lt 3 -and $dir; $i++) {
+      $dir
+      $dir = Split-Path -Parent $dir
+    }
+  })
+  if ($env:ProgramFiles) {
+    $roots += Join-Path $env:ProgramFiles "Git"
+  }
+  foreach ($root in $roots) {
+    $launcher = Join-Path (Join-Path $root "bin") "bash.exe"
+    if ((Test-Path -LiteralPath $launcher -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path (Join-Path $root "usr") "bin") -PathType Container)) {
+      return $launcher
+    }
+  }
+
+  # System32\bash.exe and the WindowsApps alias start WSL, which cannot open Windows paths.
+  foreach ($bash in @(Get-Command bash -CommandType Application -All -ErrorAction SilentlyContinue)) {
+    if (($env:SystemRoot -and $bash.Source.StartsWith("$env:SystemRoot\", [System.StringComparison]::OrdinalIgnoreCase)) -or
+        ($bash.Source -match '\\WindowsApps\\')) {
+      continue
+    }
+    return $bash.Source
+  }
+  return $null
+}
+
 function Update-OpenCodeProfileEnvironment {
   $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
   $profilesValue = if ($env:OPENCODE_PROFILES) { $env:OPENCODE_PROFILES } else { $env:OPENCODE_PROFILE }
@@ -148,9 +182,13 @@ function Update-OpenCodeProfileEnvironment {
   }
 
   $runtimeConfigDir = ""
-  if ((Test-Path -LiteralPath $syncHelper -PathType Leaf) -and (Get-Command bash -ErrorAction SilentlyContinue)) {
+  $bashPath = if (Test-Path -LiteralPath $syncHelper -PathType Leaf) { Get-OpenCodeBashPath } else { $null }
+  if ($bashPath) {
+    $previousXdgConfigHome = $env:XDG_CONFIG_HOME
+    # Git Bash rewrites HOME to /c/..., which Test-Path cannot resolve in the printed runtime path.
+    $env:XDG_CONFIG_HOME = $configHome
     try {
-      $syncOutput = & bash $syncHelper $profilesValue $workspaceRoot 2>$null
+      $syncOutput = & $bashPath $syncHelper $profilesValue $workspaceRoot 2>$null
       if ($LASTEXITCODE -eq 0) {
         $candidate = ($syncOutput | Select-Object -Last 1)
         if ($null -ne $candidate) {
@@ -162,6 +200,8 @@ function Update-OpenCodeProfileEnvironment {
       }
     } catch {
       $runtimeConfigDir = ""
+    } finally {
+      $env:XDG_CONFIG_HOME = $previousXdgConfigHome
     }
   }
 

@@ -111,9 +111,27 @@ profiles_key="${profiles_joined// /--}"
 profiles_key="${profiles_key//\//_}"
 profiles_key="${profiles_key//:/_}"
 
+resolve_python() {
+  local candidate
+  local -a parts
+  for candidate in python3 python "py -3"; do
+    read -r -a parts <<< "$candidate"
+    command -v "${parts[0]}" >/dev/null 2>&1 || continue
+    "${parts[@]}" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 || continue
+    python_cmd=("${parts[@]}")
+    return 0
+  done
+  return 1
+}
+
+if ! resolve_python; then
+  printf 'ERROR: Python 3.8+ not found (tried python3, python, py -3).\n' >&2
+  exit 1
+fi
+
 workspace_scope="${workspace_root:-$PWD}"
 workspace_hash="$(
-  WORKSPACE_ROOT="$workspace_scope" python3 - <<'PY'
+  WORKSPACE_ROOT="$workspace_scope" "${python_cmd[@]}" - <<'PY'
 import hashlib
 import os
 
@@ -139,7 +157,7 @@ export OPENCODE_GLOBAL_CONFIG="$global_opencode_json"
 export OPENCODE_PROFILES_STACK="$profiles_joined"
 export OPENCODE_CONFIG_HOME="$config_home"
 
-python3 <<'PY'
+"${python_cmd[@]}" <<'PY'
 import json
 import os
 import re

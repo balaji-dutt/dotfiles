@@ -65,7 +65,7 @@ def render_windows_template(
     destination.write_text(source + "\n", encoding="utf-8")
 
 
-class OpenCodeProfileRefreshTests(unittest.TestCase):
+class OpenCodeProfileFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -173,6 +173,8 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
 
+
+class OpenCodeProfileRefreshTests(OpenCodeProfileFixture):
     def test_same_directory_refresh_and_unchanged_noop(self) -> None:
         for helper, container_fallback in (
             (HOST_HELPER, False),
@@ -399,7 +401,7 @@ class OpenCodeProfileRefreshTests(unittest.TestCase):
                 )
 
 
-class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
+class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileFixture):
     @classmethod
     def setUpClass(cls) -> None:
         cls.backend = require_fixture_powershell()
@@ -455,6 +457,33 @@ class PowerShellOpenCodeProfileRefreshTests(OpenCodeProfileRefreshTests):
                 self.assertEqual(data["Profile"], "defaults")
                 self.assertEqual(data["Signature"], "native|defaults")
                 self.assertFalse(marker.exists())
+
+    def test_stacked_profile_without_xdg_config_home_uses_home_config(self) -> None:
+        home_config = self.home / ".config"
+        shutil.copytree(self.config_home, home_config)
+        body = textwrap.dedent(
+            f"""
+            $ErrorActionPreference = 'Stop'
+            . {self.ps_quote(self.rendered_env)}
+            [pscustomobject]@{{
+              ConfigDir = $env:OPENCODE_CONFIG_DIR
+              ConfigDirExists = [bool]($env:OPENCODE_CONFIG_DIR -and (Test-Path -LiteralPath $env:OPENCODE_CONFIG_DIR -PathType Container))
+              XdgSet = [bool](Test-Path Env:XDG_CONFIG_HOME)
+            }} | ConvertTo-Json -Compress
+            """
+        )
+        env = self.shell_env("defaults review")
+        env.pop("XDG_CONFIG_HOME")
+        env["USERPROFILE"] = str(self.home)
+        result = self.run_pwsh(body, env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout.splitlines()[-1])
+        self.assertTrue(data["ConfigDirExists"], data)
+        self.assertEqual(
+            Path(data["ConfigDir"]).parts[-4:-1],
+            ("opencode", "runtime", "defaults--review"),
+        )
+        self.assertFalse(data["XdgSet"])
 
     def test_prompt_refresh_is_memoized_idempotent_and_preserves_exit_code(
         self,

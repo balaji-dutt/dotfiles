@@ -3,13 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
-from tests.support.fixtures import isolated_environment
+from tests.support.fixtures import isolated_environment, write_executable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -333,6 +335,49 @@ class OpenCodeWorkspaceOverrideTests(unittest.TestCase):
                 self.assertIn("Failed to replace active OpenCode config", replacement.stderr)
                 self.assertEqual(marker.read_text(encoding="utf-8"), "keep\n")
                 self.assertEqual(list(active_path.parent.glob(".opencode.jsonc.*.tmp")), [])
+
+    def write_python_stubs(self, *names: str) -> None:
+        for name in names:
+            write_executable(
+                self.fixture.fake_bin / name,
+                "#!/bin/sh\necho 'Python was not found' >&2\nexit 49\n",
+            )
+
+    def test_python_resolution_skips_broken_python3(self) -> None:
+        self.write_python_stubs("python3")
+        write_executable(
+            self.fixture.fake_bin / "python",
+            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n',
+        )
+        for index, script in enumerate((HOST_SCRIPT, CONTAINER_SCRIPT)):
+            with self.subTest(script=script):
+                home, config_home, workspace = self.case_paths(f"python-{index}")
+                self.install_merge_fixture(config_home, workspace)
+                result = self.run_script(
+                    script, "defaults review", workspace, home, config_home
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                active_path = Path(result.stdout.splitlines()[-1]) / "opencode.jsonc"
+                self.assertEqual(
+                    active_path,
+                    self.runtime_path(config_home, "defaults--review", workspace),
+                )
+                config = json.loads(active_path.read_text(encoding="utf-8"))
+                self.assertEqual(config["plugin"], ["defaults"])
+                self.assertEqual(config["scalar"], "review")
+
+    def test_missing_python_fails_before_runtime_dir(self) -> None:
+        self.write_python_stubs("python3", "python", "py")
+        for index, script in enumerate((HOST_SCRIPT, CONTAINER_SCRIPT)):
+            with self.subTest(script=script):
+                home, config_home, workspace = self.case_paths(f"no-python-{index}")
+                self.install_merge_fixture(config_home, workspace)
+                result = self.run_script(
+                    script, "defaults review", workspace, home, config_home
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Python 3.8+ not found", result.stderr)
+                self.assertFalse((config_home / "opencode" / "runtime").exists())
 
 
 if __name__ == "__main__":
