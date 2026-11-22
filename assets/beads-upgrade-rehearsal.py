@@ -214,13 +214,25 @@ def read_metadata(project: Path) -> tuple[str, str]:
     return database, user
 
 
+def process_exists(pid: int) -> bool:
+    """A permission error still means the process exists; only a missing one does not."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
 def server_pid(beads: Path) -> int | None:
     try:
         pid = int((beads / "dolt-server.pid").read_text(encoding="utf-8").strip())
-        os.kill(pid, 0)
     except (OSError, ValueError):
         return None
-    return pid
+    return pid if pid > 1 and process_exists(pid) else None
 
 
 def server_port(beads: Path) -> int | None:
@@ -509,14 +521,12 @@ class Scratch:
             return True
         self.bd("dolt", "stop", timeout=120)
         for sig in (None, signal.SIGTERM, signal.SIGKILL):
-            if sig is not None and self.is_scratch_server(pid):
+            if sig is not None and pid > 1 and self.is_scratch_server(pid):
                 with contextlib.suppress(OSError):
                     os.kill(pid, sig)
             deadline = time.monotonic() + SCRATCH_STOP_WAIT
             while time.monotonic() < deadline:
-                try:
-                    os.kill(pid, 0)
-                except OSError:
+                if not process_exists(pid):
                     self.pid = None
                     return True
                 if self.is_scratch_server(pid) is False:

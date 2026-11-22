@@ -32,6 +32,7 @@ def load_module() -> Any:
 
 REHEARSAL = load_module()
 POSIX_ONLY = unittest.skipIf(os.name == "nt", "the rehearsal runs on linux and macOS only")
+SLEEPER = "import time; time.sleep(600)"
 
 FAKE_BD = """#!/bin/sh
 beads="$PWD/.beads"
@@ -41,7 +42,11 @@ case "$1 $2" in
     [ -e "$beads/refuse-stop" ] && exit 1
     [ -e "$beads/ignore-stop" ] && exit 0
     if [ -f "$beads/dolt-server.pid" ]; then
-      kill "$(cat "$beads/dolt-server.pid")" 2>/dev/null
+      pid="$(cat "$beads/dolt-server.pid")"
+      case "$pid" in
+        ''|??????????*|*[!0-9]*|0*|1) ;;
+        *) kill "$pid" 2>/dev/null ;;
+      esac
       rm -f "$beads/dolt-server.pid"
     fi
     ;;
@@ -103,6 +108,28 @@ def gone(pid: int, timeout: float = 10.0) -> bool:
     return False
 
 
+def kill_test_sleeper(pid_text: str, owner: Path) -> bool:
+    """Kill only a pid above 1 that ps shows running this module's sleeper for `owner`.
+
+    A pid file can hold anything, and a negative or zero pid passed to kill
+    signals every process the user owns or the whole process group.
+    """
+    if not (pid_text.isascii() and pid_text.isdigit()) or pid_text.startswith("0"):
+        return False
+    pid = int(pid_text)
+    if pid <= 1 or pid == os.getpid():
+        return False
+    shown = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+        check=False, capture_output=True, text=True,
+    )
+    if shown.returncode != 0 or SLEEPER not in shown.stdout or str(owner) not in shown.stdout:
+        return False
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGKILL)
+    return True
+
+
 class TempCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="beads-rehearsal-test-")
@@ -130,8 +157,7 @@ class TempCase(unittest.TestCase):
             with contextlib.suppress(OSError):
                 recorded += (beads / name).read_text(encoding="utf-8").split()
         for pid in recorded:
-            with contextlib.suppress(OSError, ValueError):
-                os.kill(int(pid), signal.SIGKILL)
+            kill_test_sleeper(pid, self.root)
 
 
 class ComparisonTests(unittest.TestCase):
@@ -312,7 +338,7 @@ class CopyTests(TempCase):
             raise REHEARSAL.Refused("the live Dolt server started again during the copy")
 
         arguments = REHEARSAL.build_parser().parse_args(
-            ["--bd", "1.3.4", "--dolt", "2.7.3", "--project", str(project),
+            ["--bd", "1.3.4", "--dolt", "2.7.3", "--project", str(project), "--stop-server",
              "--state-dir", str(state), "--toolchain-dir", str(self.root / "cache")]
         )
         toolchain = mock.Mock()
@@ -499,6 +525,74 @@ class LiveServerTests(TempCase):
             pass
         self.assertIsNotNone(REHEARSAL.server_pid(self.beads))
         self.assertTrue(self.report.facts["live_restart_failed"])
+
+    def test_only_a_missing_process_counts_as_stopped(self) -> None:
+        probe = self.root / "probe"
+        probe.mkdir()
+        pid_file = probe / "dolt-server.pid"
+        pid_file.write_text("4242\n", encoding="utf-8")
+        for error, expected in (
+            (None, 4242),
+            (PermissionError(), 4242),
+            (ProcessLookupError(), None),
+            (OSError("other"), None),
+        ):
+            with self.subTest(error=error), \
+                    mock.patch.object(REHEARSAL.os, "kill", side_effect=error) as kill:
+                self.assertEqual(REHEARSAL.server_pid(probe), expected)
+                kill.assert_called_once_with(4242, 0)
+        for text in ("", "not a pid", "0", "1", "-1", "12 34"):
+            with self.subTest(text=text), mock.patch.object(REHEARSAL.os, "kill") as kill:
+                pid_file.write_text(text, encoding="utf-8")
+                self.assertIsNone(REHEARSAL.server_pid(probe))
+                kill.assert_not_called()
+        pid_file.unlink()
+
+    def test_test_cleanup_never_signals_a_pid_it_cannot_identify(self) -> None:
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(bystander.wait)
+        self.addCleanup(bystander.kill)
+        sleeper = self.spawn(str(self.root))
+        elsewhere = self.spawn("/some/other/test/run")
+        with mock.patch.object(os, "kill") as kill:
+            for text in ("-1", "0", "1", "00", "01", f"0{sleeper.pid}", "", "abc", "12 34",
+                         "+5", "9" * 40, str(os.getpid()), str(bystander.pid),
+                         str(elsewhere.pid)):
+                with self.subTest(text=text):
+                    self.assertFalse(kill_test_sleeper(text, self.root))
+            kill.assert_not_called()
+            self.assertTrue(kill_test_sleeper(str(sleeper.pid), self.root))
+            kill.assert_called_once_with(sleeper.pid, signal.SIGKILL)
+
+    def test_the_stand_in_bd_never_signals_an_unsafe_pid(self) -> None:
+        signalling = 'kill "$pid" 2>/dev/null'
+        self.assertEqual(FAKE_BD.count("kill "), 1)
+        self.assertIn(
+            "      case \"$pid\" in\n"
+            "        ''|??????????*|*[!0-9]*|0*|1) ;;\n"
+            f"        *) {signalling} ;;\n",
+            FAKE_BD,
+        )
+        printing = write_script(
+            self.root / "printing-bd", FAKE_BD.replace(signalling, 'echo "WOULD_KILL $pid"')
+        )
+        self.assertNotIn("kill ", printing.read_text(encoding="utf-8"))
+
+        def stop(text: str) -> str:
+            (self.beads / "dolt-server.pid").write_text(text, encoding="utf-8")
+            done = subprocess.run(
+                [str(printing), "dolt", "stop"], cwd=self.project, check=False,
+                capture_output=True, text=True,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertFalse((self.beads / "dolt-server.pid").exists())
+            return done.stdout.strip()
+
+        for text in ("0", "00", "01", "1", "-1", "-0", "", "abc", "1 2", "+7", "4294967295",
+                     "9" * 20):
+            with self.subTest(text=text):
+                self.assertEqual(stop(text), "")
+        self.assertEqual(stop("4242\n"), "WOULD_KILL 4242")
 
     def test_a_stale_pid_file_counts_as_a_stopped_server(self) -> None:
         finished = self.spawn()
