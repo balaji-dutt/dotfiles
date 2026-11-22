@@ -355,8 +355,8 @@ class RunnerCaseReportTests(unittest.TestCase):
     def run_runner(self, *args: str) -> subprocess.CompletedProcess[str]:
         registry = self.root / "configs" / "test-suites.json"
         registry.write_text(json.dumps({
-            "$schema": "./schemas/test-suites.v1.schema.json",
-            "schema_version": 1,
+            "$schema": "./schemas/test-suites.v2.schema.json",
+            "schema_version": 2,
             "capabilities": {},
             "steps": self.steps,
         }), encoding="utf-8")

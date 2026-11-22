@@ -118,8 +118,8 @@ class ProvenanceFixture:
         write_json(
             self.root / "configs/test-suites.json",
             {
-                "$schema": "./schemas/test-suites.v1.schema.json",
-                "schema_version": 1,
+                "$schema": "./schemas/test-suites.v2.schema.json",
+                "schema_version": 2,
                 "capabilities": {},
                 "steps": [
                     {

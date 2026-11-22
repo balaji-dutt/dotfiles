@@ -24,8 +24,10 @@ from typing import Callable
 
 
 SUITES = ("fast", "integration", "render", "provenance", "platform")
-SCHEMA_REF = "./schemas/test-suites.v1.schema.json"
+SCHEMA_REF = "./schemas/test-suites.v2.schema.json"
+SCHEMA_VERSION = 2
 PLATFORMS = ("linux", "macos", "windows", "wsl2")
+STEP_KEYS = {"argv", "covers", "id", "platforms", "requires", "serial", "suites", "timeout_seconds"}
 STEP_PLACEHOLDERS = {"python", "repo"}
 DEFAULT_STEP_TIMEOUT_SECONDS = 600
 SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
@@ -83,6 +85,7 @@ class Step:
     platforms: tuple[str, ...]
     requires: tuple[str, ...]
     timeout_seconds: int = DEFAULT_STEP_TIMEOUT_SECONDS
+    serial: bool = False
 
 
 @dataclass(frozen=True)
@@ -152,8 +155,8 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
         raise ConfigurationError("registry root must be an object")
     if payload.get("$schema") != SCHEMA_REF:
         raise ConfigurationError(f"$schema must be {SCHEMA_REF!r}")
-    if payload.get("schema_version") != 1:
-        raise ConfigurationError("schema_version must be 1")
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ConfigurationError(f"schema_version must be {SCHEMA_VERSION}")
 
     raw_capabilities = payload.get("capabilities")
     if not isinstance(raw_capabilities, dict):
@@ -215,6 +218,11 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
             raise ConfigurationError(f"{label}.id must sort after {previous_id!r}")
         previous_id = step_id
         seen_ids.add(step_id)
+        unknown_keys = set(raw) - STEP_KEYS
+        if unknown_keys:
+            raise ConfigurationError(
+                f"{label} has unsupported key(s): {', '.join(sorted(map(str, unknown_keys)))}"
+            )
 
         suites = _string_list(raw.get("suites"), f"{label}.suites")
         invalid_suites = set(suites) - set(SUITES)
@@ -249,7 +257,10 @@ def load_registry(repo_root: Path, registry_path: Path) -> Registry:
         timeout_seconds = raw.get("timeout_seconds", DEFAULT_STEP_TIMEOUT_SECONDS)
         if type(timeout_seconds) is not int or timeout_seconds < 1:
             raise ConfigurationError(f"{label}.timeout_seconds must be a positive integer")
-        steps.append(Step(step_id, suites, argv, covers, platforms, requires, timeout_seconds))
+        serial = raw.get("serial", False)
+        if not isinstance(serial, bool):
+            raise ConfigurationError(f"{label}.serial must be a boolean")
+        steps.append(Step(step_id, suites, argv, covers, platforms, requires, timeout_seconds, serial))
 
     return Registry(capabilities, tuple(steps))
 

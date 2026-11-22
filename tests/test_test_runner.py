@@ -131,8 +131,8 @@ class RunnerFixture:
         self.registry.write_text(
             json.dumps(
                 {
-                    "$schema": "./schemas/test-suites.v1.schema.json",
-                    "schema_version": 1,
+                    "$schema": "./schemas/test-suites.v2.schema.json",
+                    "schema_version": 2,
                     "capabilities": self.capabilities,
                     "steps": self.steps,
                 },
@@ -277,7 +277,7 @@ class RunnerSupervisionTests(unittest.TestCase):
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
         live = next(step for step in registry["steps"] if step["id"] == "devcontainer-smoke-live")
         self.assertEqual(live["timeout_seconds"], 1200)
-        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v2.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(schema["$defs"]["step"]["properties"]["timeout_seconds"],
                          {"type": "integer", "minimum": 1})
 
@@ -816,6 +816,46 @@ class TestRunnerTests(unittest.TestCase):
         empty = self.fixture.run()
         self.assertEqual(empty.returncode, 2)
         self.assertIn("unsupported placeholder", empty.stderr)
+
+    def test_serial_is_a_boolean_step_key_and_unknown_keys_fail_validation(self) -> None:
+        self.fixture.steps[0]["serial"] = True
+        self.fixture.write_registry()
+        registry = RUN_TESTS.load_registry(self.fixture.root, self.fixture.registry)
+        self.assertEqual([step.serial for step in registry.steps], [True])
+        self.assertFalse(RUN_TESTS.Step("x", ("fast",), ("x",), ("x",), RUN_TESTS.PLATFORMS, ()).serial)
+        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v2.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(schema["$defs"]["step"]["properties"]["serial"], {"type": "boolean"})
+        self.assertEqual(set(schema["$defs"]["step"]["properties"]), RUN_TESTS.STEP_KEYS)
+
+        for value in ("yes", 1, None):
+            with self.subTest(serial=value):
+                self.fixture.steps[0]["serial"] = value
+                self.fixture.write_registry()
+                invalid = self.fixture.run("--list")
+                self.assertEqual(invalid.returncode, 2)
+                self.assertIn("steps[0].serial must be a boolean", invalid.stderr)
+
+        del self.fixture.steps[0]["serial"]
+        self.fixture.steps[0]["serail"] = True
+        self.fixture.write_registry()
+        unknown = self.fixture.run("--list")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("steps[0] has unsupported key(s): serail", unknown.stderr)
+
+    def test_previous_registry_schema_version_is_rejected(self) -> None:
+        payload = json.loads(self.fixture.registry.read_text(encoding="utf-8"))
+        payload["$schema"] = "./schemas/test-suites.v1.schema.json"
+        payload["schema_version"] = 1
+        self.fixture.registry.write_text(json.dumps(payload), encoding="utf-8")
+        previous = self.fixture.run("--list")
+        self.assertEqual(previous.returncode, 2)
+        self.assertIn("$schema must be './schemas/test-suites.v2.schema.json'", previous.stderr)
+
+        payload["$schema"] = "./schemas/test-suites.v2.schema.json"
+        self.fixture.registry.write_text(json.dumps(payload), encoding="utf-8")
+        mismatched = self.fixture.run("--list")
+        self.assertEqual(mismatched.returncode, 2)
+        self.assertIn("schema_version must be 2", mismatched.stderr)
 
     def test_duplicate_ids_and_missing_covered_paths_fail_validation(self) -> None:
         self.fixture.steps.append(dict(self.fixture.steps[0]))

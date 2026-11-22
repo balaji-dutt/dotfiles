@@ -1,6 +1,6 @@
 {
-  "$schema": "./schemas/test-suites.v1.schema.json",
-  "schema_version": 1,
+  "$schema": "./schemas/test-suites.v2.schema.json",
+  "schema_version": 2,
   "capabilities": {
     "bash": {"command": "bash"},
     "bd": {"command": "bd", "probe": ["bd", "--version"]},
@@ -160,7 +160,8 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_beads_isolated_worktree"],
       "covers": ["tests/test_beads_isolated_worktree.py"],
       "platforms": ["linux", "macos", "wsl2"],
-      "requires": ["bd", "git"]
+      "requires": ["bd", "git"],
+      "serial": true
     },
     {
       "id": "beads-release-notes",
@@ -310,7 +311,8 @@
       "covers": ["tests/test_devcontainer_smoke_live.py"],
       "platforms": ["linux", "macos", "wsl2"],
       "requires": ["devcontainer-smoke"],
-      "timeout_seconds": 1200
+      "timeout_seconds": 1200,
+      "serial": true
     },
     {
       "id": "envrc-render",
@@ -402,7 +404,8 @@
       "suites": ["integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_guarded_main_sync.EntryPointTests", "tests.test_guarded_main_sync.GuardedMainSyncCoreTests", "tests.test_guarded_main_sync.HelpOutputTests", "tests.test_guarded_main_sync.PollDeadlineTests", "tests.test_guarded_main_sync.PythonResolverTests"],
       "covers": ["tests/test_guarded_main_sync.py"],
-      "requires": ["git", "sh"]
+      "requires": ["git", "sh"],
+      "serial": true
     },
     {
       "id": "guarded-main-sync-powershell",
@@ -455,7 +458,8 @@
       "suites": ["platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_chezmoi_lifecycle_render.LifecyclePowerShellSyntaxTests"],
       "covers": ["tests/test_chezmoi_lifecycle_render.py"],
-      "requires": ["chezmoi", "powershell-parser"]
+      "requires": ["chezmoi", "powershell-parser"],
+      "serial": true
     },
     {
       "id": "lifecycle-windows",
@@ -644,7 +648,8 @@
       "argv": ["{python}", "-m", "unittest", "-v", "tests.test_repo_ops"],
       "covers": ["tests/test_repo_ops.py"],
       "platforms": ["macos", "wsl2"],
-      "requires": ["bash"]
+      "requires": ["bash"],
+      "serial": true
     },
     {
       "id": "resolve-python3",
@@ -667,7 +672,8 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_runner_windows_interop"],
       "covers": ["tests/test_runner_windows_interop.py"],
       "platforms": ["wsl2"],
-      "requires": ["windows-python-interop"]
+      "requires": ["windows-python-interop"],
+      "serial": true
     },
     {
       "id": "shell-lifecycle",
@@ -712,7 +718,8 @@
       "suites": ["fast"],
       "argv": ["{python}", "-m", "unittest", "-v", "tests.test_test_runner"],
       "covers": ["tests/test_test_runner.py"],
-      "requires": ["git"]
+      "requires": ["git"],
+      "serial": true
     },
     {
       "id": "test-selection",
@@ -733,7 +740,8 @@
       "suites": ["integration", "platform", "render"],
       "argv": ["{python}", "-m", "unittest", "tests.test_windows_notify"],
       "covers": ["tests/test_windows_notify.py"],
-      "platforms": ["linux", "macos", "windows", "wsl2"]
+      "platforms": ["linux", "macos", "windows", "wsl2"],
+      "serial": true
     },
     {
       "id": "windows-shell",
@@ -749,7 +757,8 @@
       "argv": ["{python}", "-m", "unittest", "tests.test_windows_shell.NativeWindowsShellSmokeTests"],
       "covers": ["tests/test_windows_shell.py"],
       "platforms": ["wsl2"],
-      "requires": ["chezmoi", "pwsh-interop"]
+      "requires": ["chezmoi", "pwsh-interop"],
+      "serial": true
     },
     {
       "id": "wsl-bootstrap",

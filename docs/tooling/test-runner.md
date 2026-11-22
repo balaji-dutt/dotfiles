@@ -147,9 +147,12 @@ The registry is `configs/test-suites.json`. Every step has a stable `id`, one or
 more `suites`, an argv array, and one or more `covers` paths. Optional
 `platforms` and `requires` fields declare when the step can run. An optional
 positive integer `timeout_seconds` sets the step's time limit (default:
-600 seconds). Commands are argv arrays, not shell strings; only `{python}` and
-`{repo}` placeholders are supported. Steps are sorted by ID, duplicate IDs are
-rejected, and `all` runs the resulting unique registry entries.
+600 seconds). An optional boolean `serial` marks a step that must run alone
+because it asserts on wall-clock time or uses a host-wide resource such as
+tmux, Windows interop, or a real Beads database. Commands are argv arrays, not
+shell strings; only `{python}` and `{repo}` placeholders are supported. Steps
+are sorted by ID, duplicate IDs are rejected, step keys the schema does not
+declare are rejected, and `all` runs the resulting unique registry entries.
 
 Every top-level `tests/test_*.py` module must appear in the union of `covers`.
 The runner contract tests enforce that registration and specifically retain the
@@ -453,7 +456,8 @@ why in the review.
 
 1. Add the test using standard-library or already established framework tools.
 2. Add one sorted registry step with stable suites, argv, `covers`, and only the
-   capabilities it actually requires.
+   capabilities it actually requires. Set `serial: true` only when the step
+   cannot share the machine with another step.
 3. Run `./assets/run-tests.sh --list all` to validate registration.
 4. Run the affected suite locally, then require only the capabilities each CI
    lane explicitly claims. Use `--require-capabilities` only for a lane that
