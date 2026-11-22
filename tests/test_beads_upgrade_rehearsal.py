@@ -262,6 +262,75 @@ class CopyTests(TempCase):
         self.assertTrue(marker["complete"])
         self.assertTrue((second / ".beads" / "dolt" / "dots" / ".dolt" / "noms" / "manifest").is_file())
 
+    def test_an_untrusted_copy_is_discarded_and_other_directories_are_left_alone(self) -> None:
+        beads = self.make_source()
+        project = beads.parent
+        state = self.root / "state"
+        stamp = "20260101T000000Z-1"
+        taken = REHEARSAL.take_restore_point(
+            project, state, stamp, {"project": str(project), "taken": stamp}
+        )
+        points = state / "restore-points"
+        for name, marker in (
+            ("foreign", {"project": "/somewhere/else", "taken": "foreign"}),
+            ("another-run", {"project": str(project), "taken": "20250101T000000Z-9"}),
+        ):
+            (points / name).mkdir()
+            (points / name / REHEARSAL.RESTORE_MARKER).write_text(
+                json.dumps(marker), encoding="utf-8"
+            )
+        (points / "unmarked").mkdir()
+
+        for target in sorted(points.iterdir()) + [points / "absent"]:
+            REHEARSAL.discard_untrusted_copy(target, project)
+
+        self.assertFalse(taken.exists())
+        self.assertEqual(
+            sorted(path.name for path in points.iterdir()),
+            ["another-run", "foreign", "unmarked"],
+        )
+
+    @POSIX_ONLY
+    def test_a_copy_taken_while_the_server_came_back_leaves_no_restore_point(self) -> None:
+        beads = self.make_source()
+        project = beads.parent
+        (beads / "metadata.json").write_text(
+            json.dumps({"dolt_mode": "server", "dolt_database": "dots"}), encoding="utf-8"
+        )
+        state = self.root / "state"
+        tool = self.root / "tool"
+        tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        tool.chmod(0o755)
+
+        copies: list[int] = []
+
+        @contextlib.contextmanager
+        def restarted_mid_copy(*args: Any) -> Any:
+            del args
+            yield
+            copies.append(len(list((state / "restore-points").iterdir())))
+            raise REHEARSAL.Refused("the live Dolt server started again during the copy")
+
+        arguments = REHEARSAL.build_parser().parse_args(
+            ["--bd", "1.3.4", "--dolt", "2.7.3", "--project", str(project),
+             "--state-dir", str(state), "--toolchain-dir", str(self.root / "cache")]
+        )
+        toolchain = mock.Mock()
+        toolchain.require_version.side_effect = lambda value, name: value
+        toolchain.install.return_value = tool
+        toolchain.ToolchainError = RuntimeError
+        toolchain.TOOLS = {"bd": object(), "dolt": object()}
+        with mock.patch.object(REHEARSAL, "load_helper", return_value=toolchain), \
+                mock.patch.object(REHEARSAL, "resolve_installed", return_value=tool), \
+                mock.patch.object(REHEARSAL, "tool_version", return_value="1.3.2"), \
+                mock.patch.object(REHEARSAL, "live_server_stopped", restarted_mid_copy), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(REHEARSAL.Refused, "started again during the copy"):
+                REHEARSAL.rehearse(arguments, REHEARSAL.Report())
+
+        self.assertEqual(copies, [1])
+        self.assertEqual(list((state / "restore-points").iterdir()), [])
+
     def test_metadata_must_describe_a_local_server_mode_database(self) -> None:
         beads = self.make_source()
         project = beads.parent

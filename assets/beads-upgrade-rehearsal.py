@@ -334,6 +334,23 @@ def take_restore_point(project: Path, state: Path, stamp: str, manifest: dict[st
     return target
 
 
+def discard_untrusted_copy(target: Path, project: Path) -> None:
+    """Delete the restore point at target only if its marker names this project and run."""
+    marker = target / RESTORE_MARKER
+    try:
+        manifest = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if (
+        isinstance(manifest, dict)
+        and manifest.get("project") == str(project)
+        and manifest.get("taken") == target.name
+    ):
+        with contextlib.suppress(OSError):
+            marker.unlink()
+        shutil.rmtree(target, ignore_errors=True)
+
+
 def prune_restore_points(state: Path, keep: Path, project: Path) -> None:
     """Delete this project's older restore points; anything unrecognised is left alone."""
     for older in sorted((state / "restore-points").iterdir()):
@@ -728,14 +745,16 @@ def rehearse(args: argparse.Namespace, report: Report) -> None:
 
     scratch = Scratch(run_dir, database, user, None)
     restore: Path | None = None
-    with live_server_stopped(project, installed["bd"], args.stop_server, report):
-        if args.no_restore_point:
-            copy_beads(project / ".beads", scratch.beads)
-        else:
-            restore = take_restore_point(
-                project, state, stamp,
-                {"taken": stamp, "project": str(project), "database": database, "versions": current},
-            )
+    manifest = {"taken": stamp, "project": str(project), "database": database, "versions": current}
+    try:
+        with live_server_stopped(project, installed["bd"], args.stop_server, report):
+            if args.no_restore_point:
+                copy_beads(project / ".beads", scratch.beads)
+            else:
+                restore = take_restore_point(project, state, stamp, manifest)
+    except BaseException:
+        discard_untrusted_copy(state / "restore-points" / stamp, project)
+        raise
     if report.facts.get("live_restart_failed"):
         return
     scratch.live_port = server_port(project / ".beads")
