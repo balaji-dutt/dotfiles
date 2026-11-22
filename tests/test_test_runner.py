@@ -847,26 +847,38 @@ class RunnerCrashEvidenceTests(unittest.TestCase):
             self.skipTest("signal handlers need the main thread")
 
         class SignalledThread(threading.Thread):
+            fails_to_start = False
+
             def start(self) -> None:
-                if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, signal.SIG_IGN):
+                if getattr(signal.getsignal(signal.SIGTERM), "__name__", "") != "stop_run":
                     raise AssertionError("the runner did not install its SIGTERM handler")
                 os.kill(os.getpid(), signal.SIGTERM)
+                if self.fails_to_start:
+                    raise RuntimeError("can't start new thread")
                 super().start()
 
+        launched = []
+
         def launcher(command, *, repo_root, env, timeout_seconds, cancel):
+            launched.append(command)
             cancel.wait(5)
             return ("", "", None, "interrupted", "interrupted", None)
 
         shim = mock.Mock(wraps=threading, Thread=SignalledThread)
-        snapshots = []
-        with self.assertRaises(SystemExit) as raised:
-            self.run_steps(snapshots, _run_posix_step=launcher, threading=shim)
-        self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
-        final = snapshots[-1]
-        self.assertEqual((final.state, final.exit_code), ("interrupted", 128 + signal.SIGTERM))
-        self.assertEqual([(result.step.step_id, result.outcome, result.reason) for result in final.steps],
-                         [("alpha", "interrupted", "interrupted"),
-                          ("beta", "not_run", "not run: the run stopped early")])
+        for fails_to_start in (False, True):
+            with self.subTest(fails_to_start=fails_to_start):
+                SignalledThread.fails_to_start = fails_to_start
+                snapshots = []
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_steps(snapshots, threading=shim, **{self.LAUNCHER: launcher})
+                self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+                final = snapshots[-1]
+                self.assertEqual((final.state, final.exit_code), ("interrupted", 128 + signal.SIGTERM))
+                self.assertEqual(
+                    [(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                    [("alpha", "interrupted", "interrupted"),
+                     ("beta", "not_run", "not run: the run stopped early")])
+                self.assertEqual(launched, [])
 
     def test_windows_ntstatus_exit_is_a_crash(self) -> None:
         access_violation = ("", "", 0xC0000005, None, "exited", None)

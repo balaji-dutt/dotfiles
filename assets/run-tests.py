@@ -793,11 +793,11 @@ def run_steps(
         nonlocal deferred_signal
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
-        # Raising inside Thread.start() would leave a worker that cleanup cannot join.
-        if starting:
-            deferred_signal = signum
-        else:
+        if not starting:
             raise SystemExit(128 + signum)
+        # Raising inside Thread.start() would leave a worker that cleanup cannot join.
+        cancel.set()
+        deferred_signal = signum
 
     def finish(index: int, outcome: tuple, duration: float) -> None:
         step = steps[index]
@@ -893,8 +893,8 @@ def run_steps(
                     thread.start()
                 finally:
                     starting = False
-                if deferred_signal is not None:
-                    raise SystemExit(128 + deferred_signal)
+                    if deferred_signal is not None:
+                        raise SystemExit(128 + deferred_signal)
 
             def can_start(index: int) -> bool:
                 if not running:
