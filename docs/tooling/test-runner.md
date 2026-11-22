@@ -329,11 +329,16 @@ full coverage.
 
 ## Isolation contract
 
-Each invocation gets a temporary sandbox. Child processes receive synthetic
-`HOME`, `USERPROFILE`, temporary directories, and all four XDG roots
+Each invocation gets a temporary run directory, and every step that launches
+gets its own sandbox inside it, so one step's home, temp, and Git config
+writes are invisible to the others. Capability probes share one separate
+sandbox. Child processes receive
+synthetic `HOME`, `USERPROFILE`, temporary directories, and all four XDG roots
 (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`). Git global/system config
 points at an empty sandbox file, interactive Git prompts are disabled, and
 credential/service variables are not copied wholesale from the parent process.
+The command guards and runtime symlinks described below are created once per
+run and shared by every sandbox.
 On Windows, the read-only `ProgramFiles` location passes through unchanged,
 while `PROGRAMDATA`, `APPDATA`, and `LOCALAPPDATA` point into the sandbox.
 The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are the
@@ -345,7 +350,7 @@ On POSIX, when the selected `node`, `jq`, or `bd` resolves to a mise executable,
 the runner queries `mise which <tool>` before replacing the parent environment. Discovery
 uses the repository root as its working directory, closes stdin, and has a
 10-second timeout per tool. Each installed executable is exposed through a tool-only
-symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
+symlink in the run directory, behind the `bd`/`dolt` guards and ahead of inherited
 `PATH`; capability lookup uses this normalized path without the guards.
 Children receive no parent mise variables or real mise config/state roots.
 Other selections and native Windows runtime selection are unchanged;

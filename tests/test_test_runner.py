@@ -1471,6 +1471,44 @@ class TestRunnerTests(unittest.TestCase):
         for directory in actual["xdg"]:
             self.assertTrue(Path(directory).is_relative_to(actual["home"]), directory)
 
+    def test_each_step_gets_its_own_home_temp_and_git_config(self) -> None:
+        observed = self.fixture.root / "observed"
+        observed.mkdir()
+        self.fixture.write_script(
+            "isolation.py",
+            "import json, os, pathlib, sys\n"
+            "name = sys.argv[1]\n"
+            "home = pathlib.Path(os.environ['HOME'])\n"
+            "tmp = pathlib.Path(os.environ['TMPDIR'])\n"
+            "git_config = pathlib.Path(os.environ['GIT_CONFIG_GLOBAL'])\n"
+            "seen = {\n"
+            "    'home': str(home), 'tmp': str(tmp), 'git_global': str(git_config),\n"
+            "    'userprofile': os.environ['USERPROFILE'], 'temp': os.environ['TEMP'],\n"
+            "    'git_system': os.environ['GIT_CONFIG_SYSTEM'],\n"
+            "    'markers': sorted(path.name for root in (home, tmp) for path in root.glob('marker-*')),\n"
+            "    'git_config': git_config.read_text(encoding='utf-8'),\n"
+            "}\n"
+            "(home / f'marker-{name}').write_text(name, encoding='utf-8')\n"
+            "(tmp / f'marker-{name}').write_text(name, encoding='utf-8')\n"
+            "git_config.write_text(f'[user]\\n\\tname = {name}\\n', encoding='utf-8')\n"
+            f"(pathlib.Path({str(observed)!r}) / f'{{name}}.json').write_text(json.dumps(seen), encoding='utf-8')\n",
+        )
+        self.fixture.steps = []
+        for name in ("first", "second"):
+            step = self.fixture.step(name, ["fast"], "isolation.py")
+            step["argv"].append(name)
+            self.fixture.steps.append(step)
+        self.fixture.write_registry()
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        first, second = (json.loads((observed / f"{name}.json").read_text(encoding="utf-8"))
+                         for name in ("first", "second"))
+        for key in ("home", "tmp", "git_global", "userprofile", "temp", "git_system"):
+            self.assertNotEqual(first[key], second[key], key)
+        for seen in (first, second):
+            self.assertEqual(seen["markers"], [])
+            self.assertEqual(seen["git_config"], "")
+
     def test_program_files_passes_through_for_the_windows_powershell_module_path(self) -> None:
         sandbox = self.fixture.root / "program-files-sandbox"
         sandbox.mkdir()

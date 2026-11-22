@@ -329,11 +329,30 @@ def _runtime_lookup_path(tool: str, lookup_path: str, sandbox: Path, repo_root: 
         return lookup_path
 
 
-def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
+def _shared_environment(repo_root: Path, shared: Path) -> tuple[dict[str, str], str]:
+    """Build what every sandbox of a run reuses: the guarded PATH and the fixed variables."""
     lookup_path = os.environ.get("PATH", os.defpath)
     for tool in ("node", "jq", "bd"):
-        lookup_path = _runtime_lookup_path(tool, lookup_path, sandbox, repo_root)
+        lookup_path = _runtime_lookup_path(tool, lookup_path, shared, repo_root)
     env = {name: value for name, value in os.environ.items() if name.upper() in PASSTHROUGH_ENV}
+    guard_bin = shared / "guard-bin"
+    _write_guard_shims(guard_bin)
+    env.update(
+        {
+            "PATH": f"{guard_bin}{os.pathsep}{lookup_path}",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "Never",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONPATH": str(repo_root),
+            SANDBOX_MARKER: "1",
+        }
+    )
+    return env, lookup_path
+
+
+def _sandbox_environment(shared_env: dict[str, str], sandbox: Path) -> dict[str, str]:
+    """Create one writable home, temp and Git config root and return its environment."""
     home = sandbox / "home"
     tmp = sandbox / "tmp"
     xdg_config = home / ".config"
@@ -357,34 +376,28 @@ def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
     ):
         directory.mkdir(parents=True, exist_ok=True)
     git_config.write_text("", encoding="utf-8")
-    guard_bin = sandbox / "guard-bin"
-    _write_guard_shims(guard_bin)
-    env.update(
-        {
-            "PATH": f"{guard_bin}{os.pathsep}{lookup_path}",
-            "HOME": str(home),
-            "USERPROFILE": str(home),
-            "APPDATA": str(app_data),
-            "LOCALAPPDATA": str(local_app_data),
-            "PROGRAMDATA": str(program_data),
-            "XDG_CONFIG_HOME": str(xdg_config),
-            "XDG_CACHE_HOME": str(xdg_cache),
-            "XDG_DATA_HOME": str(xdg_data),
-            "XDG_STATE_HOME": str(xdg_state),
-            "TMPDIR": str(tmp),
-            "TMP": str(tmp),
-            "TEMP": str(tmp),
-            "GIT_CONFIG_GLOBAL": str(git_config),
-            "GIT_CONFIG_SYSTEM": str(git_config),
-            "GIT_TERMINAL_PROMPT": "0",
-            "GCM_INTERACTIVE": "Never",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONIOENCODING": "utf-8",
-            "PYTHONPATH": str(repo_root),
-            SANDBOX_MARKER: "1",
-        }
-    )
-    return env
+    return {
+        **shared_env,
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "APPDATA": str(app_data),
+        "LOCALAPPDATA": str(local_app_data),
+        "PROGRAMDATA": str(program_data),
+        "XDG_CONFIG_HOME": str(xdg_config),
+        "XDG_CACHE_HOME": str(xdg_cache),
+        "XDG_DATA_HOME": str(xdg_data),
+        "XDG_STATE_HOME": str(xdg_state),
+        "TMPDIR": str(tmp),
+        "TMP": str(tmp),
+        "TEMP": str(tmp),
+        "GIT_CONFIG_GLOBAL": str(git_config),
+        "GIT_CONFIG_SYSTEM": str(git_config),
+    }
+
+
+def isolated_environment(repo_root: Path, sandbox: Path) -> dict[str, str]:
+    shared_env, _ = _shared_environment(repo_root, sandbox)
+    return _sandbox_environment(shared_env, sandbox)
 
 
 def capability_reason(
@@ -724,8 +737,9 @@ def run_steps(
 
     try:
         with tempfile.TemporaryDirectory(prefix="dotfiles-tests-") as temp_dir:
-            env = isolated_environment(repo_root, Path(temp_dir))
-            lookup_path = env["PATH"].split(os.pathsep, 1)[1]
+            run_dir = Path(temp_dir)
+            shared_env, lookup_path = _shared_environment(repo_root, run_dir)
+            probe_env: dict[str, str] | None = None
             capability_cache: dict[str, tuple[str | None, str | None]] = {}
             for index, step in enumerate(steps):
                 current = index
@@ -737,9 +751,11 @@ def run_steps(
                 missing: list[tuple[str, str]] = []
                 for name in step.requires:
                     if name not in capability_cache:
+                        if probe_env is None:
+                            probe_env = _sandbox_environment(shared_env, run_dir / "probe")
                         capability_cache[name] = capability_reason(
                             registry.capabilities[name],
-                            env=env,
+                            env=probe_env,
                             repo_root=repo_root,
                             lookup_path=lookup_path,
                         )
@@ -760,11 +776,11 @@ def run_steps(
                     continue
 
                 command = _expanded_argv(step, repo_root)
-                step_env = env
+                step_env = _sandbox_environment(shared_env, run_dir / f"{index:03d}")
                 bd_path = capability_cache["bd"][1] if "bd" in step.requires else None
                 if step.step_id == "beads-isolated-worktree" and bd_path:
-                    step_env = {**env, "DOTFILES_TEST_BD": bd_path}
-                sidecar = Path(temp_dir) / "case-reports" / f"{step.step_id}.json" if case_report else None
+                    step_env["DOTFILES_TEST_BD"] = bd_path
+                sidecar = run_dir / "case-reports" / f"{step.step_id}.json" if case_report else None
                 adapted = case_report_command(command, sidecar) if sidecar else None
                 if adapted is not None:
                     command = adapted
