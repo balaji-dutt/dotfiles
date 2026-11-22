@@ -198,6 +198,12 @@
       "requires": ["git"]
     },
     {
+      "id": "beads-upgrade-rehearsal",
+      "suites": ["fast", "integration"],
+      "argv": ["{python}", "-m", "unittest", "tests.test_beads_upgrade_rehearsal"],
+      "covers": ["tests/test_beads_upgrade_rehearsal.py"]
+    },
+    {
       "id": "browser-policy-sync",
       "suites": ["fast", "integration"],
       "argv": ["{python}", "-m", "unittest", "tests.test_sync_browser_policies"],

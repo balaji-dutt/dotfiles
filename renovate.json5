@@ -539,6 +539,9 @@
       "groupName": "beads dolt engine",
       "groupSlug": "dolt-engine",
       "additionalBranchPrefix": "beads-core-",
+      "prBodyNotes": [
+        "**Before merging:** this bump changes a binary that reads and writes the Beads database. On the machine that hosts the database, fetch this branch and run `python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} --stop-server`. Merge only after it prints `RESULT: PASS` and the `beads-release-notes` job is green. See `docs/beads.md`, **Upgrade rehearsal**."
+      ],
       "automerge": false,
       "platformAutomerge": false
     },
@@ -553,6 +556,9 @@
       "groupName": "beads clients",
       "groupSlug": "clients",
       "additionalBranchPrefix": "beads-core-",
+      "prBodyNotes": [
+        "**Before merging:** this bump changes a binary that reads and writes the Beads database. On the machine that hosts the database, fetch this branch and run `python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} --stop-server`. Merge only after it prints `RESULT: PASS` and the `beads-release-notes` job is green. See `docs/beads.md`, **Upgrade rehearsal**."
+      ],
       "platformAutomerge": false
     }
   ]

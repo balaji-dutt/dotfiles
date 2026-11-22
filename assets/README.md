@@ -117,6 +117,25 @@ Exit status 0 is success and 2 means bad input or a download that could not be
 trusted. Set `GITHUB_TOKEN` or `GH_TOKEN` for an authenticated API request; the
 token is never sent to the download hosts.
 
+### Beads and Dolt upgrade rehearsal
+
+`assets/beads-upgrade-rehearsal.py` copies the live Beads database, runs the
+proposed `bd` and `dolt` on the copy, and reports whether the data and this
+repo's helpers survive. Run it on the machine that hosts the Dolt database
+before merging a `renovate/beads-core-*` merge request. Linux and macOS only.
+
+```sh
+python3 assets/beads-upgrade-rehearsal.py \
+  --ref origin/renovate/beads-core-clients --stop-server
+```
+
+It stops the live Dolt server only for the duration of one copy, and only with
+`--stop-server`. Everything else runs against the copy, in a scratch project
+with no Dolt remotes. Exit status 0 is `RESULT: PASS`, 1 means a check failed
+or the run crashed, and 2 means it refused before running the proposed
+binaries. See `docs/beads.md` **Upgrade rehearsal** for the checks, the
+restore point, and the merge checklist.
+
 ### Plannotator slash-command sync
 
 Plannotator's slash commands ship as files upstream installs outside chezmoi:

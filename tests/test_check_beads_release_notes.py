@@ -133,6 +133,7 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
         *,
         raw_json: str | None = None,
         extra: tuple[str, ...] = (),
+        ci: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         releases_path = self.repo_root / "releases.json"
         releases_path.write_text(
@@ -155,8 +156,9 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
                 **{
                     key: value
                     for key, value in os.environ.items()
-                    if key not in ("CI_MERGE_REQUEST_TARGET_BRANCH_NAME", "CI_DEFAULT_BRANCH")
+                    if not key.startswith("CI_")
                 },
+                **(ci or {}),
                 "GIT_CEILING_DIRECTORIES": str(self.repo_root.parent),
                 "GIT_CONFIG_GLOBAL": os.devnull,
                 "GIT_CONFIG_NOSYSTEM": "1",
@@ -596,6 +598,36 @@ class BeadsReleaseNotesHelperTests(unittest.TestCase):
             completed.stderr,
         )
 
+    def test_ci_branches_name_the_rehearsal_command_and_other_runs_do_not(self) -> None:
+        command = "python3 assets/beads-upgrade-rehearsal.py --ref origin/{} --stop-server"
+        merge_request = self.run_helper(
+            [release("v1.2.2")],
+            ci={
+                "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME": "renovate/beads-core-clients",
+                "CI_COMMIT_BRANCH": "ignored",
+            },
+        )
+        self.assertEqual(merge_request.returncode, 0, merge_request.stderr)
+        self.assertIn(command.format("renovate/beads-core-clients"), merge_request.stdout)
+
+        pushed = self.run_helper(
+            [release("v1.2.2")], ci={"CI_COMMIT_BRANCH": "renovate/beads-core-dolt-engine"}
+        )
+        self.assertIn(command.format("renovate/beads-core-dolt-engine"), pushed.stdout)
+
+        for ci in (None, {"CI_COMMIT_BRANCH": "x; rm -rf ~"}, {"CI_COMMIT_BRANCH": "-oops"}):
+            with self.subTest(ci=ci):
+                local = self.run_helper([release("v1.2.2")], ci=ci)
+                self.assertEqual(local.returncode, 0, local.stderr)
+                self.assertNotIn("beads-upgrade-rehearsal", local.stdout)
+
+        blocked = self.run_helper(
+            [release("v1.2.2"), release("v1.2.3", body="data loss")],
+            ci={"CI_COMMIT_BRANCH": "renovate/beads-core-clients"},
+        )
+        self.assertEqual(blocked.returncode, 1)
+        self.assertIn("beads-upgrade-rehearsal", blocked.stdout)
+
     def test_every_unacknowledged_line_in_a_release_is_reported(self) -> None:
         completed = self.run_helper(
             [
@@ -899,6 +931,10 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
         ]
         self.assertEqual(len(naming_dolt), 1)
         dolt_index = naming_dolt[0]
+        later = rules[dolt_index + 1 :]
+        self.assertEqual(
+            [rule.get("matchDepNames") for rule in later], [["@beads/bd", "gastownhall/beads"]]
+        )
         self.assertEqual(
             rules[dolt_index],
             {
@@ -909,14 +945,20 @@ class BeadsRenovatePolicyTests(unittest.TestCase):
                 "groupName": "beads dolt engine",
                 "groupSlug": "dolt-engine",
                 "additionalBranchPrefix": "beads-core-",
+                "prBodyNotes": rules[-1]["prBodyNotes"],
                 "automerge": False,
                 "platformAutomerge": False,
             },
         )
-        later = rules[dolt_index + 1 :]
-        self.assertEqual(
-            [rule["matchDepNames"] for rule in later], [["@beads/bd", "gastownhall/beads"]]
+        notes = rules[-1]["prBodyNotes"]
+        self.assertEqual(len(notes), 1)
+        self.assertIn(
+            "`python3 assets/beads-upgrade-rehearsal.py --ref origin/{{{branchName}}} "
+            "--stop-server`",
+            notes[0],
         )
+        self.assertIn("RESULT: PASS", notes[0])
+        self.assertTrue((REPO_ROOT / "assets/beads-upgrade-rehearsal.py").is_file())
 
         pins = [
             REPO_ROOT / ".chezmoidata.yaml",

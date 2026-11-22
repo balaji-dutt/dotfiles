@@ -10,6 +10,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import urllib.error
@@ -821,6 +822,22 @@ def adopted_range_report(
         print(f"INFO: adopted-range report skipped: {normalize_line(str(error))}")
 
 
+def print_rehearsal_command() -> None:
+    """On a CI branch, name the local check that CI cannot run: it needs the real database."""
+    branch = (
+        os.environ.get("CI_MERGE_REQUEST_SOURCE_BRANCH_NAME")
+        or os.environ.get("CI_COMMIT_BRANCH")
+        or ""
+    )
+    if not GIT_REF_PATTERN.fullmatch(branch):
+        return
+    print(
+        "INFO: before merging, rehearse this upgrade on the Beads host: "
+        f"python3 assets/beads-upgrade-rehearsal.py --ref {shlex.quote('origin/' + branch)} "
+        "--stop-server"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -890,6 +907,7 @@ def main(argv: list[str] | None = None) -> int:
         fks_rc = check_clone_local_fks(
             proposed, parse_upstream_clone_local_fks(source), repo_root
         )
+        print_rehearsal_command()
         return max(notes_rc, fks_rc)
     except GuardError as error:
         print(f"ERROR: {error}", file=sys.stderr)
