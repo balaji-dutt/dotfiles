@@ -229,6 +229,27 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
   defect in it. The scan is deliberately conservative:
   warning text needs human review, and an unreported problem can still evade
   the keyword check. The 14-day quarantine remains the independent defense.
+- Every matching line of a successor's notes is reported. After reviewing a
+  line, record it in `configs/beads-release-note-acks.json` with the matched
+  `line`, its `pattern` (`data loss`, `corruption`, `retraction` or
+  `recovery`), a `reason`, and a `reviewed` date. The guard prints the entry to
+  paste beside each unacknowledged line. An acknowledged line prints as INFO and
+  stays acknowledged in every later release that repeats it; a new matching
+  line blocks again. A term that wraps over a line break is matched and
+  reported with both lines joined. An entry that no longer matches anything
+  is reported as stale and can be removed. Acknowledge a line only when it
+  does not describe a defect in the proposed release.
+- The guard also prints, as INFO only, the notes for every release the pin
+  change adopts: each release after the pin on the merge request's target
+  branch, up to and including the proposed one, prereleases included. For each
+  it prints the release URL, the summary and the upgrade-notes and known-issues
+  sections of that release's `CHANGELOG.md` section at the proposed tag, the
+  matching sections of its GitHub release page, and any line that uses a
+  hazard term. Upstream release pages often defer to the changelog's
+  release-candidate sections, so read this output before merging. It never
+  changes the exit status, and it is skipped with an INFO line when the target
+  branch pin or the changelog cannot be read. `--base-ref` names the ref
+  holding the current pin; `--changelog-file` reads a local changelog.
 - The same guard fetches bd's `cmd/bd/doctor/fix/clone_local_fks.go` at the
   proposed tag and fails when its key list differs from the lists in
   `assets/beads-sync.sh` and `assets/beads-sync.ps1`, naming each key added or
@@ -245,6 +266,9 @@ coordinated recovery update:
 ```sh
 python3 assets/check-beads-release-notes.py
 ```
+
+On a checkout of the Renovate branch, `--base-ref origin/main` is the default
+outside CI, so fetch `origin` first to compare against the current pin.
 
 An urgent recovery can still be pinned manually in both files in one reviewed
 change. Do not weaken the quarantine, split the pins, or waive a warning merely

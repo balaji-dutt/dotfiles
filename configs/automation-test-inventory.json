@@ -197,6 +197,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-acknowledged-hazard-lines",
+            "kind": "safety",
+            "description": "Pass only successor lines acknowledged for their own pattern, report every other matching line, and fail closed on a malformed acknowledgement file.",
+            "status": "covered"
+          },
+          {
             "id": "safety-clone-local-fk-drift",
             "kind": "safety",
             "description": "Fail a Beads bump whose clone-local FK list differs from beads-sync's, and fail closed when bd's list cannot be fetched or parsed.",
@@ -206,6 +212,12 @@
             "id": "safety-token-boundary",
             "kind": "safety",
             "description": "Reject redirects, pagination, and contents URLs outside the trusted Beads GitHub API before sending credentials.",
+            "status": "covered"
+          },
+          {
+            "id": "success-adopted-range-report",
+            "kind": "success",
+            "description": "Print the notes of every release between the target-branch pin and the proposed pin, prereleases included, without changing the exit status.",
             "status": "covered"
           },
           {

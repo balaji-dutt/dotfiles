@@ -72,10 +72,21 @@ python3 assets/check-beads-release-notes.py \
 
 The fixture path is an input seam; the repository does not keep a live release
 snapshot. Exit status 0 is clean, 1 means newer release notes contain an
-incident term that needs review, and 2 means the pins or release data could not
-be trusted. CI runs this check only for `renovate/beads-core-*` push and merge
-request pipelines. Better Beads Kanban uses the separate
-`renovate/beads-kanban-*` dispatch.
+incident term that has not been acknowledged in
+`configs/beads-release-note-acks.json`, and 2 means the pins, release data, or
+acknowledgement file could not be trusted.
+
+The helper also prints the notes for every release between the pin at
+`--base-ref` and the proposed pin. The default ref is
+`origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME`, then
+`origin/$CI_DEFAULT_BRANCH`, then `origin/main`. That output is
+informational. With `--releases-file`, pass
+`--changelog-file <path-to-CHANGELOG.md>` to include the changelog sections
+without contacting the network.
+
+CI runs this check only for `renovate/beads-core-*` push and merge request
+pipelines. Better Beads Kanban uses the separate `renovate/beads-kanban-*`
+dispatch.
 
 ### Plannotator slash-command sync
 
