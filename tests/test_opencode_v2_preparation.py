@@ -1224,6 +1224,7 @@ class OpenCodeV2IsolationRenderTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
         self.environment = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.root / "home"),
+                            "USERPROFILE": str(self.root / "home"),
                             "XDG_CONFIG_HOME": str(self.root / "config"),
                             "XDG_CACHE_HOME": str(self.root / "cache"), "CHEZMOI_NO_TTY": "1"}
         for name in ("home", "config", "cache"):
