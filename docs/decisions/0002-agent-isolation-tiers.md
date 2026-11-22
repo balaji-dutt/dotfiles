@@ -297,9 +297,57 @@ keys and aliases remain for operations a task explicitly asks for, under the
 harness's normal `ssh` ask. A repeated, mechanical remote operation earns a
 new allowlisted `serve` verb, not a wider key.
 
-**Revisit trigger.** Reaching native Windows through WSL2 interop
-(`via: "wsl2"`) adds a second hop and a second checkout; reopen this
-amendment before building it.
+**Revisit trigger.** Reaching native Windows was reopened on 2026-11-22; the
+next amendment records the outcome. The WSL2 interop hop (`via: "wsl2"`) was
+rejected there and the config key retired.
+
+### 2026-11-22 — Native Windows as a serving peer
+
+**What changed.** A native Windows host serves `peer-env` requests through
+OpenSSH Server running on Windows itself, reached directly with the same
+`restrict,command=...` key shape the POSIX peers use
+([`docs/tooling/peer-environments.md`](../tooling/peer-environments.md),
+"Windows serving"). Three alternatives were rejected. PowerShell remoting over
+WinRM is a second authentication model with no forced-command equivalent
+short of JEA. PowerShell remoting over SSH needs sshd anyway and then grants a
+full remoting session. The WSL2 interop hop starts a `pwsh.exe` tree from a
+Linux sshd session, and that tree cannot be contained or verifiably shut down
+from the Linux side, which breaks the lifecycle guarantees `serve` is built
+on.
+
+**Boundary.** On the POSIX peers the restricted key reaches code execution as
+the peer user. On Windows it reaches more unless something stops it: sshd
+gives an administrator who logs in with a key an elevated session, with no
+UAC split (measured on OpenSSH for Windows 9.5p2). The checkout is writable by
+the peer user, and by any local account when it sits on a volume that keeps
+the default access list, so nothing in the checkout may run in that session. The forced command therefore names a
+launcher kept where only administrators can write, run by an interpreter only
+administrators can write. The launcher starts the checkout's `serve` under a
+filtered, medium-integrity copy of its token inside a kill-on-close Job
+Object, and `serve` refuses to run when it finds itself elevated. From that
+point the exposure is the POSIX one: the snapshot's entrypoints and tests run
+as the peer user, unelevated, and the controls bound transport, environment,
+and `serve`'s own writes. Windows peers are restricted-only. An ordinary key
+hands the client's POSIX request text to `cmd.exe`, which cannot run it, so
+`allow_unrestricted` is refused for a Windows entry and there is no degraded
+mode.
+
+**Known limit.** sshd enables a Windows protection that every process in the
+session inherits and none can clear: a link created by a non-administrator
+cannot be followed. A Windows peer therefore does not verify behaviour that
+depends on following such a link. Tests that create a link and read through
+it skip there with a stated reason, and local runs and hosted CI remain the
+evidence for them.
+
+**Owner-managed.** Installing and configuring sshd, the firewall rule, the
+key line, and the launcher copy stay with the owner in the private repo. No
+managed lifecycle script installs a listener.
+
+**Revisit trigger.** Running `serve` outside the sshd session, for example
+through a scheduled task with its input and output relayed over named pipes,
+would remove the link limit at the cost of a second owner-managed component
+and a relay with its own access rules. Reopen this amendment before building
+it.
 
 ## Sources
 

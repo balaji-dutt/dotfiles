@@ -13,7 +13,8 @@ helper says so within a few seconds and the agent reports the platform as not
 verified.
 
 Native Windows can initiate verification against macOS, Linux, and WSL2 peers.
-It cannot serve requests; see [Not yet: Windows serving](#not-yet-windows-serving).
+It does not serve requests yet; [Windows serving](#windows-serving) records the
+design.
 
 ## The boundary
 
@@ -579,30 +580,112 @@ state/worktree reconciliation. Incomplete diagnostics need the same inspection;
 their retention is not a claim that the crashed run is still active. Agents
 must not clear markers or infer ownership from a leftover's basename.
 
-## Not yet: Windows serving
+## Windows serving
 
-Native Windows is supported as a client, not as a serving peer. A possible
-Windows serving design would use a second hop: ssh into WSL2, then run
-`pwsh.exe` through WSL interop against a separate Windows clone of this repo.
-Two constraints apply:
+A native Windows host serves through OpenSSH Server on Windows itself, reached
+directly with the same `restrict,command=...` key shape as the POSIX peers.
+`docs/decisions/0002-agent-isolation-tiers.md` (2026-11-22) records the
+decision and the alternatives it rejected, including the WSL2 interop hop the
+`via` config key was once reserved for. Everything below was measured in a
+forced-command session on OpenSSH for Windows 9.5p2.
 
-- sshd sessions on WSL2 carry neither `WSL_DISTRO_NAME` nor `WSL_INTEROP`.
-  `serve` restores both (it exports the first live socket under
-  `/run/WSL/*_interop`), but finding a socket does not prove that the sshd
-  process tree can launch Windows executables. The test PowerShell resolver
-  execution-probes candidates, preferring usable local `pwsh` before
-  `pwsh.exe` and the standard Windows installation path. If none can execute,
-  the wrapper test skips with its probe reason; a wrapper failure after a
-  successful probe still fails. A Windows hop needs live execution evidence.
-- The config schema reserves `via` for this: a Windows entry would say
-  `"platform": "windows", "via": "wsl2"` and name the Windows clone path.
-  Until the hop exists, both are rejected with `windows via wsl2 is not
-  supported yet`. Windows client test registration and inventory coverage do
-  not enable Windows peer entries or serving.
+### What differs from a POSIX peer
 
-If interop proves unreliable inside sshd sessions, the alternative is an
-OpenSSH server on Windows itself, reached directly with the same forced
-command shape.
+- **The session is elevated.** sshd gives an administrator who logs in with a
+  key a full administrator token; there is no UAC split. The checkout is
+  writable by the peer user, so nothing in it may run in that session. The
+  forced command names a launcher instead of the checkout:
+  `assets/peer_env_windows_launcher.py`, copied to a folder only
+  administrators can write and run by a Python only administrators can
+  write. The launcher starts `<checkout>\assets\peer-env serve` under a
+  filtered, medium-integrity copy of its own token, inside a kill-on-close
+  Job Object, and relays the exit code. It resets the token's default access
+  list to the user and SYSTEM; with the elevated default the unelevated
+  process cannot open pipes it creates. `serve` refuses to run when it finds
+  itself elevated.
+- **Restricted only.** Through an ordinary key sshd hands the client's request
+  text, which is POSIX shell, to `cmd.exe`. There is no unrestricted mode to
+  opt into, so `allow_unrestricted` on a `"platform": "windows"` entry is a
+  config error.
+- **Entrypoints.** `serve` runs
+  `pwsh -NoProfile -NonInteractive -File .\assets\cz-audit.ps1 check <path>`
+  and `.\assets\run-tests.ps1 <suite> [--require-capabilities]` with the
+  snapshot worktree as the working directory.
+- **Environment.** `PATH` is built from known folders and never copies the
+  session's: Git for Windows (`cmd`, then `bin`), PowerShell 7, `System32`
+  and the Windows folder, the running Python's folder, `nodejs`,
+  `%USERPROFILE%\.local\bin`, the folder of each WinGet link target, and the
+  WinGet links folder. A folder that does not exist is left out and shows up
+  as a missing tool in the identity. The other variables are `USERPROFILE`,
+  `HOMEDRIVE`, `HOMEPATH`, `USERNAME`, `USERDOMAIN`, `APPDATA`,
+  `LOCALAPPDATA`, `ProgramData`, `ProgramFiles`, `SystemRoot`, `SystemDrive`,
+  `COMSPEC`, `PATHEXT`, `TEMP`, `TMP`, `LANG=C.UTF-8`, `TERM=dumb`,
+  `PEER_ENV=1`, and `CZ_AUDIT_PEER_ENV=0`, which keeps the audit from probing
+  this peer's own peers.
+- **State and worktrees.** State is
+  `%USERPROFILE%\.local\state\dotfiles\peer-env`, under the same protected
+  access rules as the client's cache. A `worktrees` folder or
+  `peer-env-<slug>` leaf that is a junction or symlink is refused; there is
+  no linked-parent layout on Windows.
+- **Shutdown.** Each entrypoint runs in its own Job Object, and a run counts
+  as stopped only when the job reports no live process. A dropped connection
+  ends the session's process tree; no orphan survived it in testing.
+
+### Links cannot be followed
+
+sshd turns on a Windows protection that every process in the session inherits
+and none can clear: a symlink or junction created by a non-administrator
+cannot be followed (`The path cannot be traversed because it contains an
+untrusted mount point`). Reading the link itself and opening its target
+directly both work. The consequences:
+
+- WinGet installs tools as links, which is why `serve` puts each link's real
+  folder on `PATH`.
+- chezmoi cannot read a managed target that sits behind such a link, a
+  redirected `Documents` folder for example, so an audit of that file fails
+  on the peer where it passes locally.
+- A test that creates a link and reads through it cannot pass. Such tests
+  skip with a stated reason when the session cannot follow a link it just
+  made. `serve` reports `"link_following": false` in its identity.
+
+A Windows peer therefore does not verify link-following behaviour. Local runs
+and hosted Windows CI are the evidence for it.
+
+### Owner prerequisites
+
+These live in the private repo or are done by hand. Nothing in this repo
+installs a listener.
+
+1. Install the OpenSSH Server capability and set `sshd` to start
+   automatically. The stock inbound firewall rule covers the Private profile
+   only; a client on another profile needs it widened.
+2. Pick a port the WSL2 sshd endpoint does not use on the same address, below
+   the dynamic range that starts at 32768.
+3. Use an all-users Python whose folder only administrators can write, and
+   name `python.exe` itself in the key line. The `py` launcher also honours
+   per-user registrations.
+4. Copy `assets\peer_env_windows_launcher.py` to `%ProgramData%\ssh\`, and
+   copy it again whenever that file changes on `main`.
+5. For an administrator account, put the key in
+   `%ProgramData%\ssh\administrators_authorized_keys`; `sshd` ignores that
+   account's `~\.ssh\authorized_keys`. For another account, point a
+   `Match User` block at its own key file.
+
+   ```text
+   restrict,command="C:\<python>\python.exe -I C:\ProgramData\ssh\peer_env_windows_launcher.py <checkout root>" ssh-ed25519 AAAA... peer-env
+   ```
+
+   Give the checkout's real path, without spaces and not through a link. Then
+   limit the file to Administrators and SYSTEM:
+
+   ```powershell
+   icacls.exe "$env:ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F'
+   ```
+
+6. On each client, pin the key with `identity_file` or an alias that sets
+   `IdentityFile` and `IdentitiesOnly yes`. An agent that offers its other
+   keys first uses up `MaxAuthTries`, and the login ends at a password
+   prompt. Accept the host key once.
 
 ## Testing
 
