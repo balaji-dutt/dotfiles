@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import unittest
 
+from tests.support.fixtures import compatible_bash
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ENVRC = ROOT / ".envrc"
-BASH = shutil.which("bash")
+BASH = compatible_bash(ENVRC, Path(tempfile.gettempdir()))
 
 
 class EnvrcHarness(unittest.TestCase):
@@ -212,7 +213,12 @@ class EnvrcIntegrationTests(EnvrcHarness):
                 r"""
                 PATH_add() { printf '%s\n' "$1" > "$PATH_LOG"; }
                 source "$1"
-                printf '%s\n%s\n' "$DOTFILES_DEVCONTAINER_SYNC_ALL_CMD" "$BEADS_DOLT_CLI_DIR"
+                native_pwd=$PWD
+                if command -v cygpath >/dev/null 2>&1; then
+                  native_pwd=$(cygpath -w "$PWD")
+                fi
+                printf '%s\n' "$PWD" "$native_pwd" \
+                  "$DOTFILES_DEVCONTAINER_SYNC_ALL_CMD" "$BEADS_DOLT_CLI_DIR"
                 """,
                 "envrc-test",
                 str(ENVRC),
@@ -225,10 +231,12 @@ class EnvrcIntegrationTests(EnvrcHarness):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(path_log.read_text(encoding="utf-8"), f"{self.workdir}/assets\n")
+        shell_pwd, native_pwd, *exported = result.stdout.splitlines()
+        self.assertTrue(os.path.samefile(native_pwd, self.workdir), native_pwd)
+        self.assertEqual(path_log.read_text(encoding="utf-8"), f"{shell_pwd}/assets\n")
         self.assertEqual(
-            result.stdout.splitlines(),
-            ["sync-devcontainer-all.sh", f"{self.workdir}/.beads/dolt"],
+            exported,
+            ["sync-devcontainer-all.sh", f"{shell_pwd}/.beads/dolt"],
         )
 
 
