@@ -90,6 +90,8 @@ assets/agent-wt-merge	executable-mode,shebang
 assets/beads-sync	executable-mode,shebang
 assets/beads-sync.ps1	script-extension
 assets/beads-sync.sh	executable-mode,script-extension,shebang
+assets/beads-toolchain.py	script-extension,shebang
+assets/beads-upgrade-rehearsal.py	script-extension,shebang
 assets/cbm-prune-orphans.py	script-extension,shebang
 assets/check-ai-tooling.py	script-extension,shebang
 assets/check-automation-provenance.py	executable-mode,script-extension,shebang

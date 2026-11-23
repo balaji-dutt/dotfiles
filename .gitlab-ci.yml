@@ -216,7 +216,11 @@ beads-release-notes:
   image: alpine:3.20
   timeout: 5m
   before_script:
-    - apk add --no-cache ca-certificates python3
+    - apk add --no-cache ca-certificates git python3
+    - |
+      base="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-$CI_DEFAULT_BRANCH}"
+      git fetch --depth=1 origin "+refs/heads/${base}:refs/remotes/origin/${base}" \
+        || echo "INFO: could not fetch ${base}; the adopted-range report will be skipped"
   script:
     - python3 assets/check-beads-release-notes.py
   rules:
@@ -242,6 +246,8 @@ linux-fast:
   needs: []
   interruptible: true
   timeout: 10m
+  variables:
+    GIT_DEPTH: "0"
   before_script:
     - |
       set -eu
@@ -284,6 +290,8 @@ linux-all:
   interruptible: true
   allow_failure: true
   timeout: 30m
+  variables:
+    GIT_DEPTH: "0"
   script:
     - mkdir -p ci-artifacts
     - ./assets/run-tests.sh all --require-capability bash --require-capability git --require-capability sh --report-file ci-artifacts/linux-all.json

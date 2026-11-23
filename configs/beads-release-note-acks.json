@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "acks": [
+    {
+      "line": "* 056f47ab16fae157a0e91b0010768bb558f90c78 test(ci): surface shard-script stderr in lane guards; assert corrupt-metadata refusals (#7744)",
+      "pattern": "corruption",
+      "reason": "CI test change asserting corrupt-metadata refusals; no product change.",
+      "reviewed": "2026-11-22"
+    },
+    {
+      "line": "* 2298c65173cbfea35b263636ae0bdeb0b96f70e9 docs(recovery): re-review init-safety playbooks; refresh the 90-day marker (#6411)",
+      "pattern": "recovery",
+      "reason": "Documentation: recovery playbook review only.",
+      "reviewed": "2026-11-22"
+    },
+    {
+      "line": "* 2ac4e07dcc859c3692615273adb9c9657f5fce3c fix(test): recover when a Dolt test server dies mid-suite (#6756)",
+      "pattern": "recovery",
+      "reason": "Test-harness fix for a Dolt test server dying mid-suite; no product change.",
+      "reviewed": "2026-11-22"
+    },
+    {
+      "line": "* 54dd4da6708558840f88863266b9ca702893feb1 docs(recovery): init-safety re-clone playbook covers damaged-store and fresh-clone gotchas (#6431)",
+      "pattern": "recovery",
+      "reason": "Documentation: recovery playbook wording only.",
+      "reviewed": "2026-11-22"
+    },
+    {
+      "line": "* 8951ca56ba194e3c1ff85f7a076420fea5ca7ba1 fix(version): refuse Go pseudo-version predecessors in pre-0.56 recovery (#7000)",
+      "pattern": "recovery",
+      "reason": "Fixes a .dolt deletion path opened by #6153. Neither commit is an ancestor of v1.3.2 or v1.3.4 and the 1.3.x changelog lists neither, so 1.3.4 has neither the regression nor the fix; 1.4.0 ships both.",
+      "reviewed": "2026-11-22"
+    },
+    {
+      "line": "* b184dae41291bbb1e4cb242c65ed51a26bfc8df4 fix(dbproxy): managed-local dolt readiness proves port ownership; recover onto a free port (#7184)",
+      "pattern": "recovery",
+      "reason": "Readiness and port-ownership fix for the managed-local Dolt server. Backported in 1.3.3-rc.1, so the proposed 1.3.4 already carries it.",
+      "reviewed": "2026-11-22"
+    }
+  ]
+}

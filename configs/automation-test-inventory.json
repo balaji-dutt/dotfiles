@@ -197,6 +197,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-acknowledged-hazard-lines",
+            "kind": "safety",
+            "description": "Pass only successor lines acknowledged for their own pattern, report every other matching line, and fail closed on a malformed acknowledgement file.",
+            "status": "covered"
+          },
+          {
             "id": "safety-clone-local-fk-drift",
             "kind": "safety",
             "description": "Fail a Beads bump whose clone-local FK list differs from beads-sync's, and fail closed when bd's list cannot be fetched or parsed.",
@@ -206,6 +212,12 @@
             "id": "safety-token-boundary",
             "kind": "safety",
             "description": "Reject redirects, pagination, and contents URLs outside the trusted Beads GitHub API before sending credentials.",
+            "status": "covered"
+          },
+          {
+            "id": "success-adopted-range-report",
+            "kind": "success",
+            "description": "Print the notes of every release between the target-branch pin and the proposed pin, prereleases included, without changing the exit status.",
             "status": "covered"
           },
           {
@@ -242,6 +254,104 @@
         ]
       },
       "rationale": "Registered helper and isolated sync suites cover launcher dispatch, platform and remote guards, dirty-state refusal, one-session pull SQL, snapshot boundaries, lifecycle cleanup, failure propagation, and URL redaction."
+    },
+    {
+      "id": "beads-toolchain",
+      "classification": "owned",
+      "paths": ["assets/beads-toolchain.py"],
+      "owner": {"kind": "repository", "name": "Beads and Dolt upgrade toolchain fetcher"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-bmo5",
+        "test_paths": ["tests/test_beads_toolchain.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-untrusted-pins-and-downloads",
+            "kind": "failure",
+            "description": "Exit 2 on malformed pins, refused git refs, missing assets or digests, API and download errors, digest or size mismatches, and archives without exactly one regular binary.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-private-prefix",
+            "kind": "safety",
+            "description": "Install only into a new, empty, or helper-created prefix, leave an existing binary untouched on refusal, and download again when the cached binary or stamp does not match the requested version.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-token-and-redirect-boundary",
+            "kind": "safety",
+            "description": "Send the API token only to the GitHub API without following redirects, and follow download redirects only to GitHub release hosts.",
+            "status": "covered"
+          },
+          {
+            "id": "success-verified-install",
+            "kind": "success",
+            "description": "Read both pins from the working tree or a git ref, and install a digest-verified binary that reports the requested version.",
+            "status": "covered"
+          }
+        ]
+      },
+      "rationale": "Fake openers, local archives, and stub binaries cover pin parsing, the download trust boundary, extraction, and prefix reuse without contacting the network."
+    },
+    {
+      "id": "beads-upgrade-rehearsal",
+      "classification": "owned",
+      "paths": ["assets/beads-upgrade-rehearsal.py"],
+      "owner": {"kind": "repository", "name": "Beads and Dolt upgrade rehearsal"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["beads", "filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "status": "partial",
+        "work_item": "dots-bmo5",
+        "test_paths": ["tests/test_beads_upgrade_rehearsal.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-refusals-and-crashes-report",
+            "kind": "failure",
+            "description": "Exit 2 on malformed versions, unusable projects and metadata before touching anything, record a failed check when the live server does not come back, and turn crashes, interrupts and termination signals into a written report and a non-zero exit.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-copy-cannot-reach-live-or-remote",
+            "kind": "safety",
+            "description": "Copy only the database and workspace state, refuse symlinks and running-server state files, remove every Dolt remote and refuse when one survives or reappears, and run scratch commands in a private environment.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-live-server-restored",
+            "kind": "safety",
+            "description": "Stop the live server only with permission, discard a copy taken while it restarted, and restart it after copy failures, interrupts and exits with termination signals held off during the restart.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-scratch-server-identity",
+            "kind": "safety",
+            "description": "Use a scratch server only after ps shows it serving the scratch project on a port other than the live one, never signal any other process, and stop or kill every scratch server it identified, on every path.",
+            "status": "covered"
+          },
+          {
+            "id": "success-data-comparison",
+            "kind": "success",
+            "description": "Report lost, changed and dropped issue data and shrunk or missing tables, accept added fields and grown tables, and prune only this project's older restore points.",
+            "status": "covered"
+          },
+          {
+            "id": "success-real-binary-rehearsal",
+            "kind": "success",
+            "description": "Run the whole rehearsal with real bd and dolt binaries against a seeded store and pass with the data unchanged.",
+            "status": "planned"
+          }
+        ]
+      },
+      "rationale": "Stand-in bd and dolt scripts with real processes cover the stop, restart, identity and kill paths; the end-to-end run with real binaries is not automated yet and is planned for the real-binary contract suite under dots-bmo5."
     },
     {
       "id": "browser-policy-sync",
