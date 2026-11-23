@@ -1,4 +1,4 @@
-"""Native Windows security and process primitives for the peer-env client."""
+"""Native Windows security and process primitives for peer-env."""
 
 from __future__ import annotations
 
@@ -9,12 +9,15 @@ import json
 import msvcrt
 import os
 from pathlib import Path
+import queue
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import threading
 import time
+import winreg
 
 kernel = C.WinDLL("kernel32", use_last_error=True)
 advapi = C.WinDLL("advapi32", use_last_error=True)
@@ -435,3 +438,203 @@ def capture(argv, *, timeout, input_text=None, **kwargs):
                 for stream in (process.stdin, process.stdout, process.stderr):
                     if stream is not None:
                         stream.close()
+
+
+mitigation_policy = bind(kernel, "GetProcessMitigationPolicy", W.BOOL, W.HANDLE, C.c_int, P, C.c_size_t)
+SERVE_NAMES = ("USERPROFILE", "HOMEDRIVE", "HOMEPATH", "USERNAME", "USERDOMAIN", "APPDATA", "LOCALAPPDATA",
+               "ProgramData", "ProgramFiles", "SystemRoot", "SystemDrive", "COMSPEC", "PATHEXT", "TEMP", "TMP")
+
+
+def elevated():
+    token = W.HANDLE()
+    checked(open_token(current_process(), 8, C.byref(token)), "open user token")
+    try:
+        elevation, size = DWORD(), DWORD()
+        checked(token_info(token, 20, C.byref(elevation), C.sizeof(elevation), C.byref(size)), "read token elevation")
+        token_info(token, 25, None, 0, C.byref(size))
+        buffer = C.create_string_buffer(size.value)
+        checked(token_info(token, 25, buffer, size, C.byref(size)), "read token integrity")
+        integrity = int(sid_text(P.from_buffer(buffer).value).rsplit("-", 1)[1])
+        return bool(elevation.value) or integrity >= 0x3000
+    finally:
+        close(token)
+
+
+def redirection_guard():
+    flags = DWORD()
+    return bool(mitigation_policy(current_process(), 16, C.byref(flags), C.sizeof(flags))) and bool(flags.value & 1)
+
+
+def kernel_identity():
+    version = sys.getwindowsversion()
+    return "Windows", f"{version.major}.{version.minor}.{version.build}"
+
+
+def is_reparse(path):
+    try:
+        return bool(os.lstat(path).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    except FileNotFoundError:
+        return False
+
+
+def open_regular(path):
+    handle = open_path(path, 0x80000000)
+    try:
+        info = FileInformation()
+        checked(file_information(handle, C.byref(info)), f"inspect {path}")
+        if info.attributes & 0x410:
+            raise Refused(f"not a regular file: {path}")
+        return msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        close(handle)
+        raise
+
+
+class Lock:
+    def __init__(self, handle):
+        self.handle = handle
+
+    def close(self):
+        if self.handle is not None:
+            close(self.handle)
+            self.handle = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def lock_file(path):
+    with directory_guard(path.parent):
+        with private_attributes() as attributes:
+            handle = create_file(str(path), 0xC0010000, 0, C.byref(attributes), 4, 0x04200000, None)
+        if handle == INVALID_HANDLE:
+            code = C.get_last_error()
+            if code == 32:
+                raise BlockingIOError(f"lock is held: {path}")
+            raise C.WinError(code, f"cannot open lock {path}")
+        try:
+            validate(handle, path, private=True, directory=False)
+        except BaseException:
+            close(handle)
+            raise
+        return Lock(handle)
+
+
+def registry_value(key, name):
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as handle:
+            value = winreg.QueryValueEx(handle, name)[0]
+    except OSError:
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def powershell_root():
+    key = r"SOFTWARE\Microsoft\PowerShellCore\InstalledVersions"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as handle:
+            names = [winreg.EnumKey(handle, index) for index in range(winreg.QueryInfoKey(handle)[0])]
+    except OSError:
+        return None
+    return next((value for name in names if (value := registry_value(f"{key}\\{name}", "InstallLocation"))), None)
+
+
+def serve_path(environ):
+    source = {name.upper(): value for name, value in environ.items()}
+    program_files = source.get("PROGRAMFILES") or r"C:\Program Files"
+    system = source.get("SYSTEMROOT") or r"C:\Windows"
+    git = registry_value(r"SOFTWARE\GitForWindows", "InstallPath") or program_files + r"\Git"
+    candidates = [git + r"\cmd", git + r"\bin", powershell_root() or program_files + r"\PowerShell\7",
+                  system + r"\System32", system, str(Path(sys.executable).parent), program_files + r"\nodejs"]
+    if source.get("USERPROFILE"):
+        candidates.append(source["USERPROFILE"] + r"\.local\bin")
+    if source.get("LOCALAPPDATA"):
+        links = source["LOCALAPPDATA"] + r"\Microsoft\WinGet\Links"
+        # A session started by sshd cannot follow links a non-administrator made, so their targets go on PATH directly.
+        try:
+            for entry in sorted(os.scandir(links), key=lambda item: item.name):
+                if entry.is_symlink():
+                    candidates.append(os.path.dirname(os.readlink(entry.path).removeprefix("\\\\?\\")))
+        except OSError:
+            pass
+        candidates.append(links)
+    entries = []
+    for candidate in candidates:
+        candidate = candidate.rstrip("\\")
+        if (os.path.isabs(candidate) and drive_type(os.path.splitdrive(candidate)[0] + "\\") == 3
+                and os.path.isdir(candidate) and candidate.lower() not in (entry.lower() for entry in entries)):
+            entries.append(candidate)
+    return os.pathsep.join(entries)
+
+
+def serve_environment(environ):
+    source = {name.upper(): value for name, value in environ.items()}
+    env = {"PATH": serve_path(environ), "LANG": "C.UTF-8", "TERM": "dumb", "PEER_ENV": "1", "CZ_AUDIT_PEER_ENV": "0"}
+    for name in SERVE_NAMES:
+        if source.get(name.upper()):
+            env[name] = source[name.upper()]
+    return env
+
+
+def stream_command(argv, *, cwd, env, deadline, sink, stopped):
+    job = Job()
+    process = None
+    reader = None
+    code, timed_out = None, False
+    try:
+        try:
+            process = subprocess.Popen([sys.executable, "-I", "-X", "utf8", "-c", WORKER], cwd=cwd, env=env,
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+            try:
+                job.assign(process)
+            except BaseException:
+                process.kill()
+                raise
+            process.stdin.write((json.dumps({"argv": list(map(str, argv)), "input": None}) + "\n").encode("utf-8"))
+            process.stdin.close()
+            chunks = queue.SimpleQueue()
+
+            def read():
+                try:
+                    while data := process.stdout.read1(65536):
+                        chunks.put(data)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    chunks.put(None)
+
+            reader = threading.Thread(target=read, daemon=True)
+            reader.start()
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                try:
+                    data = chunks.get(timeout=min(0.2, remaining))
+                except queue.Empty:
+                    continue
+                if data is None:
+                    break
+                sink(data)
+            if not timed_out:
+                code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        finally:
+            try:
+                job.stop()
+                if process is not None:
+                    process.wait(timeout=STOP_GRACE)
+                stopped()
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"peer-env: command tree shutdown unverified: {error}", file=sys.stderr)
+            if reader is not None:
+                reader.join(STOP_GRACE)
+            if process is not None and (reader is None or not reader.is_alive()):
+                process.stdout.close()
+    finally:
+        job.close()
+    return code, timed_out

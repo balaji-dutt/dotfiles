@@ -67,6 +67,11 @@ key grants is stated plainly here:
   owner of both machines sets that flag; for an agent the peer counts as
   unreachable.
 
+The bullets above describe a POSIX peer. A native Windows peer keeps the same
+verbs, confinement, and logging, but its forced command is a launcher, its
+entrypoints are the PowerShell pair, and its environment allowlist is its
+own; see [Windows serving](#windows-serving).
+
 This is the verification lane. The ordinary keys and `Host` aliases stay as
 they are for operations a task explicitly asks for (an `ansible-playbook` run,
 a `chezmoi apply`, a tool upgrade); those go through the harness's `ssh`
@@ -454,7 +459,7 @@ the `git-receive-pack` form git emits) is refused.
 
 | Request | Peer action |
 | :--- | :--- |
-| `identity` | Print `PEER-ENV-IDENTITY {json}` with `uname -s`, `uname -r`, platform, `restricted`, tool availability, protocol version, and capabilities. |
+| `identity` | Print `PEER-ENV-IDENTITY {json}` with `uname -s`, `uname -r`, platform, `restricted`, tool availability, protocol version, and capabilities. A Windows peer reports `Windows` and its build number in place of the `uname` values, and adds `link_following`. |
 | `receive-pack [path]` | `git receive-pack` on the peer's own checkout with a per-push `pre-receive` hook that rejects any ref outside `refs/peer-env/<slug>`. The path argument is ignored. |
 | `run <slug> <sha> <timeout> cleanup\|keep audit\|test ...` | Hold the slug lock across preparation, one bounded execution, diagnostics, and cleanup or explicit retention. |
 | `prepare <slug> <sha>` | Under a per-slug lock, create or re-check-out `<worktree parent>/peer-env-<slug>` at `<sha>`, which must equal `refs/peer-env/<slug>`. |
@@ -686,6 +691,10 @@ installs a listener.
    `IdentityFile` and `IdentitiesOnly yes`. An agent that offers its other
    keys first uses up `MaxAuthTries`, and the login ends at a password
    prompt. Accept the host key once.
+7. If a managed target sits behind a link the account made itself, a
+   `Documents` folder redirected with a symlink for example, recreate that
+   link from an elevated prompt. A link made by an administrator is followed
+   inside the session; one made by the account is not.
 
 ## Testing
 
@@ -722,6 +731,23 @@ quoting, and Git snapshot checks in isolated temporary directories. The
 PowerShell reminders with synthetic config and probe output. These tests do not
 use live credentials or establish remote cleanup; that requires a live native
 client audit and fast run against at least one configured POSIX peer.
+
+The same file drives the Windows `serve` code. `ServeWindowsTests` builds a
+peer clone with the real helper and stub `cz-audit.ps1` and `run-tests.ps1`
+scripts that record their arguments, working directory, and environment
+names. Requests reach `serve` in-process with `SSH_ORIGINAL_COMMAND` set, and
+pushes go through real `git push` with a Python fake `ssh`, so the
+`pre-receive` hook runs under Git for Windows. The tests cover identity,
+refusals, ref confinement, the run lifecycle and environment scrub, a failing
+entrypoint and an `ERROR:` line, the deadline with the grandchild confirmed
+dead, a busy slug, keep, remove, clean, retention after unverified shutdown,
+and a linked `worktrees` folder. `LauncherTests` runs the launcher against
+the checkout and checks that it relays output and exit status, refuses
+unusable roots, and starts nothing when the filtered token is still elevated.
+The relaunch from an elevated token runs only when the test process is itself
+elevated. None of this runs inside an sshd session, so the elevated session,
+the inherited link protection, and cleanup after a dropped connection are
+covered only by a live run from a client.
 
 Lifecycle tests also cover aggregate deadlines, cooperative signals, cleanup
 failure, legacy compatibility, capability refusal, retained unverified

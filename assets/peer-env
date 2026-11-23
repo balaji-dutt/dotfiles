@@ -51,6 +51,8 @@ if os.name == "nt":
     import peer_env_windows as windows
 
 WINDOWS_REFUSALS = (windows.Refused,) if os.name == "nt" else ()
+CANCEL_SIGNALS = ((signal.SIGTERM, signal.SIGINT, signal.SIGBREAK) if os.name == "nt"
+                  else (signal.SIGTERM, signal.SIGHUP, signal.SIGINT))
 
 SCRIPT_NAME = "peer-env"
 PROTOCOL = "peer-env/1"
@@ -105,7 +107,7 @@ SECRET_PATTERNS = (
     "credentials*",
     "*.tfstate",
 )
-REMOTE_TOOLS = ("git", "chezmoi", "python3", "python", "pwsh")
+REMOTE_TOOLS = ("git", "chezmoi", "python3", "python", "py", "pwsh")
 PATH_PREPEND = ("/opt/homebrew/bin", "/usr/local/bin")
 SNAPSHOT_IDENTITY = {
     "GIT_AUTHOR_NAME": "peer-env",
@@ -557,6 +559,8 @@ def platform_from_identity(uname: str, kernel: str) -> str:
         return "macos"
     if uname == "Linux":
         return "wsl2" if "microsoft" in kernel.lower() else "linux"
+    if uname == "Windows":
+        return "windows"
     return "unknown"
 
 
@@ -1228,6 +1232,8 @@ def wsl_interop_socket() -> str | None:
 
 
 def scrubbed_environment(environ: dict[str, str] | os._Environ[str], platform: str) -> dict[str, str]:
+    if os.name == "nt":
+        return windows.serve_environment(environ)
     home = environ.get("HOME") or str(Path.home())
     env = {
         "PATH": serve_path(environ, home),
@@ -1251,6 +1257,41 @@ class BusyError(Exception):
     """Another request holds the slug lock; exit 75."""
 
 
+def open_regular(path: Path) -> int:
+    if os.name == "nt":
+        return windows.open_regular(path)
+    return os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+
+
+class StreamScan:
+    def __init__(self, diagnostics: Diagnostics | None, scan_errors: bool) -> None:
+        self.diagnostics = diagnostics
+        self.scan_errors = scan_errors
+        self.saw_error = False
+        self.prefix = ""
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def feed(self, data: bytes) -> None:
+        if self.diagnostics:
+            self.diagnostics.write(data)
+        text = self.decoder.decode(data)
+        if self.scan_errors:
+            for fragment in text.splitlines(keepends=True):
+                self.prefix = (self.prefix + fragment)[:6]
+                if self.prefix == "ERROR:":
+                    self.saw_error = True
+                if fragment.endswith(("\n", "\r")):
+                    self.prefix = ""
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def close(self) -> None:
+        tail = self.decoder.decode(b"", final=True)
+        if tail:
+            sys.stdout.write(tail)
+            sys.stdout.flush()
+
+
 class Diagnostics:
     def __init__(self, state: Path, slug: str, sha: str, keep: bool) -> None:
         private_directory(state / "runs")
@@ -1263,13 +1304,15 @@ class Diagnostics:
         self.save()
 
     def open_file(self, name: str):
-        descriptor = os.open(self.directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        return os.fdopen(descriptor, "wb")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        return os.fdopen(os.open(self.directory / name, flags, 0o600), "wb")
 
     def save(self) -> None:
         temporary = self.directory / "result.tmp"
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        if os.name == "nt" and windows.is_reparse(temporary):
+            raise Refused(f"linked diagnostic state: {temporary}")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        with os.fdopen(os.open(temporary, flags, 0o600), "w", encoding="utf-8", newline="\n") as handle:
             json.dump(self.manifest, handle, sort_keys=True)
             handle.write("\n")
         os.replace(temporary, self.directory / "result.json")
@@ -1293,7 +1336,7 @@ class Diagnostics:
                 break
             if entry.is_symlink() or not entry.is_file():
                 continue
-            descriptor = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            descriptor = open_regular(entry)
             with os.fdopen(descriptor, "rb") as handle:
                 if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
                     continue
@@ -1339,7 +1382,10 @@ class Serve:
         self.environ = environ
         self.restricted = restricted
         self.state = state_dir(environ)
-        uname, kernel = kernel_identity(serve_path(environ, environ.get("HOME") or str(Path.home())))
+        if os.name == "nt":
+            uname, kernel = windows.kernel_identity()
+        else:
+            uname, kernel = kernel_identity(serve_path(environ, environ.get("HOME") or str(Path.home())))
         self.uname = uname
         self.kernel = kernel
         self.platform = platform_from_identity(uname, kernel)
@@ -1350,6 +1396,8 @@ class Serve:
 
     def log(self, verb: str, args: list[str], code: int, started: float) -> None:
         try:
+            if os.name == "nt":
+                private_directory(self.state)
             self.state.mkdir(parents=True, exist_ok=True)
             with (self.state / "serve.log").open("a", encoding="utf-8") as handle:
                 handle.write(
@@ -1372,6 +1420,8 @@ class Serve:
 
     def worktree_parent(self) -> Path:
         link = self.root / WORKTREE_DIR
+        if os.name == "nt" and windows.is_reparse(link):
+            raise Refused(f"worktree parent is a link: {link}")
         if not link.is_symlink():
             if link.exists() and not link.is_dir():
                 raise Refused(f"worktree parent is not a directory: {link}")
@@ -1406,9 +1456,9 @@ class Serve:
 
     def worktree(self, slug: str) -> Path:
         worktree = self.worktree_parent() / f"{WORKTREE_NAME}{validate_slug(slug)}"
-        if worktree.is_symlink():
+        if worktree.is_symlink() or (os.name == "nt" and windows.is_reparse(worktree)):
             raise Refused(f"symlinked worktree path: {worktree}")
-        if worktree.exists() and os.path.realpath(worktree) != str(worktree):
+        if worktree.exists() and os.path.normcase(os.path.realpath(worktree)) != os.path.normcase(worktree):
             raise Refused(f"worktree path escapes its parent: {worktree}")
         return worktree
 
@@ -1419,7 +1469,7 @@ class Serve:
     def git(self, *args: str, check: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         timeout = PREPARE_TIMEOUT if self.deadline is None else max(0.001, self.deadline - time.monotonic())
         result = capture(
-            ["git", "-C", str(cwd or self.root), *args],
+            [*self.git_command(), "-C", str(cwd or self.root), *args],
             env=self.env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -1431,10 +1481,20 @@ class Serve:
             raise Refused(f"git {' '.join(args)} failed: {result.stderr.strip()}")
         return result
 
+    def git_command(self) -> list[str]:
+        if os.name == "nt":
+            return [windows.git_executable(self.env), "-c", "core.longpaths=true"]
+        return ["git"]
+
     def lock(self, slug: str):
+        private_directory(self.state)
+        if os.name == "nt":
+            try:
+                return windows.lock_file(self.state / f"lock-{validate_slug(slug)}")
+            except BlockingIOError:
+                raise BusyError(f"{WORKTREE_PREFIX}{slug} is busy with another request") from None
         import fcntl
 
-        private_directory(self.state)
         descriptor = os.open(self.state / f"lock-{validate_slug(slug)}", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         handle = os.fdopen(descriptor, "a+", encoding="utf-8")
         try:
@@ -1460,13 +1520,15 @@ class Serve:
             "tools": tools,
             "repo": str(self.root),
         }
+        if os.name == "nt":
+            payload["link_following"] = not windows.redirection_guard()
         print(IDENTITY_MARKER + json.dumps(payload, sort_keys=True), flush=True)
         return EXIT_OK
 
     def receive_pack(self, args: list[str]) -> int:
         with tempfile.TemporaryDirectory(prefix="peer-env-hooks-") as hooks:
             hook = Path(hooks) / "pre-receive"
-            hook.write_text(
+            hook.write_bytes((
                 "#!/bin/sh\n"
                 "rc=0\n"
                 "while read -r old new ref; do\n"
@@ -1483,12 +1545,11 @@ class Serve:
                 "    exit 1\n"
                 "  fi\n"
                 "done\n"
-                "exit 0\n",
-                encoding="utf-8",
-            )
+                "exit 0\n"
+            ).encode("utf-8"))
             hook.chmod(0o755)
             result = subprocess.run(
-                ["git", "-c", f"core.hooksPath={hooks}", "receive-pack", str(self.root)],
+                [*self.git_command(), "-c", f"core.hooksPath={hooks}", "receive-pack", str(self.root)],
                 env=self.env,
                 check=False,
             )
@@ -1533,7 +1594,7 @@ class Serve:
                 record = {}
             else:
                 key, _, value = field.partition(" ")
-                record[key] = value
+                record[key] = str(Path(value)) if os.name == "nt" and key == "worktree" else value
         return records
 
     def owned_worktree(self, slug: str, sha: str | None = None) -> dict[str, str] | None:
@@ -1583,7 +1644,7 @@ class Serve:
                     signal.signal(sig, signal.SIG_IGN)
                 raise RunCancelled(signum)
 
-            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            for sig in CANCEL_SIGNALS:
                 previous[sig] = signal.signal(sig, cancelled)
             worktree: Path | None = None
             try:
@@ -1607,7 +1668,7 @@ class Serve:
                 code = error.code
             except subprocess.TimeoutExpired:
                 code = EXIT_TIMEOUT
-            except Refused as error:
+            except (Refused, *WINDOWS_REFUSALS) as error:
                 emit(f"run refused: {error}")
                 code = EXIT_CONFIG
             except (OSError, BrokenPipeError) as error:
@@ -1691,7 +1752,7 @@ class Serve:
                 if not (worktree / value).exists():
                     raise Refused(f"{value} does not exist in the snapshot")
                 paths.append(value)
-            commands = [["./assets/cz-audit.sh", "check", path] for path in paths]
+            commands = [self.entrypoint("cz-audit", "check", path) for path in paths]
             scan_errors = True
         elif kind == "test":
             if not rest or rest[0] not in SUITES:
@@ -1699,13 +1760,36 @@ class Serve:
             extra = rest[1:]
             if extra not in ([], ["--require-capabilities"]):
                 raise Refused("test accepts only --require-capabilities")
-            commands = [["./assets/run-tests.sh", rest[0], *extra]]
+            commands = [self.entrypoint("run-tests", rest[0], *extra)]
             scan_errors = False
         else:
             raise Refused(f"unknown exec kind {kind!r}")
         return commands, scan_errors
 
+    def entrypoint(self, name: str, *args: str) -> list[str]:
+        if os.name != "nt":
+            return [f"./assets/{name}.sh", *args]
+        pwsh = shutil.which("pwsh", path=self.env["PATH"])
+        if pwsh is None:
+            raise Refused("pwsh is not on the serve PATH")
+        return [pwsh, "-NoProfile", "-NonInteractive", "-File", f".\\assets\\{name}.ps1", *args]
+
     def run_streamed(self, command: list[str], cwd: Path, scan_errors: bool) -> int:
+        scan = StreamScan(self.diagnostics, scan_errors)
+        if os.name == "nt":
+            self.children_stopped = False
+
+            def stopped() -> None:
+                self.children_stopped = True
+
+            code, timed_out = windows.stream_command(
+                command, cwd=cwd, env=self.env, deadline=self.deadline or time.monotonic(), sink=scan.feed, stopped=stopped
+            )
+            scan.close()
+            if timed_out:
+                emit("peer execution deadline exceeded")
+                return EXIT_TIMEOUT
+            return EXIT_FAILED if code == 0 and scan.saw_error else code
         process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -1716,10 +1800,7 @@ class Serve:
             start_new_session=True,
         )
         self.children_stopped = False
-        saw_error = False
         timed_out = False
-        prefix = ""
-        decoder = codecs.getincrementaldecoder("utf-8")("replace")
         forced_kill = False
         try:
             assert process.stdout is not None
@@ -1735,26 +1816,12 @@ class Serve:
                         if not data:
                             selector.unregister(key.fileobj)
                             break
-                        if self.diagnostics:
-                            self.diagnostics.write(data)
-                        text = decoder.decode(data)
-                        if scan_errors:
-                            for fragment in text.splitlines(keepends=True):
-                                prefix = (prefix + fragment)[:6]
-                                if prefix == "ERROR:":
-                                    saw_error = True
-                                if fragment.endswith(("\n", "\r")):
-                                    prefix = ""
-                        sys.stdout.write(text)
-                        sys.stdout.flush()
-            tail = decoder.decode(b"", final=True)
-            if tail:
-                sys.stdout.write(tail)
-                sys.stdout.flush()
+                        scan.feed(data)
+            scan.close()
             if timed_out:
                 return EXIT_TIMEOUT
             code = process.wait(timeout=max(0.001, (self.deadline or time.monotonic()) - time.monotonic()))
-            return EXIT_FAILED if code == 0 and saw_error else code
+            return EXIT_FAILED if code == 0 and scan.saw_error else code
         finally:
             process.stdout.close()
             for sig, grace in ((signal.SIGTERM, STOP_GRACE), (signal.SIGKILL, 1)):
@@ -1798,15 +1865,18 @@ class Serve:
         result = directory / "result.json"
         if any(parent.is_symlink() for parent in (directory, *directory.parents)):
             raise Refused("unsafe diagnostic state during cleanup")
+        if os.name == "nt" and windows.is_reparse(directory):
+            raise Refused("unsafe diagnostic state during cleanup")
         try:
-            descriptor = os.open(result, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            descriptor = open_regular(result)
         except FileNotFoundError:
             if directory.exists():
                 raise Refused("missing lifecycle result; child shutdown is unverified")
             return
         with os.fdopen(descriptor, "r") as handle:
             info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > 16384:
+            foreign = os.name != "nt" and info.st_uid != os.getuid()
+            if not stat.S_ISREG(info.st_mode) or foreign or info.st_size > 16384:
                 raise Refused("unsafe lifecycle result during cleanup")
             try:
                 manifest = json.load(handle)
@@ -1929,7 +1999,7 @@ def serve_main(argv_rest: list[str], environ: dict[str, str] | os._Environ[str])
         if handler is None:
             raise Refused(f"unknown verb {verb!r}")
         code = handler(args)
-    except Refused as error:
+    except (Refused, *WINDOWS_REFUSALS) as error:
         print(f"{SCRIPT_NAME} serve: refused: {error}", file=sys.stderr)
         code = EXIT_CONFIG
     except BusyError as error:
@@ -2012,8 +2082,14 @@ def main(argv: list[str] | None = None) -> int:
     environ = os.environ
     if argv and argv[0] == "serve":
         if os.name == "nt":
-            emit("native Windows serving is not supported")
-            return EXIT_CONFIG
+            try:
+                elevated = windows.elevated()
+            except OSError as error:
+                emit(f"serve: refused: cannot read the session token: {error}")
+                return EXIT_CONFIG
+            if elevated:
+                emit("serve: refused: elevated session; use assets/peer_env_windows_launcher.py as the forced command")
+                return EXIT_CONFIG
         return serve_main(argv[1:], environ)
     parser = build_parser()
     args = parser.parse_args(argv)
