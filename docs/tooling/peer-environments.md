@@ -12,9 +12,9 @@ worktree, and streams the result back. When the other machine is asleep the
 helper says so within a few seconds and the agent reports the platform as not
 verified.
 
-Native Windows can initiate verification against macOS, Linux, and WSL2 peers.
-It does not serve requests yet; [Windows serving](#windows-serving) records the
-design.
+Native Windows can initiate verification against macOS, Linux, and WSL2 peers,
+and can serve as a peer itself. Serving there works differently in a few
+places and has one limit; see [Windows serving](#windows-serving).
 
 ## The boundary
 
@@ -111,14 +111,17 @@ matches the running machine is dropped as "self".
 | :--- | :--- |
 | key under `peers` | Free label shown by `probe` and accepted by `audit`/`test`/`clean` instead of `all`. Must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` and must not be `all`. |
 | `ssh_host` | What is passed to `ssh`: a `Host` alias from `~/.ssh/config` or `user@host`. Defaults to the label. |
-| `platform` | `linux`, `macos`, or `wsl2`. Compared against the detected local platform and against what the peer reports. `windows` is rejected for now. |
+| `platform` | `linux`, `macos`, `windows`, or `wsl2`. Compared against the detected local platform and against what the peer reports. |
 | `repo` | The peer's checkout. Must start with `~/` or `/`; no spaces or colons. |
 | `identity_file` | Optional. The dedicated key, passed with `IdentitiesOnly=yes`. Use the `.pub` path when the private key lives only in an agent. Leave unset when the native `ssh_host` alias already pins `IdentityFile` and `IdentitiesOnly yes`; this applies on every client OS. |
 | `connect_timeout` | Optional, 1 to 60 seconds; default 3. |
 | `allow_unrestricted` | Optional, default `false`. Lets `audit`/`test` use a peer reached through an ordinary key. |
-| `via` | Reserved for the Windows hop; any non-null value is rejected with `windows via wsl2 is not supported yet`. |
 
-Unknown keys are rejected. A missing file exits 2 and names the path.
+Unknown keys are rejected, including `via`, which was once reserved for a
+Windows hop through WSL2. `allow_unrestricted` on a `windows` entry is a
+config error. A Windows entry keeps a `repo` in the `~/` form; the peer's
+forced command, not this value, names its checkout. A missing file exits 2 and
+names the path.
 
 Platform detection follows `assets/run-tests.py`: Darwin is `macos`; Linux
 with `WSL_DISTRO_NAME` or `WSL_INTEROP` set is `wsl2`; other Linux is `linux`;
@@ -443,7 +446,7 @@ owns both machines.
 | `serve-missing` | The connection worked but no identity line came back. | `not verified on <platform>: peer unreachable` | The peer checkout lacks `assets/peer-env` or is behind `main`; pull it there. |
 | `protocol-mismatch` | The peer speaks a different `peer-env/N` or lacks `run-lifecycle-v1`. | `not verified on <platform>: peer unreachable` | Land the change and update the peer's installed `main` server first. |
 | `platform-mismatch` | The peer reports a different platform than configured. | `not verified on <platform>: peer unreachable` | Fix the config entry. |
-| `tools-missing` | git or a Python interpreter is missing on the peer's scrubbed PATH. | `not verified on <platform>: peer unreachable` | Install them, or extend the PATH list in `serve`. |
+| `tools-missing` | git or a Python interpreter is missing on the peer's scrubbed PATH, or `pwsh` on a Windows peer. | `not verified on <platform>: peer unreachable` | Install them, or extend the PATH list in `serve`. |
 | no config file | `~/.config/dotfiles/peer-envs.json` is absent; the audit prints no line and `probe` exits 2. | `not verified on other platforms: no peer configured` | Apply the file from the private repo. |
 | probe exit 2 with a config file | The config is invalid or the helper failed; the audit prints the `probe failed` line. | `not verified on other platforms: peer-env probe failed` | Fix the file from the private repo. |
 | exit 75 | Another request holds the peer worktree lock. | `not verified on <platform>: peer busy`, after one retry once your own earlier command has finished | none |
@@ -490,16 +493,20 @@ platform-sensitive path; follow them. Platform-sensitive paths are
 `.chezmoiscripts/**`, `.chezmoi*`, templated `dot_*`/`private_*` files with OS
 conditionals, `assets/**` shell or Python helpers, `bin/**`, `tests/**`,
 `configs/test-suites.json`, and `configs/automation-test-inventory.json`.
-Docs-only changes, `.ps1`-only changes, `private_Library/**`, and `AppData/**`
-are exempt. For every status other than `reachable`, including
-`reachable (unrestricted)`, the final response carries the quoted statement
-from the INFO line verbatim; nobody retries, waits, edits the config, or opens
-an ad hoc ssh session. A platform a test declares but no peer provides (native
-Windows today) is reported as `not verified on <platform>: no peer configured`.
+Docs-only changes and `private_Library/**` are exempt. `.ps1`, `.ps1.tmpl`,
+and `AppData/**` changes are exempt unless a Windows peer is configured,
+because only that peer verifies them. For every status other than
+`reachable`, including `reachable (unrestricted)`, the final response carries
+the quoted statement from the INFO line verbatim; nobody retries, waits, edits
+the config, or opens an ad hoc ssh session. A platform a test declares but no
+configured peer provides is reported as
+`not verified on <platform>: no peer configured`.
 
 `cz-audit` itself stays quiet when the config file does not exist, when
-`assets/peer-env` is missing (or `python3` is missing on POSIX), when the path is a Markdown file,
-a `.ps1`, under `docs/`, `private_Library/`, or `AppData/`, or when
+`assets/peer-env` is missing (or no working Python is found on POSIX), when
+the path is a Markdown file or under `docs/` or `private_Library/`, when the
+path is a `.ps1`, a `.ps1.tmpl`, or under `AppData/` and the probe lists no
+Windows peer, or when
 `CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD` points the audit at another
 helper path for tests. PowerShell resolves a working Python 3.10+ interpreter,
 rejecting nonworking Store aliases, and bounds discovery and the JSON probe.

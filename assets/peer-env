@@ -84,7 +84,6 @@ IDENTITY_MARKER = "PEER-ENV-IDENTITY "
 SLUG_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 SLUG_RE = re.compile(SLUG_PATTERN)
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-WINDOWS_VIA_MESSAGE = "windows via wsl2 is not supported yet"
 PEER_KEYS = {
     "ssh_host",
     "platform",
@@ -92,7 +91,6 @@ PEER_KEYS = {
     "identity_file",
     "connect_timeout",
     "allow_unrestricted",
-    "via",
 }
 SECRET_PATTERNS = (
     ".env",
@@ -337,8 +335,6 @@ def load_config(environ: dict[str, str] | os._Environ[str] = os.environ) -> Conf
         platform = _require_string(raw.get("platform"), f"{label}.platform")
         if platform not in PLATFORMS:
             raise ConfigError(f"{label}.platform must be one of {', '.join(PLATFORMS)}")
-        if platform == "windows" or raw.get("via") is not None:
-            raise ConfigError(f"{label}: {WINDOWS_VIA_MESSAGE}")
         ssh_host = raw.get("ssh_host", name)
         ssh_host = _require_string(ssh_host, f"{label}.ssh_host")
         if any(ch.isspace() for ch in ssh_host) or ssh_host.startswith("-"):
@@ -361,6 +357,8 @@ def load_config(environ: dict[str, str] | os._Environ[str] = os.environ) -> Conf
         allow_unrestricted = raw.get("allow_unrestricted", False)
         if not isinstance(allow_unrestricted, bool):
             raise ConfigError(f"{label}.allow_unrestricted must be true or false")
+        if allow_unrestricted and platform == "windows":
+            raise ConfigError(f"{label}.allow_unrestricted is not available for a windows peer")
         peers[name] = Peer(
             name=name,
             ssh_host=ssh_host,
@@ -623,12 +621,17 @@ def classify(
             identity=identity,
         )
     tools = identity.get("tools") or {}
-    if not tools.get("git") or not (tools.get("python3") or tools.get("python")):
-        missing = [tool for tool in ("git", "python3") if not tools.get(tool)]
+    needed = {"git": tools.get("git"), "python3": tools.get("python3") or tools.get("python") or tools.get("py")}
+    if peer.platform == "windows":
+        needed["pwsh"] = tools.get("pwsh")
+    missing = [tool for tool, present in needed.items() if not present]
+    if missing:
         return make("tools-missing", f"peer lacks {', '.join(missing)}", identity=identity)
     restricted = bool(identity.get("restricted"))
     found = " ".join(tool for tool in REMOTE_TOOLS if tools.get(tool))
     detail = f"{identity.get('uname', '?')} {identity.get('kernel', '?')}; {found}"
+    if identity.get("link_following") is False:
+        detail += "; links not followed"
     if not restricted:
         detail += "; unrestricted key"
     return make("reachable", detail, restricted=restricted, identity=identity)

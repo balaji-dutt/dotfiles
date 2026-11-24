@@ -467,7 +467,9 @@ class CzAuditPosixTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCase):
         )
         write_executable(
             self.repo / "assets" / "peer-env",
-            "#!/bin/sh\n[ \"$1\" = probe ] || exit 2\n" f"printf '%s\\n' '{probe}'\n",
+            "#!/bin/sh\n[ \"$1\" = probe ] || exit 2\n"
+            'if [ -n "${AUDIT_PEER_PAYLOAD:-}" ]; then printf \'%s\\n\' "$AUDIT_PEER_PAYLOAD"; exit 0; fi\n'
+            f"printf '%s\\n' '{probe}'\n",
         )
         without_config = self.run_audit("check", "dot_managed")
         self.assertEqual(without_config.returncode, 0, without_config.stderr)
@@ -506,6 +508,35 @@ class CzAuditPosixTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCase):
         disabled = self.run_audit("check", "dot_managed", env={**self.env, "CZ_AUDIT_PEER_ENV": "0"})
         self.assertNotIn("peer-env:", disabled.stderr)
 
+        (self.repo / "AppData").mkdir()
+        (self.repo / "AppData" / "settings.json").write_text("{}\n", encoding="utf-8")
+        (self.repo / "assets" / "fixture.ps1").write_text("Write-Output 'fixture'\n", encoding="utf-8")
+        write_executable(self.fixture.fake_bin / "pwsh", "#!/bin/sh\ncat >/dev/null\nexit 0\n")
+        with_windows = json.dumps(
+            {
+                "peers": {
+                    "wsl2": {"status": "reachable", "restricted": True, "platform": "wsl2"},
+                    "win": {"status": "reachable", "restricted": True, "platform": "windows"},
+                    "win2": {"status": "serve-missing", "restricted": None, "platform": "windows"},
+                }
+            }
+        )
+        for relsrc in ("assets/fixture.ps1", "AppData/settings.json"):
+            with self.subTest(relsrc=relsrc):
+                self.assertNotIn("peer-env:", self.run_audit("check", relsrc).stderr)
+                hinted = self.run_audit(
+                    "check", relsrc, env={**self.env, "AUDIT_PEER_PAYLOAD": with_windows}
+                )
+                self.assertEqual(hinted.returncode, 0, hinted.stderr)
+                self.assertIn(
+                    f"INFO: peer-env: win, wsl2 reachable; run ./assets/peer-env audit all {relsrc}",
+                    hinted.stderr,
+                )
+                self.assertIn(
+                    'INFO: peer-env: win2 serve-missing; report "not verified on windows: peer unreachable"',
+                    hinted.stderr,
+                )
+
         failing = write_executable(self.fixture.root / "failing-peer-env", "#!/bin/sh\nexit 2\n")
         failed = self.run_audit(
             "check", "dot_managed", env={**self.env, "CZ_AUDIT_PEER_ENV_CMD": str(failing)}
@@ -515,6 +546,30 @@ class CzAuditPosixTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCase):
             'INFO: peer-env: probe failed (exit 2); report "not verified on other platforms: '
             'peer-env probe failed"',
             failed.stderr,
+        )
+
+    def test_peer_env_hint_skips_a_python3_that_does_not_run(self) -> None:
+        (self.source / "dot_managed").write_text("managed\n", encoding="utf-8")
+        write_executable(self.fixture.fake_bin / "python3", "#!/bin/sh\nexit 49\n")
+        write_executable(
+            self.fixture.fake_bin / "python",
+            f'#!/bin/sh\nexec "{sys.executable}" "$@"\n',
+        )
+        probe = json.dumps(
+            {"peers": {"win": {"status": "reachable", "restricted": True, "platform": "windows"}}}
+        )
+        write_executable(
+            self.repo / "assets" / "peer-env",
+            "#!/bin/sh\n" f"printf '%s\\n' '{probe}'\n",
+        )
+        config = self.fixture.home / ".config" / "dotfiles" / "peer-envs.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"schema_version": 1, "peers": {}}\n', encoding="utf-8")
+        result = self.run_audit("check", "dot_managed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "INFO: peer-env: win reachable; run ./assets/peer-env audit all dot_managed",
+            result.stderr,
         )
 
     def test_template_config_renders_and_never_applies(self) -> None:
@@ -737,13 +792,15 @@ class CzAuditPowerShellTests(CzAuditFixture, AnsibleAuditCases, unittest.TestCas
         payload = {'schema_version': 1, 'peers': {
             'macos': {'platform': 'macos', 'status': 'reachable', 'restricted': True},
             'wsl2': {'platform': 'wsl2', 'status': 'auth-failed', 'restricted': None},
-            'linux': {'platform': 'linux', 'status': 'reachable', 'restricted': False}}}
+            'linux': {'platform': 'linux', 'status': 'reachable', 'restricted': False},
+            'win': {'platform': 'windows', 'status': 'serve-missing', 'restricted': None}}}
         env['AUDIT_PEER_PAYLOAD'] = json.dumps(payload)
         result = self.run_audit('check', "assets/a 'quoted.py", env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("'./assets/peer-env' audit all 'assets/a ''quoted.py'", result.stderr)
         self.assertIn("'./assets/peer-env' test all fast", result.stderr)
         self.assertIn('not verified on wsl2: peer unreachable', result.stderr)
+        self.assertIn('not verified on windows: peer unreachable', result.stderr)
         self.assertIn('not verified on linux: peer unreachable (unrestricted key)', result.stderr)
         self.assertIn('run & ', result.stderr)
 
