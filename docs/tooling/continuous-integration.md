@@ -219,6 +219,12 @@ installs no additional tools and requires only the capabilities named below:
   --report-file ci-artifacts/linux-all.json
 ```
 
+Neither command passes `--jobs`. `linux-fast` therefore runs up to as many
+steps at once as Python's `os.cpu_count()` reports on the runner, capped at 4,
+and `linux-all` runs one step at a time; see `docs/tooling/test-runner.md`.
+To rule concurrency out while investigating a `linux-fast` failure, rerun the
+command locally with `--jobs 1`.
+
 `windows-all` is a manual job on GitLab's current Windows hosted-runner beta:
 
 ```powershell
@@ -307,7 +313,10 @@ does not establish hosted performance. The hard job timeout remains 10 minutes.
 `.github/workflows/platform-fast.yml` runs `./assets/run-tests.sh fast
 --require-capabilities` (the PowerShell entrypoint on Windows) on
 `ubuntu-latest`, `macos-latest`, and `windows-latest`, and uploads each
-platform's `--report-file` JSON as an artifact for seven days. It exists to
+platform's `--report-file` JSON as an artifact for seven days. No lane passes
+`--jobs`, so each runs `fast` at the runner's default job count. On
+`windows-latest` that is the only automated run of concurrent steps on native
+Windows; no local Windows checkout has verified it. The workflow exists to
 answer a question GitLab Free cannot: what the `fast` suite does on hosted
 macOS and Windows. The answer feeds the decision on whether to make GitHub the
 canonical forge; it is not a merge gate.

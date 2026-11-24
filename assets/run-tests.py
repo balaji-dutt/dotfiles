@@ -34,6 +34,7 @@ DEFAULT_STEP_TIMEOUT_SECONDS = 600
 SANDBOX_MARKER = "DOTFILES_TEST_SANDBOX"
 STEP_STOP_GRACE_SECONDS = 1
 CANCEL_POLL_SECONDS = 0.1
+FAST_SUITE_JOB_LIMIT = 4
 CASE_REPORT_ADAPTER = Path(__file__).resolve().parent / "unittest-case-report.py"
 STEP_OUTPUT_LIMIT_BYTES = 1024 * 1024
 WINDOWS_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
@@ -1115,12 +1116,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--jobs",
         type=_job_count,
-        default=1,
         metavar="N",
-        help="run up to N steps at once; serial steps always run alone (default: 1)",
+        help="run up to N steps at once; serial steps always run alone "
+             f"(default: the CPU count up to {FAST_SUITE_JOB_LIMIT} for the fast suite, otherwise 1)",
     )
     parser.add_argument("--registry", type=Path, help=argparse.SUPPRESS)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.jobs is None:
+        args.jobs = min(FAST_SUITE_JOB_LIMIT, os.cpu_count() or 1) if args.suite == "fast" else 1
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

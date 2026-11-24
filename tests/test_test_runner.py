@@ -920,8 +920,8 @@ class RunnerParallelTests(unittest.TestCase):
         )
         self.fixture.steps = []
 
-    def add_step(self, name: str, peer: str, wait: str, **extra: object) -> None:
-        step = self.fixture.step(name, ["fast"], "overlap.py", **extra)
+    def add_step(self, name: str, peer: str, wait: str, *, suites=("fast",), **extra: object) -> None:
+        step = self.fixture.step(name, list(suites), "overlap.py", **extra)
         step["argv"] += [name, peer, wait]
         self.fixture.steps.append(step)
 
@@ -951,14 +951,24 @@ class RunnerParallelTests(unittest.TestCase):
             self.assertEqual(result.stdout.count(f"RUN  {name}\n"), 1)
             self.assertEqual(result.stdout.count(f"PASS {name}\n"), 1)
 
-    def test_without_jobs_steps_run_one_at_a_time_in_registry_order(self) -> None:
-        self.add_step("a-plain", "-", "0")
-        self.add_step("z-alone", "-", "0", serial=True)
+    def test_only_the_fast_suite_defaults_to_more_than_one_job(self) -> None:
+        others = [suite for suite in (*RUN_TESTS.SUITES, "all") if suite != "fast"]
+        for cpus, expected in ((None, 1), (1, 1), (2, 2), (4, 4), (16, 4)):
+            with self.subTest(cpus=cpus), mock.patch.object(RUN_TESTS.os, "cpu_count", return_value=cpus):
+                self.assertEqual(RUN_TESTS.parse_args([]).jobs, expected)
+                self.assertEqual(RUN_TESTS.parse_args(["fast"]).jobs, expected)
+                self.assertEqual(RUN_TESTS.parse_args(["fast", "--jobs", "1"]).jobs, 1)
+                self.assertEqual([RUN_TESTS.parse_args([suite]).jobs for suite in others], [1] * len(others))
+                self.assertEqual(RUN_TESTS.parse_args(["all", "--jobs", "3"]).jobs, 3)
+
+    def test_one_job_and_the_non_fast_default_run_steps_in_registry_order(self) -> None:
+        self.add_step("a-plain", "-", "0", suites=("fast", "integration"))
+        self.add_step("z-alone", "-", "0", suites=("fast", "integration"), serial=True)
         self.fixture.write_registry()
         in_order = ["start a-plain", "end a-plain", "start z-alone", "end z-alone"]
-        for jobs in (None, 1):
-            with self.subTest(jobs=jobs):
-                result = self.fixture.run(jobs=jobs)
+        for suite, jobs in (("integration", None), ("fast", 1)):
+            with self.subTest(suite=suite, jobs=jobs):
+                result = self.fixture.run(suite, jobs=jobs)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.events(), in_order)
         result = self.fixture.run(jobs=2)

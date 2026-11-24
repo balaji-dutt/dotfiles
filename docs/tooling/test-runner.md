@@ -35,19 +35,27 @@ platform
 all
 ```
 
-`all` runs every registered step once in registry order. Steps run one at a
-time unless `--jobs N` asks for more:
+`all` runs every registered step once. `--jobs N` sets how many steps may run
+at once:
 
 ```sh
-./assets/run-tests.sh fast --jobs 4
+./assets/run-tests.sh fast --jobs 1
+./assets/run-tests.sh integration --jobs 4
 ```
+
+Without the option, `fast` uses the host's CPU count, capped at 4, and every
+other suite, `all` included, uses 1. With `N` at 1, steps run one at a time in
+registry order; pass `--jobs 1` to get that for `fast`, for example to
+reproduce a failure without other steps loading the host. Only `fast` has been
+compared case by case at 1 and 4 jobs, on macOS and WSL2. The other suites have
+not, which is why they keep 1.
 
 With `N` above 1, steps marked `serial` in the registry run first, each one
 alone, and the remaining steps then run up to `N` at a time in registry order.
 A serial step never overlaps another step. Each step's output is still printed
 whole when the step finishes, so `RUN` and `PASS`/`FAIL` lines for different
 steps can interleave and steps can finish out of registry order. Reports list
-steps in registry order regardless. `--jobs 1` is the default.
+steps in registry order regardless.
 
 Use `--list` to validate and print the selected steps without executing them:
 
