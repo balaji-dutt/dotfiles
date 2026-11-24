@@ -28,7 +28,7 @@ cross-file references, and runtime capability rules.
 | `configs/browser-policies/justthebrowser/manifest.json` | `configs/schemas/justthebrowser-manifest.v1.schema.json` | `assets/sync-browser-policies.py` |
 | `configs/packages.yaml` | `configs/schemas/packages.v1.schema.json` | `ansible/wsl-playbook.yml` |
 | `configs/plannotator-assets.json` | `configs/schemas/plannotator-assets.v1.schema.json` | `assets/sync-plannotator-assets.py` |
-| `configs/test-suites.json` | `configs/schemas/test-suites.v1.schema.json` | `assets/run-tests.py` |
+| `configs/test-suites.json` | `configs/schemas/test-suites.v2.schema.json` | `assets/run-tests.py` |
 
 Each JSON or JSONC instance has a repository-relative `$schema` link and an
 integer `schema_version`. Its consumers check both before processing the rest
@@ -97,14 +97,16 @@ get a new schema file and a new `$id` suffix. Managed instances also
 receive a matching `schema_version`; standalone payloads carry the version
 marker their schema defines. Update the instance or payload producer, consumer,
 tests, migration notes, and this catalog in the same change. Retain published
-schemas as historical contracts; the automation provenance v1 and automation
-inventory v1, v2, and v3 schemas remain immutable while their active successors
-carry the breaking changes. Automation inventory v3 dropped the stored
+schemas as historical contracts; the automation provenance v1, automation
+inventory v1, v2, and v3, and test suites v1 schemas remain immutable while
+their active successors carry the breaking changes. Automation inventory v3 dropped the stored
 `candidate_digest`; the reviewed candidate set now lives line by line in
 `configs/automation-candidates.txt` so most concurrent additions merge cleanly.
 Automation inventory v4 dropped `coverage.suite_id`, which nothing read, and
 per-requirement `test_paths`; evidence is listed once per entry in
 `coverage.test_paths`. The checker rejects both retired keys by name.
+Test suites v2 added the optional boolean step key `serial`; the runner
+requires the v2 marker and rejects step keys the schema does not declare.
 
 Compatible semantic tightening can remain within the consumer when the JSON
 shape is unchanged. Document the new rule and add a consumer test rather than

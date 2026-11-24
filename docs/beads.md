@@ -229,11 +229,43 @@ verify the effective setting with `bd metrics status`; it must report `OFF`.
   defect in it. The scan is deliberately conservative:
   warning text needs human review, and an unreported problem can still evade
   the keyword check. The 14-day quarantine remains the independent defense.
+- Every matching line of a successor's notes is reported. After reviewing a
+  line, record it in `configs/beads-release-note-acks.json` with the matched
+  `line`, its `pattern` (`data loss`, `corruption`, `retraction` or
+  `recovery`), a `reason`, and a `reviewed` date. The guard prints the entry to
+  paste beside each unacknowledged line. An acknowledged line prints as INFO and
+  stays acknowledged in every later release that repeats it; a new matching
+  line blocks again. A term that wraps over a line break is matched and
+  reported with both lines joined. An entry that no longer matches anything
+  is reported as stale and can be removed. Acknowledge a line only when it
+  does not describe a defect in the proposed release.
+- The guard also prints, as INFO only, the notes for every release the pin
+  change adopts: each release after the pin on the merge request's target
+  branch, up to and including the proposed one, prereleases included. For each
+  it prints the release URL, the summary and the upgrade-notes and known-issues
+  sections of that release's `CHANGELOG.md` section at the proposed tag, the
+  matching sections of its GitHub release page, and any line that uses a
+  hazard term. Upstream release pages often defer to the changelog's
+  release-candidate sections, so read this output before merging. It never
+  changes the exit status, and it is skipped with an INFO line when the target
+  branch pin or the changelog cannot be read. `--base-ref` names the ref
+  holding the current pin; `--changelog-file` reads a local changelog.
 - The same guard fetches bd's `cmd/bd/doctor/fix/clone_local_fks.go` at the
   proposed tag and fails when its key list differs from the lists in
   `assets/beads-sync.sh` and `assets/beads-sync.ps1`, naming each key added or
   removed. It fails closed when the file is missing or cannot be parsed.
   `--clone-local-fks-file` reads a local copy instead.
+- Both rules add a note to the merge request description with the
+  **Upgrade rehearsal** command for that branch, and the guard prints the same
+  command at the end of its CI log.
+- Dolt has its own rule, placed before the Beads rule. It groups the
+  `.chezmoidata.yaml` `dolt_version` pin with the homelab-IaC devcontainer
+  `DOLT_VERSION` pin as "beads dolt engine", waits 14 days, never automerges,
+  and uses the same `renovate/beads-core-*` branch prefix, so a Dolt bump
+  arrives as its own merge request and runs the same CI jobs as a Beads bump.
+  On that branch the Beads pins are unchanged, so the release-note guard
+  reports no adopted range and still scans newer Beads releases. It does not
+  read Dolt's release notes.
 - The annotated `beads_version` and `dolt_version` pins in `.chezmoidata.yaml`
   use the `github-releases` datasource, so Renovate proposes upstream releases
   without routing installation through npm. `configs/mise_wsl2.toml` is a
@@ -245,6 +277,9 @@ coordinated recovery update:
 ```sh
 python3 assets/check-beads-release-notes.py
 ```
+
+On a checkout of the Renovate branch, `--base-ref origin/main` is the default
+outside CI, so fetch `origin` first to compare against the current pin.
 
 An urgent recovery can still be pinned manually in both files in one reviewed
 change. Do not weaken the quarantine, split the pins, or waive a warning merely
@@ -541,6 +576,94 @@ Windows was briefly a fourth (2026-08-01 to 2026-08-12) and is now a client of
 the WSL2 server, so it holds nothing to sync — see **Windows client mode**
 above. The JSONL-only satellite mode it ran before that was retired on
 2026-08-12 and lives in [`archive/docs/beads.md`](../archive/docs/beads.md).
+
+## Upgrade rehearsal
+
+Merging a `renovate/beads-core-*` merge request is a deployment: the next
+`chezmoi apply` on each machine installs the new `bd` or `dolt` against the
+live database. CI cannot test that, because the database is private.
+`assets/beads-upgrade-rehearsal.py` runs the proposed binaries against a copy
+of the real database first.
+
+Run it on the machine that hosts the Dolt database, from the main checkout:
+
+```sh
+git fetch origin
+python3 assets/beads-upgrade-rehearsal.py \
+  --ref origin/renovate/beads-core-clients --stop-server
+```
+
+`--ref` names the branch whose `.chezmoidata.yaml` holds the proposed pins. A
+tool whose pin equals the installed version keeps the installed binary, so a
+Beads bump is rehearsed with the current Dolt and a Dolt bump with the current
+`bd`. `--bd` and `--dolt` override the pins. Each Renovate merge request for
+these tools carries the exact command in its description, and the
+`beads-release-notes` job prints it.
+
+What it does:
+
+1. Fetches the proposed binaries with `assets/beads-toolchain.py` into
+   `${XDG_CACHE_HOME:-~/.cache}/dotfiles/beads-toolchain/`. The installed
+   binaries are never replaced.
+2. Stops the live Dolt server, copies `.beads/dolt` and the workspace state
+   files to a restore point, restarts the server and checks it answers.
+   `--stop-server` is required when the server is running. `bd` commands in
+   other sessions fail or wait while it is down, which lasts as long as one
+   copy of the database. If another session restarts the server during the
+   copy, the copy is discarded and the run is refused.
+3. Builds a scratch project from the restore point with its own HOME, git
+   repository and port, telemetry disabled, and every Dolt remote removed.
+   It refuses to continue if a remote remains.
+4. Opens the copy with the installed binaries and records a baseline: the
+   issue export, the row count of every table, the foreign keys, and the
+   recorded `bd` version.
+5. Switches to the proposed binaries. Before using the scratch server it
+   confirms with `ps` that the process serves the scratch project and is not
+   on the live port. It then checks that the store opens, `bd migrate schema`
+   is clean, `bd` reports the proposed version and the store records it,
+   every issue exports unchanged, no table lost rows, the
+   clone-local foreign keys survive, a create/note/close round-trip reads
+   back, the plan-approval gate helper answers for an open and a closed
+   issue, and `beads-sync.sh status` runs.
+6. Stops the scratch server and re-reads the live store's recorded `bd`
+   version, which must be unchanged.
+
+Each check prints `PASS` or `FAIL`, and the run ends with `RESULT: PASS` or
+`RESULT: FAIL`. Exit status 0 is a pass, 1 means a check failed or the run
+crashed, and 2 means it refused before the proposed binaries ran. The report,
+both exports and `bd doctor` output are kept under
+`${XDG_STATE_HOME:-~/.local/state}/dotfiles/beads-rehearsal/runs/<stamp>/`.
+On a pass the scratch project is deleted; `--keep` retains it.
+
+The untouched copy from step 2 stays under
+`.../beads-rehearsal/restore-points/<stamp>/.beads` as the restore point for
+the real upgrade. Only the newest restore point for a project is kept, so the
+next rehearsal that takes one replaces it: rehearsing a second merge request
+before the first upgrade has settled discards the copy taken before the first.
+`--no-restore-point` copies the database once and keeps nothing.
+
+To restore after a failed real upgrade: reinstall the previous pins, run
+`bd dolt stop`, move the damaged `.beads/dolt` aside, copy the restore point's
+`dolt` directory and `.local_version` file back into `.beads`, and run
+`bd dolt start`. Anything written after the restore point was taken is not in
+it, so export first with `bd export --all -o <file>` if the damaged store
+still opens. `metadata.json` and `config.yaml` are tracked, so restore them
+with git if the upgrade rewrote them. The restore point holds no Dolt remote
+cache; the next `beads-sync.sh pull` rebuilds it.
+
+Merge checklist for a `renovate/beads-core-*` merge request:
+
+1. Read the adopted-range notes the `beads-release-notes` job prints, and
+   acknowledge or act on any blocking line.
+2. Run the rehearsal on the database host and get `RESULT: PASS`.
+3. Note the restore point path it prints.
+4. Merge, then follow **Schema migrations** if the schema version moved.
+
+Limits: the rehearsal covers one machine's database. It does not test Windows
+client behaviour with a new `bd.exe`, or two machines running different
+versions during a rollout. A server that `bd dolt start` launches without
+writing its pid file cannot be identified and is left running; the run reports
+that the scratch server did not start.
 
 ## Schema migrations (bd version bumps)
 

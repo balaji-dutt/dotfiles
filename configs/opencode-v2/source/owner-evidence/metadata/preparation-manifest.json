@@ -1,0 +1,942 @@
+{
+  "schemaVersion": 1,
+  "generator": "agentic-tooling",
+  "format": "opencode-v2-preparation",
+  "reference": {
+    "version": "v2.2.3",
+    "commit": "082ac6281fd395c2d0c17fd3c38214db2f89621f"
+  },
+  "inputs": [
+    {
+      "path": "configs/opencode-v2/preparation.jsonc",
+      "digest": "29fdb36c31fbc401a16149101a2124754b0f0bfd1ce57fb4e58d5b9c6bdd9e64"
+    },
+    {
+      "path": "configs/opencode-v2/source-inventory.json",
+      "digest": "2bbd78505774bb6f06434aa7de2fb62fe70d2644b299c709d9779f73033ebe09"
+    },
+    {
+      "path": "agents/agent-engineer.yaml",
+      "digest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446"
+    },
+    {
+      "path": "agents/architecture-reviewer.yaml",
+      "digest": "7c70733fd891ce114c916aea08782d04ba3e9d30cfa12f4cb321b2f71a9c9e59"
+    },
+    {
+      "path": "agents/build.yaml",
+      "digest": "41973a1f91c41b8f7a5b416041dce20df49b1018aa0e0690ed78e0350c196c74"
+    },
+    {
+      "path": "agents/canary-agent.yaml",
+      "digest": "edcb461b7f507377a55cea39f779557b66272e4faaf0d17ff5d30c2d8769ab4f"
+    },
+    {
+      "path": "agents/ci-build-engineer.yaml",
+      "digest": "6a7b0205e03b5705883e6e6a4fe1a4980ec3bbd65d0359e3f7840cccd799bc12"
+    },
+    {
+      "path": "agents/dependency-steward.yaml",
+      "digest": "ad807787cb6db87a8bb9f38371d929b300969420a83dbe17ec48e95d57baf98d"
+    },
+    {
+      "path": "agents/docs-writer.yaml",
+      "digest": "ac238d5226ac06ec168ea6eb2ceda294542ceeb0674c34443ac78b3363857477"
+    },
+    {
+      "path": "agents/plan-reviewer.yaml",
+      "digest": "9d89c7b98b803d7908f9186ef6a37c8886aad1e56a88bf8be3ed8cd551500218"
+    },
+    {
+      "path": "agents/refactoring-steward.yaml",
+      "digest": "51fb54d2e812c187dc6935d8107c0de311bad3015e653b42a4b4b2cb6b1a83de"
+    },
+    {
+      "path": "agents/repo-reviewer.yaml",
+      "digest": "4fac6f1098bc51ef6bc0b14d298e5dd62dd88003846c3c236031caba288c0bdb"
+    },
+    {
+      "path": "agents/special-builder.yaml",
+      "digest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161"
+    },
+    {
+      "path": "agents/test-strategist.yaml",
+      "digest": "b2cb65414a25235681659b328a33ea098d9e9b07475cf3eb01ca52c5727a1dd0"
+    },
+    {
+      "path": "agents/typescript-specialist.yaml",
+      "digest": "4812475c0327236446877656f2f6039e31a415cac51f38c876ff3ceaafb4cbf5"
+    },
+    {
+      "path": "agents/workflow-planner.yaml",
+      "digest": "4ac7eee88a53860f9007c68c2e0e3dfa3320c66059da2b7e7deccbca435c1583"
+    },
+    {
+      "path": "agents/workflow-steward.yaml",
+      "digest": "35dc5aa41248f98b95e5212133182765f5a8dae314cd677978c6ca95f0798c90"
+    },
+    {
+      "path": "skills/adapter-claim-audit/SKILL.md",
+      "digest": "663d3bee51dcb42e0fe7c206114472b7a8fde91089401599aa2e2d471c3b5e37"
+    },
+    {
+      "path": "skills/adapter-claim-audit/references/repo-guardrails.md",
+      "digest": "24eb68aecbf2b9b86ef358ab0e284657dbd54ac218473ec7a6565d397e74267f"
+    },
+    {
+      "path": "skills/agentic-change-governance/SKILL.md",
+      "digest": "244428a079e019c094c427b2309c37e5fd1d49939e30040997f73b05f99d19be"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/phase-integrate-test.md",
+      "digest": "8507006dbd4b751a0d029d8e6ec5500ca39eea319a2625f4d58ff144a8955863"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/phase-plan.md",
+      "digest": "c683397d45da39d8001337096fe07a30ad84681342e37a0139a595fd8b23cc22"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/phase-questions.md",
+      "digest": "64877ed324f3607003ce849ce35f79647197e64f912f59ad613b3b6c7c91acbf"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/phase-research.md",
+      "digest": "e677ac70cb852815aad0b4188cf4b4fb54b88ed36b43d2e50f677dfa5107dd89"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/phase-structure.md",
+      "digest": "58af24b021fa782a2bff887f9897d8ee01c91d0ffb53c7a7087bf1d0f33e0ac7"
+    },
+    {
+      "path": "skills/agentic-change-governance/references/qrspi-checklist.md",
+      "digest": "aff51187a39eec68f54856b07c1ea9cbd8fad15a1dbb11f12fbf64ed54289d9d"
+    },
+    {
+      "path": "skills/architecture-impact-scan/SKILL.md",
+      "digest": "e8b20b1e12afc8464c73d0869428e3494d7fde64cbe06ab400668f3b72f2f5f3"
+    },
+    {
+      "path": "skills/canary-skill/SKILL.md",
+      "digest": "7407cddf4fbd219ec1a28ec1ce450a8609d655bd0d0cb50c469429dcb41b4c4b"
+    },
+    {
+      "path": "skills/canary-skill/references/checklist.md",
+      "digest": "4c698e1f4bcf6c308af4d78671309995f61d816bf36a1969c53fdf4c74ebbf3a"
+    },
+    {
+      "path": "skills/change-grilling/SKILL.md",
+      "digest": "5344ec168dc9b437c9ea6aae8a0a35d2837fae1749dbad5f510ba1a752f84f40"
+    },
+    {
+      "path": "skills/plugin-developer/SKILL.md",
+      "digest": "1cb120c59418c3a2561c18f1cea1174bea3a7d3a1f6352fc36da272e4b64dc6f"
+    },
+    {
+      "path": "skills/plugin-developer/references/claude-plugins.md",
+      "digest": "be1fb570f74ff0331852f5f586ba17e99e105143eeec73f78c625558809f2c73"
+    },
+    {
+      "path": "skills/plugin-developer/references/opencode-plugins.md",
+      "digest": "e2d59b8095493a2ec74727037d023b9de9babeb00c21b3c7ceeb3a77deac64e1"
+    },
+    {
+      "path": "skills/prompt-engineer/SKILL.md",
+      "digest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"
+    },
+    {
+      "path": "skills/prompt-engineer/references/authoring-patterns.md",
+      "digest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"
+    },
+    {
+      "path": "skills/prompt-engineer/references/improvement-checklist.md",
+      "digest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"
+    },
+    {
+      "path": "skills/prompt-engineer/references/model-specific.md",
+      "digest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"
+    },
+    {
+      "path": "skills/prompt-evaluator/SKILL.md",
+      "digest": "fc907457738d7c8cf156bb23d8a0da3dcebf93b54239ed9ac1ca9a9d9d65a812"
+    },
+    {
+      "path": "skills/prompt-evaluator/references/evaluation-rubric.md",
+      "digest": "75e208e5e15149372ed15661d07fd23ab47ee20e7f13015918e62fb03ba05287"
+    },
+    {
+      "path": "skills/prompt-evaluator/references/install-promptfoo.ps1",
+      "digest": "0db4d113b878256c3bb669ec7c603ec13c40f2d5cfb6a9a348b1a48e996ee3c5"
+    },
+    {
+      "path": "skills/prompt-evaluator/references/install-promptfoo.sh",
+      "digest": "63de53962b9091a8deb7e0afa13cd27b146b7a961fd8a03f65fd70c4f0a4ecb3"
+    },
+    {
+      "path": "skills/prompt-evaluator/references/promptfoo-guide.md",
+      "digest": "e48d4932fda8b0dbac6325b4e3ea610f7fdd9fb75510d9d4bf94ee28429e4ea4"
+    },
+    {
+      "path": "skills/prompt-optimizer/SKILL.md",
+      "digest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"
+    },
+    {
+      "path": "skills/prompt-optimizer/references/domain-theories.md",
+      "digest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"
+    },
+    {
+      "path": "skills/prompt-optimizer/references/ears-syntax.md",
+      "digest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"
+    },
+    {
+      "path": "skills/promptfoo-evals/PROVENANCE.md",
+      "digest": "fad41ca6971a4cd4494ef3d280ba9dba66cbd218afa4f270634576ac3e528b25"
+    },
+    {
+      "path": "skills/promptfoo-evals/SKILL.md",
+      "digest": "9732e06e2b70a8d5bec9cd07069467f1a8a426f416435638ba6126beb4fdc3b6"
+    },
+    {
+      "path": "skills/promptfoo-evals/references/cheatsheet.md",
+      "digest": "ee68a025d1ba67b919e6dd453ad522b36ef2b2207ea53d9491303db191cef07b"
+    },
+    {
+      "path": "skills/repo-quality-risks/SKILL.md",
+      "digest": "223540cceb08f5b87b451c4bc306e596cfa4bff68131e215e8174ab7078c3d27"
+    },
+    {
+      "path": "skills/repo-quality-risks/references/risk-taxonomy.md",
+      "digest": "99e7a349bb5e68f708e934391f43f7aaff9450d649f06a1f6be29ef2dd5517cc"
+    },
+    {
+      "path": "skills/roadmap-tasklist-handoff/SKILL.md",
+      "digest": "42c1ac0cd56cf5e8ae4ea0db40f9335f2385b33bdfeb7d4ec3d710b58686e514"
+    },
+    {
+      "path": "skills/skill-creator/SKILL.md",
+      "digest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"
+    },
+    {
+      "path": "skills/skill-creator/references/skill-structure.md",
+      "digest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"
+    },
+    {
+      "path": "skills/skill-creator/references/testing-guide.md",
+      "digest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"
+    },
+    {
+      "path": "skills/skill-reviewer/SKILL.md",
+      "digest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"
+    },
+    {
+      "path": "skills/skill-reviewer/references/review-checklist.md",
+      "digest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"
+    }
+  ],
+  "observations": [
+    {
+      "path": ".opencode/opencode.jsonc",
+      "digest": "2bcc4319b7966183ef0a61b636915f8253ee2d34c023e9d0f7c12e6457b9a885"
+    }
+  ],
+  "projections": [
+    {
+      "path": "configs/opencode-v2/projections/build.json",
+      "digest": "f8286232854e2e6bd09c600df97c4954303498c2ab51bfa9282e67b6e65fa17c"
+    },
+    {
+      "path": "configs/opencode-v2/projections/workflow-planner.json",
+      "digest": "32ed29da2d889dcdb93fe530ea7704f5e69850ef6f88aeb95f61926fb57163ce"
+    },
+    {
+      "path": "configs/opencode-v2/projections/workflow-steward.json",
+      "digest": "72b3fa2ec647624cbd1121bb57d54b6dd66317dc3a524a557c4cf3564d93c9c0"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "reference-v2.2.3/agents/agent-engineer.md",
+      "digest": "df07be4a46c87fbd092e96a0ec513754eaff0d7bb353269111c120b6e961b81e",
+      "source": "agents/agent-engineer.yaml",
+      "sourceDigest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446"
+    },
+    {
+      "path": "reference-v2.2.3/agents/architecture-reviewer.md",
+      "digest": "a52b7ad3aefa1146a4d25b51344c406dd2e4073697727a68ae2a593c3bcaf0dc",
+      "source": "agents/architecture-reviewer.yaml",
+      "sourceDigest": "7c70733fd891ce114c916aea08782d04ba3e9d30cfa12f4cb321b2f71a9c9e59"
+    },
+    {
+      "path": "reference-v2.2.3/agents/build.md",
+      "digest": "da9b92ae31bc35cfd879fb653f53d4a5da49a6e418cbc1ca318d347da998d106",
+      "source": "agents/build.yaml",
+      "sourceDigest": "41973a1f91c41b8f7a5b416041dce20df49b1018aa0e0690ed78e0350c196c74"
+    },
+    {
+      "path": "reference-v2.2.3/agents/canary-agent.md",
+      "digest": "83e493f324b39572c4091205815270624b48bbf0a971e616526b3b9f73bfad7d",
+      "source": "agents/canary-agent.yaml",
+      "sourceDigest": "edcb461b7f507377a55cea39f779557b66272e4faaf0d17ff5d30c2d8769ab4f"
+    },
+    {
+      "path": "reference-v2.2.3/agents/ci-build-engineer.md",
+      "digest": "ed2f99d7c4b2aebb75aae43fb74de12c9824ab3f8f0a0af75cd3cb2b67470596",
+      "source": "agents/ci-build-engineer.yaml",
+      "sourceDigest": "6a7b0205e03b5705883e6e6a4fe1a4980ec3bbd65d0359e3f7840cccd799bc12"
+    },
+    {
+      "path": "reference-v2.2.3/agents/dependency-steward.md",
+      "digest": "b1ce889c14c5781e14560fddfb07bac5c4c0640d86601aa42438589da99db408",
+      "source": "agents/dependency-steward.yaml",
+      "sourceDigest": "ad807787cb6db87a8bb9f38371d929b300969420a83dbe17ec48e95d57baf98d"
+    },
+    {
+      "path": "reference-v2.2.3/agents/docs-writer.md",
+      "digest": "d9d24d44966c295fc86f8f978841595499376dfcac9f9019946e1422e4803ce8",
+      "source": "agents/docs-writer.yaml",
+      "sourceDigest": "ac238d5226ac06ec168ea6eb2ceda294542ceeb0674c34443ac78b3363857477"
+    },
+    {
+      "path": "reference-v2.2.3/agents/plan-reviewer.md",
+      "digest": "913d85e9858de7fab22752917e6633bf821be387dc10daef0ca1b8fcec5c7987",
+      "source": "agents/plan-reviewer.yaml",
+      "sourceDigest": "9d89c7b98b803d7908f9186ef6a37c8886aad1e56a88bf8be3ed8cd551500218"
+    },
+    {
+      "path": "reference-v2.2.3/agents/refactoring-steward.md",
+      "digest": "e7ec6b438716948cef164892df0eb233c9ab91c522b18ff132bf9c179bdbe71b",
+      "source": "agents/refactoring-steward.yaml",
+      "sourceDigest": "51fb54d2e812c187dc6935d8107c0de311bad3015e653b42a4b4b2cb6b1a83de"
+    },
+    {
+      "path": "reference-v2.2.3/agents/repo-reviewer.md",
+      "digest": "1cdd54e2b9b36e9a69c99f91640750e6475eff23ab02db521b0526f6778750b9",
+      "source": "agents/repo-reviewer.yaml",
+      "sourceDigest": "4fac6f1098bc51ef6bc0b14d298e5dd62dd88003846c3c236031caba288c0bdb"
+    },
+    {
+      "path": "reference-v2.2.3/agents/special-builder.md",
+      "digest": "d5bb2c9ca861342bc9b9ce9ce41bdf90e02140bab664f1668419ca2bf334d60b",
+      "source": "agents/special-builder.yaml",
+      "sourceDigest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161"
+    },
+    {
+      "path": "reference-v2.2.3/agents/test-strategist.md",
+      "digest": "12eec7be3b6d81d228d5a42ebc28da4cac3ed49ab21e4cb01abf10bcc2a93137",
+      "source": "agents/test-strategist.yaml",
+      "sourceDigest": "b2cb65414a25235681659b328a33ea098d9e9b07475cf3eb01ca52c5727a1dd0"
+    },
+    {
+      "path": "reference-v2.2.3/agents/typescript-specialist.md",
+      "digest": "95b235e1d9be10d7f9c4b3ca9609e2d694de840e8504b0871915d21de3d1f313",
+      "source": "agents/typescript-specialist.yaml",
+      "sourceDigest": "4812475c0327236446877656f2f6039e31a415cac51f38c876ff3ceaafb4cbf5"
+    },
+    {
+      "path": "reference-v2.2.3/agents/workflow-planner.md",
+      "digest": "de49416d98d232738b7a2c21f4fdd152ef94e334db515644536f15e19a7da00e",
+      "source": "agents/workflow-planner.yaml",
+      "sourceDigest": "4ac7eee88a53860f9007c68c2e0e3dfa3320c66059da2b7e7deccbca435c1583"
+    },
+    {
+      "path": "reference-v2.2.3/agents/workflow-steward.md",
+      "digest": "1e8ba9fbc48ea5fd78e45b109e9c58dc4a24bbb9affb786fecae4aee81ec4a51",
+      "source": "agents/workflow-steward.yaml",
+      "sourceDigest": "35dc5aa41248f98b95e5212133182765f5a8dae314cd677978c6ca95f0798c90"
+    },
+    {
+      "path": "reference-v2.2.3/skills/adapter-claim-audit/SKILL.md",
+      "digest": "663d3bee51dcb42e0fe7c206114472b7a8fde91089401599aa2e2d471c3b5e37",
+      "source": "skills/adapter-claim-audit/SKILL.md",
+      "sourceDigest": "663d3bee51dcb42e0fe7c206114472b7a8fde91089401599aa2e2d471c3b5e37"
+    },
+    {
+      "path": "reference-v2.2.3/skills/adapter-claim-audit/references/repo-guardrails.md",
+      "digest": "24eb68aecbf2b9b86ef358ab0e284657dbd54ac218473ec7a6565d397e74267f",
+      "source": "skills/adapter-claim-audit/references/repo-guardrails.md",
+      "sourceDigest": "24eb68aecbf2b9b86ef358ab0e284657dbd54ac218473ec7a6565d397e74267f"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/SKILL.md",
+      "digest": "244428a079e019c094c427b2309c37e5fd1d49939e30040997f73b05f99d19be",
+      "source": "skills/agentic-change-governance/SKILL.md",
+      "sourceDigest": "244428a079e019c094c427b2309c37e5fd1d49939e30040997f73b05f99d19be"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/phase-integrate-test.md",
+      "digest": "8507006dbd4b751a0d029d8e6ec5500ca39eea319a2625f4d58ff144a8955863",
+      "source": "skills/agentic-change-governance/references/phase-integrate-test.md",
+      "sourceDigest": "8507006dbd4b751a0d029d8e6ec5500ca39eea319a2625f4d58ff144a8955863"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/phase-plan.md",
+      "digest": "c683397d45da39d8001337096fe07a30ad84681342e37a0139a595fd8b23cc22",
+      "source": "skills/agentic-change-governance/references/phase-plan.md",
+      "sourceDigest": "c683397d45da39d8001337096fe07a30ad84681342e37a0139a595fd8b23cc22"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/phase-questions.md",
+      "digest": "64877ed324f3607003ce849ce35f79647197e64f912f59ad613b3b6c7c91acbf",
+      "source": "skills/agentic-change-governance/references/phase-questions.md",
+      "sourceDigest": "64877ed324f3607003ce849ce35f79647197e64f912f59ad613b3b6c7c91acbf"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/phase-research.md",
+      "digest": "e677ac70cb852815aad0b4188cf4b4fb54b88ed36b43d2e50f677dfa5107dd89",
+      "source": "skills/agentic-change-governance/references/phase-research.md",
+      "sourceDigest": "e677ac70cb852815aad0b4188cf4b4fb54b88ed36b43d2e50f677dfa5107dd89"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/phase-structure.md",
+      "digest": "58af24b021fa782a2bff887f9897d8ee01c91d0ffb53c7a7087bf1d0f33e0ac7",
+      "source": "skills/agentic-change-governance/references/phase-structure.md",
+      "sourceDigest": "58af24b021fa782a2bff887f9897d8ee01c91d0ffb53c7a7087bf1d0f33e0ac7"
+    },
+    {
+      "path": "reference-v2.2.3/skills/agentic-change-governance/references/qrspi-checklist.md",
+      "digest": "aff51187a39eec68f54856b07c1ea9cbd8fad15a1dbb11f12fbf64ed54289d9d",
+      "source": "skills/agentic-change-governance/references/qrspi-checklist.md",
+      "sourceDigest": "aff51187a39eec68f54856b07c1ea9cbd8fad15a1dbb11f12fbf64ed54289d9d"
+    },
+    {
+      "path": "reference-v2.2.3/skills/architecture-impact-scan/SKILL.md",
+      "digest": "e8b20b1e12afc8464c73d0869428e3494d7fde64cbe06ab400668f3b72f2f5f3",
+      "source": "skills/architecture-impact-scan/SKILL.md",
+      "sourceDigest": "e8b20b1e12afc8464c73d0869428e3494d7fde64cbe06ab400668f3b72f2f5f3"
+    },
+    {
+      "path": "reference-v2.2.3/skills/canary-skill/SKILL.md",
+      "digest": "7407cddf4fbd219ec1a28ec1ce450a8609d655bd0d0cb50c469429dcb41b4c4b",
+      "source": "skills/canary-skill/SKILL.md",
+      "sourceDigest": "7407cddf4fbd219ec1a28ec1ce450a8609d655bd0d0cb50c469429dcb41b4c4b"
+    },
+    {
+      "path": "reference-v2.2.3/skills/canary-skill/references/checklist.md",
+      "digest": "4c698e1f4bcf6c308af4d78671309995f61d816bf36a1969c53fdf4c74ebbf3a",
+      "source": "skills/canary-skill/references/checklist.md",
+      "sourceDigest": "4c698e1f4bcf6c308af4d78671309995f61d816bf36a1969c53fdf4c74ebbf3a"
+    },
+    {
+      "path": "reference-v2.2.3/skills/change-grilling/SKILL.md",
+      "digest": "5344ec168dc9b437c9ea6aae8a0a35d2837fae1749dbad5f510ba1a752f84f40",
+      "source": "skills/change-grilling/SKILL.md",
+      "sourceDigest": "5344ec168dc9b437c9ea6aae8a0a35d2837fae1749dbad5f510ba1a752f84f40"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-engineer/SKILL.md",
+      "digest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c",
+      "source": "skills/prompt-engineer/SKILL.md",
+      "sourceDigest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-engineer/references/authoring-patterns.md",
+      "digest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b",
+      "source": "skills/prompt-engineer/references/authoring-patterns.md",
+      "sourceDigest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-engineer/references/improvement-checklist.md",
+      "digest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96",
+      "source": "skills/prompt-engineer/references/improvement-checklist.md",
+      "sourceDigest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-engineer/references/model-specific.md",
+      "digest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71",
+      "source": "skills/prompt-engineer/references/model-specific.md",
+      "sourceDigest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-optimizer/SKILL.md",
+      "digest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af",
+      "source": "skills/prompt-optimizer/SKILL.md",
+      "sourceDigest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-optimizer/references/domain-theories.md",
+      "digest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5",
+      "source": "skills/prompt-optimizer/references/domain-theories.md",
+      "sourceDigest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"
+    },
+    {
+      "path": "reference-v2.2.3/skills/prompt-optimizer/references/ears-syntax.md",
+      "digest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343",
+      "source": "skills/prompt-optimizer/references/ears-syntax.md",
+      "sourceDigest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"
+    },
+    {
+      "path": "reference-v2.2.3/skills/promptfoo-evals/PROVENANCE.md",
+      "digest": "fad41ca6971a4cd4494ef3d280ba9dba66cbd218afa4f270634576ac3e528b25",
+      "source": "skills/promptfoo-evals/PROVENANCE.md",
+      "sourceDigest": "fad41ca6971a4cd4494ef3d280ba9dba66cbd218afa4f270634576ac3e528b25"
+    },
+    {
+      "path": "reference-v2.2.3/skills/promptfoo-evals/SKILL.md",
+      "digest": "9732e06e2b70a8d5bec9cd07069467f1a8a426f416435638ba6126beb4fdc3b6",
+      "source": "skills/promptfoo-evals/SKILL.md",
+      "sourceDigest": "9732e06e2b70a8d5bec9cd07069467f1a8a426f416435638ba6126beb4fdc3b6"
+    },
+    {
+      "path": "reference-v2.2.3/skills/promptfoo-evals/references/cheatsheet.md",
+      "digest": "ee68a025d1ba67b919e6dd453ad522b36ef2b2207ea53d9491303db191cef07b",
+      "source": "skills/promptfoo-evals/references/cheatsheet.md",
+      "sourceDigest": "ee68a025d1ba67b919e6dd453ad522b36ef2b2207ea53d9491303db191cef07b"
+    },
+    {
+      "path": "reference-v2.2.3/skills/repo-quality-risks/SKILL.md",
+      "digest": "223540cceb08f5b87b451c4bc306e596cfa4bff68131e215e8174ab7078c3d27",
+      "source": "skills/repo-quality-risks/SKILL.md",
+      "sourceDigest": "223540cceb08f5b87b451c4bc306e596cfa4bff68131e215e8174ab7078c3d27"
+    },
+    {
+      "path": "reference-v2.2.3/skills/repo-quality-risks/references/risk-taxonomy.md",
+      "digest": "99e7a349bb5e68f708e934391f43f7aaff9450d649f06a1f6be29ef2dd5517cc",
+      "source": "skills/repo-quality-risks/references/risk-taxonomy.md",
+      "sourceDigest": "99e7a349bb5e68f708e934391f43f7aaff9450d649f06a1f6be29ef2dd5517cc"
+    },
+    {
+      "path": "reference-v2.2.3/skills/roadmap-tasklist-handoff/SKILL.md",
+      "digest": "42c1ac0cd56cf5e8ae4ea0db40f9335f2385b33bdfeb7d4ec3d710b58686e514",
+      "source": "skills/roadmap-tasklist-handoff/SKILL.md",
+      "sourceDigest": "42c1ac0cd56cf5e8ae4ea0db40f9335f2385b33bdfeb7d4ec3d710b58686e514"
+    },
+    {
+      "path": "reference-v2.2.3/skills/skill-creator/SKILL.md",
+      "digest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e",
+      "source": "skills/skill-creator/SKILL.md",
+      "sourceDigest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"
+    },
+    {
+      "path": "reference-v2.2.3/skills/skill-creator/references/skill-structure.md",
+      "digest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0",
+      "source": "skills/skill-creator/references/skill-structure.md",
+      "sourceDigest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"
+    },
+    {
+      "path": "reference-v2.2.3/skills/skill-creator/references/testing-guide.md",
+      "digest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19",
+      "source": "skills/skill-creator/references/testing-guide.md",
+      "sourceDigest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"
+    },
+    {
+      "path": "reference-v2.2.3/skills/skill-reviewer/SKILL.md",
+      "digest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50",
+      "source": "skills/skill-reviewer/SKILL.md",
+      "sourceDigest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"
+    },
+    {
+      "path": "reference-v2.2.3/skills/skill-reviewer/references/review-checklist.md",
+      "digest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d",
+      "source": "skills/skill-reviewer/references/review-checklist.md",
+      "sourceDigest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"
+    },
+    {
+      "path": "reference-v2.2.3/config/canonical-bases.jsonc",
+      "digest": "9a5eba8a46426294fdeac0494280395a88da96fd5f0dacb76c38afaae53779cf"
+    }
+  ],
+  "dispositions": {
+    "agents": [
+      {
+        "id": "agent-engineer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "architecture-reviewer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "build",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "canary-agent",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "ci-build-engineer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "dependency-steward",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "docs-writer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "plan-reviewer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "refactoring-steward",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "repo-reviewer",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "special-builder",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "test-strategist",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "typescript-specialist",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "workflow-planner",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      },
+      {
+        "id": "workflow-steward",
+        "purpose": "canonical-base",
+        "status": "prepared"
+      }
+    ],
+    "skills": [
+      {
+        "id": "adapter-claim-audit",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "agentic-change-governance",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "architecture-impact-scan",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "canary-skill",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "change-grilling",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "plugin-developer",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "native-plugin-guidance-unqualified"
+        ],
+        "status": "blocked"
+      },
+      {
+        "id": "prompt-engineer",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "prompt-evaluator",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "native-live-evaluator-unqualified"
+        ],
+        "status": "blocked"
+      },
+      {
+        "id": "prompt-optimizer",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "promptfoo-evals",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "repo-quality-risks",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "roadmap-tasklist-handoff",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "skill-creator",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      },
+      {
+        "id": "skill-reviewer",
+        "purpose": "canonical-base",
+        "reasonIds": [
+          "harness-neutral-retain"
+        ],
+        "status": "prepared"
+      }
+    ],
+    "operational": {
+      "aggregate": {
+        "purpose": "operational",
+        "reasonIds": [
+          "aggregate-withheld"
+        ],
+        "status": "withheld-aggregate"
+      },
+      "agents": [
+        {
+          "id": "agent-engineer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "inert-overlay-preservation",
+            "skill-guidance-blocked"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "architecture-reviewer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "build",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "child-session-delta"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "canary-agent",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "target-disabled-source"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "ci-build-engineer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "dependency-steward",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "docs-writer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "plan-reviewer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "refactoring-steward",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "repo-reviewer",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "special-builder",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "inert-overlay-preservation"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "test-strategist",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "typescript-specialist",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "workflow-planner",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "model-effort-unqualified",
+            "child-session-delta"
+          ],
+          "status": "blocked"
+        },
+        {
+          "id": "workflow-steward",
+          "purpose": "operational",
+          "reasonIds": [
+            "policy-layers-unqualified",
+            "claude-agent-catalog-unqualified",
+            "sampling-unqualified"
+          ],
+          "status": "blocked"
+        }
+      ]
+    }
+  },
+  "blockers": [
+    {
+      "id": "policy-layers-unqualified",
+      "description": "Effective global, project, agent, session, saved-approval and system policy composition is not runtime-qualified."
+    },
+    {
+      "id": "model-effort-unqualified",
+      "description": "Preserve source OpenAI, DeepSeek or inherited routing; native catalog and per-model effort support are unqualified. No fallback is synthesized."
+    },
+    {
+      "id": "claude-agent-catalog-unqualified",
+      "description": "Anthropic-backed OpenCode roles are selected for native Claude Agent migration; exact catalog IDs and per-model effort support are unknown."
+    },
+    {
+      "id": "sampling-unqualified",
+      "description": "Source sampling requires an effective provider/model mapping or explicit per-row loss approval. Ineffective request.body storage is not preservation."
+    },
+    {
+      "id": "inert-overlay-preservation",
+      "description": "Specialist source-effective Bash ask must not become new auto-allows from presently inert project overlays."
+    },
+    {
+      "id": "child-session-delta",
+      "description": "Referenced v1 and v2 child-session inheritance, model override and fallback differ; operational equivalence remains blocked."
+    },
+    {
+      "id": "target-disabled-source",
+      "description": "Canary is canonical-enabled but target-disabled in v1; an independent canonical base must not activate it."
+    },
+    {
+      "id": "skill-guidance-blocked",
+      "description": "Agent-engineer depends on native plugin and live evaluator guidance that is withheld pending a reviewed projection."
+    },
+    {
+      "id": "native-plugin-guidance-unqualified",
+      "description": "The canonical plugin-developer bundle contains legacy OpenCode API examples. Native operational guidance requires a complete evidenced projection, not token renaming."
+    },
+    {
+      "id": "native-live-evaluator-unqualified",
+      "description": "The prompt-evaluator bundle's native SDK/live route is unqualified. Generic in-session judging remains separately usable; this native bundle is withheld."
+    },
+    {
+      "id": "harness-neutral-retain",
+      "description": "Retain the canonical skill bundle bytes; this content disposition is not a runtime loading or capability claim."
+    },
+    {
+      "id": "aggregate-withheld",
+      "description": "One blocked row withholds the whole operational fragment."
+    }
+  ],
+  "overallReady": false
+}

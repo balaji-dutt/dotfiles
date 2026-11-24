@@ -197,6 +197,12 @@
             "status": "covered"
           },
           {
+            "id": "safety-acknowledged-hazard-lines",
+            "kind": "safety",
+            "description": "Pass only successor lines acknowledged for their own pattern, report every other matching line, and fail closed on a malformed acknowledgement file.",
+            "status": "covered"
+          },
+          {
             "id": "safety-clone-local-fk-drift",
             "kind": "safety",
             "description": "Fail a Beads bump whose clone-local FK list differs from beads-sync's, and fail closed when bd's list cannot be fetched or parsed.",
@@ -206,6 +212,12 @@
             "id": "safety-token-boundary",
             "kind": "safety",
             "description": "Reject redirects, pagination, and contents URLs outside the trusted Beads GitHub API before sending credentials.",
+            "status": "covered"
+          },
+          {
+            "id": "success-adopted-range-report",
+            "kind": "success",
+            "description": "Print the notes of every release between the target-branch pin and the proposed pin, prereleases included, without changing the exit status.",
             "status": "covered"
           },
           {
@@ -242,6 +254,104 @@
         ]
       },
       "rationale": "Registered helper and isolated sync suites cover launcher dispatch, platform and remote guards, dirty-state refusal, one-session pull SQL, snapshot boundaries, lifecycle cleanup, failure propagation, and URL redaction."
+    },
+    {
+      "id": "beads-toolchain",
+      "classification": "owned",
+      "paths": ["assets/beads-toolchain.py"],
+      "owner": {"kind": "repository", "name": "Beads and Dolt upgrade toolchain fetcher"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-bmo5",
+        "test_paths": ["tests/test_beads_toolchain.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-untrusted-pins-and-downloads",
+            "kind": "failure",
+            "description": "Exit 2 on malformed pins, refused git refs, missing assets or digests, API and download errors, digest or size mismatches, and archives without exactly one regular binary.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-private-prefix",
+            "kind": "safety",
+            "description": "Install only into a new, empty, or helper-created prefix, leave an existing binary untouched on refusal, and download again when the cached binary or stamp does not match the requested version.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-token-and-redirect-boundary",
+            "kind": "safety",
+            "description": "Send the API token only to the GitHub API without following redirects, and follow download redirects only to GitHub release hosts.",
+            "status": "covered"
+          },
+          {
+            "id": "success-verified-install",
+            "kind": "success",
+            "description": "Read both pins from the working tree or a git ref, and install a digest-verified binary that reports the requested version.",
+            "status": "covered"
+          }
+        ]
+      },
+      "rationale": "Fake openers, local archives, and stub binaries cover pin parsing, the download trust boundary, extraction, and prefix reuse without contacting the network."
+    },
+    {
+      "id": "beads-upgrade-rehearsal",
+      "classification": "owned",
+      "paths": ["assets/beads-upgrade-rehearsal.py"],
+      "owner": {"kind": "repository", "name": "Beads and Dolt upgrade rehearsal"},
+      "languages": ["python"],
+      "platforms": ["linux", "macos", "wsl2"],
+      "risk": "critical",
+      "side_effects": ["beads", "filesystem", "git", "network", "process"],
+      "test_layers": ["contract", "integration", "unit"],
+      "coverage": {
+        "status": "partial",
+        "work_item": "dots-bmo5",
+        "test_paths": ["tests/test_beads_upgrade_rehearsal.py"],
+        "behavior_requirements": [
+          {
+            "id": "failure-refusals-and-crashes-report",
+            "kind": "failure",
+            "description": "Exit 2 on malformed versions, unusable projects and metadata before touching anything, record a failed check when the live server does not come back, and turn crashes, interrupts and termination signals into a written report and a non-zero exit.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-copy-cannot-reach-live-or-remote",
+            "kind": "safety",
+            "description": "Copy only the database and workspace state, refuse symlinks and running-server state files, remove every Dolt remote and refuse when one survives or reappears, and run scratch commands in a private environment.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-live-server-restored",
+            "kind": "safety",
+            "description": "Stop the live server only with permission, discard a copy taken while it restarted, and restart it after copy failures, interrupts and exits with termination signals held off during the restart.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-scratch-server-identity",
+            "kind": "safety",
+            "description": "Use a scratch server only after ps shows it serving the scratch project on a port other than the live one, never signal any other process, and stop or kill every scratch server it identified, on every path.",
+            "status": "covered"
+          },
+          {
+            "id": "success-data-comparison",
+            "kind": "success",
+            "description": "Report lost, changed and dropped issue data and shrunk or missing tables, accept added fields and grown tables, and prune only this project's older restore points.",
+            "status": "covered"
+          },
+          {
+            "id": "success-real-binary-rehearsal",
+            "kind": "success",
+            "description": "Run the whole rehearsal with real bd and dolt binaries against a seeded store and pass with the data unchanged.",
+            "status": "planned"
+          }
+        ]
+      },
+      "rationale": "Stand-in bd and dolt scripts with real processes cover the stop, restart, identity and kill paths; the end-to-end run with real binaries is not automated yet and is planned for the real-binary contract suite under dots-bmo5."
     },
     {
       "id": "browser-policy-sync",
@@ -832,6 +942,24 @@
       "rationale": "Container copies are checked against Git-tracked host sources and mirror cleanup rules. OpenCode wrapper fixtures also exercise the shared selective Go key loader with stale inheritance, rotation, credential-safe refusals, unchanged PATH and profile exports, dry-run exclusions, and dependency-guard ordering and failure propagation. These fixtures do not verify live container provisioning or provider authentication."
     },
     {
+      "id": "opencode-v2-preparation-policy",
+      "classification": "owned",
+      "paths": ["assets/check-opencode-v2-preparation.py"],
+      "owner": {"kind": "repository", "name": "inactive OpenCode v2 subset provenance and isolation"},
+      "languages": ["python"],
+      "platforms": ["devcontainer", "linux", "macos", "wsl2"],
+      "risk": "high",
+      "side_effects": ["process"],
+      "test_layers": ["contract", "integration", "provenance", "unit"],
+      "coverage": {
+        "status": "covered",
+        "work_item": "dots-0lqe",
+        "test_paths": ["tests/test_opencode_v2_preparation.py"],
+        "behavior_requirements": []
+      },
+        "rationale": "The POSIX-only checker separates completed-phase preservation against pinned public Git history from current artifact and bounded loading-declaration validation. Mapped host/container references must remain within their namespace after normalization; profile paths retain the declaring-directory base rather than resolving from the containment root. Historical overlay hashes remain historical evidence, not qualification of current helpers. Owned temporary Git fixtures cover filtered public projections and amendment deltas without excluded blob reads. Projection source operations are non-writing; own index, files and feature HEAD must remain stable, while shared-ref movement is observed rather than treated as proof of exclusive ownership. A rehearsal validates one late-captured immutable main snapshot, not later main commits. The checker API and separate real chezmoi render gate both matter: CLI PASS alone does not establish chezmoi isolation or runtime qualification. The eight success/failure/safety requirements and concrete test mappings are recorded in docs/agents/opencode-v2-preparation.md#dv2-020-behavioral-requirement-matrix; the structured inventory array is reserved for critical-risk entries. Composition and lifecycle cases are consumer contract models, not execution of live helpers. Four-platform synthetic rendering is not native Windows checker or runtime evidence."
+    },
+    {
       "id": "peer-env",
       "classification": "owned",
       "paths": ["assets/peer-env", "assets/peer_env_windows.py", "assets/peer_env_windows_launcher.py"],
@@ -1073,7 +1201,7 @@
         "test_paths": ["tests/test_case_report.py", "tests/test_runner_windows_interop.py", "tests/test_test_fixtures.py", "tests/test_test_runner.py", "tests/test_test_selection.py"],
         "behavior_requirements": [
           {"id": "failure-bd-shim-resolution", "kind": "failure", "description": "Retain the bd invocation name after failed, invalid, or timed-out mise discovery, and skip an unusable shim locally or fail it when required without accepting mise --version as a Beads capability.", "status": "covered"},
-          {"id": "failure-incomplete-run-evidence", "kind": "failure", "description": "Leave a v2 report with completed, interrupted, and not-run steps and an interrupted or crashed run state when a run stops early, and write a v1 report only at the end.", "status": "covered"},
+          {"id": "failure-incomplete-run-evidence", "kind": "failure", "description": "Leave a v2 report with completed steps, every step in flight marked interrupted, and the rest not run, with an interrupted or crashed run state, when a run stops early at any job count, and write a v1 report only at the end.", "status": "covered"},
           {"id": "failure-node-shim-resolution", "kind": "failure", "description": "Independently retain the selected Node or jq shim with a bounded diagnostic when mise discovery fails, times out, or returns an invalid executable, without installing, granting trust, selecting another runtime, or hiding execution failures as skips.", "status": "covered"},
           {"id": "failure-report-write-exit", "kind": "failure", "description": "Exit 2 when the final v1 or v2 report cannot be written.", "status": "covered"},
           {"id": "failure-step-outcomes", "kind": "failure", "description": "Fail a step with an explicit outcome on timeout, launch error, signal crash, Windows NTSTATUS exit, or missing required capability, and run later steps after a timeout, launch error, or missing capability.", "status": "covered"},
@@ -1081,7 +1209,8 @@
           {"id": "safety-bounded-step-output", "kind": "safety", "description": "Keep only the last 1 MiB of each step's stdout and stderr and report the omitted byte count.", "status": "covered"},
           {"id": "safety-native-windows-tree-termination", "kind": "safety", "description": "Stop only the step's own PID tree on timeout and interruption from a native Windows checkout, leaving an unrelated process alive.", "status": "planned"},
           {"id": "safety-owned-tree-termination", "kind": "safety", "description": "Stop the step's own POSIX process group, including TERM-resistant and pipe-holding descendants, on timeout and SIGINT, SIGTERM, or SIGHUP while an unrelated process survives, and kill only the step's Windows PID tree on timeout under WSL2 interop.", "status": "covered"},
-          {"id": "safety-synthetic-sandbox", "kind": "safety", "description": "Give every step synthetic home, XDG, and temp directories, an empty global and system Git config, and no parent secrets; block real bd and dolt with guard shims, and sandbox directly imported tests the same way.", "status": "covered"},
+          {"id": "safety-serial-step-exclusivity", "kind": "safety", "description": "Run steps one at a time in registry order at --jobs 1 and by default outside the fast suite, default the fast suite to the CPU count capped at 4, overlap non-serial steps under --jobs N, and never let a serial step overlap another step.", "status": "covered"},
+          {"id": "safety-synthetic-sandbox", "kind": "safety", "description": "Give every step its own synthetic home, XDG, and temp directories and its own empty global and system Git config, hidden from every other step, and no parent secrets; block real bd and dolt with guard shims, and sandbox directly imported tests the same way.", "status": "covered"},
           {"id": "success-capability-invocation-identity", "kind": "success", "description": "Preserve command-name symlinks as absolute invocation paths for capability probes and returned executables, including relative PATH entries, paths with spaces, and capabilities without probes.", "status": "covered"},
           {"id": "success-case-report-adapter", "kind": "success", "description": "Match python -m unittest exit codes in the case-report adapter, record per-case outcomes and subtests in report v2, and leave report v1 unchanged.", "status": "covered"},
           {"id": "success-posix-beads-shim-isolation", "kind": "success", "description": "Resolve the selected POSIX mise bd shim before HOME and XDG isolation and execute Beads-specific commands through the explicit handoff while preserving native Windows discovery behavior.", "status": "covered"},

@@ -87,8 +87,8 @@ class RunnerWindowsInteropTests(unittest.TestCase):
         (self.root / "tests" / "ok.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
         registry = self.root / "configs" / "test-suites.json"
         registry.write_text(json.dumps({
-            "$schema": "./schemas/test-suites.v1.schema.json",
-            "schema_version": 1,
+            "$schema": "./schemas/test-suites.v2.schema.json",
+            "schema_version": 2,
             "capabilities": {},
             "steps": [
                 {"id": "a-hang", "suites": ["fast"], "argv": ["{python}", "{repo}/tests/hang.py"],
@@ -112,7 +112,7 @@ class RunnerWindowsInteropTests(unittest.TestCase):
         report = self.root / "report.json"
         result = subprocess.run(
             [PY, "-3", self.windows(RUNNER), "--repo-root", self.windows(self.root),
-             "--registry", self.windows(registry), "fast", "--case-report",
+             "--registry", self.windows(registry), "fast", "--jobs", "1", "--case-report",
              "--report-file", self.windows(report)],
             check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180,
         )
@@ -151,8 +151,8 @@ class RunnerWindowsInteropTests(unittest.TestCase):
         """), encoding="utf-8")
         registry = self.root / "configs" / "test-suites.json"
         registry.write_text(json.dumps({
-            "$schema": "./schemas/test-suites.v1.schema.json",
-            "schema_version": 1,
+            "$schema": "./schemas/test-suites.v2.schema.json",
+            "schema_version": 2,
             "capabilities": {},
             "steps": [{"id": "orphan", "suites": ["fast"], "argv": ["{python}", "{repo}/tests/orphan.py"],
                        "covers": ["tests/orphan.py"], "timeout_seconds": 20}],
@@ -161,7 +161,7 @@ class RunnerWindowsInteropTests(unittest.TestCase):
         started = time.monotonic()
         result = subprocess.run(
             [PY, "-3", self.windows(RUNNER), "--repo-root", self.windows(self.root),
-             "--registry", self.windows(registry), "fast", "--case-report",
+             "--registry", self.windows(registry), "fast", "--jobs", "1", "--case-report",
              "--report-file", self.windows(report)],
             check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120,
         )

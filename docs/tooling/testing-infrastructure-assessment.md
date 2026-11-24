@@ -248,6 +248,19 @@ not yet on a native Windows checkout. Each stream keeps its last 1 MiB. Under
 interrupted, crashed, and not-run steps; the default v1 report is still written
 only at the end. The paragraph above describes the original assessment baseline.
 
+Current status (2026-11-24): each step has its own home, temporary directory,
+and Git configuration, and `--jobs N` runs up to `N` steps at once while steps
+marked `serial` run alone. At `cf7c087e`, three `fast --case-report` runs at
+`--jobs 1` and three at `--jobs 4` were compared on each platform by step
+status, step outcome, and every case ID with its outcome. On macOS all six
+reports matched across 989 cases (44 steps passed, 3 skipped); wall times were
+270, 257, and 275 seconds at one job and 101, 100, and 105 seconds at four. On
+WSL2 all six matched across 987 cases (44 passed, 3 skipped); the one wall
+time recorded per mode was 169 seconds at one job and 70 seconds at four. No
+timing margin was widened and no assertion changed. On that evidence `fast`
+now defaults to the CPU count capped at 4. The other suites keep one job
+because they have no such comparison, and native Windows has none either.
+
 Platform routing also has concrete mismatches: WSL-gated
 `WindowsShellSmokeTests` in `tests/test_windows_shell.py:87` is selected through
 Windows-only registry steps, making that WSL smoke unreachable **via the

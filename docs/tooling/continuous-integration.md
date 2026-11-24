@@ -201,8 +201,11 @@ before installation. The `wsl2-pageant` tests need chezmoi to render their
 fixture. Every declared capability of the selected Linux steps is required;
 a missing tool fails rather than skipping its steps. When updating either
 runtime pin, update its digest from the same release's upstream checksum file
-(Node `SHASUMS256.txt`, chezmoi `checksums.txt`). `linux-all` installs no
-additional tools and requires only the capabilities named below:
+(Node `SHASUMS256.txt`, chezmoi `checksums.txt`); a chezmoi bump also moves the
+pins in `.github/workflows/platform-fast.yml`. `linux-fast` and `linux-all` set
+`GIT_DEPTH: "0"` because `opencode-v2-preparation` reads historical baseline
+commits that the project's default depth of 20 eventually drops. `linux-all`
+installs no additional tools and requires only the capabilities named below:
 
 ```sh
 ./assets/run-tests.sh fast \
@@ -215,6 +218,12 @@ additional tools and requires only the capabilities named below:
   --require-capability sh \
   --report-file ci-artifacts/linux-all.json
 ```
+
+Neither command passes `--jobs`. `linux-fast` therefore runs up to as many
+steps at once as Python's `os.cpu_count()` reports on the runner, capped at 4,
+and `linux-all` runs one step at a time; see `docs/tooling/test-runner.md`.
+To rule concurrency out while investigating a `linux-fast` failure, rerun the
+command locally with `--jobs 1`.
 
 `windows-all` is a manual job on GitLab's current Windows hosted-runner beta:
 
@@ -304,7 +313,10 @@ does not establish hosted performance. The hard job timeout remains 10 minutes.
 `.github/workflows/platform-fast.yml` runs `./assets/run-tests.sh fast
 --require-capabilities` (the PowerShell entrypoint on Windows) on
 `ubuntu-latest`, `macos-latest`, and `windows-latest`, and uploads each
-platform's `--report-file` JSON as an artifact for seven days. It exists to
+platform's `--report-file` JSON as an artifact for seven days. No lane passes
+`--jobs`, so each runs `fast` at the runner's default job count. On
+`windows-latest` that is the only automated run of concurrent steps on native
+Windows; no local Windows checkout has verified it. The workflow exists to
 answer a question GitLab Free cannot: what the `fast` suite does on hosted
 macOS and Windows. The answer feeds the decision on whether to make GitHub the
 canonical forge; it is not a merge gate.
@@ -336,8 +348,16 @@ so those pins only move by hand.
 
 Linux and macOS install chezmoi 2.69.3 from the upstream release with a pinned
 SHA-256 for each runner architecture, verify it before installation, and add
-`~/.local/bin` to `GITHUB_PATH`. This supplies the required chezmoi capability
-for template-rendering tests, including `wsl2-pageant`.
+`~/.local/bin` to `GITHUB_PATH`. Windows downloads `chezmoi-windows-amd64.exe`
+from the same release, verifies its pinned SHA-256 with `Get-FileHash`, and
+adds a directory under `RUNNER_TEMP` to `GITHUB_PATH`. This supplies the
+required chezmoi capability for template-rendering tests, including
+`wsl2-pageant` and `opencode-v2-isolation-render`. A chezmoi version bump
+updates both version pins and all four checksums in `platform-fast.yml`.
+
+Checkout uses `fetch-depth: 0` because `opencode-v2-preparation` reads its
+baseline commits with `git show`; a depth-1 clone fails with
+`Git query failed: show`.
 
 Reading results:
 

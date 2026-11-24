@@ -91,6 +91,33 @@ class PlatformFastWorkflowTests(unittest.TestCase):
         self.assertLess(setup.index(installation), setup.index('"$HOME/.local/bin/chezmoi" --version'))
         self.assertLess(self.index_of("name: Install chezmoi"), self.index_of("name: Run the fast suite"))
 
+    def test_checkout_fetches_full_history(self) -> None:
+        checkout = self.index_of("uses: actions/checkout@")
+        self.assertIn("fetch-depth: 0", "\n".join(self.lines[checkout : checkout + 4]))
+
+    def test_windows_chezmoi_is_verified_before_installation(self) -> None:
+        setup = self.text.split("      - name: Install chezmoi (Windows)\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: runner.os == 'Windows'", setup)
+        self.assertIn("shell: pwsh", setup)
+        self.assertIn("$ErrorActionPreference = 'Stop'", setup)
+        self.assertIn("$env:PROCESSOR_ARCHITECTURE -ne 'AMD64'", setup)
+        posix = re.search(r'CHEZMOI_VERSION="(\d+\.\d+\.\d+)"', self.text)
+        self.assertIsNotNone(posix)
+        self.assertIn(f"$ChezmoiVersion = '{posix.group(1)}'", setup)
+        self.assertRegex(setup, r"\$Checksum = '[0-9a-f]{64}'")
+        download = "releases/download/v$ChezmoiVersion/chezmoi-windows-amd64.exe"
+        verification = "if ($Actual -ne $Checksum) { throw"
+        installation = "Move-Item -LiteralPath $Download"
+        path_update = "Add-Content -Path $env:GITHUB_PATH -Value $Bin"
+        for needle in (download, "-MaximumRetryCount 2", "Get-FileHash -Algorithm SHA256", verification,
+                       installation, path_update, "--version"):
+            self.assertIn(needle, setup)
+        self.assertLess(setup.index(download), setup.index(verification))
+        self.assertLess(setup.index(verification), setup.index(installation))
+        self.assertLess(setup.index(installation), setup.index(path_update))
+        self.assertLess(self.index_of("name: Install chezmoi (Windows)"),
+                        self.index_of("name: Run the fast suite (Windows)"))
+
     def test_fast_suite_runs_with_required_capabilities_on_every_shell(self) -> None:
         self.assertIn(
             './assets/run-tests.sh fast --require-capabilities --report-file "ci-artifacts/fast-${{ matrix.os }}.json"',

@@ -355,13 +355,14 @@ class RunnerCaseReportTests(unittest.TestCase):
     def run_runner(self, *args: str) -> subprocess.CompletedProcess[str]:
         registry = self.root / "configs" / "test-suites.json"
         registry.write_text(json.dumps({
-            "$schema": "./schemas/test-suites.v1.schema.json",
-            "schema_version": 1,
+            "$schema": "./schemas/test-suites.v2.schema.json",
+            "schema_version": 2,
             "capabilities": {},
             "steps": self.steps,
         }), encoding="utf-8")
         return subprocess.run(
-            [sys.executable, str(RUNNER), "--repo-root", str(self.root), "--registry", str(registry), *args],
+            [sys.executable, str(RUNNER), "--repo-root", str(self.root), "--registry", str(registry),
+             "--jobs", "1", *args],
             check=False, text=True, encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 
@@ -377,7 +378,8 @@ class RunnerCaseReportTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["state"], "complete")
         self.assertEqual(set(payload["context"]),
-                         {"dirty", "platform", "python", "revision", "selected_steps", "suite"})
+                         {"dirty", "jobs", "platform", "python", "revision", "selected_steps", "suite"})
+        self.assertEqual(payload["context"]["jobs"], 1)
         self.assertEqual(payload["context"]["selected_steps"],
                          ["bad", "good", "other-platform", "plain", "skipped", "vanish"])
         self.assertEqual(payload["context"]["platform"], payload["platform"])

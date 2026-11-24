@@ -35,8 +35,29 @@ platform
 all
 ```
 
-`all` runs every registered step once in registry order. Use `--list` to
-validate and print the selected steps without executing them:
+`all` runs every registered step once. `--jobs N` sets how many steps may run
+at once:
+
+```sh
+./assets/run-tests.sh fast --jobs 1
+./assets/run-tests.sh integration --jobs 4
+```
+
+Without the option, `fast` uses the host's CPU count, capped at 4, and every
+other suite, `all` included, uses 1. With `N` at 1, steps run one at a time in
+registry order; pass `--jobs 1` to get that for `fast`, for example to
+reproduce a failure without other steps loading the host. Only `fast` has been
+compared case by case at 1 and 4 jobs, on macOS and WSL2. The other suites have
+not, which is why they keep 1.
+
+With `N` above 1, steps marked `serial` in the registry run first, each one
+alone, and the remaining steps then run up to `N` at a time in registry order.
+A serial step never overlaps another step. Each step's output is still printed
+whole when the step finishes, so `RUN` and `PASS`/`FAIL` lines for different
+steps can interleave and steps can finish out of registry order. Reports list
+steps in registry order regardless.
+
+Use `--list` to validate and print the selected steps without executing them:
 
 ```sh
 ./assets/run-tests.sh --list integration
@@ -92,14 +113,15 @@ The report becomes `schema_version` 2. It keeps every version 1 field and adds:
   rewrites the report atomically after every step, so a run in progress shows
   `running` with its finished steps and a null `exit_code`. If the run is
   interrupted (`SIGINT`, `SIGTERM`, `SIGHUP`, Ctrl+C) or the runner itself
-  raises, the last write marks the step in progress `interrupted`, the steps
-  after it `not_run`, and records the exit code the runner is leaving with
-  (128 plus the signal number, `130` for Ctrl+C, `1` for a runner crash). A
+  raises, the last write marks every step in progress `interrupted`, every
+  step that had not started `not_run`, and records the exit code the runner
+  is leaving with (128 plus the signal number, `130` for Ctrl+C, `1` for a
+  runner crash). A
   runner killed outright (`SIGKILL`, power loss) cannot write that final
   report, so a file still at `running` means the run ended without a summary.
 - `context`: Git `revision` and `dirty` (tracked files only), `platform`,
-  Python `implementation` and `version`, the `suite`, and the
-  `selected_steps` in run order.
+  Python `implementation` and `version`, the `suite`, the `jobs` count, and
+  the `selected_steps` in registry order.
 - per step, `outcome`, one of `passed`, `failed`, `skipped_platform`,
   `skipped_capability`, `missing_capability`, `timeout`, `launch_error`,
   `crash`, `interrupted` or `not_run`. On Windows, `crash` means an exit code
@@ -147,9 +169,12 @@ The registry is `configs/test-suites.json`. Every step has a stable `id`, one or
 more `suites`, an argv array, and one or more `covers` paths. Optional
 `platforms` and `requires` fields declare when the step can run. An optional
 positive integer `timeout_seconds` sets the step's time limit (default:
-600 seconds). Commands are argv arrays, not shell strings; only `{python}` and
-`{repo}` placeholders are supported. Steps are sorted by ID, duplicate IDs are
-rejected, and `all` runs the resulting unique registry entries.
+600 seconds). An optional boolean `serial` marks a step that must run alone
+because it asserts on wall-clock time or uses a host-wide resource such as
+tmux, Windows interop, or a real Beads database. Commands are argv arrays, not
+shell strings; only `{python}` and `{repo}` placeholders are supported. Steps
+are sorted by ID, duplicate IDs are rejected, step keys the schema does not
+declare are rejected, and `all` runs the resulting unique registry entries.
 
 Every top-level `tests/test_*.py` module must appear in the union of `covers`.
 The runner contract tests enforce that registration and specifically retain the
@@ -329,11 +354,16 @@ full coverage.
 
 ## Isolation contract
 
-Each invocation gets a temporary sandbox. Child processes receive synthetic
-`HOME`, `USERPROFILE`, temporary directories, and all four XDG roots
+Each invocation gets a temporary run directory, and every step that launches
+gets its own sandbox inside it, so one step's home, temp, and Git config
+writes are invisible to the others. Capability probes share one separate
+sandbox. Child processes receive
+synthetic `HOME`, `USERPROFILE`, temporary directories, and all four XDG roots
 (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`). Git global/system config
 points at an empty sandbox file, interactive Git prompts are disabled, and
 credential/service variables are not copied wholesale from the parent process.
+The command guards and runtime symlinks described below are created once per
+run and shared by every sandbox.
 On Windows, the read-only `ProgramFiles` location passes through unchanged,
 while `PROGRAMDATA`, `APPDATA`, and `LOCALAPPDATA` point into the sandbox.
 The explicit `DEVCONTAINER_SMOKE` opt-in, artifact directory, and timeout are the
@@ -345,7 +375,7 @@ On POSIX, when the selected `node`, `jq`, or `bd` resolves to a mise executable,
 the runner queries `mise which <tool>` before replacing the parent environment. Discovery
 uses the repository root as its working directory, closes stdin, and has a
 10-second timeout per tool. Each installed executable is exposed through a tool-only
-symlink in the sandbox, behind the `bd`/`dolt` guards and ahead of inherited
+symlink in the run directory, behind the `bd`/`dolt` guards and ahead of inherited
 `PATH`; capability lookup uses this normalized path without the guards.
 Children receive no parent mise variables or real mise config/state roots.
 Other selections and native Windows runtime selection are unchanged;
@@ -362,6 +392,15 @@ code in the final report, then continues to the next step. The registered live
 devcontainer step has a 1200-second step limit, distinct from the live-smoke
 command timeout above. Descendants that leave the step's process group are not
 covered by group signalling; undrained output is reported as a cleanup failure.
+
+Every step is launched from a worker thread, and the runner's main thread
+handles interruption for the whole run. On POSIX that covers `SIGINT`,
+`SIGTERM`, and `SIGHUP` between steps and during capability probes as well as
+while a step runs: the worker stops its own step, the step in progress (or the
+one whose capabilities were being probed) is recorded as interrupted, and the
+runner exits with 128 plus the signal number. If stopping the step fails, its
+reason reads `interrupted; cleanup failed: ...` and the run still counts as
+interrupted.
 
 On Windows, each step starts in a new process group and gets the same
 `timeout_seconds` limit. On timeout or interruption the runner runs
@@ -448,7 +487,8 @@ why in the review.
 
 1. Add the test using standard-library or already established framework tools.
 2. Add one sorted registry step with stable suites, argv, `covers`, and only the
-   capabilities it actually requires.
+   capabilities it actually requires. Set `serial: true` only when the step
+   cannot share the machine with another step.
 3. Run `./assets/run-tests.sh --list all` to validate registration.
 4. Run the affected suite locally, then require only the capabilities each CI
    lane explicitly claims. Use `--require-capabilities` only for a lane that

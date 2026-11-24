@@ -1,0 +1,512 @@
+{
+  "schemaVersion": 1,
+  "format": "dotfiles-opencode-v2-subset-manifest",
+  "phase": "DV2-020",
+  "purpose": "inactive-selected-base-evidence",
+  "consumerBaseline": "9100cf156e76e4dec337de3d8e0d5d9df7fc7821",
+  "ownerCommit": "81d4b66457e8d2b5628904c043dacd9d33a5c66e",
+  "ownerManifest": {
+    "path": "generated/opencode-v2/reference-v2.2.3/metadata/preparation-manifest.json",
+    "digest": "1cae59d43ff31d54e9d094aa9a79abc8b7d1590ac00bc0f1b554466c7b2685a3",
+    "format": "opencode-v2-preparation",
+    "schemaVersion": 1,
+    "payloadOutputs": 47,
+    "filesIncludingManifest": 48,
+    "agentBases": 15,
+    "retainedSkillBundles": 12,
+    "retainedSkillFiles": 31,
+    "blockedOperationalRows": 15,
+    "aggregate": "withheld-aggregate",
+    "overallReady": false,
+    "orderedInputAuthority": "The pinned manifest inputs array, including preparation, historical inventory, canonical sources and anchored projections.",
+    "canonicalBasesMapPurpose": "ID-to-agent map for an agents value; not a root configuration or operational aggregate"
+  },
+  "ownerManifestEvidence": "configs/opencode-v2/source/owner-evidence/metadata/preparation-manifest.json",
+  "producerEvidence": {
+    "generator": "agentic-tooling",
+    "declaredPackageVersion": "0.1.0",
+    "declaredPackageManager": "pnpm@11.0.8",
+    "cliEntry": "packages/cli/dist/index.js",
+    "command": "prepare-opencode-v2",
+    "actualProducingBuild": null,
+    "actualProducingBuildStatus": "unknown; committed emission verified, not locally regenerated",
+    "localBuildOrInstallPerformed": false,
+    "sourceSha256ByPath": {
+      "configs/opencode-v2/preparation.jsonc": "29fdb36c31fbc401a16149101a2124754b0f0bfd1ce57fb4e58d5b9c6bdd9e64",
+      "configs/opencode-v2/source-inventory.json": "2bbd78505774bb6f06434aa7de2fb62fe70d2644b299c709d9779f73033ebe09",
+      "packages/cli/package.json": "f561b0e12fd4dded3af829dd4235b907eb4620364819908c22fb72bc41cfa31e",
+      "packages/generators/package.json": "f3e1f9649555932a3f274c92abff9d31d7eadcd9eff605bbd7cc1cfe22b0f006",
+      "package.json": "22db33a77cc0c218f371a8da9163beceeedba1c38858a45b61d9aab6004e2f35",
+      "pnpm-lock.yaml": "33bc69ed5fb99dd211ffe5733ef7700597f8dbacf4e92bb8e4b9577abc9ceef3",
+      "packages/cli/src/prepare-opencode-v2-command.ts": "44fad41220119123ed681797b87af89e4e34aa1d044902311bce9410c9f7b5c6",
+      "packages/generators/src/opencode-v2/paths.ts": "703e4f800690853c3f1d4467ca7c3fd516d9bdd27ad3c5c4bac9453bc14fb3a5",
+      "packages/generators/src/opencode-v2/constants.ts": "7138db23ae84d1bcae32690ff595d05093c6b1d83644bacb25a64a42a4248ee4"
+    },
+    "manifest": {
+      "path": "generated/opencode-v2/reference-v2.2.3/metadata/preparation-manifest.json",
+      "digest": "1cae59d43ff31d54e9d094aa9a79abc8b7d1590ac00bc0f1b554466c7b2685a3",
+      "format": "opencode-v2-preparation",
+      "schemaVersion": 1,
+      "payloadOutputs": 47,
+      "filesIncludingManifest": 48,
+      "agentBases": 15,
+      "retainedSkillBundles": 12,
+      "retainedSkillFiles": 31,
+      "blockedOperationalRows": 15,
+      "aggregate": "withheld-aggregate",
+      "overallReady": false,
+      "orderedInputAuthority": "The pinned manifest inputs array, including preparation, historical inventory, canonical sources and anchored projections.",
+      "canonicalBasesMapPurpose": "ID-to-agent map for an agents value; not a root configuration or operational aggregate"
+    },
+    "projectionSha256ByPath": {
+      "configs/opencode-v2/projections/build.json": "f8286232854e2e6bd09c600df97c4954303498c2ab51bfa9282e67b6e65fa17c",
+      "configs/opencode-v2/projections/workflow-planner.json": "32ed29da2d889dcdb93fe530ea7704f5e69850ef6f88aeb95f61926fb57163ce",
+      "configs/opencode-v2/projections/workflow-steward.json": "72b3fa2ec647624cbd1121bb57d54b6dd66317dc3a524a557c4cf3564d93c9c0"
+    }
+  },
+  "nativeReference": {
+    "version": "v2.2.3",
+    "commit": "082ac6281fd395c2d0c17fd3c38214db2f89621f",
+    "purpose": "preparation-schema-and-declared-semantics-reference",
+    "cutoverRelease": null
+  },
+  "orderedConsumerInputs": [
+    {
+      "path": "configs/opencode-v2/source/inventory.json",
+      "digest": "926db2206d525b61129ea290058c728a6f31ccc6e9d128baaeb0222cfa6e9d7e"
+    },
+    {
+      "path": "configs/opencode-v2/source/consumer-contract.jsonc",
+      "digest": "e4ad61fd61a6b54fc7058665989fa7dd9cdeb86271959b7c9e3d5daebc798f57"
+    },
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/metadata/preparation-manifest.json",
+      "digest": "1cae59d43ff31d54e9d094aa9a79abc8b7d1590ac00bc0f1b554466c7b2685a3"
+    },
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/agents/agent-engineer.yaml",
+      "digest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446"
+    },
+    {
+      "path": "configs/opencode-v2/source/owner-evidence/agents/special-builder.yaml",
+      "digest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161"
+    },
+    {
+      "path": "configs/opencode-v2/source/preparation.jsonc",
+      "digest": "e607e8f3deddecaf7a73f0e49a9ccd7fdeeff7c27090d78302dd55887df336f0"
+    }
+  ],
+  "ownerInputAuthority": "configs/opencode-v2/source/owner-evidence/metadata/preparation-manifest.json#/inputs",
+  "orderedOwnerInputsDigest": "284a02adbbb5cf57b1fc4d49065fa74d19965e0097810621e0b503977b50754f",
+  "ownerProjectionAuthority": "configs/opencode-v2/source/owner-evidence/metadata/preparation-manifest.json#/projections",
+  "orderedOwnerProjectionsDigest": "81c246045013aaa9886a66b72c2dc11ded516abb50f041f76fe570d7e9e31590",
+  "overlayInputs": [
+    {
+      "surface": "host-global",
+      "path": "private_dot_config/opencode/opencode.jsonc",
+      "digest": "8e7c6dde2fd5b77ee15dbdd070ce985a04851da1d4a15c7daed8a495c2aa745b"
+    },
+    {
+      "surface": "container-global",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/opencode.jsonc",
+      "digest": "72d867f98d2ee304499f314ddeacd8450a6940119d6767d5a5220e728829e4b1"
+    },
+    {
+      "surface": "project",
+      "path": ".opencode/opencode.jsonc",
+      "digest": "6a4f101f255b21fe91ceba169d6d134617996ed8c2579ab7d39665087ed672eb"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/api-fallback/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/chatgpt/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_dot_config/opencode/profiles/defaults/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/anthropic-api/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/api-fallback/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/chatgpt/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "profiles",
+      "path": "private_Documents/development/container-dotfiles/dotfiles/private_dot_config/opencode/profiles/defaults/opencode.jsonc",
+      "digest": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+    },
+    {
+      "surface": "posix-composition",
+      "path": "private_dot_config/opencode/opencode-profile.sh",
+      "digest": "43268b47b638fbeb2b65223c1f25552879c00e4c24376e8fc68e3aaf2c64ef75"
+    },
+    {
+      "surface": "posix-composition",
+      "path": "private_dot_config/opencode/opencode-sync-workspace-overrides.sh",
+      "digest": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904"
+    },
+    {
+      "surface": "windows",
+      "path": "private_dot_config/powershell/opencode-env.ps1.tmpl",
+      "digest": "49dfa80b7ec905e928004baeaa814733ac5c55b35d2161b91e4859030f7a7ac1"
+    },
+    {
+      "surface": "mirrors",
+      "path": "configs/devcontainer-sync.jsonc",
+      "digest": "fa4ef0624af851d918811fb8028f5f4fa06cd5bf4afdbcfef905bd6d84f48f89"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer-common.sh",
+      "digest": "253e0a3f9befb984241a050b849036838417f473a602c8406135c2cd186e33ba"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postCreate.sh",
+      "digest": "bd26006ef0b3b274b1965cc9daeeaa180b5d502393d302bc64837cc408c24bf6"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/postStart.sh",
+      "digest": "803a46e2ffe794a515d3dfa5f63f9495cfd4ade1c20d6afea7ce569f17511258"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/devcontainer.json.tmpl",
+      "digest": "a5567f8d482f3a5587f5d92f776e9c38e0e6df663e6e7e16d68871d1b80e4e6c"
+    },
+    {
+      "surface": "lifecycle",
+      "path": "private_Documents/development/container-dotfiles/devcontainers/gitlab.com/servers-homelab/homelab-IaC/dot_devcontainer/opencode-sync-workspace-overrides.sh",
+      "digest": "fe7e6bb8aab51cecd389f9ac69e941feb4f0e515c4e3fbff730cb451e7e59904"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_opencode-plannotator.tmpl",
+      "digest": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_opencode-plannotator-custom.tmpl",
+      "digest": "7c376b8afbdb1633d276d1ad4e5085ec9000656bd31e7ac20737879c52fc172b"
+    },
+    {
+      "surface": "launchers",
+      "path": "bin/executable_ai-wt.tmpl",
+      "digest": "4cc367904211b5e4ed16890a1e4ef35056be471109c8a6a289eb3f7f780068eb"
+    },
+    {
+      "surface": "aoe",
+      "path": "private_dot_config/agent-of-empires/modify_config.toml",
+      "digest": "d219347ea9591b1590a15a92e58faa68e6ded8dc82f16fd58df332e83752fa3f"
+    }
+  ],
+  "overlaysAppliedToPayload": false,
+  "files": [
+    {
+      "path": "configs/opencode-v2/prepared/owner/agents/agent-engineer.md",
+      "ownerManifestPath": "reference-v2.2.3/agents/agent-engineer.md",
+      "source": "agents/agent-engineer.yaml",
+      "sourceDigest": "c16fe6391662eab4602db96d4670aca27b7cfd3c74859678cbd78f84c7e43446",
+      "digest": "df07be4a46c87fbd092e96a0ec513754eaff0d7bb353269111c120b6e961b81e"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/agents/special-builder.md",
+      "ownerManifestPath": "reference-v2.2.3/agents/special-builder.md",
+      "source": "agents/special-builder.yaml",
+      "sourceDigest": "19adb5f1cd1186377723d5b6d8f1f6e0e35b2f28c4ad65ae28654c99566f7161",
+      "digest": "d5bb2c9ca861342bc9b9ce9ce41bdf90e02140bab664f1668419ca2bf334d60b"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-engineer/SKILL.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/SKILL.md",
+      "source": "skills/prompt-engineer/SKILL.md",
+      "sourceDigest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c",
+      "digest": "bfcb2730845ab62dcd04461bb5810340b726c5e4d0c2f9f415f1049585e06b1c"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-engineer/references/authoring-patterns.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/authoring-patterns.md",
+      "source": "skills/prompt-engineer/references/authoring-patterns.md",
+      "sourceDigest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b",
+      "digest": "029b707e756e2343b61256c35cd09539f313519fc88a52d67e45b34cfb65345b"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-engineer/references/improvement-checklist.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/improvement-checklist.md",
+      "source": "skills/prompt-engineer/references/improvement-checklist.md",
+      "sourceDigest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96",
+      "digest": "8093e1e869f09c361b3dadeb1538de42b20db7e47e8446a3cf7288a7fa11df96"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-engineer/references/model-specific.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-engineer/references/model-specific.md",
+      "source": "skills/prompt-engineer/references/model-specific.md",
+      "sourceDigest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71",
+      "digest": "e66b72d1803da20b9c56987d1a04e0d9c887146ee3f539646c1d16dd1baebb71"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-optimizer/SKILL.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/SKILL.md",
+      "source": "skills/prompt-optimizer/SKILL.md",
+      "sourceDigest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af",
+      "digest": "2ce1d81fdef60ebf9aa75059ee2305f66f5336d72a243ce84302f552d6dae4af"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-optimizer/references/domain-theories.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/references/domain-theories.md",
+      "source": "skills/prompt-optimizer/references/domain-theories.md",
+      "sourceDigest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5",
+      "digest": "daa0c5bd63721a0e3885e1e3ff01b892db71f12aa9cf347b406e4da2c80b96d5"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/prompt-optimizer/references/ears-syntax.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/prompt-optimizer/references/ears-syntax.md",
+      "source": "skills/prompt-optimizer/references/ears-syntax.md",
+      "sourceDigest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343",
+      "digest": "29a75f4a89ad4f4f98f1e2ede056089b022156d86373a92edd728b9a42a8a343"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/skill-creator/SKILL.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/skill-creator/SKILL.md",
+      "source": "skills/skill-creator/SKILL.md",
+      "sourceDigest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e",
+      "digest": "a3856725393fe4c9379b9f9fb900381343fa020c599029f68975e7fba32bc11e"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/skill-creator/references/skill-structure.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/skill-creator/references/skill-structure.md",
+      "source": "skills/skill-creator/references/skill-structure.md",
+      "sourceDigest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0",
+      "digest": "45590ec0c7b8941fabc7e111900203f3383d5bec68085325798b989d63fc44e0"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/skill-creator/references/testing-guide.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/skill-creator/references/testing-guide.md",
+      "source": "skills/skill-creator/references/testing-guide.md",
+      "sourceDigest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19",
+      "digest": "67ae3e339391517e1be06961b1bffa8a65a2dea5b8609357960edd327a11fb19"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/skill-reviewer/SKILL.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/skill-reviewer/SKILL.md",
+      "source": "skills/skill-reviewer/SKILL.md",
+      "sourceDigest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50",
+      "digest": "0a0a2c3daefc0cda0adb218fbf88e8846c6d30c35fd19862e7a161eac2221c50"
+    },
+    {
+      "path": "configs/opencode-v2/prepared/owner/skills/skill-reviewer/references/review-checklist.md",
+      "ownerManifestPath": "reference-v2.2.3/skills/skill-reviewer/references/review-checklist.md",
+      "source": "skills/skill-reviewer/references/review-checklist.md",
+      "sourceDigest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d",
+      "digest": "6f37e99553e73a64dbb51272a5e7012d679e8d21ef9ad6f9665d2c2478690b3d"
+    }
+  ],
+  "payloadFiles": 14,
+  "evidenceFiles": 3,
+  "selectedBundleFiles": {
+    "prompt-engineer": 4,
+    "prompt-optimizer": 3,
+    "skill-creator": 3,
+    "skill-reviewer": 2
+  },
+  "operationalRows": [
+    {
+      "id": "agent-engineer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "inert-overlay-preservation",
+        "skill-guidance-blocked"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "architecture-reviewer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "build",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "child-session-delta"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "canary-agent",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "target-disabled-source"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "ci-build-engineer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "dependency-steward",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "docs-writer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "plan-reviewer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "refactoring-steward",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "repo-reviewer",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "special-builder",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "inert-overlay-preservation"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "test-strategist",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "typescript-specialist",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "workflow-planner",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "model-effort-unqualified",
+        "child-session-delta"
+      ],
+      "status": "blocked"
+    },
+    {
+      "id": "workflow-steward",
+      "purpose": "operational",
+      "reasonIds": [
+        "policy-layers-unqualified",
+        "claude-agent-catalog-unqualified",
+        "sampling-unqualified"
+      ],
+      "status": "blocked"
+    }
+  ],
+  "operationalAggregate": {
+    "purpose": "operational",
+    "reasonIds": [
+      "aggregate-withheld"
+    ],
+    "status": "withheld-aggregate"
+  },
+  "withheldDependencies": [
+    {
+      "skill": "plugin-developer",
+      "files": 3,
+      "ownerReason": "native-plugin-guidance-unqualified",
+      "resolutionOwner": "agentic-tooling"
+    },
+    {
+      "skill": "prompt-evaluator",
+      "files": 5,
+      "ownerReason": "native-live-evaluator-unqualified",
+      "resolutionOwner": "agentic-tooling"
+    }
+  ],
+  "operationalReady": false,
+  "overallReady": false,
+  "actualProducingBuild": null,
+  "registrationAllowed": false,
+  "activationAllowed": false
+}

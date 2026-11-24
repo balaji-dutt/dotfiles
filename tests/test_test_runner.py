@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -131,8 +132,8 @@ class RunnerFixture:
         self.registry.write_text(
             json.dumps(
                 {
-                    "$schema": "./schemas/test-suites.v1.schema.json",
-                    "schema_version": 1,
+                    "$schema": "./schemas/test-suites.v2.schema.json",
+                    "schema_version": 2,
                     "capabilities": self.capabilities,
                     "steps": self.steps,
                 },
@@ -142,9 +143,10 @@ class RunnerFixture:
             encoding="utf-8",
         )
 
-    def run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run(self, *args: str, env: dict[str, str] | None = None,
+            jobs: int | None = 1) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            self.command(*args),
+            self.command(*args, jobs=jobs),
             env=env,
             check=False,
             text=True,
@@ -153,9 +155,10 @@ class RunnerFixture:
             stderr=subprocess.PIPE,
         )
 
-    def command(self, *args: str) -> list[str]:
+    def command(self, *args: str, jobs: int | None = 1) -> list[str]:
+        pinned = [] if jobs is None else ["--jobs", str(jobs)]
         return [sys.executable, str(RUNNER), "--repo-root", str(self.root),
-                "--registry", str(self.registry), *args]
+                "--registry", str(self.registry), *pinned, *args]
 
     def supervised(self, *args: str) -> subprocess.CompletedProcess[str]:
         with (tempfile.TemporaryFile(mode="w+t") as output,
@@ -277,7 +280,7 @@ class RunnerSupervisionTests(unittest.TestCase):
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
         live = next(step for step in registry["steps"] if step["id"] == "devcontainer-smoke-live")
         self.assertEqual(live["timeout_seconds"], 1200)
-        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v2.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(schema["$defs"]["step"]["properties"]["timeout_seconds"],
                          {"type": "integer", "minimum": 1})
 
@@ -417,6 +420,96 @@ class RunnerSupervisionTests(unittest.TestCase):
         self.assertEqual(returncode, 130)
         self.assertIsNone(running)
         self.assertFalse(report.exists())
+
+    def test_interrupted_parallel_run_marks_every_step_in_flight(self) -> None:
+        report = self.fixture.root / "parallel.json"
+        pid_files = []
+        for name in ("beta", "gamma"):
+            pid_file = self.fixture_pid(f"hung-{name}.pid")
+            pid_files.append(pid_file)
+            self.fixture.write_script(f"{name}.py", "import os, pathlib, time\n"
+                                      f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                      "time.sleep(30)\n")
+            self.fixture.steps.append(self.fixture.step(name, ["fast"], f"{name}.py"))
+        self.fixture.write_script("zeta.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("zeta", ["fast"], "zeta.py"))
+        self.fixture.write_registry()
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(
+                self.fixture.command("--case-report", "--report-file", str(report), jobs=2),
+                stdout=output, stderr=errors, start_new_session=True)
+            try:
+                for pid_file in pid_files:
+                    self.wait_for(pid_file)
+                os.kill(runner.pid, signal.SIGINT)
+                runner.wait(timeout=8)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
+        self.assertEqual(runner.returncode, 130)
+        for pid_file in pid_files:
+            self.assert_stopped(pid_file)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((payload["state"], payload["exit_code"]), ("interrupted", 130))
+        self.assertEqual(payload["context"]["jobs"], 2)
+        self.assertEqual(
+            [(step["id"], step["status"], step["outcome"]) for step in payload["steps"]],
+            [("alpha", "pass", "passed"), ("beta", "fail", "interrupted"),
+             ("gamma", "fail", "interrupted"), ("zeta", "skip", "not_run")],
+        )
+
+    def test_cancelled_step_stops_its_group_and_reports_interrupted(self) -> None:
+        pid_file = self.fixture_pid("cancelled.pid")
+        command = [sys.executable, "-c",
+                   "import os, pathlib, time\n"
+                   f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                   "time.sleep(30)\n"]
+        cancel = threading.Event()
+        outcomes = []
+        worker = threading.Thread(target=lambda: outcomes.append(RUN_TESTS._run_posix_step(
+            command, repo_root=self.fixture.root, env=dict(os.environ), timeout_seconds=30, cancel=cancel)))
+        worker.start()
+        self.wait_for(pid_file)
+        cancel.set()
+        worker.join(timeout=6)
+        self.assertFalse(worker.is_alive(), "cancelled step did not return")
+        self.assertEqual(outcomes[0][2:], (None, "interrupted", "interrupted", None))
+        self.assert_stopped(pid_file)
+
+    def test_signal_during_a_capability_probe_leaves_an_interrupted_report(self) -> None:
+        pid_file = self.fixture_pid("probe.pid")
+        report = self.fixture.root / "probe.json"
+        self.fixture.write_script("probe.py", "import os, pathlib, time\n"
+                                  f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+                                  "time.sleep(30)\n")
+        self.fixture.capabilities = {
+            "slow": {"command": "{python}", "probe": ["{python}", "{repo}/tests/probe.py"]},
+        }
+        self.fixture.steps[0]["requires"] = ["slow"]
+        self.fixture.write_script("second.py", "raise SystemExit(0)\n")
+        self.fixture.steps.append(self.fixture.step("beta", ["fast"], "second.py"))
+        self.fixture.write_registry()
+        with (tempfile.TemporaryFile(mode="w+t") as output,
+              tempfile.TemporaryFile(mode="w+t") as errors):
+            runner = subprocess.Popen(
+                self.fixture.command("--case-report", "--report-file", str(report)),
+                stdout=output, stderr=errors, start_new_session=True)
+            try:
+                self.wait_for(pid_file)
+                os.kill(runner.pid, signal.SIGTERM)
+                runner.wait(timeout=6)
+            finally:
+                if runner.poll() is None:
+                    os.killpg(runner.pid, signal.SIGKILL)
+                    runner.wait(timeout=2)
+        self.assertEqual(runner.returncode, 128 + signal.SIGTERM)
+        self.assert_stopped(pid_file)
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((payload["state"], payload["exit_code"]), ("interrupted", 128 + signal.SIGTERM))
+        self.assertEqual([(step["id"], step["outcome"]) for step in payload["steps"]],
+                         [("alpha", "interrupted"), ("beta", "not_run")])
 
     def test_launch_failure_is_recorded_and_the_run_continues(self) -> None:
         self.fixture.steps[0]["argv"] = ["{repo}/tests/missing-tool"]
@@ -590,6 +683,55 @@ class WindowsStepSupervisionTests(unittest.TestCase):
                 RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"), env={}, timeout_seconds=3)
         self.assertEqual(run.call_args.args[0][1:], ["/T", "/F", "/PID", "4242"])
 
+    def cancelled_launch(self, drains, *, cancelled: bool):
+        cancel = threading.Event()
+        if cancelled:
+            cancel.set()
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", return_value=self.process),
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes", return_value=FakePipes(drains)),
+              mock.patch.object(RUN_TESTS.subprocess, "run",
+                                return_value=subprocess.CompletedProcess([], 0)) as run):
+            result = RUN_TESTS._run_windows_step(["step.exe"], repo_root=Path("C:/repo"), env={},
+                                                 timeout_seconds=3, cancel=cancel)
+        return result, run
+
+    def test_cancelled_step_kills_its_own_tree_and_reports_interrupted(self) -> None:
+        result, run = self.cancelled_launch([False, True], cancelled=True)
+        self.assertEqual(result, ("out", "err", None, "interrupted", "interrupted", None))
+        self.assertEqual(run.call_args.args[0][1:], ["/T", "/F", "/PID", "4242"])
+
+        result, _ = self.cancelled_launch([False, False], cancelled=True)
+        self.assertEqual(result[3:], ("interrupted; cleanup failed: step output did not drain",
+                                      "interrupted", "step output did not drain"))
+
+    def test_uncancelled_step_drains_in_slices_until_it_exits(self) -> None:
+        result, run = self.cancelled_launch([False, False, True], cancelled=False)
+        self.assertEqual(result, ("out", "err", 0, None, "exited", None))
+        run.assert_not_called()
+
+    def test_concurrent_cancelled_steps_each_kill_their_own_tree(self) -> None:
+        processes = [mock.Mock(pid=4242, returncode=0), mock.Mock(pid=4343, returncode=0)]
+        cancel = threading.Event()
+        cancel.set()
+        with (mock.patch.object(RUN_TESTS.subprocess, "Popen", side_effect=processes),
+              mock.patch.object(RUN_TESTS, "_ThreadedPipes",
+                                side_effect=lambda process: FakePipes([False, True])),
+              mock.patch.object(RUN_TESTS.subprocess, "run",
+                                return_value=subprocess.CompletedProcess([], 0)) as run):
+            workers = [
+                threading.Thread(target=RUN_TESTS._run_windows_step, args=(["step.exe"],),
+                                 kwargs={"repo_root": Path("C:/repo"), "env": {},
+                                         "timeout_seconds": 3, "cancel": cancel})
+                for _ in processes
+            ]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertEqual(sorted(call.args[0][1:] for call in run.call_args_list),
+                         [["/T", "/F", "/PID", "4242"], ["/T", "/F", "/PID", "4343"]])
+
 
 class BoundedOutputTests(unittest.TestCase):
     def test_keeps_the_tail_and_counts_dropped_bytes(self) -> None:
@@ -635,21 +777,41 @@ class ThreadedPipesTests(unittest.TestCase):
 class RunnerCrashEvidenceTests(unittest.TestCase):
     LAUNCHER = "_run_windows_step" if RUN_TESTS.IS_WINDOWS else "_run_posix_step"
 
-    def steps(self):
+    def steps(self, names=("alpha", "beta")):
         return tuple(
             RUN_TESTS.Step(name, ("fast",), ("{python}", "-c", "pass"), ("tests/x.py",), RUN_TESTS.PLATFORMS, ())
-            for name in ("alpha", "beta")
+            for name in names
         )
 
-    def run_steps(self, snapshots: list, **patches):
-        steps = self.steps()
+    def run_steps(self, snapshots: list, *, names=("alpha", "beta"), jobs: int = 1, **patches):
+        steps = self.steps(names)
         with contextlib.ExitStack() as stack:
             for name, value in patches.items():
                 stack.enter_context(mock.patch.object(RUN_TESTS, name, value))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             return RUN_TESTS.run_steps(RUN_TESTS.Registry({}, steps), steps, repo_root=REPO_ROOT,
                                        require_capabilities=False, required_capabilities=frozenset(),
-                                       progress=snapshots.append)
+                                       progress=snapshots.append, jobs=jobs)
+
+    def test_runner_crash_with_two_steps_in_flight_interrupts_both(self) -> None:
+        both_started = threading.Barrier(2)
+
+        def launcher(command, *, repo_root, env, timeout_seconds, cancel):
+            if both_started.wait(timeout=5) == 0:
+                raise RuntimeError("bug")
+            cancel.wait(5)
+            return ("", "", None, "interrupted", "interrupted", None)
+
+        snapshots = []
+        with self.assertRaises(RuntimeError):
+            self.run_steps(snapshots, names=("alpha", "beta", "gamma"), jobs=2,
+                           **{self.LAUNCHER: launcher})
+        final = snapshots[-1]
+        self.assertEqual((final.state, final.exit_code), ("crashed", 1))
+        self.assertEqual([(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                         [("alpha", "interrupted", "runner crashed: RuntimeError"),
+                          ("beta", "interrupted", "runner crashed: RuntimeError"),
+                          ("gamma", "not_run", "not run: the run stopped early")])
 
     def test_runner_crash_records_crashed_state_and_reraises(self) -> None:
         snapshots = []
@@ -679,6 +841,45 @@ class RunnerCrashEvidenceTests(unittest.TestCase):
                     self.run_steps(snapshots, **{self.LAUNCHER: mock.Mock(side_effect=SystemExit(code))})
                 self.assertEqual((snapshots[-1].state, snapshots[-1].exit_code), ("interrupted", expected))
 
+    @unittest.skipIf(os.name == "nt", "POSIX signal handlers")
+    def test_signal_while_a_worker_starts_is_reported_as_an_interruption(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            self.skipTest("signal handlers need the main thread")
+
+        class SignalledThread(threading.Thread):
+            fails_to_start = False
+
+            def start(self) -> None:
+                if getattr(signal.getsignal(signal.SIGTERM), "__name__", "") != "stop_run":
+                    raise AssertionError("the runner did not install its SIGTERM handler")
+                os.kill(os.getpid(), signal.SIGTERM)
+                if self.fails_to_start:
+                    raise RuntimeError("can't start new thread")
+                super().start()
+
+        launched = []
+
+        def launcher(command, *, repo_root, env, timeout_seconds, cancel):
+            launched.append(command)
+            cancel.wait(5)
+            return ("", "", None, "interrupted", "interrupted", None)
+
+        shim = mock.Mock(wraps=threading, Thread=SignalledThread)
+        for fails_to_start in (False, True):
+            with self.subTest(fails_to_start=fails_to_start):
+                SignalledThread.fails_to_start = fails_to_start
+                snapshots = []
+                with self.assertRaises(SystemExit) as raised:
+                    self.run_steps(snapshots, threading=shim, **{self.LAUNCHER: launcher})
+                self.assertEqual(raised.exception.code, 128 + signal.SIGTERM)
+                final = snapshots[-1]
+                self.assertEqual((final.state, final.exit_code), ("interrupted", 128 + signal.SIGTERM))
+                self.assertEqual(
+                    [(result.step.step_id, result.outcome, result.reason) for result in final.steps],
+                    [("alpha", "interrupted", "interrupted"),
+                     ("beta", "not_run", "not run: the run stopped early")])
+                self.assertEqual(launched, [])
+
     def test_windows_ntstatus_exit_is_a_crash(self) -> None:
         access_violation = ("", "", 0xC0000005, None, "exited", None)
         ordinary = ("", "", 3, None, "exited", None)
@@ -686,6 +887,102 @@ class RunnerCrashEvidenceTests(unittest.TestCase):
                                 _run_windows_step=mock.Mock(side_effect=[access_violation, ordinary]))
         self.assertEqual([step.outcome for step in result.steps], ["crash", "failed"])
         self.assertEqual(result.steps[0].termination["kind"], "exited")
+
+
+class RunnerParallelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = RunnerFixture()
+        self.addCleanup(self.fixture.cleanup)
+        self.shared = self.fixture.root / "shared"
+        self.shared.mkdir()
+        self.fixture.write_script(
+            "overlap.py",
+            "import pathlib, sys, time\n"
+            f"shared = pathlib.Path({str(self.shared)!r})\n"
+            "name, peer, wait = sys.argv[1], sys.argv[2], float(sys.argv[3])\n"
+            "def log(event):\n"
+            "    with (shared / 'events.log').open('a', encoding='utf-8') as handle:\n"
+            "        handle.write(f'{event} {name}\\n')\n"
+            "own = shared / f'started-{name}'\n"
+            "own.write_text('', encoding='utf-8')\n"
+            "if peer == '-':\n"
+            "    log('start')\n"
+            "    time.sleep(wait)\n"
+            "    ok = list(shared.glob('started-*')) == [own]\n"
+            "    log('end')\n"
+            "    own.unlink()\n"
+            "else:\n"
+            "    deadline = time.monotonic() + wait\n"
+            "    while time.monotonic() < deadline and not (shared / f'started-{peer}').exists():\n"
+            "        time.sleep(0.02)\n"
+            "    ok = (shared / f'started-{peer}').exists()\n"
+            "raise SystemExit(0 if ok else 1)\n",
+        )
+        self.fixture.steps = []
+
+    def add_step(self, name: str, peer: str, wait: str, *, suites=("fast",), **extra: object) -> None:
+        step = self.fixture.step(name, list(suites), "overlap.py", **extra)
+        step["argv"] += [name, peer, wait]
+        self.fixture.steps.append(step)
+
+    def events(self) -> list[str]:
+        log = self.shared / "events.log"
+        lines = log.read_text(encoding="utf-8").splitlines()
+        log.unlink()
+        for marker in self.shared.glob("started-*"):
+            marker.unlink()
+        return lines
+
+    def test_jobs_overlap_steps_and_keep_serial_steps_alone(self) -> None:
+        self.add_step("a-pair", "b-pair", "20")
+        self.add_step("b-pair", "a-pair", "20")
+        self.add_step("z-alone", "-", "0.5", serial=True)
+        self.fixture.write_registry()
+        report = self.fixture.root / "parallel.json"
+        result = self.fixture.run("--case-report", "--report-file", str(report), jobs=3)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.events(), ["start z-alone", "end z-alone"])
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["context"]["jobs"], 3)
+        self.assertEqual(payload["context"]["selected_steps"], ["a-pair", "b-pair", "z-alone"])
+        self.assertEqual([(step["id"], step["outcome"]) for step in payload["steps"]],
+                         [("a-pair", "passed"), ("b-pair", "passed"), ("z-alone", "passed")])
+        for name in ("a-pair", "b-pair", "z-alone"):
+            self.assertEqual(result.stdout.count(f"RUN  {name}\n"), 1)
+            self.assertEqual(result.stdout.count(f"PASS {name}\n"), 1)
+
+    def test_only_the_fast_suite_defaults_to_more_than_one_job(self) -> None:
+        others = [suite for suite in (*RUN_TESTS.SUITES, "all") if suite != "fast"]
+        for cpus, expected in ((None, 1), (1, 1), (2, 2), (4, 4), (16, 4)):
+            with self.subTest(cpus=cpus), mock.patch.object(RUN_TESTS.os, "cpu_count", return_value=cpus):
+                self.assertEqual(RUN_TESTS.parse_args([]).jobs, expected)
+                self.assertEqual(RUN_TESTS.parse_args(["fast"]).jobs, expected)
+                self.assertEqual(RUN_TESTS.parse_args(["fast", "--jobs", "1"]).jobs, 1)
+                self.assertEqual([RUN_TESTS.parse_args([suite]).jobs for suite in others], [1] * len(others))
+                self.assertEqual(RUN_TESTS.parse_args(["all", "--jobs", "3"]).jobs, 3)
+
+    def test_one_job_and_the_non_fast_default_run_steps_in_registry_order(self) -> None:
+        self.add_step("a-plain", "-", "0", suites=("fast", "integration"))
+        self.add_step("z-alone", "-", "0", suites=("fast", "integration"), serial=True)
+        self.fixture.write_registry()
+        in_order = ["start a-plain", "end a-plain", "start z-alone", "end z-alone"]
+        for suite, jobs in (("integration", None), ("fast", 1)):
+            with self.subTest(suite=suite, jobs=jobs):
+                result = self.fixture.run(suite, jobs=jobs)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.events(), in_order)
+        result = self.fixture.run(jobs=2)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.events(), in_order[2:] + in_order[:2])
+
+    def test_jobs_must_be_a_positive_integer(self) -> None:
+        self.add_step("a-plain", "-", "0")
+        self.fixture.write_registry()
+        for value in ("0", "-1", "two"):
+            with self.subTest(jobs=value):
+                result = self.fixture.run("--jobs", value, "--list")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("must be a positive integer", result.stderr)
 
 
 class ReportReplaceRetryTests(unittest.TestCase):
@@ -816,6 +1113,46 @@ class TestRunnerTests(unittest.TestCase):
         empty = self.fixture.run()
         self.assertEqual(empty.returncode, 2)
         self.assertIn("unsupported placeholder", empty.stderr)
+
+    def test_serial_is_a_boolean_step_key_and_unknown_keys_fail_validation(self) -> None:
+        self.fixture.steps[0]["serial"] = True
+        self.fixture.write_registry()
+        registry = RUN_TESTS.load_registry(self.fixture.root, self.fixture.registry)
+        self.assertEqual([step.serial for step in registry.steps], [True])
+        self.assertFalse(RUN_TESTS.Step("x", ("fast",), ("x",), ("x",), RUN_TESTS.PLATFORMS, ()).serial)
+        schema = json.loads((REPO_ROOT / "configs/schemas/test-suites.v2.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(schema["$defs"]["step"]["properties"]["serial"], {"type": "boolean"})
+        self.assertEqual(set(schema["$defs"]["step"]["properties"]), RUN_TESTS.STEP_KEYS)
+
+        for value in ("yes", 1, None):
+            with self.subTest(serial=value):
+                self.fixture.steps[0]["serial"] = value
+                self.fixture.write_registry()
+                invalid = self.fixture.run("--list")
+                self.assertEqual(invalid.returncode, 2)
+                self.assertIn("steps[0].serial must be a boolean", invalid.stderr)
+
+        del self.fixture.steps[0]["serial"]
+        self.fixture.steps[0]["serail"] = True
+        self.fixture.write_registry()
+        unknown = self.fixture.run("--list")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("steps[0] has unsupported key(s): serail", unknown.stderr)
+
+    def test_previous_registry_schema_version_is_rejected(self) -> None:
+        payload = json.loads(self.fixture.registry.read_text(encoding="utf-8"))
+        payload["$schema"] = "./schemas/test-suites.v1.schema.json"
+        payload["schema_version"] = 1
+        self.fixture.registry.write_text(json.dumps(payload), encoding="utf-8")
+        previous = self.fixture.run("--list")
+        self.assertEqual(previous.returncode, 2)
+        self.assertIn("$schema must be './schemas/test-suites.v2.schema.json'", previous.stderr)
+
+        payload["$schema"] = "./schemas/test-suites.v2.schema.json"
+        self.fixture.registry.write_text(json.dumps(payload), encoding="utf-8")
+        mismatched = self.fixture.run("--list")
+        self.assertEqual(mismatched.returncode, 2)
+        self.assertIn("schema_version must be 2", mismatched.stderr)
 
     def test_duplicate_ids_and_missing_covered_paths_fail_validation(self) -> None:
         self.fixture.steps.append(dict(self.fixture.steps[0]))
@@ -1470,6 +1807,44 @@ class TestRunnerTests(unittest.TestCase):
         self.assertTrue(actual["tmp"].startswith(str(Path(actual["home"]).parent)))
         for directory in actual["xdg"]:
             self.assertTrue(Path(directory).is_relative_to(actual["home"]), directory)
+
+    def test_each_step_gets_its_own_home_temp_and_git_config(self) -> None:
+        observed = self.fixture.root / "observed"
+        observed.mkdir()
+        self.fixture.write_script(
+            "isolation.py",
+            "import json, os, pathlib, sys\n"
+            "name = sys.argv[1]\n"
+            "home = pathlib.Path(os.environ['HOME'])\n"
+            "tmp = pathlib.Path(os.environ['TMPDIR'])\n"
+            "git_config = pathlib.Path(os.environ['GIT_CONFIG_GLOBAL'])\n"
+            "seen = {\n"
+            "    'home': str(home), 'tmp': str(tmp), 'git_global': str(git_config),\n"
+            "    'userprofile': os.environ['USERPROFILE'], 'temp': os.environ['TEMP'],\n"
+            "    'git_system': os.environ['GIT_CONFIG_SYSTEM'],\n"
+            "    'markers': sorted(path.name for root in (home, tmp) for path in root.glob('marker-*')),\n"
+            "    'git_config': git_config.read_text(encoding='utf-8'),\n"
+            "}\n"
+            "(home / f'marker-{name}').write_text(name, encoding='utf-8')\n"
+            "(tmp / f'marker-{name}').write_text(name, encoding='utf-8')\n"
+            "git_config.write_text(f'[user]\\n\\tname = {name}\\n', encoding='utf-8')\n"
+            f"(pathlib.Path({str(observed)!r}) / f'{{name}}.json').write_text(json.dumps(seen), encoding='utf-8')\n",
+        )
+        self.fixture.steps = []
+        for name in ("first", "second"):
+            step = self.fixture.step(name, ["fast"], "isolation.py")
+            step["argv"].append(name)
+            self.fixture.steps.append(step)
+        self.fixture.write_registry()
+        result = self.fixture.run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        first, second = (json.loads((observed / f"{name}.json").read_text(encoding="utf-8"))
+                         for name in ("first", "second"))
+        for key in ("home", "tmp", "git_global", "userprofile", "temp", "git_system"):
+            self.assertNotEqual(first[key], second[key], key)
+        for seen in (first, second):
+            self.assertEqual(seen["markers"], [])
+            self.assertEqual(seen["git_config"], "")
 
     def test_program_files_passes_through_for_the_windows_powershell_module_path(self) -> None:
         sandbox = self.fixture.root / "program-files-sandbox"

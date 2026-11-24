@@ -264,6 +264,12 @@ class GitLabCiContractTests(unittest.TestCase):
         self.assertLess(checksum.start(), setup.index(installation))
         self.assertLess(setup.index(installation), setup.index("chezmoi --version"))
 
+    def test_history_checks_get_a_full_clone(self) -> None:
+        for name in ("linux-fast", "linux-all"):
+            with self.subTest(job=name):
+                block = top_level_block(self.text, name)
+                self.assertIn('  variables:\n    GIT_DEPTH: "0"\n', block)
+
     def test_linux_fast_installs_jq_before_attestation_tests(self) -> None:
         block = top_level_block(self.text, "linux-fast")
         setup = block.split("  before_script:\n", 1)[1].split("  script:\n", 1)[0]

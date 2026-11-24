@@ -42,9 +42,9 @@ CONTRACTS = {
         ),
     },
     "test-suites.json": {
-        "schema": "schemas/test-suites.v1.schema.json",
-        "ref": "./schemas/test-suites.v1.schema.json",
-        "version": 1,
+        "schema": "schemas/test-suites.v2.schema.json",
+        "ref": "./schemas/test-suites.v2.schema.json",
+        "version": 2,
         "consumers": ("assets/run-tests.py",),
     },
     "ai-tooling-support.json": {
@@ -109,6 +109,7 @@ RETAINED_SCHEMAS = {
     "schemas/automation-test-inventory.v1.schema.json",
     "schemas/automation-test-inventory.v2.schema.json",
     "schemas/automation-test-inventory.v3.schema.json",
+    "schemas/test-suites.v1.schema.json",
 }
 STANDALONE_SCHEMAS = {
     "schemas/pipeline-guard.v1.schema.json": {
@@ -394,6 +395,10 @@ class ConfigContractTests(unittest.TestCase):
             "schemas/automation-test-inventory.v3.schema.json": (
                 "urn:dotfiles:schema:automation-test-inventory:v3",
                 3,
+            ),
+            "schemas/test-suites.v1.schema.json": (
+                "urn:dotfiles:schema:test-suites:v1",
+                1,
             ),
         }
         for relative_path, (schema_id, version) in retained_ids.items():

@@ -37,9 +37,24 @@ class AgentAttestationTests(unittest.TestCase):
 
 
 class PowerShellCommitWrapperTests(unittest.TestCase):
+    ENV_KEYS = ("HOME", "USERPROFILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+                "GIT_TERMINAL_PROMPT", "TMPDIR", "TMP", "TEMP")
+    PATH_KEYS = ("HOME", "USERPROFILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+                 "TMPDIR", "TMP", "TEMP")
+    JQ_PROBE = ("if (Get-Command jq -CommandType Application -ErrorAction SilentlyContinue) "
+                "{ exit 0 } else { exit 3 }")
+
     @classmethod
     def setUpClass(cls):
         cls.backend = require_fixture_powershell()
+        with isolated_environment(prefix="attestation-pwsh-") as fixture:
+            probe = cls.backend.run(
+                fixture.root, command=cls.JQ_PROBE, environ=fixture.env,
+                env_keys=cls.ENV_KEYS, path_keys=cls.PATH_KEYS, timeout=60,
+            )
+        if probe.returncode not in (0, 3):
+            raise RuntimeError(f"jq probe exited {probe.returncode}: {probe.stdout}{probe.stderr}")
+        cls.jq_present = probe.returncode == 0
 
     def test_lifecycle_without_jq(self):
         for wrapper, tool in (("oc", "opencode"), ("cc", "claude-code")):
@@ -57,11 +72,12 @@ class PowerShellCommitWrapperTests(unittest.TestCase):
                     self.assertTrue(report["jq_probe"])
 
     def test_lifecycle_with_multiple_jq_matches(self):
+        if not self.jq_present:
+            self.skipTest(f"{self.backend.label}: optional multiple-jq case unavailable; jq is absent")
         for wrapper, tool in (("oc", "opencode"), ("cc", "claude-code")):
             with self.subTest(wrapper=wrapper, backend=self.backend.label):
                 report = self.run_lifecycle(wrapper, tool, hide_jq=False, add_jq_match=True)
-                if report["jq"] is None:
-                    self.skipTest(f"{self.backend.label}: optional multiple-jq case unavailable; inherited .NET parser passed")
+                self.assertIsNotNone(report["jq"])
                 self.assertGreater(report["jq_matches"], 1)
                 self.assertEqual(report["parser"], "jq")
                 self.assertTrue(report["jq_probe"])
@@ -211,10 +227,7 @@ Assert ($message -notmatch 'environment-tool|state-tool') 'retry replayed partic
                 args=(self.backend.path(root, staged), f"ai-attestation-{tool}.json", tool,
                       "yes" if hide_jq else "no", "yes" if add_jq_match else "no"),
                 environ=fixture.env,
-                env_keys=("HOME", "USERPROFILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-                          "GIT_TERMINAL_PROMPT", "TMPDIR", "TMP", "TEMP"),
-                path_keys=("HOME", "USERPROFILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-                           "TMPDIR", "TMP", "TEMP"),
+                env_keys=self.ENV_KEYS, path_keys=self.PATH_KEYS,
                 timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

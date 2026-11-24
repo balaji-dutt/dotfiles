@@ -75,6 +75,29 @@ class WindowsClientTests(unittest.TestCase):
         finally:
             WIN.free(sd)
 
+    def make_unprotected(self, path):
+        # SetFileSecurityW DACLs read back as protected; elevated runners make Administrators the default owner.
+        sd = WIN.P()
+        sid = WIN.user_sid()
+        sddl = f"O:{sid}D:(A;OICI;FA;;;{sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+        WIN.checked(WIN.descriptor(sddl, 1, ctypes.byref(sd), None), "fixture descriptor")
+        try:
+            owner, dacl = WIN.P(), WIN.P()
+            present, defaulted = WIN.W.BOOL(), WIN.W.BOOL()
+            get_owner = WIN.bind(WIN.advapi, "GetSecurityDescriptorOwner", WIN.W.BOOL, WIN.P,
+                                 ctypes.POINTER(WIN.P), ctypes.POINTER(WIN.W.BOOL))
+            get_dacl = WIN.bind(WIN.advapi, "GetSecurityDescriptorDacl", WIN.W.BOOL, WIN.P,
+                                ctypes.POINTER(WIN.W.BOOL), ctypes.POINTER(WIN.P), ctypes.POINTER(WIN.W.BOOL))
+            WIN.checked(get_owner(sd, ctypes.byref(owner), ctypes.byref(defaulted)), "fixture owner")
+            WIN.checked(get_dacl(sd, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)), "fixture DACL")
+            setter = WIN.bind(WIN.advapi, "SetNamedSecurityInfoW", WIN.DWORD, WIN.W.LPCWSTR, WIN.DWORD, WIN.DWORD,
+                              WIN.P, WIN.P, WIN.P, WIN.P)
+            code = setter(str(path), 1, 0x20000005, owner, None, dacl, None)
+            if code:
+                raise ctypes.WinError(code, "fixture unprotected DACL")
+        finally:
+            WIN.free(sd)
+
     def test_private_state_create_reuse_and_atomic_replacement(self):
         WIN.atomic_write(self.cache(), "first ü")
         self.assertEqual(WIN.read_private(self.cache()), "first ü")
@@ -106,6 +129,7 @@ class WindowsClientTests(unittest.TestCase):
 
     def test_unprotected_existing_state_is_not_silently_repaired(self):
         self.state.mkdir()
+        self.make_unprotected(self.state)
         with self.assertRaisesRegex(OSError, "protected"):
             WIN.private_directory(self.state)
 
