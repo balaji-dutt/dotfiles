@@ -841,8 +841,9 @@ function Quote-PowerShellArgument([string]$Value) {
 
 function Write-PeerEnvHint([string]$relsrc) {
   if ($env:CZ_AUDIT_PEER_ENV -eq '0' -or (Classify $relsrc).StartsWith('docs:')) { return }
-  if ($relsrc -like '*.md' -or $relsrc -like '*.ps1' -or $relsrc -like '*.ps1.tmpl' -or
-      $relsrc -like 'private_Library/*' -or $relsrc -like 'AppData/*') { return }
+  if ($relsrc -like '*.md' -or $relsrc -like 'private_Library/*') { return }
+  $windowsOnly = $relsrc -like '*.ps1' -or $relsrc -like '*.ps1.tmpl' -or $relsrc -like 'AppData/*'
+  if ($windowsOnly -and $IsWindows) { return }
   $helper = if ($env:CZ_AUDIT_PEER_ENV_CMD) { $env:CZ_AUDIT_PEER_ENV_CMD } else { './assets/peer-env' }
   if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { return }
   $homePath = if ($IsWindows) { $env:USERPROFILE } else { $HOME }
@@ -861,11 +862,12 @@ function Write-PeerEnvHint([string]$relsrc) {
     foreach ($name in $peers.Keys) {
       $peer = $peers[$name]
       if ($name -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or
-          $peer -isnot [System.Collections.IDictionary] -or $peer.platform -notin @('linux', 'macos', 'wsl2') -or
+          $peer -isnot [System.Collections.IDictionary] -or $peer.platform -notin @('linux', 'macos', 'windows', 'wsl2') -or
           $peer.status -notin @('reachable', 'unreachable', 'auth-failed', 'serve-missing', 'protocol-mismatch', 'platform-mismatch', 'tools-missing') -or
           ($null -ne $peer.restricted -and $peer.restricted -isnot [bool]) -or
           ($peer.status -eq 'reachable' -and $peer.restricted -isnot [bool])) { throw 'invalid probe peer' }
     }
+    if ($windowsOnly -and -not @($peers.Values | Where-Object { $_.platform -eq 'windows' }).Count) { return }
     $prefix = '& ' + ((@($exe) + $pre + @('./assets/peer-env') | ForEach-Object { Quote-PowerShellArgument $_ }) -join ' ')
     if ($peers.Count -eq 0) {
       Write-Info 'peer-env: no peer configured for another platform; report "not verified on other platforms: no peer configured"'

@@ -23,6 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULE = load_script_module(ROOT / "assets/peer-env", "peer_env_native_tests", add_parent_to_path=True)
 if os.name == "nt":
     WIN = MODULE.windows
+    LAUNCHER = load_script_module(ROOT / "assets/peer_env_windows_launcher.py", "peer_env_launcher_tests")
+
+
+def elevated_process():
+    try:
+        return os.name == "nt" and WIN.elevated()
+    except OSError:
+        return False
 
 
 @unittest.skipUnless(os.name == "nt", "native Windows client primitives")
@@ -169,10 +177,9 @@ class WindowsClientTests(unittest.TestCase):
         with self.assertRaises(OSError):
             MODULE.load_cache(config, self.env, 300)
 
-    def test_cli_missing_config_tools_and_unsupported_serve(self):
-        for args in (["probe", "--json"], ["serve", MODULE.PROTOCOL, "identity"]):
-            with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(MODULE.main(args), 2)
+    def test_cli_missing_config_and_tools(self):
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(MODULE.main(["probe", "--json"]), 2)
         with self.assertRaises(WIN.Refused):
             WIN.ssh_executable({"SystemRoot": str(self.root)})
 
@@ -355,6 +362,324 @@ class WindowsClientTests(unittest.TestCase):
         with mock.patch.object(MODULE, 'capture', return_value=subprocess.CompletedProcess([], 0, '', '')) as capture:
             MODULE.git(self.root, 'version', env=self.env)
         self.assertEqual(capture.call_args.args[0][0], resolved)
+
+
+STUB_ENTRYPOINT = r"""
+$mode = if (Test-Path -LiteralPath 'stub-mode.txt') { (Get-Content -LiteralPath 'stub-mode.txt' -Raw).Trim() } else { 'ok' }
+New-Item -ItemType Directory -Force -Path '.cz-audit' | Out-Null
+@{
+  args = @($args)
+  cwd = (Get-Location).Path
+  names = @([Environment]::GetEnvironmentVariables().Keys | Sort-Object)
+  hint = $env:CZ_AUDIT_PEER_ENV
+  peer = $env:PEER_ENV
+} | ConvertTo-Json | Set-Content -LiteralPath '.cz-audit/__NAME__.json' -Encoding utf8
+Write-Output "stub __NAME__ $($args -join ' ')"
+switch ($mode) {
+  'fail' { exit 3 }
+  'error-line' { Write-Output 'ERROR: stub'; exit 0 }
+  'sleep' {
+    $child = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 120' -PassThru -NoNewWindow
+    Set-Content -LiteralPath '.cz-audit/grandchild.pid' -Value $child.Id
+    Start-Sleep 120
+  }
+}
+exit 0
+"""
+
+FAKE_SSH = """import os, subprocess, sys
+env = dict(os.environ, SSH_ORIGINAL_COMMAND=sys.argv[-1], SSH_CLIENT="192.0.2.1 50000 22")
+helper = os.path.join(os.environ["PEER_FIXTURE"], "assets", "peer-env")
+sys.exit(subprocess.run([sys.executable, helper, "serve"], env=env).returncode)
+"""
+
+
+@unittest.skipUnless(os.name == "nt", "native Windows serve")
+class ServeWindowsTests(unittest.TestCase):
+    def setUp(self):
+        serve = MODULE.Serve(ROOT, os.environ, True)
+        try:
+            serve.entrypoint("run-tests")
+        except MODULE.Refused as error:
+            self.skipTest(str(error))
+        self.temp = tempfile.TemporaryDirectory(prefix="peer-serve-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.home = self.root / "home"
+        self.home.mkdir()
+        self.peer = self.root / "peer"
+        self.local = self.root / "local"
+        self.env = dict(os.environ, USERPROFILE=str(self.home), FAKE_PROVIDER_KEY="secret",
+                        GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                        GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                        GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+        self.env.pop("SSH_ORIGINAL_COMMAND", None)
+        self.state = MODULE.state_dir(self.env)
+        assets = self.peer / "assets"
+        assets.mkdir(parents=True)
+        for name in ("peer-env", "peer_env_windows.py"):
+            shutil.copy2(ROOT / "assets" / name, assets / name)
+        for name in ("cz-audit", "run-tests"):
+            (assets / f"{name}.ps1").write_text(STUB_ENTRYPOINT.replace("__NAME__", name), encoding="utf-8")
+        (self.peer / ".gitignore").write_text("worktrees/\n", encoding="utf-8")
+        self.git(self.peer, "init", "--quiet", "--initial-branch=main")
+        self.git(self.peer, "add", "--all")
+        self.git(self.peer, "commit", "--quiet", "-m", "fixture")
+        self.git(self.root, "clone", "--quiet", str(self.peer), str(self.local))
+        self.fake_ssh = self.root / "fake_ssh.py"
+        self.fake_ssh.write_text(FAKE_SSH, encoding="utf-8")
+        self.count = 0
+
+    def git(self, cwd, *args, check=True):
+        result = subprocess.run(["git", "-C", str(cwd), *args], env=self.env, capture_output=True, text=True)
+        if check:
+            self.assertEqual(result.returncode, 0, result.stderr)
+        return result
+
+    def push(self, refspec):
+        env = dict(self.env, PEER_FIXTURE=str(self.peer), GIT_SSH_VARIANT="ssh",
+                   GIT_SSH_COMMAND=f'"{Path(sys.executable).as_posix()}" "{self.fake_ssh.as_posix()}"')
+        helper = '"$HOME"/dotfiles/assets/peer-env serve ' + MODULE.PROTOCOL + " receive-pack"
+        return subprocess.run(["git", "-C", str(self.local), "push", "--quiet", "--receive-pack", helper,
+                               "fixture:dotfiles", refspec], env=env, capture_output=True, text=True)
+
+    def publish(self, mode="ok"):
+        self.count += 1
+        slug = f"fixture-{self.count}"
+        (self.local / "stub-mode.txt").write_text(mode + "\n", encoding="utf-8")
+        self.git(self.local, "add", "stub-mode.txt")
+        self.git(self.local, "commit", "--quiet", "--allow-empty", "-m", f"{mode} {self.count}")
+        sha = self.git(self.local, "rev-parse", "HEAD").stdout.strip()
+        pushed = self.push(f"{sha}:{MODULE.REF_NAMESPACE}{slug}")
+        self.assertEqual(pushed.returncode, 0, pushed.stderr)
+        return slug, sha
+
+    def serve(self, *request, original=None, restricted=True):
+        environ = dict(self.env)
+        if restricted:
+            environ["SSH_ORIGINAL_COMMAND"] = original or '"$HOME"/dotfiles/assets/peer-env serve ' + shlex.join(request)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(MODULE, "__file__", str(self.peer / "assets" / "peer-env")), \
+                contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = MODULE.serve_main([] if restricted else list(request), environ)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def run_request(self, slug, sha, *rest, seconds="120", retention="cleanup"):
+        return self.serve(MODULE.PROTOCOL, "run", slug, sha, seconds, retention, *rest)
+
+    def worktree(self, slug):
+        return self.peer / "worktrees" / f"peer-env-{slug}"
+
+    def published(self, slug):
+        return self.git(self.peer, "rev-parse", "--verify", "--quiet", MODULE.REF_NAMESPACE + slug, check=False).returncode == 0
+
+    def result(self, slug):
+        return json.loads((self.state / "runs" / slug / "result.json").read_text(encoding="utf-8"))
+
+    def recorded(self, slug, name):
+        return json.loads((self.state / "runs" / slug / f"audit-{name}.json").read_text(encoding="utf-8-sig"))
+
+    def alive(self, pid):
+        handle = WIN.open_process(0x100000, False, pid)
+        if not handle:
+            return False
+        try:
+            return WIN.wait_handle(handle, 0) == 258
+        finally:
+            WIN.close(handle)
+
+    def test_identity_reports_windows_tools_and_restriction(self):
+        code, out, err = self.serve(MODULE.PROTOCOL, "identity")
+        self.assertEqual(code, 0, err)
+        identity = MODULE.parse_identity(out)
+        self.assertEqual((identity["platform"], identity["uname"], identity["restricted"]), ("windows", "Windows", True))
+        self.assertEqual(identity["protocol"], MODULE.PROTOCOL)
+        self.assertIn(MODULE.RUN_CAPABILITY, identity["capabilities"])
+        self.assertTrue(identity["tools"]["git"] and identity["tools"]["pwsh"])
+        self.assertIsInstance(identity["link_following"], bool)
+        code, out, _ = self.serve(MODULE.PROTOCOL, "identity", restricted=False)
+        self.assertEqual(code, 0)
+        self.assertFalse(MODULE.parse_identity(out)["restricted"])
+        log = [json.loads(line) for line in (self.state / "serve.log").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([entry["verb"] for entry in log], ["identity", "identity"])
+
+    def test_requests_outside_the_protocol_are_refused(self):
+        requests = (["peer-env/0", "identity"], [MODULE.PROTOCOL, "shell"], [MODULE.PROTOCOL, "identity", "extra"],
+                    [MODULE.PROTOCOL, "run", "bad slug", "0" * 40, "5", "cleanup", "audit", "assets/peer-env"])
+        for request in requests:
+            with self.subTest(request=request):
+                code, _, err = self.serve(*request)
+                self.assertEqual(code, 2)
+                self.assertIn("refused", err)
+        code, _, err = self.serve(original="whoami")
+        self.assertEqual(code, 2)
+        self.assertIn("only peer-env serve requests", err)
+
+    def test_elevated_serve_refuses_before_touching_state(self):
+        stderr = io.StringIO()
+        with mock.patch.object(WIN, "elevated", return_value=True), \
+                mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stderr(stderr):
+            self.assertEqual(MODULE.main(["serve", MODULE.PROTOCOL, "identity"]), 2)
+        self.assertIn("elevated", stderr.getvalue())
+        self.assertFalse(self.state.exists())
+
+    def test_receive_pack_accepts_only_the_helper_namespace(self):
+        slug, sha = self.publish()
+        self.assertTrue(self.published(slug))
+        for ref in ("refs/heads/evil", MODULE.REF_NAMESPACE + "nested/slug"):
+            with self.subTest(ref=ref):
+                refused = self.push(f"{sha}:{ref}")
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("outside " + MODULE.REF_NAMESPACE, refused.stderr)
+                self.assertNotEqual(self.git(self.peer, "rev-parse", "--verify", "--quiet", ref, check=False).returncode, 0)
+
+    def test_run_scrubs_the_environment_and_cleans_up(self):
+        slug, sha = self.publish()
+        code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("stub cz-audit check assets/peer-env", out)
+        record = self.recorded(slug, "cz-audit")
+        self.assertEqual(record["args"], ["check", "assets/peer-env"])
+        self.assertEqual(Path(record["cwd"]), self.worktree(slug))
+        self.assertNotIn("FAKE_PROVIDER_KEY", record["names"])
+        self.assertNotIn("SSH_ORIGINAL_COMMAND", record["names"])
+        self.assertEqual((record["hint"], record["peer"]), ("0", "1"))
+        result = self.result(slug)
+        self.assertEqual((result["completed"], result["prepared"], result["exit"], result["cleanup"]),
+                         (True, True, 0, "removed"))
+        self.assertFalse(self.worktree(slug).exists())
+        self.assertFalse(self.published(slug))
+
+        other = slug + "-suite"
+        self.assertEqual(self.push(f"{sha}:{MODULE.REF_NAMESPACE}{other}").returncode, 0)
+        code, out, err = self.run_request(other, sha, "test", "fast", "--require-capabilities")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.recorded(other, "run-tests")["args"], ["fast", "--require-capabilities"])
+
+    def test_entrypoint_failure_and_error_line_fail_the_run(self):
+        slug, sha = self.publish("fail")
+        code, out, err = self.run_request(slug, sha, "test", "fast")
+        self.assertEqual(code, 3, out + err)
+        slug, sha = self.publish("error-line")
+        code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("ERROR: stub", out)
+        self.assertEqual(self.result(slug)["cleanup"], "removed")
+
+    def test_deadline_stops_the_command_tree(self):
+        slug, sha = self.publish("sleep")
+        code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env", seconds="30")
+        self.assertEqual(code, 124, out + err)
+        self.assertIn("deadline exceeded", err)
+        grandchild = int((self.state / "runs" / slug / "audit-grandchild.pid").read_text(encoding="utf-8-sig").strip())
+        self.assertFalse(self.alive(grandchild))
+        self.assertEqual(self.result(slug)["cleanup"], "removed")
+        self.assertFalse(self.worktree(slug).exists())
+
+    def test_busy_slug_exits_75(self):
+        slug, sha = self.publish()
+        with WIN.lock_file(self.state / f"lock-{slug}"):
+            code, _, err = self.run_request(slug, sha, "audit", "assets/peer-env")
+        self.assertEqual(code, 75)
+        self.assertIn("busy", err)
+        self.assertTrue(self.published(slug))
+
+    def test_keep_then_remove_and_clean(self):
+        slug, sha = self.publish()
+        code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env", retention="keep")
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(self.worktree(slug).is_dir())
+        code, _, err = self.serve(MODULE.PROTOCOL, "remove", slug, sha)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(self.worktree(slug).exists())
+        self.assertFalse(self.published(slug))
+
+        slug, sha = self.publish()
+        self.assertEqual(self.run_request(slug, sha, "audit", "assets/peer-env", retention="keep")[0], 0)
+        code, _, err = self.serve(MODULE.PROTOCOL, "clean")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(self.worktree(slug).exists())
+        self.assertFalse(self.published(slug))
+
+    def test_unverified_shutdown_retains_worktree_and_ref(self):
+        slug, sha = self.publish()
+        real = WIN.stream_command
+
+        def unverified(argv, **kwargs):
+            kwargs["stopped"] = lambda: None
+            return real(argv, **kwargs)
+
+        with mock.patch.object(WIN, "stream_command", side_effect=unverified):
+            code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("unverified", err)
+        self.assertTrue(self.result(slug)["children_unverified"])
+        self.assertTrue(self.worktree(slug).is_dir())
+        code, _, err = self.serve(MODULE.PROTOCOL, "remove", slug, sha)
+        self.assertEqual(code, 2)
+        self.assertIn("unverified", err)
+        self.assertTrue(self.published(slug))
+
+    def test_linked_worktree_parent_is_refused(self):
+        slug, sha = self.publish()
+        target = self.root / "elsewhere"
+        target.mkdir()
+        made = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(self.peer / "worktrees"), str(target)],
+                              capture_output=True, text=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        try:
+            code, out, err = self.run_request(slug, sha, "audit", "assets/peer-env")
+        finally:
+            (self.peer / "worktrees").rmdir()
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("worktree parent is a link", err)
+        self.assertEqual(list(target.iterdir()), [])
+
+
+@unittest.skipUnless(os.name == "nt", "native Windows serve launcher")
+class LauncherTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="peer-launcher-")
+        self.addCleanup(self.temp.cleanup)
+        self.env = dict(os.environ, USERPROFILE=self.temp.name)
+
+    def launch(self, *args, original=None):
+        env = dict(self.env)
+        env.pop("SSH_ORIGINAL_COMMAND", None)
+        if original is not None:
+            env["SSH_ORIGINAL_COMMAND"] = original
+        return subprocess.run([sys.executable, "-I", str(ROOT / "assets" / "peer_env_windows_launcher.py"), *args],
+                              env=env, capture_output=True, text=True, timeout=120)
+
+    def test_relays_serve_output_and_exit_status(self):
+        served = self.launch(str(ROOT), original=f'"$HOME"/dotfiles/assets/peer-env serve {MODULE.PROTOCOL} identity')
+        self.assertEqual(served.returncode, 0, served.stderr)
+        identity = MODULE.parse_identity(served.stdout)
+        self.assertEqual((identity["platform"], identity["restricted"]), ("windows", True))
+        refused = self.launch(str(ROOT), original="whoami")
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("only peer-env serve requests", refused.stderr)
+
+    def test_unusable_checkout_roots_are_refused(self):
+        for args, message in (([], "usage"), (["relative"], "absolute"), ([self.temp.name], "no peer-env helper")):
+            with self.subTest(args=args):
+                refused = self.launch(*args)
+                self.assertEqual(refused.returncode, 2)
+                self.assertIn("peer-env launcher: refused", refused.stderr)
+                self.assertIn(message, refused.stderr)
+
+    def test_a_token_that_stays_elevated_starts_nothing(self):
+        stderr = io.StringIO()
+        with mock.patch.object(LAUNCHER, "token_elevated", return_value=True), \
+                mock.patch.object(LAUNCHER, "create_as_user") as create, contextlib.redirect_stderr(stderr):
+            self.assertEqual(LAUNCHER.main([str(ROOT)]), 2)
+        self.assertIn("still elevated", stderr.getvalue())
+        create.assert_not_called()
+
+    @unittest.skipUnless(elevated_process(), "needs an elevated test process")
+    def test_elevated_session_reaches_serve_unelevated(self):
+        served = self.launch(str(ROOT), original=f'"$HOME"/dotfiles/assets/peer-env serve {MODULE.PROTOCOL} identity')
+        self.assertEqual(served.returncode, 0, served.stderr)
 
 
 if __name__ == "__main__":

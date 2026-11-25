@@ -267,12 +267,19 @@ tool needs a longer budget (at least 25 minutes for one peer).
 ./assets/peer-env config
 ```
 
-Native Windows is a client only. From PowerShell, use Python 3.10+:
+On native Windows, from PowerShell, use Python 3.10+:
 `py -3 ./assets/peer-env probe`, `py -3 ./assets/peer-env audit all <path>`,
 and `py -3 ./assets/peer-env test all fast`. The helper explicitly uses Windows
 OpenSSH, not Git's MSYS SSH. Native destinations, Pageant pipe selection, and
 host-key trust must already be configured; see the Windows prerequisites in
-`docs/tooling/peer-environments.md`. Windows serving and `via` hops remain refused.
+`docs/tooling/peer-environments.md`.
+
+A native Windows host can also serve. Its key's forced command names
+`peer_env_windows_launcher.py`, copied to a folder only administrators can
+write, which starts `peer-env serve` unelevated; `serve` refuses to run from
+an elevated session. Windows peers are restricted-only, and the `via` config
+key is gone. See "Windows serving" in the same document for the owner
+checklist and the link-following limit.
 
 Peers are listed in `~/.config/dotfiles/peer-envs.json`, which the private
 dotfiles repo applies. The peer side is `peer-env serve`, pinned as the forced

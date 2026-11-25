@@ -39,6 +39,7 @@ UNAME = {
     "macos": ("Darwin", "24.6.0"),
     "wsl2": ("Linux", "5.15.167.4-microsoft-standard-WSL2"),
     "linux": ("Linux", "6.1.0-generic"),
+    "windows": ("Windows", "10.0.26100"),
 }
 REPO_REL = "Documents/development/dotfiles"
 
@@ -82,6 +83,9 @@ if mode == "fail":
 if mode == "hang":
     time.sleep(peer.get("seconds", 30))
     sys.exit(255)
+if mode == "scripted":
+    sys.stdout.write(peer.get("stdout", ""))
+    sys.exit(peer.get("exit", 0))
 env = {{k: v for k, v in os.environ.items() if k not in ("FAKE_SSH_STATE", "FAKE_SSH_LOG", "SSH_ORIGINAL_COMMAND")}}
 for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
     env.pop(name, None)
@@ -209,6 +213,7 @@ class PeerFixture:
             "bin": str(peer_bin),
             "helper": str(repo / "assets" / "peer-env"),
             "stderr": spec.get("stderr", ""),
+            "stdout": spec.get("stdout", ""),
             "exit": spec.get("exit", 255),
             "seconds": spec.get("seconds", 30),
         }
@@ -947,14 +952,16 @@ class ConfigTests(unittest.TestCase):
         self.assertIn(str(self.config_path), str(caught.exception))
         self.assertIn("docs/tooling/peer-environments.md", str(caught.exception))
 
-    def test_windows_and_via_are_rejected(self) -> None:
-        for peers in (
-            {"win": {"platform": "windows", "repo": "~/dotfiles"}},
-            {"win": {"platform": "wsl2", "repo": "~/dotfiles", "via": "wsl2"}},
-        ):
-            with self.subTest(peers=peers), self.assertRaises(MODULE.ConfigError) as caught:
-                self.load(peer_config(**peers))
-            self.assertIn(MODULE.WINDOWS_VIA_MESSAGE, str(caught.exception))
+    def test_windows_peers_are_restricted_only_and_via_is_unknown(self) -> None:
+        config = self.load(peer_config(win={"platform": "windows", "repo": "~/dotfiles"}))
+        self.assertEqual(config.peers["win"].platform, "windows")
+        self.assertFalse(config.peers["win"].allow_unrestricted)
+        with self.assertRaises(MODULE.ConfigError) as caught:
+            self.load(peer_config(win={"platform": "windows", "repo": "~/dotfiles", "allow_unrestricted": True}))
+        self.assertIn("allow_unrestricted is not available for a windows peer", str(caught.exception))
+        with self.assertRaises(MODULE.ConfigError) as caught:
+            self.load(peer_config(win={"platform": "wsl2", "repo": "~/dotfiles", "via": "wsl2"}))
+        self.assertIn("unknown key(s): via", str(caught.exception))
 
     def test_validation_errors(self) -> None:
         cases = {
@@ -1027,10 +1034,28 @@ class ClassifyTests(unittest.TestCase):
         protocol = self.classify(completed(0, identity_line(protocol="peer-env/2"), ""))
         self.assertEqual(protocol.status, "protocol-mismatch")
 
+    def test_windows_identity_outcomes(self) -> None:
+        peer = MODULE.Peer("win", "WindowsHost", "windows", "~/dotfiles", None, 3, False)
+        shape = {"uname": "Windows", "kernel": "10.0.26100", "platform": "windows", "link_following": False}
+        tools = {"git": True, "chezmoi": True, "python3": False, "python": False, "py": True, "pwsh": True}
+        ok = MODULE.classify(peer, completed(0, identity_line(**shape, tools=tools), ""), False, 0.5, 3)
+        self.assertEqual((ok.status, ok.restricted), ("reachable", True))
+        self.assertIn("Windows 10.0.26100; git chezmoi py pwsh; links not followed", ok.detail)
+        for missing, reported in {"py": "python3", "pwsh": "pwsh"}.items():
+            with self.subTest(missing=missing):
+                lacking = MODULE.classify(
+                    peer, completed(0, identity_line(**shape, tools={**tools, missing: False}), ""), False, 0.5, 3
+                )
+                self.assertEqual(lacking.status, "tools-missing")
+                self.assertIn(reported, lacking.detail)
+        mismatch = self.classify(completed(0, identity_line(**shape, tools=tools), ""))
+        self.assertEqual(mismatch.status, "platform-mismatch")
+
     def test_platform_from_identity(self) -> None:
         self.assertEqual(MODULE.platform_from_identity("Darwin", "24.6.0"), "macos")
         self.assertEqual(MODULE.platform_from_identity("Linux", "6.6.0-microsoft-standard-WSL2"), "wsl2")
         self.assertEqual(MODULE.platform_from_identity("Linux", "6.1.0-generic"), "linux")
+        self.assertEqual(MODULE.platform_from_identity("Windows", "10.0.26100"), "windows")
         self.assertEqual(MODULE.platform_from_identity("FreeBSD", "14"), "unknown")
 
     def test_path_and_secret_validation(self) -> None:
@@ -1095,6 +1120,19 @@ class ClassifyTests(unittest.TestCase):
 
 @POSIX_ONLY
 class ProbeTests(unittest.TestCase):
+    def test_windows_peer_identity_is_reachable(self) -> None:
+        tools = {"git": True, "chezmoi": True, "python3": False, "python": True, "py": True, "pwsh": True}
+        line = identity_line(uname="Windows", kernel="10.0.26100", platform="windows", tools=tools, link_following=False)
+        fixture = PeerFixture(
+            self, {"win": {"mode": "scripted", "platform": "windows", "stdout": line + "\n", "exit": 0}}
+        )
+        result = fixture.run("probe", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        peer = json.loads(result.stdout)["peers"]["win"]
+        self.assertEqual((peer["status"], peer["platform"], peer["restricted"]), ("reachable", "windows", True))
+        self.assertIn("links not followed", peer["detail"])
+        self.assertTrue(fixture.ssh_calls()[0]["command"].endswith(" serve peer-env/1 identity"))
+
     def test_statuses_cache_and_exit_codes(self) -> None:
         fixture = PeerFixture(
             self,

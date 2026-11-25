@@ -962,7 +962,7 @@
     {
       "id": "peer-env",
       "classification": "owned",
-      "paths": ["assets/peer-env", "assets/peer_env_windows.py"],
+      "paths": ["assets/peer-env", "assets/peer_env_windows.py", "assets/peer_env_windows_launcher.py"],
       "owner": {"kind": "repository", "name": "cross-platform peer verification helper"},
       "languages": ["python", "shell"],
       "platforms": ["linux", "macos", "windows", "wsl2"],
@@ -971,7 +971,7 @@
       "test_layers": ["contract", "integration", "unit"],
       "coverage": {
         "status": "covered",
-        "work_item": "dots-c2my",
+        "work_item": "dots-4jy.10.24.3",
         "test_paths": ["tests/test_peer_env.py", "tests/test_peer_env_windows.py", "tests/test_test_runner.py"],
         "behavior_requirements": [
           {
@@ -1029,9 +1029,21 @@
             "status": "covered"
           },
           {
+            "id": "safety-windows-peer-restricted-only",
+            "kind": "safety",
+            "description": "Refuse allow_unrestricted on a Windows peer entry and the retired via key in the client config, so a Windows peer is used only through its forced command.",
+            "status": "covered"
+          },
+          {
             "id": "safety-windows-private-state-and-contained-children",
             "kind": "safety",
             "description": "Exercise native Windows protected DACL creation, unsafe cache reuse and ancestor ACL refusals, junctions, hard links, atomic replacement failure, and gated Job Object child-tree shutdown on success, timeout, and concurrent probe cancellation.",
+            "status": "covered"
+          },
+          {
+            "id": "safety-windows-serve-never-runs-elevated",
+            "kind": "safety",
+            "description": "Run the checkout's serve on native Windows under the launcher's filtered, medium-integrity token, refuse unusable checkout roots and a token that stays elevated without starting anything, and have serve refuse an elevated session before it touches state.",
             "status": "covered"
           },
           {
@@ -1055,12 +1067,18 @@
           {
             "id": "success-windows-client-transport-and-snapshot",
             "kind": "success",
-            "description": "Use the explicit native Windows OpenSSH binary for direct requests and Git shell commands, preserve identity path quoting and snapshot HEAD/index/modes, and keep Windows serving and via hops refused.",
+            "description": "Use the explicit native Windows OpenSSH binary for direct requests and Git shell commands, preserve identity path quoting and snapshot HEAD/index/modes, and accept a Windows peer entry, classifying its identity by pwsh and any Python launcher.",
+            "status": "covered"
+          },
+          {
+            "id": "success-windows-serve-lifecycle",
+            "kind": "success",
+            "description": "Serve identity, namespace-confined receive-pack, and the run lifecycle on native Windows through the PowerShell entrypoints with a PATH built from known folders, an exclusive slug lock that exits 75, Job Object shutdown at the deadline, refusal of a linked worktrees parent, and retention when child shutdown is unverified.",
             "status": "covered"
           }
         ]
       },
-      "rationale": "POSIX tests drive the real restricted client and serve code through fake SSH against a local clone. Native Windows tests exercise protected DACLs, unsafe state refusals, Job Object shutdown, cancellation, fixed OpenSSH selection, quoting, and temporary-index snapshots without live credentials. Windows coverage is client-only; Windows serving and via hops remain refused. Live destination readiness and remote cleanup require separate peer verification."
+      "rationale": "POSIX tests drive the real restricted client and serve code through fake SSH against a local clone. Native Windows tests exercise protected DACLs, unsafe state refusals, Job Object shutdown, cancellation, fixed OpenSSH selection, quoting, and temporary-index snapshots without live credentials. Native Windows serve tests drive the real serve code through a fake SSH and stub PowerShell entrypoints, and the launcher through a real relaunch; the relaunch from an elevated token runs only when the test process is itself elevated. A POSIX fake SSH returns a Windows-shaped identity to cover the client's view of a Windows peer. Live destination readiness, remote cleanup, and behavior inside a real sshd session require separate peer verification."
     },
     {
       "id": "provenance-policy",

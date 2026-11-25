@@ -120,7 +120,7 @@ this repo.
   actor's assignment. Report the refusal and ask; never add `--force` on your
   own. `bd search` includes closed issues by default, so pass
   `--status open` when only open issues are wanted.
-- **Windows is a client, not a peer**: on native Windows `bd.exe` talks to the
+- **Windows is a Beads client, not a sync peer**: on native Windows `bd.exe` talks to the
   Dolt server WSL2 hosts, so both machines share one database and there is
   nothing to sync between them. `beads-sync.ps1 status|clean|pull|push|init` is
   refused there; delegate into WSL2 instead:
@@ -246,22 +246,25 @@ pwsh ./assets/cz-audit.ps1 check ansible/site.yml
 ### Cross-environment verification (required when a peer is reachable)
 
 The MacBook (macOS) and the WSL2 Debian distro each hold a checkout of this
-repo and can reach the other over SSH when it is awake. `./assets/peer-env`
-is the only unattended path between them. It probes with a 3-second connect
-timeout, caches the answer for five minutes, and runs only
-`./assets/cz-audit.sh check` and `./assets/run-tests.sh` inside a disposable
-worktree on the peer. Full contract: `docs/tooling/peer-environments.md`.
+repo and can reach the other over SSH when it is awake. A native Windows host
+can be a peer as well. `./assets/peer-env` is the only unattended path between
+them. It probes with a 3-second connect timeout, caches the answer for five
+minutes, and runs only the audit and test entrypoints
+(`./assets/cz-audit.sh check` and `./assets/run-tests.sh`, or the `.ps1` pair
+on a Windows peer) inside a disposable worktree on the peer. Full contract:
+`docs/tooling/peer-environments.md`.
 Invoke it as `./assets/peer-env` from the checkout root; absolute paths and
 `cd ... &&` prefixes fall outside the permission allow rules.
 
 On native Windows, use `py -3 ./assets/peer-env ...` (or a working Python 3.10+
 `python ./assets/peer-env ...`) from the checkout root. Follow the executable,
 quoted PowerShell commands emitted by `cz-audit.ps1`; they may require normal
-harness approval. Windows is a client for POSIX peers, not a serving peer.
-The helper pins native Windows OpenSSH, not Git's MSYS SSH. Native destinations,
-identity selection, Pageant pipe selection, and host-key trust are owner-managed
-prerequisites; do not inspect or rewrite private SSH setup to satisfy a probe.
-See `docs/tooling/peer-environments.md` for the Windows prerequisite checklist.
+harness approval. The helper pins native Windows OpenSSH, not Git's MSYS SSH.
+Native destinations, identity selection, Pageant pipe selection, host-key
+trust, and the sshd and launcher setup that lets a Windows host serve are
+owner-managed prerequisites; do not inspect or rewrite private SSH setup to
+satisfy a probe. See `docs/tooling/peer-environments.md` for the Windows client
+and serving checklists.
 
 - Runs remove their owned detached worktree and namespace ref on success and
   failure, preserving private diagnostics separately. `--keep-worktree` is
@@ -289,8 +292,15 @@ See `docs/tooling/peer-environments.md` for the Windows prerequisite checklist.
 - Platform-sensitive paths are `.chezmoiscripts/**`, `.chezmoi*`, templated
   `dot_*`/`private_*` files with OS conditionals, `assets/**` shell or Python
   helpers, `bin/**`, `tests/**`, `configs/test-suites.json`, and
-  `configs/automation-test-inventory.json`. Markdown, `.ps1`-only changes,
-  `private_Library/**`, and `AppData/**` produce no line and need no run.
+  `configs/automation-test-inventory.json`. Markdown and `private_Library/**`
+  produce no line and need no run. `.ps1`, `.ps1.tmpl`, and `AppData/**`
+  changes produce lines only when a Windows peer is configured, because only
+  that peer verifies them; without one they need no run.
+- A Windows peer runs inside an sshd session, which cannot follow a link a
+  non-administrator created. Tests that depend on that skip there with a
+  stated reason, so a passing Windows run does not verify link-following
+  behaviour. Say so in the final response when the change touches symlink or
+  junction handling.
 - Treat every status other than `reachable` as final for this task.
   `unreachable`, `auth-failed`, `serve-missing`, `protocol-mismatch`,
   `tools-missing`, and `reachable (unrestricted)` all mean the platform is
@@ -317,7 +327,7 @@ See `docs/tooling/peer-environments.md` for the Windows prerequisite checklist.
 - If no `INFO: peer-env:` line appeared for a platform-sensitive change and
   `./assets/peer-env probe` exits 2, report
   `not verified on other platforms: no peer configured`. A platform a test
-  declares but no peer provides (native Windows today) is reported as
+  declares but no configured peer provides is reported as
   `not verified on <platform>: no peer configured`.
 - Any other remote action (an `ansible-playbook` run, a `chezmoi apply`, a
   tool upgrade) happens only when the task asks for it, over the ordinary
@@ -326,7 +336,7 @@ See `docs/tooling/peer-environments.md` for the Windows prerequisite checklist.
 ### Final step (required)
 
 After the audit and `chezmoi doctor` steps succeed, you must follow **Commit message workflow (required)** and include a proposed commit message in
-your final response, together with, for each configured peer, either its `peer-env` exit code or the quoted `not verified on <platform>: ...` statement copied verbatim, or `not verified on other platforms: no peer configured` when no peer is configured (`<platform>` is the config token: `macos`, `wsl2`, `linux`). If the commit message proposal is missing, the task is incomplete. Do not conclude with ‘done’/‘complete’ until the commit message proposal is included.
+your final response, together with, for each configured peer, either its `peer-env` exit code or the quoted `not verified on <platform>: ...` statement copied verbatim, or `not verified on other platforms: no peer configured` when no peer is configured (`<platform>` is the config token: `macos`, `wsl2`, `linux`, `windows`). If the commit message proposal is missing, the task is incomplete. Do not conclude with ‘done’/‘complete’ until the commit message proposal is included.
 
 ## Commit message workflow (required)
 

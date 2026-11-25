@@ -28,6 +28,19 @@ async function temporary(t, prefix = 'attestation ü ') {
   return dir;
 }
 
+// A session started by Windows sshd cannot follow a link made by a non-administrator.
+async function aliasDirectory(t, target, alias) {
+  await fs.symlink(target, alias, windows ? 'junction' : 'dir');
+  try {
+    await fs.stat(alias);
+    return true;
+  } catch (error) {
+    if (!windows) throw error;
+    t.skip(`this session cannot follow a link it created (${error.code})`);
+    return false;
+  }
+}
+
 function execute(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', timeout: 20000, shell: false, env: gitEnv, ...options });
 }
@@ -180,7 +193,7 @@ test('source snapshots require exact bytes and use sourceDigest rather than rend
 test('source roots through symlinks or junctions preserve canonical paths', async t => {
   const root = await temporary(t), source = path.join(root, 'source'), alias = path.join(root, 'alias');
   await fs.mkdir(source);
-  await fs.symlink(source, alias, windows ? 'junction' : 'dir');
+  if (!await aliasDirectory(t, source, alias)) return;
   const bytes = Buffer.from('definition\r\n');
   await fs.writeFile(path.join(source, 'agent.md'), bytes);
   await atomicJson(path.join(source, '.agentic-tooling', 'generated-manifest.json'), { files: [{ path: 'agent.md', kind: 'agent', source: 'agents/custom.yaml', sourceDigest: digest('upstream') }] });
@@ -473,7 +486,7 @@ test('approved Plan receipts use one identity for aliased worktree paths', async
   const storage = path.join(root, 'state');
   checked('git', ['init', '-q', repo]);
   checked('git', ['symbolic-ref', 'HEAD', 'refs/heads/feature'], { cwd: repo });
-  await fs.symlink(repo, alias, windows ? 'junction' : 'dir');
+  if (!await aliasDirectory(t, repo, alias)) return;
   const planner = { info: { sessionID: 'planning', role: 'assistant', agent: 'plan', providerID: 'provider', modelID: 'observed' },
     parts: [{ type: 'tool', tool: 'submit_plan', callID: 'approval' }] };
   const client = { session: { messages: async () => ({ data: [planner] }) } };

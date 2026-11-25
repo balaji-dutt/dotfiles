@@ -72,9 +72,12 @@ and bounded by its connect timeout, so the reminder costs at most a few
 seconds per task.
 
 The reminder is silent when `~/.config/dotfiles/peer-envs.json` does not exist,
-when `assets/peer-env` or `python3` is missing, when the path is a Markdown
-file, a `.ps1`, or under `docs/`, `private_Library/`, or `AppData/`, or when
-`CZ_AUDIT_PEER_ENV=0`. `CZ_AUDIT_PEER_ENV_CMD=<path>` substitutes another
+when `assets/peer-env` is missing or no working Python is found (`python3`,
+`python`, then `py -3`, each run before it is accepted), when the path is a
+Markdown file or under `docs/` or `private_Library/`, or when
+`CZ_AUDIT_PEER_ENV=0`. A `.ps1`, a `.ps1.tmpl`, or a path under `AppData/`
+gets a reminder only when the probe lists a `windows` peer, since no other
+peer verifies those files. `CZ_AUDIT_PEER_ENV_CMD=<path>` substitutes another
 helper for tests. A probe failure never changes the audit's exit code.
 PowerShell prints equivalent reminders after successful `check`, using a
 bounded working-Python 3.10+ probe and quoted executable PowerShell commands

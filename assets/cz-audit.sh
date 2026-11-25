@@ -16,6 +16,26 @@ die(){ echo "ERROR: $*" >&2; exit 2; }
 need_rel(){ [[ -n "${relsrc:-}" ]] || die "missing repo-relative source path (e.g. dot_bashrc, ansible/site.yml)"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 
+PY_CMD=()
+PY_PROBED=0
+
+# Each candidate is executed: the Microsoft Store python3 alias is on PATH but exits 49.
+resolve_python() {
+  local cand
+  local -a parts
+  if [[ "$PY_PROBED" -eq 0 ]]; then
+    PY_PROBED=1
+    for cand in python3 python "py -3"; do
+      read -r -a parts <<<"$cand"
+      have "${parts[0]}" || continue
+      "${parts[@]}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)' >/dev/null 2>&1 || continue
+      PY_CMD=("${parts[@]}")
+      break
+    done
+  fi
+  [[ ${#PY_CMD[@]} -gt 0 ]]
+}
+
 runtime() {
   if have docker; then echo docker; return 0; fi
   if have podman; then echo podman; return 0; fi
@@ -467,9 +487,9 @@ check_configs_file_rel() {
   local file_rel="$1"
   case "$file_rel" in
     *.yml|*.yaml)
-      if have python3; then
+      if resolve_python; then
         # Advisory: YAML parse. If PyYAML missing or parse fails, log it but don’t spam output by default.
-        audit_capture python3 - <<'PY' "$file_rel"
+        audit_capture "${PY_CMD[@]}" - <<'PY' "$file_rel"
 import sys
 try:
   import yaml
@@ -482,14 +502,14 @@ print("YAML OK")
 PY
         audit_finish "YAML" "$file_rel" 1
       else
-        AUDIT_OUT="python3 not available; YAML validator unavailable"
+        AUDIT_OUT="python3/python not available; YAML validator unavailable"
         AUDIT_RC=127
         audit_unavailable "YAML" "$file_rel" 1
       fi
       ;;
     *.toml)
-      if have python3; then
-        audit_capture python3 - <<'PY' "$file_rel"
+      if resolve_python; then
+        audit_capture "${PY_CMD[@]}" - <<'PY' "$file_rel"
 import sys
 try:
   import tomllib
@@ -502,7 +522,7 @@ print("TOML OK")
 PY
         audit_finish "TOML" "$file_rel" 1
       else
-        AUDIT_OUT="python3 not available; TOML validator unavailable"
+        AUDIT_OUT="python3/python not available; TOML validator unavailable"
         AUDIT_RC=127
         audit_unavailable "TOML" "$file_rel" 1
       fi
@@ -561,13 +581,15 @@ peer_env_hint() {
   local kind="$1"
   [[ "${CZ_AUDIT_PEER_ENV:-1}" != "0" ]] || return 0
   case "$kind" in docs:*) return 0 ;; esac
+  local windows_only=0
   case "$relsrc" in
-    *.md|*.ps1|*.ps1.tmpl|private_Library/*|AppData/*) return 0 ;;
+    *.md|private_Library/*) return 0 ;;
+    *.ps1|*.ps1.tmpl|AppData/*) windows_only=1 ;;
   esac
   local helper="${CZ_AUDIT_PEER_ENV_CMD:-assets/peer-env}"
   [[ -x "$helper" ]] || return 0
   [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/peer-envs.json" ]] || return 0
-  have python3 || return 0
+  resolve_python || return 0
 
   local out rc=0
   out="$("$helper" probe --json 2>/dev/null)" || rc=$?
@@ -579,11 +601,13 @@ peer_env_hint() {
   local line
   while IFS= read -r line; do
     info "$line"
-  done < <(python3 - "$out" "$relsrc" <<'PY'
+  done < <("${PY_CMD[@]}" - "$out" "$relsrc" "$windows_only" <<'PY'
 import json, shlex, sys
 payload = json.loads(sys.argv[1])
 relsrc = shlex.quote(sys.argv[2])
 peers = payload.get("peers", {})
+if sys.argv[3] == "1" and not any(peer.get("platform") == "windows" for peer in peers.values()):
+    sys.exit(0)
 if not peers:
     print('peer-env: no peer configured for another platform; report "not verified on other platforms: no peer configured"')
 reachable = [name for name, peer in sorted(peers.items()) if peer.get("status") == "reachable" and peer.get("restricted") is not False]
