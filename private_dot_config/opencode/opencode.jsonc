@@ -250,7 +250,7 @@
     "@gotgenes/opencode-agent-identity@latest",
     "cc-safety-net@latest",
     "envsitter-guard@latest",
-    "opencode-claude-bridge@1.10.12",
+    "opencode-claude-bridge@1.11.1",
     "@slkiser/opencode-quota@4"
   ],
 
